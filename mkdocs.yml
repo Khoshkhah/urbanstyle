@@ -1,0 +1,98 @@
+site_name: urbanstyle
+site_description: Level-aware street space from OpenStreetMap - the right-of-way between buildings, cut into sections and intersections, split into travelway and pedestrian realm, from one duckOSM database
+site_url: https://khoshkhah.github.io/urbanstyle/
+repo_url: https://github.com/Khoshkhah/urbanstyle
+repo_name: Khoshkhah/urbanstyle
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  logo: img/logo.svg
+  favicon: img/logo.svg
+  icon:
+    repo: fontawesome/brands/github
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - navigation.tracking
+    - navigation.footer
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+
+extra_css:
+  - stylesheets/extra.css
+
+nav:
+  - Home: index.md
+  - Get started: get-started.md
+  - Roadmap: plan.md
+  - Design notes:
+      - design/index.md
+      - Street space: design/street-space.md
+      - Specification: design/street-space-spec.md
+      - Sections and intersections v2: design/section-intersection-v2.md
+      - Street objects: design/street-objects.md
+      - Objects, step 1: design/street-objects-step1.md
+      - Strips, first version: design/street-strips-v1.md
+      - Glossary: design/glossary.md
+      - "Research: partitioning": design/partitioning-research.md
+      - "Research: levels": design/levels-research.md
+
+plugins:
+  - search
+  # /llms.txt (an index for AI agents, llmstxt.org) and /llms-full.txt (every page as Markdown)
+  - llmstxt:
+      full_output: llms-full.txt
+      markdown_description: >
+        urbanstyle builds a level-aware street space from one duckOSM database: buildings, the right-of-way
+        between them partitioned into sections, intersections, path spaces, rail spaces and plazas, split into
+        travelway and pedestrian realm, filled with strips and point objects, and linked across levels -2 to 2.
+      sections:
+        Get started:
+          - index.md
+          - get-started.md
+        Design:
+          - design/street-space.md
+          - design/street-space-spec.md
+          - design/street-objects.md
+          - design/glossary.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+# the builders are scripts, not pages
+exclude_docs: |
+  build_*.py

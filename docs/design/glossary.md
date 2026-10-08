@@ -1,6 +1,6 @@
 # Glossary
 
-The words used in `docs/street-space.md`, `docs/street-objects.md`, the code and the dashboard, in one place. When a word is also
+The words used in `docs/design/street-space.md`, `docs/design/street-objects.md`, the code and the dashboard, in one place. When a word is also
 a column or a table name it is written in `code`. "Built" says whether it exists in the data today.
 
 ## Space and hierarchy

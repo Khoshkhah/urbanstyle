@@ -1,14 +1,12 @@
-"""Space container, step 1: street space and buildings by level, from one duckOSM database.
+"""The space container: buildings, street space and the links between levels, from one duckOSM database.
 
-    python urbanstyle.py <duckosm.duckdb> <out.duckdb>      # then: python3 dashboard.py <out.duckdb> <out.html>
+    urbanstyle build <duckosm.duckdb> <out.duckdb>      # then: urbanstyle dashboard <out.duckdb> <out.html>
 
 space.element: one row per element with an integer level span [level_min, level_max].
 Ground floor = level 0, upper floors positive, basement floors negative.
 Buildings come from duckOSM's features.buildings (built on a copy if the database has none); roads, walkways and
-cycleways from its mode schemas. Overture is not used (docs/street-space.md, "Sources"). Rail and stations are not
-loaded yet, and there are no level links either (next step).
+cycleways from its mode schemas, rail and stations from its features. Overture is not used (docs/design/street-space.md, "Sources").
 """
-import sys
 
 import duckdb
 
@@ -68,12 +66,12 @@ DELETE FROM space.element WHERE level_min > {LEVELS[1]} OR level_max < {LEVELS[0
 UPDATE space.element SET level_min = greatest(level_min, {LEVELS[0]}), level_max = least(level_max, {LEVELS[1]});
 """
 
-# ROW hierarchy (the CityGML / IFC / OpenDRIVE pattern, docs/partitioning-research.md): a STREET (roads of one level that share a name and are
+# ROW hierarchy (the CityGML / IFC / OpenDRIVE pattern, docs/design/partitioning-research.md): a STREET (roads of one level that share a name and are
 # connected) is divided at every junction into SECTIONS, the stretches between two intersections; the intersections are containers of their
 # own, shared by the streets that meet there (space.arm). A section holds its roads, every carriageway of a dual road, and the walkways
 # and cycleways that run along them (>= ALONG_MIN of their length within NEAR_M). Other containers: a PATH space (footpaths away from any
 # road) and a RAIL space. Ids: s<level>-<smallest edge id> (section), p/r<level>-<smallest way id>, i<level>-<smallest node id>.
-# Street space = measured cross-sections (docs/street-space.md): ground elements get rays every STEP_M metres to the first
+# Street space = measured cross-sections (docs/design/street-space.md): ground elements get rays every STEP_M metres to the first
 # building face on each side; bridges and tunnels are the structure itself.
 NEAR_M = 15
 ALONG_MIN = 0.6  # share of a walkway's length that must lie within NEAR_M of a road for it to join that street
@@ -185,7 +183,7 @@ SELECT level, node, any_value(p) AS p, max(width_m) AS w FROM (
   SELECT level, src AS node, ST_StartPoint(g) AS p, width_m FROM assigned WHERE type = 'road' AND src IS NOT NULL
   UNION ALL SELECT level, dst, ST_EndPoint(g), width_m FROM assigned WHERE type = 'road' AND dst IS NOT NULL)
 GROUP BY level, node HAVING count(*) >= 3 OR (level, node) IN (SELECT level, b FROM dualnodes);
--- Intersections follow the standards' physical intersection area (docs/partitioning-research.md): each road arriving at a junction
+-- Intersections follow the standards' physical intersection area (docs/design/partitioning-research.md): each road arriving at a junction
 -- node gives two corner points, its left and right edge at about max half-width + ARM_SETBACK_M from the node; the intersection is the
 -- hull of those corners and the nodes, joined to a small disc, and junction nodes closer than MERGE_NODES_M are one intersection.
 CREATE OR REPLACE TEMP TABLE arms AS
@@ -229,7 +227,7 @@ LEFT JOIN (SELECT cid, level, ST_Union_Agg(ST_Buffer(g, width_m / 2)) AS g FROM 
 LEFT JOIN (SELECT s.cid, ST_Union_Agg(m.g) AS g FROM ss0 s JOIN bm m ON m.level = s.level AND ST_Intersects(s.g, m.g) GROUP BY s.cid) b ON b.cid = s.cid;
 CREATE OR REPLACE TEMP TABLE ss AS
 SELECT cid, level, ST_Union_Agg(g) AS g FROM (SELECT cid, level, g FROM ssp UNION ALL SELECT cid, level, g FROM struct) GROUP BY cid, level;
--- partition (docs/street-space.md): street space = union of the measured pieces, minus intersections, cut by nearest
+-- partition (docs/design/street-space.md): street space = union of the measured pieces, minus intersections, cut by nearest
 -- centerline. Everything is clipped against the few neighbouring pieces, never against one level-wide polygon (that was 9x slower).
 CREATE OR REPLACE TEMP TABLE armsec AS
 SELECT level, node, eid, CASE WHEN endpoint = 'start' THEN k ELSE n - k END AS i FROM armk;
@@ -258,7 +256,7 @@ SELECT cid, level, CASE WHEN cid LIKE 'p%' THEN 'path' WHEN cid LIKE 'r%' THEN '
 UNION ALL
 SELECT cid, level, 'intersection', ST_CollectionExtract(ST_MakeValid(g), 3) FROM inter1;
 DELETE FROM reg WHERE g IS NULL OR ST_IsEmpty(g) OR ST_Area(g) < 1.0;   -- slivers under 1 m2 are not containers
--- P4 (docs/street-space-spec.md): a container is ONE connected polygon. A region of several parts becomes one container per part: the part
+-- P4 (docs/design/street-space-spec.md): a container is ONE connected polygon. A region of several parts becomes one container per part: the part
 -- holding the most element length keeps the id, the others get <id>.<k>; elements move to the part they lie in.
 CREATE OR REPLACE TEMP TABLE parts0 AS
 SELECT cid AS orig, level, kind, row_number() OVER () AS pid, d.geom AS g
@@ -450,7 +448,7 @@ LEFT JOIN LATERAL (SELECT e.level_min AS lvl FROM space.element e WHERE e.type =
 # on a ground-level way (within about 7 m), not only at the end of one.
 ENTRANCE_NAME_M = 600
 ENTRANCE_NEAR_M = 250
-# Links between levels (docs/street-space.md, "Links"): a node where elements of two different levels meet, plus subway
+# Links between levels (docs/design/street-space.md, "Links"): a node where elements of two different levels meet, plus subway
 # entrances (the level below is assumed: rail and stations are not loaded yet). Type: elevator / stairs / ramp (a bridge or
 # tunnel is involved) / connection (a layer change on its own).
 LINKS = """
@@ -557,7 +555,7 @@ def street_owner(con):
     STREET: the road edges of one level that share a name and are connected by a shared node (an unnamed road is its own way).
     JUNCTION NODE: a node with 3 or more road edges, or a node forced to be one by a dual carriageway (below).
     SECTION: the road edges of one street joined at nodes that are not junctions, i.e. the stretch between two junctions.
-    DUAL CARRIAGEWAY (the halves of a divided road; docs/street-space-spec.md, section 3):
+    DUAL CARRIAGEWAY (the halves of a divided road; docs/design/street-space-spec.md, section 3):
       1. pairs: two ONE-WAY road edges of one level and one name, in OPPOSITE directions (chord bearings at least DUAL_ANTIPARALLEL_DEG
          apart), within DUAL_CARRIAGEWAY_M of each other, with DUAL_ALONGSIDE of one lying within that distance of the other;
       2. a junction node of one half and the nearest end node of its partner within DUAL_CARRIAGEWAY_M are ONE junction (the cross street
@@ -701,7 +699,7 @@ def street_owner(con):
     con.execute("CREATE OR REPLACE TEMP TABLE street_of AS SELECT cid::VARCHAR AS cid, street_id::VARCHAR AS street_id FROM st")
 
 
-# Objects (docs/street-objects-step1.md): point objects from OSM nodes. First matching rule wins. Level = the node's level/layer tag
+# Objects (docs/design/street-objects-step1.md): point objects from OSM nodes. First matching rule wins. Level = the node's level/layer tag
 # (a Unicode minus counts as a minus), else 0. An object lies in the container of its level that contains it, and in that
 # container's zone; outside every container it keeps NULLs and, within OBJECT_NEAR_M, the distance to the nearest one.
 OBJECT_NEAR_M = 60
@@ -867,7 +865,7 @@ def build(osm, out):
     con.execute(STATIONS)
     con.execute(LINKS.format(name_m=ENTRANCE_NAME_M, near_m=ENTRANCE_NEAR_M))
     con.execute(OBJECTS.format(lo=LEVELS[0], hi=LEVELS[1], epsg=epsg, near_m=OBJECT_NEAR_M, attrs=list(OBJECT_ATTRS)))
-    import strips  # lazy: shapely
+    from . import strips  # lazy: shapely
     strips.build(con, epsg)
     return con
 
@@ -895,10 +893,3 @@ def counts(con, typ=None):
     cols, group = ("l, count(*)", "l") if typ else ("l, type, count(*)", "l, type")
     return con.execute(f"SELECT {cols} FROM space.element, generate_series(level_min, level_max) t(l) {where} GROUP BY {group} ORDER BY {group}").fetchall()
 
-
-if __name__ == "__main__":
-    src, out = sys.argv[1:3]
-    c = build(with_features(src, out.replace(".duckdb", ".osm.duckdb")), out)
-    print("level  type       n"); [print(f"{l:>5}  {t:<9} {n}") for l, t, n in counts(c)]
-    print("links:", c.execute("SELECT type, level_a, level_b, count(*) FROM space.link GROUP BY ALL ORDER BY ALL").fetchall())
-    print("next: python3 dashboard.py", out, "viz/<area>.html")

@@ -1,10 +1,9 @@
-"""Conformance checks for a built urbanstyle database (docs/street-space-spec.md, section 8).
+"""Conformance checks for a built urbanstyle database (docs/design/street-space-spec.md, section 8).
 
-    python checks.py data/monaco.duckdb [more.duckdb ...]
+    urbanstyle check data/monaco.duckdb [more.duckdb ...]
 
 Prints one line per invariant: id, what is counted, the count, PASS / FAIL (or INFO for a reported number). Exit code 1 if a hard check fails.
 """
-import sys
 
 import duckdb
 
@@ -62,7 +61,3 @@ def run(path):
         print(f"  {cid:3s} {status:5s} {value:6d}  {what}")
     return failed
 
-
-if __name__ == "__main__":
-    bad = [run(p) for p in sys.argv[1:]]
-    sys.exit(1 if any(bad) else 0)

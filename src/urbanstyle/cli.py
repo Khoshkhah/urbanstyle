@@ -1,0 +1,41 @@
+"""The `urbanstyle` command: build, check, quality, dashboard."""
+import argparse
+import sys
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(prog="urbanstyle", description="Space containers from a duckOSM database.")
+    sub = p.add_subparsers(dest="cmd", required=True)
+    b = sub.add_parser("build", help="build the space schema from a duckOSM database")
+    b.add_argument("osm", help="duckOSM .duckdb (a copy with features is made next to OUT if it has none)")
+    b.add_argument("out", help="output .duckdb")
+    sub.add_parser("check", help="conformance checks; exit 1 if a hard check fails").add_argument("db", nargs="+")
+    sub.add_parser("quality", help="shape quality of the sections").add_argument("db", nargs="+")
+    d = sub.add_parser("dashboard", help="an offline HTML map with the hierarchy tree (needs roadstyle)")
+    d.add_argument("db")
+    d.add_argument("out")
+    a = p.parse_args(argv)
+
+    if a.cmd == "build":
+        from .container import build, counts, with_features
+        c = build(with_features(a.osm, a.out.replace(".duckdb", ".osm.duckdb")), a.out)
+        print("level  type       n")
+        for l, t, n in counts(c):
+            print(f"{l:>5}  {t:<9} {n}")
+        print("links:", c.execute("SELECT type, level_a, level_b, count(*) FROM space.link GROUP BY ALL ORDER BY ALL").fetchall())
+        print("next: urbanstyle dashboard", a.out, "viz/<area>.html")
+    elif a.cmd == "check":
+        from .checks import run
+        return 1 if any([run(x) for x in a.db]) else 0
+    elif a.cmd == "quality":
+        from .quality import run
+        for x in a.db:
+            run(x)
+    else:
+        from .dashboard import main as dash
+        dash(a.db, a.out)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

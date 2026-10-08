@@ -1,6 +1,6 @@
 # Step 1: objects in the street space (specification)
 
-Part of `docs/street-objects.md` (section 6, step 1). Terms are in `docs/glossary.md`. This step builds `space.object` for
+Part of `docs/design/street-objects.md` (section 6, step 1). Terms are in `docs/design/glossary.md`. This step builds `space.object` for
 **point objects from OSM nodes** and shows them on the dashboard. Boundaries (walls, fences), the axis and `(s, t)`, the strips
 and the detail view are later steps and are not touched here.
 

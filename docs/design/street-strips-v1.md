@@ -1,7 +1,7 @@
 # Strips, first version (step 4 of `street-objects.md`)
 
 `space.strip` fills each container completely with typed bands, so a focused street space looks like a street plan instead of two
-grey zones. Built by `strips.py`, called at the end of `urbanstyle.build()`. Terms are in `docs/glossary.md`.
+grey zones. Built by `strips.py`, called at the end of `urbanstyle.build()`. Terms are in `docs/design/glossary.md`.
 
 ## What is built
 

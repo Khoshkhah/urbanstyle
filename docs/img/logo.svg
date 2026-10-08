@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="t">
+  <title id="t">urbanstyle</title>
+  <defs>
+    <clipPath id="c"><rect x="4" y="4" width="120" height="120" rx="28"/></clipPath>
+    <path id="r" d="M34 136 C34 84 94 90 94 58 C94 30 60 22 60 -8"/>
+  </defs>
+  <rect x="4" y="4" width="120" height="120" rx="28" fill="#9C4DCC"/>
+  <g clip-path="url(#c)" fill="none">
+    <path d="M0 44 H60" stroke="#4A148C" stroke-width="4"/><path d="M40 0 V44" stroke="#4A148C" stroke-width="4"/><path d="M0 92 H60" stroke="#4A148C" stroke-width="4"/><path d="M22 44 V128" stroke="#4A148C" stroke-width="4"/><path d="M70 22 H128" stroke="#4A148C" stroke-width="4"/><path d="M96 22 V80" stroke="#4A148C" stroke-width="4"/><path d="M60 80 H128" stroke="#4A148C" stroke-width="4"/><path d="M100 80 V128" stroke="#4A148C" stroke-width="4"/>
+    <use href="#r" stroke="#4A148C" stroke-width="42"/>
+    <use href="#r" stroke="#F3E5F5" stroke-width="34"/>
+    <use href="#r" stroke="#38006B" stroke-width="16"/>
+    <use href="#r" stroke="#FFFFFF" stroke-width="14" stroke-dasharray="0 44 2.5 2.5 2.5 2.5 2.5 2.5 2.5 300"/>
+    <g fill="#43A047" stroke="none"><circle cx="53.3" cy="114.0" r="3"/><circle cx="88.3" cy="89.3" r="3"/><circle cx="94.1" cy="26.3" r="3"/><circle cx="52.7" cy="81.8" r="3"/><circle cx="57.1" cy="21.3" r="3"/></g>
+  </g>
+</svg>

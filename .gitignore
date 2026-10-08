@@ -1,4 +1,12 @@
-data/
-viz/
+*.egg-info/
+*.pyc
 __pycache__/
 .pytest_cache/
+.venv/
+build/
+dist/
+site/
+/data/
+/viz/
+*.duckdb
+*.duckdb.wal

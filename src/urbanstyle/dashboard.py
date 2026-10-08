@@ -1,12 +1,11 @@
 """Dashboard for a built urbanstyle db: a roadstyle map (basemap picker, Google Street View window) with the
 buildings and street spaces as overlays, and a left panel with the hierarchy tree and the level buttons.
 
-    python3 dashboard.py data/monaco.duckdb viz/monaco.html      # needs roadstyle >= 0.8 (system python3)
+    urbanstyle dashboard data/monaco.duckdb viz/monaco.html      # needs roadstyle (pip install urbanstyle[dashboard])
 
 The roads are drawn faintly: roadstyle's Street View follows a clicked road. Serve the page over http for Street View.
 """
 import json
-import sys
 
 import duckdb
 import geopandas as gpd
@@ -446,6 +445,3 @@ def main(db, out):
              .replace("__KINDS__", json.dumps([{"k": k, "lab": lab, "c": c} for k, lab, c in kinds])).replace("__OBJDEF__", json.dumps([{"g": g, "c": c} for g, c in ogroups])).replace("__OBJCOLORS__", json.dumps({k: v[2] for k, v in OBJ_SHAPES.items()})).replace("__STRIPS__", json.dumps([{"t": t, "lab": lab, "c": c} for t, lab, c, _ in sdefs])).replace("__HAS__", json.dumps(has)).replace("__LEVELBTNS__", "".join(f'<button data-l="{l}">{l}</button>' for l in range(LEVELS[0], LEVELS[1] + 1))))
     open(out, "w").write(m.html.replace("</body>", panel + "</body>"))
 
-
-if __name__ == "__main__":
-    main(*sys.argv[1:3])

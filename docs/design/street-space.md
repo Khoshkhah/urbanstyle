@@ -12,7 +12,7 @@ data we already have (duckOSM centerlines, Overture buildings).
 | **Pedestrian realm** | The part of the street space beside the travelway where people walk. |
 
 `street space = travelway + pedestrian realm`. Only the street space is *measured* in this step.
-The two zones are cut out of it afterwards (see [Zones](#zones-provisional)).
+The two zones are cut out of it afterwards (see [Zones](#zones)).
 
 Why this hierarchy: Seattle's *Streets Illustrated* (pedestrian realm ↔ flex ↔ travelway ↔ flex ↔
 pedestrian realm), NACTO sidewalk zones, and CityGML 3.0 Transportation (`TransportationSpace` →
@@ -68,7 +68,7 @@ Obstacles are chosen per level: at level L only buildings with a floor at L coun
 
 ## Containers: sections, path spaces, rail spaces and intersections; streets as groups
 
-The structure follows CityGML, IFC and OpenDRIVE (`docs/partitioning-research.md`): a street is divided at every junction into
+The structure follows CityGML, IFC and OpenDRIVE (`docs/design/partitioning-research.md`): a street is divided at every junction into
 **sections**, the stretches between two intersections; **intersections** are pieces of their own, shared by the streets that meet
 there. A **street** is a *group* of its sections and of the intersections it arrives at; one intersection can be in several groups.
 
@@ -225,7 +225,7 @@ the terrain, not in our levels).
 `STEP_M = 3` (section spacing), `CAP = min(1.5 × width + 8, 25)` m, `PARAPET_M = 1`,
 `INTERSECTION_M = 4`, `CROSS_MARGIN_M = 1`, `MERGE_NODES_M = 15`, `MERGE_DIAMETER_M = 30`, `SHAPE_M = 2`, `ENTRANCE_NAME_M = 600`, `ENTRANCE_NEAR_M = 250`, `SIDEWALK_HALF_M = 1`,
 `SMOOTH = ±2 sections`, `NEAR_M = 15` and `ALONG_MIN = 0.6` (walkway-to-road join). All are flat guesses, set at the top
-of `urbanstyle.py`; measured widths (Overture `width_m`, GMNS) can replace `width_m` later.
+of `src/urbanstyle/container.py`; measured widths (Overture `width_m`, GMNS) can replace `width_m` later.
 
 ## Validation
 
@@ -236,7 +236,7 @@ of `urbanstyle.py`; measured widths (Overture `width_m`, GMNS) can replace `widt
 
 ## First results (2026-10-02)
 
-Run: `python urbanstyle.py <overture.duckdb> <duckosm.duckdb> data/<area>.duckdb viz/<area>.html`
+Run: `urbanstyle build <duckosm.duckdb> data/<area>.duckdb`, then `urbanstyle dashboard data/<area>.duckdb viz/<area>.html`
 (about 1 min for Monaco, 3 min for Södermalm). Tests: `pytest tests`, 3 passing, including the
 10 m / 6 m street that measures about 16 m wide and not open.
 
@@ -265,7 +265,7 @@ viewer.
 
 ## Dashboard
 
-`python3 dashboard.py data/<area>.duckdb viz/<area>.html` (system python3: it needs roadstyle 0.8+),
+`urbanstyle dashboard data/<area>.duckdb viz/<area>.html` (needs roadstyle: `pip install urbanstyle[dashboard]`),
 then serve `viz/` (`python3 -m http.server 8765`); Street View loads only over http.
 
 Built on roadstyle's `render_edges`: its basemap picker, Street View window and Layers control come for

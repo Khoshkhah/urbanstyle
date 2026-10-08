@@ -1,7 +1,7 @@
 # Street objects and the fill of a street space (design, not yet built)
 
 Goal: select any street space on the dashboard and see it in detail: how it is **filled** (strips across it) and
-**what stands in it** (objects), stored in one standard form. `docs/street-space.md` says how the street space itself
+**what stands in it** (objects), stored in one standard form. `docs/design/street-space.md` says how the street space itself
 (the container) is measured; this document is about what goes inside it.
 
 ## 1. What a street space contains (our data, 2026-10-02)
@@ -199,4 +199,4 @@ and a **table** of its objects (class, side, `s`, attributes) that highlights on
 3. **Walls and fences are boundaries** (step 2): they become obstacles in the ray measurement and rows of `space.boundary`.
 4. **Building entrances are objects** (`access.entrance`) in `space.object`.
 
-Step 1 is specified in `docs/street-objects-step1.md`; the words are in `docs/glossary.md`.
+Step 1 is specified in `docs/design/street-objects-step1.md`; the words are in `docs/design/glossary.md`.

@@ -1,12 +1,11 @@
 """Shape quality of sections, over a whole area (not one container at a time).
 
-    python quality.py data/monaco.duckdb [more.duckdb]
+    urbanstyle quality data/monaco.duckdb [more.duckdb]
 
 For every section with at least two bounding buildings: `facade` = share of its outline (the straight cut ends excluded by looking only at
 points within 1 m of a building or farther than 1 m from one) lying on a building face (within 0.5 m); `rect` = area / area of its minimum
 rotated rectangle. A section between two straight facades should have both near 1.
 """
-import sys
 
 import duckdb
 import numpy as np
@@ -33,7 +32,3 @@ def run(path):
     q = lambda a: " ".join(f"{np.percentile(a, p):.2f}" for p in (10, 25, 50, 75, 90))
     print(f"{path}: {len(secs)} sections with 2+ bounding buildings\n  facade share  p10 p25 p50 p75 p90: {q(fac)}\n  rectangularity p10 p25 p50 p75 p90: {q(rect)}")
 
-
-if __name__ == "__main__":
-    for p in sys.argv[1:]:
-        run(p)

@@ -1,4 +1,4 @@
-"""space.strip: how each street space is filled (docs/street-objects.md section 4.2, first version).
+"""space.strip: how each street space is filled (docs/design/street-objects.md section 4.2, first version).
 
 Called at the end of urbanstyle.build(). Everything is cut from the container's own zones, so the strips of a container add up to its
 travelway and pedestrian realm: nothing is left unfilled and nothing overlaps.

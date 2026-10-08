@@ -30,8 +30,9 @@ The order of work: `docs/plan.md`.
   links, strips, objects) plus a tree panel driven by roadstyle's `rs*` JS API. Layer ids differ per overlay: always
   pass the overlay label.
 - `src/urbanstyle/cli.py`: the `urbanstyle build | check | quality | dashboard` command.
-- `docs/`: the MkDocs site (`mkdocs.yml`); `docs/design/` the design notes; `docs/build_images.py` draws
-  `docs/img/hero.png` and `partition.png` from a built Monaco.
+- `docs/`: the MkDocs site (`mkdocs.yml`); `docs/design/` the design notes. `docs/img/sodermalm.jpg` and `section.jpg` are screenshots of the dashboard
+  (`viz/sodermalm-rs0.18.1.html` and `#c=s0-1277220079715399641`, 1600 × 1000): pictures in the docs come from the
+  dashboard, never from a separate drawing script.
 
 ## Commands
 
@@ -51,7 +52,6 @@ PYTHONPATH=src python3 -m urbanstyle dashboard data/monaco.duckdb viz/monaco.htm
 (cd viz && python3 -m http.server 8765)                # viz/<area>.html#c=<container id> opens one container
 
 # docs
-PYTHONPATH=src python3 docs/build_images.py data/monaco.duckdb
 mkdocs build --strict                                  # needs pip install ".[docs]"
 ```
 

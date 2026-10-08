@@ -33,3 +33,4 @@
 
 /* home hero and gallery pictures */
 .md-typeset .us-hero img, .md-typeset .us-shot img { border-radius: 12px; box-shadow: 0 4px 22px rgba(0, 0, 0, .22); }
+.md-typeset .us-caption { font-size: .8em; color: var(--md-default-fg-color--light); text-align: center; margin-top: -.6em; }

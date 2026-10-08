@@ -3,8 +3,10 @@
 <p class="lead">The street space of a city, level by level: the right-of-way between the buildings, cut into sections and intersections, split into travelway and pedestrian realm, filled with strips and objects, and linked across levels. From one duckOSM database.</p>
 
 <div class="us-hero" markdown>
-![Monte Carlo built by urbanstyle: travel lanes in grey, sidewalks, furnishing and frontage strips in sand tones, buildings in charcoal, street trees in green](img/hero.png)
+![The urbanstyle dashboard on Södermalm, Stockholm: the street space at level 0, sections in violet, intersections in amber, path spaces in green, plazas in red, buildings in blue, with the hierarchy tree on the left](img/sodermalm.jpg)
 </div>
+
+<p class="us-caption">Södermalm, Stockholm, in the urbanstyle dashboard. Map data © OpenStreetMap contributors, base map © CARTO.</p>
 
 ```bash
 pip install "urbanstyle[dashboard] @ git+https://github.com/Khoshkhah/urbanstyle"
@@ -60,14 +62,15 @@ between the buildings: what a street is made of, where one ends and the next beg
 
 </div>
 
-## The partition
+## One section, close up
 
 <div class="us-hero" markdown>
-![The same patch by container kind: sections in violet, intersections in amber, path spaces in green, plazas in red](img/partition.png)
+![One section in focus in the dashboard: Dalslandsgatan, Södermalm, with its travel lane, cycle lane, sidewalk, furnishing and frontage strips, its entrances and the buildings that bound it](img/section.jpg)
 </div>
 
-Sections in violet, intersections in amber, path spaces in green, plazas in red. Every square metre of open
-ground at a level belongs to exactly one container. The words are in the [glossary](design/glossary.md).
+Click a section in the dashboard: the panel lists its strips with their areas and the objects inside it, and the
+map shows the buildings that bound it. Every square metre of open ground at a level belongs to exactly one
+container. The words are in the [glossary](design/glossary.md).
 
 ## Where next
 

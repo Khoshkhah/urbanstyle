@@ -26,7 +26,8 @@
 ---
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/Khoshkhah/urbanstyle/main/docs/img/hero.png" alt="Monte Carlo built by urbanstyle: travel lanes in grey, sidewalks, furnishing and frontage strips in sand tones, buildings in charcoal, street trees in green" width="900">
+  <img src="https://raw.githubusercontent.com/Khoshkhah/urbanstyle/main/docs/img/sodermalm.jpg" alt="The urbanstyle dashboard on Södermalm, Stockholm: the street space at level 0, sections in violet, intersections in amber, path spaces in green, plazas in red, buildings in blue, with the hierarchy tree on the left" width="900"><br>
+  <sub>Södermalm, Stockholm, in the urbanstyle dashboard. Map data © OpenStreetMap contributors, base map © CARTO.</sub>
 </p>
 
 ## Quick start
@@ -51,8 +52,8 @@ urbanstyle dashboard data/monaco.duckdb viz/monaco.html   # an offline map with 
 - **Stable ids.** `s0-<edge>` for a section, `i0-<node>` for an intersection: the same after every rebuild.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/Khoshkhah/urbanstyle/main/docs/img/partition.png" alt="The same patch by container kind: sections in violet, intersections in amber, path spaces in green, plazas in red" width="900"><br>
-  <sub>The partition: sections violet, intersections amber, path spaces green, plazas red.</sub>
+  <img src="https://raw.githubusercontent.com/Khoshkhah/urbanstyle/main/docs/img/section.jpg" alt="One section in focus in the dashboard: Dalslandsgatan, Södermalm, with its travel lane, cycle lane, sidewalk, furnishing and frontage strips, its entrances and the buildings that bound it" width="900"><br>
+  <sub>Click a section: its strips, its objects and the buildings that bound it. Map data © OpenStreetMap contributors, base map © CARTO.</sub>
 </p>
 
 ## The family

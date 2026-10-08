@@ -37,22 +37,22 @@ The work stopped in the middle of the gap fix (2026-10-04). Finish it before any
 4. **The last gaps.** Two ~20 m² spots on `s0-1277220079715399641` are wider than the 3 m closing: a second rule
    (fill a spot that touches only one section and buildings) or a larger `GAP_M` limited to small areas.
    *Done when:* a gap measure (free space touching a section and a building) is a `checks.py` INFO line, and it falls.
-5. **roadstyle 0.18.** The dashboard is tested on roadstyle 0.13.1; PyPI is at 0.18.1. Rebuild a dashboard on 0.18
-   and either fix what breaks or pin `<0.14`.
+5. **roadstyle 0.18.** Both dashboards build and load on roadstyle 0.18.1 (2026-10-08, the docs screenshots are
+   from it). Once Kaveh has looked them over, raise the `dashboard` extra to `roadstyle>=0.18.1`.
 
 ## Phase 1: a public project like its siblings
 
 6. **Docs site live.** Turn on GitHub Pages (Settings → Pages → GitHub Actions); the `docs` workflow is ready.
 7. **Live map.** A `docs/build_maps.py` like lanestyle's: build Monaco in CI (duckOSM from PyPI, ~1 min) and publish
    the dashboard at `maps/monaco.html`, linked from the README.
-8. **Gallery page.** Six pictures from `docs/build_images.py`: a section, a complex intersection, a plaza, a bridge
+8. **Gallery page.** Six dashboard screenshots: a section, a complex intersection, a plaza, a bridge
    over a tunnel, the objects, the strips.
 9. **Release 0.1.0 to PyPI.** Add `release.yml` (trusted publishing, as in lanestyle), register the publisher on
    pypi.org, tag `v0.1.0`.
 10. **Agent skill.** `skills/urbanstyle/SKILL.md` and `.claude-plugin/` as in the siblings: the install, the schema,
     the three commands and the traps on one page.
 11. **A read API.** `urbanstyle.read(db, table, level=None)` → GeoDataFrame, so users do not write the
-    WKB / CRS boilerplate the dashboard and `build_images.py` repeat.
+    WKB / CRS boilerplate the dashboard repeats.
 
 ## Phase 2: what is inside a street
 

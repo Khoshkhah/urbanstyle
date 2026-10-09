@@ -18,6 +18,7 @@ you can check: a test, a <code>urbanstyle check</code> line, or a page to look a
 | Axis and `(s, t)` | no | |
 | Detail view (cross-section panel) | no | |
 | Package, CLI, docs site, CI | yes (0.1.0, not yet released) | |
+| Network-first spaces: subsections, intersections, roundabouts, their parts, marks, widths and turns (SUMO) | preview, Monaco | U1–U10 |
 
 Monaco and Södermalm both pass the hard checks on their last full build. Section shape over Södermalm: median
 rectangularity 0.79, 47 % of the outline on a facade (`urbanstyle quality`).

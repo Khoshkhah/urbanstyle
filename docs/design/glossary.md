@@ -65,7 +65,8 @@ a column or a table name it is written in `code`. "Built" says whether it exists
 | **edge** | one directed piece of a road network between two nodes; a two-way street is two edges. `space.element` keeps one per way piece |
 | **OSM way / node** | the OSM line / point objects. A way id is part of every container id |
 | **id formats** | `s0-123` street, `p0-123` path space, `r0-123` rail space, `i0-123` intersection (level, then an OSM id); `n123` / `w123` an OSM node / way as an object or building |
-| `space.*` | the tables this project writes: `element`, `container`, `zone`, `link`, `station`, `object` (and, planned, `axis`, `strip`, `boundary`) |
+| `space.*` | the tables this project writes: `element`, `container`, `zone`, `link`, `station`, `object` (and, planned, `axis`, `strip`, `boundary`); the network-first preview adds `subsection`, `unit`, `cut`, `part`, `mark`, `width`, `turn` |
+| `space.turn` | one row per lane-to-lane move through an intersection: `from_edge`/`from_lane` → `to_edge`/`to_lane` (lanes counted from the right), `turn` left / straight / right, `source` `sumo` ([the inside of a space](space-parts.md#turns-spaceturn)) |
 | **linear referencing** | giving a position as `s` (distance along a reference line) and `t` (offset across it), as OpenDRIVE and IFC do |
 | `s`, `t` | distance along the axis in metres from its start, and signed lateral offset (left positive) |
 | **UTM** | the metric coordinate system the measuring runs in; results are stored in lon/lat |

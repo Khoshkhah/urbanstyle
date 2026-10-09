@@ -33,7 +33,9 @@ The order of work: `docs/plan.md`.
   (`docs/design/network-first.md`, `docs/design/space-parts.md`): `space.subsection` (roads divided where cross-section or frontage
   changes), `space.unit` (one space per subsection and per intersection, cut at the block corners, `space.cut`), and inside each space
   `space.part` (lanes in/out or forward/backward, junction box, crosswalks, cycle lanes, sidewalk bands), `space.mark` (kerb, centre,
-  lane, stop and give-way lines) and `space.width` (widths per arm / across each subsection). `urbanstyle check` U1-U9 test them.
+  lane, stop and give-way lines, turn arrows), `space.width` (widths per arm / across each subsection) and `space.turn` (lane-to-lane moves
+  at intersections from SUMO: `sumo.py` runs duckOSM's `to_sumo` with the measured lanes; skipped if SUMO is missing). `urbanstyle check`
+  U1-U9 test them.
 - `src/urbanstyle/cli.py`: the `urbanstyle build | check | quality | dashboard` command.
 - `docs/`: the MkDocs site (`mkdocs.yml`); `docs/design/` the design notes. `docs/img/sodermalm.jpg` and `section.jpg` are screenshots of the dashboard
   (`viz/sodermalm-rs0.18.1.html` and `#c=s0-1277220079715399641`, 1600 × 1000): pictures in the docs come from the
@@ -43,7 +45,7 @@ The order of work: `docs/plan.md`.
 
 ```bash
 P=/home/kaveh/projects/duckOSM/.venv/bin/python        # duckdb + spatial + duckOSM; has no recent roadstyle
-$P -m pytest -q                                        # 23 tests, offline (pythonpath=src from pyproject), ~10 s
+$P -m pytest -q                                        # 24 tests, offline (the turns test needs netconvert) (pythonpath=src from pyproject), ~10 s
 $P -m pytest -q tests/test_levels.py::test_street_space_width      # one test
 
 # build a container (Monaco ~1 min; Södermalm ~18 min and ~7 GB: check free memory first). Södermalm has no

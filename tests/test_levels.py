@@ -430,3 +430,37 @@ def test_strips_fill_the_zones_completely(tmp_path):
     assert shapely.union_all([shapely.make_valid(s[1]).buffer(0.01) for s in strips]).area > 0.98 * zones
     assert sum(1 for s in strips if s[0] == "travel") >= 2, [s[0] for s in strips]
     assert {s[0] for s in strips} <= {"travel", "cycle", "frontage", "furnishing", "open", "sidewalk"}
+
+
+def test_turns_at_a_t_junction_come_from_sumo(tmp_path):
+    """A T junction of two-way streets: SUMO's lane-to-lane connections (space.turn) let the stem turn left and right, and the main
+    street go straight on or turn into the stem; no U-turns."""
+    import pytest
+    sumo = pytest.importorskip("duckosm.sumo")
+    try:
+        sumo._find_netconvert()
+    except Exception:
+        pytest.skip("netconvert not installed (pip install duckosm[sumo])")
+    xy = {1: (17.999, 59.3), 2: (18.0, 59.3), 3: (18.001, 59.3), 4: (18.0, 59.2995)}
+    ways = {100: (1, 2, "West St"), 101: (2, 3, "East St"), 102: (4, 2, "Stem St")}
+    line = lambda a, b: f"ST_GeomFromText('LINESTRING({xy[a][0]} {xy[a][1]}, {xy[b][0]} {xy[b][1]})')"
+    rows, k = [], 0
+    for osm, (a, b, name) in ways.items():
+        for s, t in ((a, b), (b, a)):
+            k += 1
+            rows.append(f"({k}, {osm}, {s}, {t}, 'residential', '{name}', NULL, NULL, NULL, 1, {line(s, t)})")
+    osm = make_osm(tmp_path / "osm.duckdb", edges={"driving": rows})
+    o = duckdb.connect(osm)
+    o.execute("LOAD spatial; CREATE TABLE driving.nodes (node_id BIGINT, geom GEOMETRY)")
+    o.execute("ALTER TABLE driving.edges ADD COLUMN maxspeed_kmh FLOAT; ALTER TABLE driving.edges ADD COLUMN length_m FLOAT")
+    for n, (x, y) in xy.items():
+        o.execute(f"INSERT INTO driving.nodes VALUES ({n}, ST_Point({x}, {y}))")
+    o.execute("""CREATE TABLE driving.edge_graph AS SELECT a.edge_id AS from_edge, b.edge_id AS to_edge, 1.0 AS cost
+                 FROM driving.edges a JOIN driving.edges b ON a.target = b.source AND a.osm_id <> b.osm_id""")
+    o.close()
+    con = urbanstyle.build(osm, str(tmp_path / "out.duckdb"))
+    got = set(con.execute("""SELECT f.name, t.turn, d.name FROM space.turn t JOIN space.element f ON f.source_id = t.from_edge
+                             JOIN space.element d ON d.source_id = t.to_edge""").fetchall())
+    assert {("Stem St", "left", "West St"), ("Stem St", "right", "East St"), ("West St", "straight", "East St"),
+            ("West St", "right", "Stem St"), ("East St", "left", "Stem St")} <= got, got
+    assert all(f != d for f, _, d in got)

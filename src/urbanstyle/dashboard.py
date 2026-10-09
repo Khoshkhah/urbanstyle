@@ -295,9 +295,9 @@ const CUTCOL={'block corners':'#16a34a','one corner':'#f59e0b'}, PCOL=__PCOL__;
 function newBlock(cid){const it=NEWU.inter[cid], ss=NEWU.sec[cid];
   if(it){const bl=it.bb||[], bm=Math.round(bl.reduce((a,b)=>a+b[1],0));
     return `<div><b>${it.rb?'Roundabout':'Intersection'} space</b> · ${it.a.toLocaleString()} m&sup2; · bounded by <b>${bl.length}</b> building${bl.length===1?'':'s'} (${bm} m of edge), the rest by its cuts</div>`+
-      `<div><b>Arms</b> (widths at the cut, m)</div><table><tr><th></th><th>total</th><th>road</th><th>left</th><th>right</th><th>lanes in/out</th></tr>`+
-      (it.w||[]).map(([n,t,c,l,r,i,o,s])=>`<tr><td>${n}</td><td>${t}</td><td>${c}</td><td>${l}</td><td>${r}</td><td>${i} / ${o}${s==='default'?' *':''}</td></tr>`).join('')+
-      `</table><div style="font-size:11px;color:#666">left / right: pedestrian realm, seen from the junction · * lanes estimated (no lanes tag)</div>`+partsTable(cid)+
+      `<div><b>Arms</b> (widths at the cut, m)</div><table><tr><th></th><th>total</th><th>road</th><th>left</th><th>right</th><th>lanes in/out</th><th>turns</th></tr>`+
+      (it.w||[]).map(([n,t,c,l,r,i,o,s,tu])=>`<tr><td>${n}</td><td>${t}</td><td>${c}</td><td>${l}</td><td>${r}</td><td>${i} / ${o}${s==='default'?' *':''}</td><td>${tu||''}</td></tr>`).join('')+
+      `</table><div style="font-size:11px;color:#666">left / right: pedestrian realm, seen from the junction · * lanes estimated (no lanes tag) · turns: each lane coming in, from the right, the ways it may go (SUMO)</div>`+partsTable(cid)+
       `<div><b>Cuts</b></div><table>`+
     it.cuts.map(([how,len])=>`<tr><td><span class=sw style="background:${CUTCOL[how]||'#6b7280'}"></span>${how}</td><td>${len} m</td></tr>`).join('')+'</table>'}
   return `<div><b>New spaces</b> · ${ss.length} subsection${ss.length===1?'':'s'} · ${ss.reduce((a,x)=>a+x[1],0).toLocaleString()} m&sup2;</div><table>`+
@@ -574,9 +574,17 @@ def main(db, out):
                 AND ST_Intersects(ST_Buffer(i.geometry, 0.00001), s.geometry) WHERE i.kind IN ('intersection', 'roundabout')""").fetchall():
             if iid in newu["inter"]:          # the roads arriving at it: their subsections next to it
                 newu["inter"][iid].setdefault("adj", []).append(sid)
+        ways = {}           # (intersection, arm edge) -> its in lanes, rightmost first, and the ways each may go (SUMO's turns, space.turn)
+        try:
+            for uid, edge, lane, turn in con.execute("SELECT DISTINCT unit_id, from_edge, from_lane, turn FROM space.turn ORDER BY 1, 2, 3").fetchall():
+                ways.setdefault((uid, edge), {}).setdefault(lane, set()).add(turn)
+        except duckdb.CatalogException:
+            pass
+        sym = {"left": "\u21b0", "straight": "\u2191", "right": "\u21b1"}
         for uid, edge, arm, tot, cw, lw, rw, li, lo, src in uwidths:     # edges and their widths
             tgt = newu["inter"].get(uid) if uid.startswith("i") else newu.setdefault("subw", {})
-            row = [arm or "", tot, cw, lw, rw, li, lo, src]
+            row = [arm or "", tot, cw, lw, rw, li, lo, src,
+                   " ".join("".join(sym[t] for t in ("left", "straight", "right") if t in w) for _, w in sorted(ways.get((uid, edge), {}).items()))]
             if uid.startswith("i") and tgt is not None:
                 tgt.setdefault("w", []).append(row)
             elif not uid.startswith("i"):

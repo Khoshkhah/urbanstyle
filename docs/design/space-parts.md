@@ -33,6 +33,19 @@ Lines painted or built on the street: `kerb` (where carriageway meets pedestrian
 `in` lanes at the junction side of its approach, where a stop or give-way sign or a traffic signal stands on that arm), `lane line`
 (between two lanes of one direction), `centre line` (between the two directions).
 
+## Turns (`space.turn`)
+
+Which lane may go where at an intersection comes from **SUMO**. duckOSM writes its driving network for SUMO (`duckosm.sumo.to_sumo`,
+SUMO edge id = duckOSM `edge_id`, the legal turns from its `edge_graph`, so turn restrictions hold), with the lane count and lane width of
+every road as measured in its subsections here (median per direction); SUMO's `netconvert` then assigns lanes to turns (right turns
+from the right lanes, left turns from the left). Its lane-to-lane connections are followed through the junction's own roads (a
+dogleg's short links) to the arm they leave by. Each becomes a row of `space.turn` (`unit_id`, `from_edge`, `from_lane`, `to_edge`,
+`to_lane`, lanes counted from the right, `turn` left / straight / right by the angle between the two arms, `source` = `sumo`, the
+curve as geometry), a guide line through the junction box, and one painted **arrow** per lane coming in, with a head for each way it
+may go. U-turns are left out; roundabouts have none (their circulating lanes show the way). Where SUMO is not available (no duckOSM
+with SUMO, or no `osm` database attached) every lane in is joined to every lane out, as before. Monaco: 1,462 turns in all 287
+intersections (636 straight, 428 right, 398 left). Built in `src/urbanstyle/sumo.py`; needs `pip install "duckosm[sumo]"`.
+
 ## Edges and widths
 
 Per intersection arm: total width at the cut, carriageway width at the cut, lanes in / out, sidewalk width on each side. Per subsection:
@@ -42,4 +55,5 @@ space is selected; the map then shows exactly its parts, marks and objects.
 ## Limits
 
 Widths are mostly estimated: in Monaco 45 % of roads carry a lanes tag, 3 % a width tag, 14 a turn-lanes tag. Islands are mapped 3 times.
-No turn lanes, no parking, no bus lanes yet.
+No parking yet. SUMO assigns lanes to turns from the lane counts alone: `turn:lanes` tags (14 in Monaco) are not read yet.
+A crossing way longer than 2.5 × a road's estimated roadway is not used to measure it (it runs over more than that road).

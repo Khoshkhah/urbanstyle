@@ -55,6 +55,18 @@ around the OSM centrelines, which left steps at the cuts and blobs at complex ju
    painted on it, not separate parts; the ring is the ring's line ± half its roadway, round whatever SUMO's pieces), the
    `carriageway` of a subsection. Then the pedestrian realm out to the buildings as before. Parts from SUMO have `source` = `sumo`.
    The dashboard draws parts without outlines: the asphalt is one surface, and the lines on it are the marks.
+   A **tunnel or a bridge** (a space off level 0) is a tube: no buildings bound it, so its space is cut back to its roadway and
+   1.5 m beside it (a narrow walkway), not out to open ground; a junction keeps its whole space if the cut would lose one of its
+   nodes. Where a road only continues (its OSM way is split there, no junction of ours), SUMO's junction shape is replaced by a
+   clean join of the lane ends.
+   Where a road only continues, each lane is also stitched into the same lane of the next piece, so lanes and their lines run on.
+   A gap narrower than 1.2 m between two roadways, and a pocket under 30 m² the roadway nearly surrounds (85 % of its edge), are
+   roadway: no kerb in the middle of the road (unless a refuge island is mapped: `crossing:island=yes`). Sidewalk, furnishing and
+   open ground are judged from the kerb of the level's whole roadway, so two neighbouring spaces agree at their border.
+   Arrows: a subsection paints them only on lanes of its own road, and no two arrows lie within 1.5 m (two roads mapped on top of
+   each other). A crossing point within 6 m of a mapped crossing path is that crossing, not a second crosswalk.
+   **Lane counts** come from OSM (`lanes`); where OSM is wrong, a rule in duckOSM's OSM fixes (`osm_overrides/osm_overrides.yaml`
+   beside the duckOSM database) corrects it, read here at once (`lane_overrides`).
 4. Marks: the kerb; lane lines between the lanes of one direction and the centre line between the two (not across a crosswalk); an
    arrow in the middle of each lane of a subsection; at each junction, for each lane coming in, a turn arrow with a head for each way it
    may go, a stop or give-way line where it enters the junction (a sign or signal nearby; every roundabout entry gives way), and SUMO's

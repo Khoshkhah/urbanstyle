@@ -20,6 +20,7 @@ to the nearer road.
 import math
 
 BLINE_M = 3.0
+HOLE_MAX_M2 = 300.0   # a hole the spaces enclose up to this size, edged by them, is street (joins a neighbour); larger is a block's own ground
 CORNER_MAX_M = 25.0
 CORNER_SECTOR_MAX_DEG = 160.0   # a wider angle between two arms (the straight side of a T) has no block corner
 CROSS_MARGIN_M = 1.0
@@ -213,8 +214,9 @@ def build(con, epsg):
     blds = con.execute(f"SELECT l, {to_m} FROM space.element, generate_series(level_min, level_max) t(l) WHERE type = 'building'").fetchall()
     rows, cut_rows, clipped = [], [], []
     for lv in sorted({s[2] for s in subs} | {a[3] for a in arm_rows}):
-        u = shapely.union_all([shapely.from_wkb(bytes(b[1])) for b in blds if b[0] == lv]) if blds else shapely.Polygon()
-        bparts = list(shapely.get_parts(u.buffer(BLINE_M).buffer(-BLINE_M))) if not u.is_empty else []
+        from urbanstyle.subsections import building_line
+        bparts = building_line([shapely.from_wkb(bytes(b[1])) for b in blds if b[0] == lv],
+                               [shapely.from_wkb(bytes(r[6])) for r in road_rows if r[1] == lv])
         btree = shapely.STRtree(bparts) if bparts else None
         bline = shapely.union_all(bparts) if bparts else shapely.Polygon()
         roads, node_xy, sec_lines = {}, {}, []
@@ -277,9 +279,11 @@ def build(con, epsg):
                     rib = rib.difference(_halfplane(p, v, (-n[0], -n[1]), along=CORNER_MAX_M + 25, depth=CORNER_MAX_M + 15))
             rib = rib.difference(bline)
             parts = [x for x in shapely.get_parts(rib) if x.intersection(line).length > 0.5]
+            road = line.buffer(w / 2, cap_style="flat")
             if parts:   # the road's own surface belongs to its space even where it passes under a building: one connected piece
-                road = line.buffer(w / 2, cap_style="flat").intersection(rib.envelope.buffer(1))
-                spaces.append([sid, sec, line, _clean(shapely.union_all(parts + [road])), color])
+                spaces.append([sid, sec, line, _clean(shapely.union_all(parts + [road.intersection(rib.envelope.buffer(1))])), color])
+            else:       # its ribbon is all cut away (its junctions' cuts reach past it, or the building line covers it): its road surface still
+                spaces.append([sid, sec, line, _clean(road), color])     # needs a space, unless the intersections hold all of it (below)
         # the intersection: the junction's core and its road pieces are its own; then everything inside its cuts that no arriving
         # road's space holds, so no ground between the cuts is left to nobody
         polys = {}
@@ -322,9 +326,10 @@ def build(con, epsg):
             mine = shapely.union_all([cl for cl in cells if any(cl.contains(shapely.Point(q)) for q in pa)])
             polys[ia] = polys[ia].difference(ov.difference(mine))
             polys[ib] = polys[ib].difference(ov.intersection(mine))
+        final, scraps = {}, []      # unit id -> [kind, section, colour, polygon, road line or None]; pieces of no road
         for iid, gm in polys.items():
             rb = regions.get(iid, (None, None, None, False))[3]      # a roundabout is a space of its own kind
-            rows.append((iid, "roundabout" if rb else "intersection", iid, lv, "#f9a8d4" if rb else "#fbbf24", shapely.to_wkb(_one(_clean(gm)))))
+            final[iid] = ["roundabout" if rb else "intersection", iid, "#f9a8d4" if rb else "#fbbf24", _one(_clean(gm)), None]
         # a cut, as stored, is only the part of its line that bounds its intersection
         for k, r in enumerate(cut_rows):
             if r[2] == lv and r[0] in polys:
@@ -336,12 +341,46 @@ def build(con, epsg):
             near = [polys[i] for i in polys if polys[i].intersects(gm)]
             gm = _clean(gm.difference(shapely.union_all(near))) if near else _clean(gm)
             gm = _one(gm, line)
-            if not gm.is_empty:
-                rows.append((sid, "subsection", sec, lv, color, shapely.to_wkb(gm)))
-                # the subsection's road ends at its cut: inside the junction the road is the intersection's
-                inside = [x for x in shapely.get_parts(line.intersection(gm.buffer(0.01))) if x.geom_type == "LineString"]
+            if gm.is_empty:
+                continue
+            if line.intersection(gm.buffer(0.01)).length < 0.5:     # the junctions took its road: what is left is a scrap beside it
+                scraps.append(gm)
+            else:
+                final[sid] = ["subsection", sec, color, gm, line]
+        # road surface no space holds (a road paired with a parallel one runs past it, a piece between a junction's cuts and its
+        # neighbours), and the scraps of subsections whose road the junctions took: each piece joins the space it shares the longest
+        # border with, so no road is left to nobody
+        if final:
+            ids_ = list(final)
+            held = shapely.union_all([final[i][3] for i in ids_])
+            surface = shapely.union_all([g.buffer(max(w or 6, 3) / 2, cap_style="flat") for g, _, _, w in roads.values()])
+            ftree = shapely.STRtree([final[i][3] for i in ids_])
+            # and the small holes the spaces enclose (a pocket between converging roads): street-like (spaces nearly all round it, at most
+            # HOLE_MAX_M2), not a block's garden or courtyard
+            heldb, given = held.buffer(0.1), shapely.Polygon()
+            holes = [h for h in (shapely.Polygon(r) for p_ in shapely.get_parts(held) for r in p_.interiors)
+                     if h.area <= HOLE_MAX_M2 and h.boundary.intersection(heldb).length >= 0.9 * h.boundary.length]
+            for piece in [*shapely.get_parts(surface.difference(held).difference(bline)), *scraps,
+                          *(x for h in holes for x in shapely.get_parts(h.difference(bline)))]:
+                piece = piece.difference(given) if not given.is_empty else piece      # ground already given to a space is not given again
+                if piece.area < 0.5 or piece.is_empty:
+                    continue
+                # the neighbour with the longest shared border that stays one polygon with it
+                for shared, uid_ in sorted(((piece.boundary.intersection(final[ids_[k]][3].buffer(0.05)).length, ids_[k])
+                                            for k in ftree.query(piece.buffer(0.05))), reverse=True):
+                    if shared < 0.5:
+                        break
+                    merged = shapely.union_all([final[uid_][3], piece.buffer(0.02).difference(held)]).buffer(0)
+                    if merged.geom_type == "Polygon":    # pinholes the merge leaves (under 1 m2) are closed
+                        final[uid_][3] = shapely.Polygon(merged.exterior, [r for r in merged.interiors if shapely.Polygon(r).area >= 1.0])
+                        given = shapely.union_all([given, piece])
+                        break
+        for uid, (kind, sec, color, gm, line) in final.items():
+            rows.append((uid, kind, sec, lv, color, shapely.to_wkb(gm)))
+            if line is not None:    # the subsection's road ends at its cut: inside the junction the road is the intersection's
+                inside = [x for x in shapely.get_parts(line.intersection(gm.buffer(0.01))) if x.geom_type == "LineString" and x.length > 0.1]
                 if inside:
-                    clipped.append((sid, shapely.to_wkb(max(inside, key=lambda x: x.length))))
+                    clipped.append((sid_ := uid, shapely.to_wkb(max(inside, key=lambda x: x.length))))
     cdf = pd.DataFrame(cut_rows, columns=["intersection_id", "edge_id", "level", "how", "length_m", "wkb"])
     con.execute(f"""CREATE OR REPLACE TABLE space.cut AS
         SELECT intersection_id, edge_id, level::INT AS level, how, length_m,

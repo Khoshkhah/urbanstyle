@@ -49,7 +49,7 @@ The order of work: `docs/plan.md`.
 
 ```bash
 P=/home/kaveh/projects/duckOSM/.venv/bin/python        # duckdb + spatial + duckOSM; has no recent roadstyle
-$P -m pytest -q                                        # 25 tests, offline (the turns test needs netconvert) (pythonpath=src from pyproject), ~10 s
+$P -m pytest -q                                        # 26 tests, offline (the turns test needs netconvert) (pythonpath=src from pyproject), ~10 s
 $P -m pytest -q tests/test_levels.py::test_street_space_width      # one test
 
 # build a container (Monaco ~1 min; Södermalm ~18 min and ~7 GB: check free memory first). Södermalm has no
@@ -85,6 +85,13 @@ mkdocs build --strict                                  # needs pip install ".[do
 - The cross-section reach cap, widths and margins are flat guesses (see `docs/design/street-space.md`); the
   `open_share` column says how much of a width was capped rather than measured.
 - roadstyle ids are not `edge_id`s (ids past 2**53); query with `rsQuery`, never pass `edge_id` to `rsSelect`.
+- The dashboard's panel script shares the page's global scope with roadstyle's: a top-level name roadstyle already uses (`srcOf`,
+  `map`, `OVERLAYS`, ...) throws and silently kills the WHOLE panel. Check new globals in a headless load (page errors) before shipping.
+- Tilting the map (roadstyle's 3D button) extrudes the focused space (`draw3d` in dashboard.py: raised sidewalks and islands,
+  buildings by floors x 3.2 m, street furniture as objects (`furniture_3d`: lamp with arm, signal, sign plate, tree, bench, bin; OSM's and
+  Mapillary's, placed off the roadway and out of facades by `placer`, also in 2D); the levels above the one viewed as bridge decks, 6 m a
+  level; tunnel portals at level 0: wall, roof over the first 25 m, the tunnel's road under it; terrain only when "rough terrain" is
+  ticked: the public AWS Terrain Tiles (~30 m) are too coarse for Monaco and broke the map; needs a 1-5 m terrain). "every space in detail" (on by default) shows every space's parts with nothing focused.
 - Heavy imports (shapely, pandas, geopandas, roadstyle) stay inside functions so the CLI starts fast.
 
 ## Rules

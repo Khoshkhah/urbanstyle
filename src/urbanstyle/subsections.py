@@ -18,10 +18,12 @@ Ids: <section id>/<k>, k = 1, 2, ... along each run of the section's roads.
 import math
 
 STEP_M = 3.0
+DIVIDED_LINK_M = 20.0   # a link this short between the two carriageways of a divided road joins their junctions into one
 SPLIT_M = 12.0     # a node of a roundabout's group farther than this from its ring is a junction of its own (an entry's splitter island is nearer)
 MIN_M = 12.0
 STEP_BACK_M = 3.0
 BLINE_M = 3.0
+ROAD_KEEP_M = 1.5    # the building line stays this far off a road's line: a narrow street between facades is not closed
 PAIR_M = 15.0
 PAIR_DEG = 25.0
 PAIR_SHARE = 0.7
@@ -142,11 +144,29 @@ def _followers(runs, bparts, btree):
     return out
 
 
+def building_line(blds, roads):
+    """The building line of one level, as polygons: the buildings closed by BLINE_M (a gap narrower than twice that is no way through),
+    except along a road: a street narrower than that between two facades stays open, ROAD_KEEP_M either side of its line (the buildings
+    themselves always stay)."""
+    import shapely
+    u = shapely.union_all(blds) if len(blds) else shapely.Polygon()
+    if u.is_empty:
+        return []
+    closed = u.buffer(BLINE_M).buffer(-BLINE_M)
+    if len(roads):
+        closed = shapely.union_all([closed.difference(shapely.union_all([r.buffer(ROAD_KEEP_M, cap_style="flat") for r in roads])), u])
+    return [p for p in shapely.get_parts(shapely.make_valid(closed)) if p.geom_type == "Polygon" and not p.is_empty]
+
+
 def junctions(con, epsg):
     """space.junction (intersection_id, node_id, level, cluster_id): which junction each node belongs to in the network-first spaces.
-    The container step groups close nodes into one intersection (space.arm, cluster_id); a group holding a roundabout's ring is cut
-    back to the ring and what lies within SPLIT_M of it (an entry's splitter island): farther nodes are junctions of their own (each
-    connected group of them, id i<level>-<its smallest node>), and the roads between them and the ring are roads again."""
+    The container step groups close nodes into one intersection (space.arm, cluster_id). Two changes:
+    - a group holding a roundabout's ring is cut back to the ring and what lies within SPLIT_M of it (an entry's splitter island):
+      farther nodes are junctions of their own (each connected group of them, id i<level>-<its smallest node>), and the roads between
+      them and the ring are roads again;
+    - the two junctions where a road crosses the two carriageways of a divided road (each on a one-way carriageway, the two running
+      opposite ways, joined by a link shorter than DIVIDED_LINK_M) are one junction (not a roundabout's)."""
+    import math
     import shapely
     to_m = lambda col: f"ST_AsWKB(ST_Transform({col}, 'EPSG:4326', '{epsg}', always_xy := true))"
     members = con.execute("SELECT DISTINCT intersection_id, node_id, level FROM space.arm").fetchall()
@@ -155,37 +175,63 @@ def junctions(con, epsg):
         ring_osm = {r[0] for r in con.execute("SELECT osm_id FROM osm.raw.ways WHERE tags['junction'] IN ('roundabout', 'circular')").fetchall()}
     except Exception:
         ring_osm = set()
-    if ring_osm:
-        edges = con.execute(f"""SELECT source_id, src, dst, osm_id, {to_m('geometry')}, {to_m('ST_StartPoint(geometry)')}, {to_m('ST_EndPoint(geometry)')}
-                                FROM space.element WHERE type = 'road' AND src IS NOT NULL AND dst IS NOT NULL""").fetchall()
-        xy, degree, ring_g = {}, {}, {}
-        for _, s, d, osm, g, ps, pd_ in edges:
-            xy[s], xy[d] = shapely.from_wkb(bytes(ps)), shapely.from_wkb(bytes(pd_))
-            degree[s], degree[d] = degree.get(s, 0) + 1, degree.get(d, 0) + 1
+    edges = [(sid, s_, d, osm, bool(ow), lv, shapely.from_wkb(bytes(g)), shapely.from_wkb(bytes(ps)), shapely.from_wkb(bytes(pd_)))
+             for sid, s_, d, osm, ow, lv, g, ps, pd_ in con.execute(f"""SELECT source_id, src, dst, osm_id, coalesce(oneway, false), level_min, {to_m('geometry')},
+                 {to_m('ST_StartPoint(geometry)')}, {to_m('ST_EndPoint(geometry)')} FROM space.element WHERE type = 'road' AND src IS NOT NULL AND dst IS NOT NULL""").fetchall()]
+    xy, degree, ring_g, at = {}, {}, {}, {}
+    for e in edges:
+        _, s_, d, osm, _, _, g, ps, pd_ = e
+        xy[s_], xy[d] = ps, pd_
+        for n in (s_, d):
+            degree[n] = degree.get(n, 0) + 1
+            at.setdefault(n, []).append(e)
             if osm in ring_osm:
-                for n in (s, d):
-                    ring_g.setdefault(n, []).append(shapely.from_wkb(bytes(g)))
-        clusters = {}
-        for iid, n, lv in members:
-            clusters.setdefault((iid, lv), set()).add(n)
-        for (iid, lv), nodes in clusters.items():
-            on_ring = {n for n in nodes if n in ring_g}
-            if not on_ring:
-                continue
-            ring = shapely.union_all([g for n in on_ring for g in ring_g[n]])
-            off = {n for n in nodes - on_ring if n in xy and xy[n].distance(ring) > SPLIT_M}
-            comp = {n: n for n in off}          # connected groups of the far nodes, by the roads between them
-            find = lambda n: n if comp[n] == n else find(comp[n])
-            for _, s, d, *_ in edges:
-                if s in off and d in off:
-                    comp[find(s)] = find(d)
-            groups = {}
-            for n in off:
-                groups.setdefault(find(n), []).append(n)
-            for grp in groups.values():
-                if max(degree.get(n, 0) for n in grp) >= 3:     # a real junction (a bend in a road stays with the roundabout)
-                    for n in grp:
-                        out[(iid, n, lv)] = f"i{lv}-{min(grp)}"
+                ring_g.setdefault(n, []).append(g)
+    clusters = {}
+    for iid, n, lv in members:
+        clusters.setdefault((iid, lv), set()).add(n)
+    rings = set()       # the junctions holding a roundabout's ring
+    for (iid, lv), nodes in clusters.items():
+        on_ring = {n for n in nodes if n in ring_g}
+        if not on_ring:
+            continue
+        rings.add(iid)
+        ring = shapely.union_all([g for n in on_ring for g in ring_g[n]])
+        off = {n for n in nodes - on_ring if n in xy and xy[n].distance(ring) > SPLIT_M}
+        comp = {n: n for n in off}          # connected groups of the far nodes, by the roads between them
+        find = lambda n: n if comp[n] == n else find(comp[n])
+        for _, s_, d, *_ in edges:
+            if s_ in off and d in off:
+                comp[find(s_)] = find(d)
+        groups = {}
+        for n in off:
+            groups.setdefault(find(n), []).append(n)
+        for grp in groups.values():
+            if max(degree.get(n, 0) for n in grp) >= 3:     # a real junction (a bend in a road stays with the roundabout)
+                for n in grp:
+                    out[(iid, n, lv)] = f"i{lv}-{min(grp)}"
+    # a divided road's crossing: the junctions on its two carriageways are one
+    jof = {(n, lv): new for (iid, n, lv), new in out.items()}
+
+    def travel(e, n):       # a one-way road's direction of travel near node n
+        g = e[6]
+        t = 0 if n == e[1] else g.length
+        a, b = g.interpolate(max(t - 4, 0)), g.interpolate(min(t + 4, g.length))
+        h = math.hypot(b.x - a.x, b.y - a.y) or 1.0
+        return (b.x - a.x) / h, (b.y - a.y) / h
+    merged = {}
+    find = lambda j: j if merged.get(j, j) == j else find(merged[j])
+    for e in edges:
+        sid, s_, d, osm, _, lv, g, *_ = e
+        A, B = jof.get((s_, lv)), jof.get((d, lv))
+        if not A or not B or A == B or osm in ring_osm or g.length >= DIVIDED_LINK_M or A in rings or B in rings:
+            continue
+        if any(ra is not e and rb is not e and ra[4] and rb[4] and ra[5] == lv == rb[5]
+               and sum(p * q for p, q in zip(travel(ra, s_), travel(rb, d))) < -0.8 for ra in at[s_] for rb in at[d]):
+            a, b = sorted((find(A), find(B)))
+            if a != b:
+                merged[b] = a
+    out = {k: find(v) for k, v in out.items()}
     import pandas as pd
     df = pd.DataFrame([(new, n, lv, iid) for (iid, n, lv), new in out.items()], columns=["intersection_id", "node_id", "level", "cluster_id"])
     con.execute("""CREATE OR REPLACE TABLE space.junction AS SELECT intersection_id::VARCHAR AS intersection_id, node_id::BIGINT AS node_id,
@@ -214,8 +260,7 @@ def build(con, epsg):
     blds = con.execute(f"SELECT l, {to_m} FROM space.element, generate_series(level_min, level_max) t(l) WHERE type = 'building'").fetchall()
     blines = {}
     for lv in {r[1] for r in roads}:
-        u = shapely.union_all([shapely.from_wkb(bytes(b[1])) for b in blds if b[0] == lv]) if blds else shapely.Polygon()
-        parts = list(shapely.get_parts(u.buffer(BLINE_M).buffer(-BLINE_M))) if not u.is_empty else []
+        parts = building_line([shapely.from_wkb(bytes(b[1])) for b in blds if b[0] == lv], [shapely.from_wkb(bytes(r[5])) for r in roads if r[1] == lv])
         blines[lv] = (parts, shapely.STRtree(parts) if parts else None)
 
     rows = []

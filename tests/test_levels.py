@@ -483,3 +483,18 @@ def test_mapillary_features_load_into_groups(tmp_path):
     assert dict(con.execute("SELECT feature_id, grp FROM space.observed").fetchall()) == {"1": "no parking", "2": "parking", "3": "lane arrow", "4": "give way"}
     assert mapillary.group("object--support--pole") is None
     assert con.execute("SELECT captured::DATE::VARCHAR FROM space.photo").fetchone()[0] == "2018-10-02"
+
+
+def test_lane_overrides_from_duckosm_fixes(tmp_path, monkeypatch):
+    """duckOSM's OSM fixes file corrects lane counts: `lanes` is per direction (doubled on a two-way way)."""
+    from urbanstyle import parts
+    osm = make_osm(tmp_path / "osm.duckdb")
+    o = duckdb.connect(osm)
+    o.execute("INSERT INTO raw.ways VALUES (7, MAP {'highway': 'primary', 'oneway': 'yes', 'lanes': '2'}, []), (8, MAP {'highway': 'primary', 'lanes': '4'}, [])")
+    o.close()
+    rules = tmp_path / "fixes.yaml"
+    rules.write_text("overrides:\n  - osm_id: 7\n    lanes: 1\n  - osm_id: 8\n    lanes: 1\n  - osm_id: 9\n    oneway: true\n")
+    monkeypatch.setenv("URBANSTYLE_OSM_OVERRIDES", str(rules))
+    con = duckdb.connect()
+    con.execute(f"ATTACH '{osm}' AS osm (READ_ONLY)")
+    assert parts.lane_overrides(con) == {7: 1, 8: 2}

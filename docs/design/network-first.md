@@ -24,6 +24,14 @@ Which nodes form one junction is `space.junction` (`intersection_id`, `node_id`,
 nodes (`space.arm`), except that a group holding a roundabout's ring keeps only the ring and what lies within 12 m of it (an entry's splitter
 island); a farther node that is a real junction is an intersection of its own (`i<level>-<its smallest node>`), and the roads between it and
 the ring are roads again. Sainte-Dévote: 4,210 m² before (it held the junctions around it), 909 m² now; Monaco: 16 junctions split off.
+Where a road crosses a **divided road**, the junctions on its two one-way carriageways (running opposite ways, joined by a link shorter
+than 20 m) are one intersection: apart, the one between the carriageways was a sliver. Monaco: 4 such crossings (not at a roundabout).
+
+**No street left to nobody.** The building line never closes a street: buildings closed by 3 m, except within 1.5 m of a road's
+line (a street narrower than 6 m between facades kept its space). A road whose ribbon is cut away keeps its road surface as its
+space; a subsection whose road the junctions took entirely is dropped and its scrap joins a neighbour. Then a final sweep: road
+surface no space holds, and small holes the spaces enclose (at most 300 m², spaces along 90 % of their edge, not a block's garden),
+join the neighbouring space they share the longest border with. Monaco: road centre line outside every space 1,095 m -> 22 m.
 
 A **subsection's** space is a ribbon parallel to its road: a side with buildings reaches 4 m past the facade line and the building line is its
 edge; an open side reaches the cap (or halfway to a parallel road with no building between). Square cuts at the splits, the arm's cut at a

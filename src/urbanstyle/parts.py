@@ -22,6 +22,7 @@ EST_LANE_M = 3.25      # a lane's width when nothing is measured
 SIDEWALK_HALF_M = 1.0  # a sidewalk is mapped along its middle: the kerb lies this much nearer the road
 KERB_SEARCH_M = 12.0   # how far from a road its sidewalks are looked for (a sidewalk farther away is not this road's)
 CROSSWALK_M = 3.0
+SAME_CROSSING_M = 6.0  # a crossing point this close to a mapped crossing path is that crossing, not a second one
 CYCLE_M = 1.5          # a cycle lane at the roadway's edge
 BUS_M = 3.2            # a bus lane (shared with bikes: cycleway=share_busway)
 TRACK_M = 2.0          # a mapped cycle track
@@ -36,6 +37,10 @@ KERB_RADIUS_M = 3.0    # the radius of a junction's kerb around a block corner
 BAND_PAD_M = 12.0      # a road's bands are drawn this far past its unit and trimmed to it: they reach a slanted cut exactly
 ZEBRA_BAR_M, ZEBRA_GAP_M = 0.5, 0.5
 ARROW_M = 3.0          # a painted lane arrow's length
+ARROW_GAP_M = 1.5      # no two arrows closer than about this
+POCKET_MAX_M2 = 30.0   # a pocket of ground smaller than this, the roadway nearly all round it, is roadway (unless a refuge is mapped)
+ROADWAY_GAP_M = 1.2    # a gap narrower than this between two roadways is roadway too (a real island or median is wider)
+OFF_GROUND_M = 1.5     # a tunnel's or a bridge's space reaches this far past its roadway (a narrow walkway), not out to open ground
 SIGN_M = 8.0           # a Mapillary parking / no-parking sign this close to a shoulder says what it is (its position is ~1-5 m off)
 SHOULDER_MAX_M = 2.5   # a shoulder beside SUMO's lanes is at most a parking lane; a wider measured kerb is left to the pedestrian realm
 
@@ -43,6 +48,37 @@ SHOULDER_MAX_M = 2.5   # a shoulder beside SUMO's lanes is at most a parking lan
 def _unit(x, y):
     h = math.hypot(x, y) or 1.0
     return x / h, y / h
+
+
+def lane_overrides(con):
+    """{osm way: lanes (both ways together)} from duckOSM's OSM fixes (`osm_overrides/osm_overrides.yaml` beside the duckOSM
+    database, or $URBANSTYLE_OSM_OVERRIDES): the corrections duckOSM's next build makes, applied here without rebuilding it. A rule's
+    `lanes` is per direction (doubled on a two-way way), `lanes_forward` / `lanes_backward` add up."""
+    import os
+    from pathlib import Path
+    try:
+        import yaml
+        path = os.environ.get("URBANSTYLE_OSM_OVERRIDES")
+        if not path:
+            (db,) = con.execute("SELECT path FROM duckdb_databases() WHERE database_name = 'osm'").fetchone()
+            path = Path(db).parent / "osm_overrides" / "osm_overrides.yaml"
+        rules = (yaml.safe_load(Path(path).read_text()) or {}).get("overrides") or []
+    except Exception:
+        return {}
+    out = {}
+    for r in rules:
+        if "lanes" not in r and "lanes_forward" not in r and "lanes_backward" not in r:
+            continue
+        try:
+            (ow,) = con.execute("SELECT coalesce(tags['oneway'] IN ('yes', '1', 'true', '-1') OR tags['junction'] IN ('roundabout', 'circular'), false) "
+                                "FROM osm.raw.ways WHERE osm_id = ?", [r["osm_id"]]).fetchone()
+        except Exception:
+            continue        # the way is not in this area
+        if "lanes" in r:
+            out[r["osm_id"]] = int(r["lanes"]) * (1 if ow else 2)
+        else:
+            out[r["osm_id"]] = int(r.get("lanes_forward") or 0) + (0 if ow else int(r.get("lanes_backward") or 0))
+    return out
 
 
 def build(con, epsg):
@@ -100,6 +136,8 @@ def build(con, epsg):
                 sides[osm] = (edge_kind.get(cl), edge_kind.get(cr), list(refs or []))
     except Exception:       # no OSM database attached (a rebuild of the parts alone): counts from the widths, no cycle / bus lanes
         pass
+    for osm, n in lane_overrides(con).items():      # lane counts duckOSM's OSM fixes correct
+        tags[osm] = (float(n), tags.get(osm, (None, None))[1])
     try:
         ring_osm = {r[0] for r in con.execute("SELECT osm_id FROM osm.raw.ways WHERE tags['junction'] IN ('roundabout', 'circular')").fetchall()}
     except Exception:
@@ -279,6 +317,7 @@ def build(con, epsg):
         else crossing points square across the nearest of `axes` [line]. Draws the zebra bars. Returns the ground they took."""
         near = [paths[k] for k in ptree.query(U)] if ptree is not None else []
         mapped, taken = [], shapely.Polygon()
+        paths_here = [ln for typ, sub, lv, ln in near if lv == level and sub == "crossing"]   # every mapped crossing, drawn or not
         for typ, sub, lv, ln in near:
             if lv != level or not (sub == "crossing" or typ == "cycleway"):
                 continue
@@ -291,7 +330,9 @@ def build(con, epsg):
                 taken = safe("union", taken, got)
                 mapped.append(seg)
         for oid, cls, lv, ctl, p in ([objs[k] for k in otree.query(U)] if otree is not None else []):
-            if lv != level or not cls.startswith("crossing.") or not p.within(U) or any(p.distance(m) < 4 for m in mapped) or not axes:
+            # a crossing point makes a crosswalk only where no crossing is mapped as a path (even one not drawn here: along the road, or in
+            # the next space), or the same crossing is drawn twice
+            if lv != level or not cls.startswith("crossing.") or not p.within(U) or any(p.distance(m) < SAME_CROSSING_M for m in mapped + paths_here) or not axes:
                 continue
             ln = min(axes, key=lambda a: a.distance(p))
             t = ln.project(p)
@@ -304,6 +345,15 @@ def build(con, epsg):
             taken = safe("union", taken, got)
         return taken
 
+    arrow_tips = {}         # (level, cell) -> the tips of the arrows drawn there: two roads mapped on top of each other must not paint two
+                            # arrows in one spot (neighbouring lanes, ~3 m apart, keep theirs)
+    def arrow_free(level, x, y):
+        cx, cy = int(x // ARROW_GAP_M), int(y // ARROW_GAP_M)
+        if any(math.hypot(x - px, y - py) < ARROW_GAP_M for i in (-1, 0, 1) for j in (-1, 0, 1) for px, py in arrow_tips.get((level, cx + i, cy + j), [])):
+            return False
+        arrow_tips.setdefault((level, cx, cy), []).append((x, y))
+        return True
+
     def arrow(uid, level, ln, off, t_tip, sgn, arm=None):
         """A painted direction arrow in a lane: ARROW_M long, its tip at `t_tip` along `ln`, `off` m to the left of it, pointing along
         `ln` (sgn = 1) or back (sgn = -1)."""
@@ -313,6 +363,8 @@ def build(con, epsg):
         tx, ty = direction(ln, t_tip)
         dx, dy, nx, ny = tx * sgn, ty * sgn, -ty, tx
         tip = (c.x + nx * off, c.y + ny * off)
+        if not arrow_free(level, *tip):
+            return
         tail = (tip[0] - dx * ARROW_M, tip[1] - dy * ARROW_M)
         h1 = (tip[0] - dx * 0.9 + nx * 0.45, tip[1] - dy * 0.9 + ny * 0.45)
         h2 = (tip[0] - dx * 0.9 - nx * 0.45, tip[1] - dy * 0.9 - ny * 0.45)
@@ -328,6 +380,8 @@ def build(con, epsg):
         tx, ty = direction(ap, 1.0)
         hx, hy = -tx, -ty                                   # into the junction
         tip = (c.x - ty * off, c.y + tx * off)
+        if not arrow_free(level, *tip):
+            return
         tail = (tip[0] - hx * ARROW_M, tip[1] - hy * ARROW_M)
         fork = (tail[0] + hx * ARROW_M * 0.45, tail[1] + hy * ARROW_M * 0.45)
         pieces, heads = [[tail, tip if "straight" in ways else fork]], []
@@ -429,7 +483,7 @@ def build(con, epsg):
             mark(uid, level, kind, safe("intersection", line, C), arm)
         return out, n_r, n_l, wl, src if not nl else "tag"
 
-    def pedestrian(uid, level, U, C, corner_of=None):
+    def pedestrian(uid, level, U, C, corner_of=None, kerb_near=None):
         """The pedestrian realm U - C: a furnishing strip by the kerb only where street furniture stands (out to it), open ground far
         from both kerb and buildings, sidewalk the rest. Measured: it runs from the kerb to the building faces."""
         P = area(safe("difference", U, C))
@@ -437,7 +491,8 @@ def build(con, epsg):
             return
         near = [b for k in (btree.query(U.buffer(OPEN_M)) if btree is not None else []) for lv, b in [blds[k]] if lv == level]
         B = shapely.union_all(near) if near else shapely.Polygon()
-        kerb = C.boundary if not C.is_empty else shapely.LineString()
+        # the kerb: the level's, near by, when given (so two neighbouring spaces judge their shared ground alike), else its own
+        kerb = kerb_near if kerb_near is not None and not kerb_near.is_empty else (C.boundary if not C.is_empty else shapely.LineString())
         furn = [o for o in ([objs[k] for k in otree.query(P)] if otree is not None else []) if o[2] == level and o[1] in FURNITURE and o[4].within(P)]
         for k, piece in enumerate(polys(P), start=1):
             grp = corner_of(piece, k) if corner_of else None
@@ -546,14 +601,48 @@ def build(con, epsg):
                 attrs.setdefault(de, {})["spreadType"] = "right"
         return sumo.network(con, attrs, epsg)
 
+    refuges = []        # mapped refuge islands: crossings tagged crossing:island=yes (ways and nodes)
+    try:
+        refuges = [g(w) for (w,) in con.execute(f"""SELECT {tr()} FROM space.element WHERE osm_id IN
+                       (SELECT osm_id FROM osm.raw.ways WHERE tags['crossing:island'] = 'yes')""").fetchall()]
+        refuges += [g(w) for (w,) in con.execute(f"""SELECT {tr('ST_Point(lon, lat)')} FROM osm.raw.nodes WHERE tags['crossing:island'] = 'yes'""").fetchall()]
+    except Exception:
+        pass
+    reshaped = {}       # unit id -> its new outline (a tunnel or a bridge cut back to its tube)
+    jnodes = {}         # intersection -> its nodes
+    for iid, w in con.execute(f"""SELECT j.intersection_id, {tr('n.p')} FROM space.junction j JOIN (SELECT src AS node, ST_StartPoint(geometry) AS p
+            FROM space.element WHERE type = 'road' UNION SELECT dst, ST_EndPoint(geometry) FROM space.element WHERE type = 'road') n ON n.node = j.node_id""").fetchall():
+        jnodes.setdefault(iid, []).append(g(w))
+
     def from_sumo(net):
         """Every unit's parts on SUMO's roadway: its lanes (each at its own width, numbered from the right) and junction shapes are the
         roadway; to it come the mapped crosswalks, a roundabout's island, the markings, the turns (space.turn) and the pedestrian realm
         out to the buildings (docs/design/space-parts.md, "The roadway from SUMO")."""
         lane_type = {"driving": "lane", "bus": "bus lane", "bike": "cycle lane"}
         way = {"s": "straight", "l": "left", "L": "left", "r": "right", "R": "right"}      # SUMO's dir; "t", a u-turn, is left out
-        lanes, by_edge = [], {}
+        # where a road only continues (its OSM way split there, no junction of ours), each lane runs on into the same lane of the next
+        # piece: SUMO ends one and starts the other, which left the lane and its lines broken at the join
+        import re
+        real = {str(n) for (n,) in con.execute("SELECT node_id FROM space.junction").fetchall()}
+        is_join = lambda j: not any(n in real for n in re.findall(r"\d+", j))
+        into_j, out_j = {}, {}
+        for edge, (fj, tj) in net["ends"].items():
+            into_j.setdefault(tj, []).append(edge)
+            out_j.setdefault(fj, []).append(edge)
+        start = {(e, i): xy[0] for e, i, n, w, k, xy in net["lanes"] if xy}
+        nlan = {}
+        for e, i, n, w, k, xy in net["lanes"]:
+            nlan[e] = n
+        stitched = []
         for edge, i, n, w, kind_, xy in net["lanes"]:
+            tj = net["ends"][edge][1]
+            if xy and is_join(tj):
+                nxt = [b for b in out_j.get(tj, []) if net["ends"][b][1] != net["ends"][edge][0] and nlan.get(b) == n]   # not its own way back
+                if len(nxt) == 1 and (nxt[0], i) in start:
+                    xy = list(xy) + [start[(nxt[0], i)]]
+            stitched.append((edge, i, n, w, kind_, xy))
+        lanes, by_edge = [], {}
+        for edge, i, n, w, kind_, xy in stitched:
             e = elem_of.get(edge)
             ln = shapely.LineString(xy) if len(xy) >= 2 else None
             if e is None or ln is None or ln.length < 0.2:
@@ -582,11 +671,45 @@ def build(con, epsg):
         juncs = [dict(id=j, poly=area(shapely.Polygon(xy)), level=max(set(votes[j]), key=votes[j].count))
                  for j, xy in net["junctions"].items() if len(xy) >= 3 and j in votes]
         juncs = [j for j in juncs if not j["poly"].is_empty]
-        road_of = {}    # level -> the roadway: lanes and junctions, closed over the slivers between neighbouring lanes at a bend
+        # where a road only continues (its way is split there, no junction of ours), SUMO's shape is a blob: a clean join of the lane
+        # ends meeting there instead
+        ends_at = {}
+        for edge, (fj, tj) in net["ends"].items():
+            for jj in (fj, tj):
+                ends_at.setdefault(jj, []).extend(by_edge.get(edge, []))
+        for j in juncs:
+            if not any(n in real for n in re.findall(r"\d+", j["id"])):
+                near = [area(safe("intersection", x["poly"], j["poly"].buffer(3.0))) for x in ends_at.get(j["id"], [])]
+                hull = shapely.union_all([g for g in near if not g.is_empty] or [shapely.Polygon()]).convex_hull
+                j["poly"] = area(hull) if not hull.is_empty else j["poly"]
+        road_of = {}    # level -> the roadway: lanes and junctions, closed over gaps narrower than ROADWAY_GAP_M (between two roads drawn side by
+        #                 side, between neighbouring lanes at a bend): no kerb in the middle of the road
         for lv in {x["level"] for x in lanes} | {j["level"] for j in juncs}:
             road_of[lv] = area(shapely.union_all([x["poly"] for x in lanes + sh if x["level"] == lv] + [j["poly"] for j in juncs if j["level"] == lv])
-                               .buffer(0.2, join_style="mitre").buffer(-0.2, join_style="mitre"))
+                               .buffer(ROADWAY_GAP_M / 2, join_style="mitre").buffer(-ROADWAY_GAP_M / 2, join_style="mitre"))
         ltree = shapely.STRtree([x["poly"] for x in lanes]) if lanes else None
+        road_parts = {lv: list(shapely.get_parts(g_)) for lv, g_ in road_of.items()}
+        road_trees = {lv: shapely.STRtree(v) for lv, v in road_parts.items() if v}
+
+        # the level's kerb as short segments, indexed once: a space takes the stretch near it
+        kerb_segs = {}
+        for lv, g_ in road_of.items():
+            segs = []
+            for poly in shapely.get_parts(g_):
+                for ring in [poly.exterior, *poly.interiors]:
+                    cs = list(ring.coords)
+                    segs += [shapely.LineString(cs[k:k + 2]) for k in range(len(cs) - 1)]
+            kerb_segs[lv] = (segs, shapely.STRtree(segs)) if segs else ([], None)
+
+        def kerb_at(lv, U_):
+            segs, t = kerb_segs.get(lv, ([], None))
+            near = [segs[k] for k in t.query(U_.buffer(OPEN_M + 2))] if t is not None else []
+            return shapely.MultiLineString(near) if near else None
+
+        def road_near(lv, U_):
+            t = road_trees.get(lv)
+            near = [road_parts[lv][k] for k in t.query(U_.buffer(1))] if t is not None else []
+            return shapely.union_all(near).buffer(0.05) if near else shapely.Polygon()
         jtree = shapely.STRtree([j["poly"] for j in juncs]) if juncs else None
         stree = shapely.STRtree([x["poly"] for x in sh]) if sh else None
         by_ends = {v: k for k, v in net["ends"].items()}
@@ -608,6 +731,19 @@ def build(con, epsg):
         for uid, kind, sec, level, U in units:
             rb, sub = kind == "roundabout", kind == "subsection"
             C = area(safe("intersection", road_of.get(level, shapely.Polygon()), U))
+            # a small pocket of ground the roadway nearly surrounds (a wedge where two roads meet at an angle) is roadway, unless a refuge
+            # island is mapped there
+            small = [q for q in polys(safe("difference", U, C)) if q.area < POCKET_MAX_M2 and not any(q.intersects(i) for i in refuges)]
+            Cb = road_near(level, U) if small else None    # the level's roadway, also beyond this space's edge (only when there is a pocket)
+            pockets = [q for q in small if q.boundary.intersection(Cb).length >= 0.85 * q.boundary.length]
+            if pockets:
+                C = area(safe("union", C, shapely.union_all(pockets)))
+            if level != 0 and not C.is_empty:     # a tunnel or a bridge is a tube: its roadway and a narrow walkway, not the open ground
+                tube = max(polys(safe("intersection", U, C.buffer(OFF_GROUND_M))), key=lambda x: x.area, default=None)   # beside it
+                if tube is not None and all(tube.distance(q) < 0.5 for q in jnodes.get(uid, [])):   # a junction keeps all its nodes
+                    U = tube
+                    reshaped[uid] = U
+                    C = area(safe("intersection", C, U))
             own = [e for e in (rtree_ids[k] for k in rtree.query(U))] if rtree is not None else []
             own = [e for e in own if roads[e]["level"] == level]
             taken = crossings(uid, level, U, C, [x for x in (line_in(roads[e], U) for e in own) if x is not None])
@@ -637,7 +773,7 @@ def build(con, epsg):
                     got = add(uid, level, x["typ"], piece, "sumo", arm=None if sub else roads[elem_of[x["edge"]]]["name"],
                               direction=d, lane=x["i"] + 1, width=x["w"])
                 if not area(got).is_empty:
-                    mine.append((x, d, longest(safe("intersection", x["ln"], U))))
+                    mine.append((x, d, longest(safe("intersection", x["ln"], U)), area(got).area))
             for x in ([sh[k] for k in stree.query(U) if sh[k]["level"] == level] if stree is not None else []):
                 got = add(uid, level, x["kind"][0], safe("intersection", x["poly"], U), x["kind"][1], width=x["w"])
                 if not got.is_empty and x["kind"][0] != "shoulder":     # the line between the lane and the parking strip
@@ -647,11 +783,12 @@ def build(con, epsg):
                 add(uid, level, "parking" if street else "parking lot", safe("difference", safe("intersection", lot, U), C), "osm")
             names = [(roads[e]["name"], roads[e]["g"]) for e, _ in cuts.get(uid, []) if e in roads]
             pedestrian(uid, level, U, C, None if sub or not names else
-                       lambda piece, k: " / ".join(nm for nm, _ in sorted(names, key=lambda t: t[1].distance(piece))[:2]))
+                       lambda piece, k: " / ".join(nm for nm, _ in sorted(names, key=lambda t: t[1].distance(piece))[:2]), kerb_near=kerb_at(level, U))
             # markings
             mark(uid, level, "kerb", safe("intersection", C.boundary, U.buffer(-0.05)))
             paint = safe("difference", C.buffer(0.05), taken)             # not across a crosswalk
-            for x, d, inside in mine:
+            own_secs = {sec, *((sub_of.get(uid, ("", None))[0] or "").split(","))} if sub else set()
+            for x, d, inside, got_m2 in mine:
                 arm = None if sub else roads[elem_of[x["edge"]]]["name"]
                 left = shapely.offset_curve(x["ln"], x["w"] / 2)          # the lane's left edge
                 if x["i"] < x["n"] - 1:
@@ -660,7 +797,10 @@ def build(con, epsg):
                     twin = by_ends.get(tuple(reversed(net["ends"][x["edge"]])))
                     if twin is not None and x["edge"] < twin:
                         mark(uid, level, "centre line", safe("intersection", left, paint), arm)
-                if (sub or d == "circulating") and x["typ"] != "cycle lane" and inside is not None and inside.length >= ARROW_M + 2:
+                # an arrow on a lane of this space's own road (not on one that only crosses or touches it), where the lane has ground here
+                mine_road = d == "circulating" or roads[elem_of[x["edge"]]]["cid"] in own_secs
+                if (sub or d == "circulating") and mine_road and got_m2 >= 2 * x["w"] and x["typ"] != "cycle lane" and inside is not None \
+                        and inside.length >= ARROW_M + 2:
                     arrow(uid, level, inside, 0.0, inside.length / 2 + ARROW_M / 2, 1)
             # the lanes coming into this junction (SUMO's, wherever its junction shape ends: maybe beyond the cut, in a subsection):
             # the ways each may go (space.turn, a guide line, a turn arrow) and a stop / give-way line where it enters the junction.
@@ -711,7 +851,7 @@ def build(con, epsg):
                 tx, ty = direction(line, line.length / 2)
                 inside = safe("intersection", shapely.LineString([(mid.x + ty * 60, mid.y - tx * 60), (mid.x - ty * 60, mid.y + tx * 60)]), U)
                 road_w, left, right = across(uid, inside, line, C, inside)
-                hit = [(x, d) for x, d, _ in mine if x["typ"] != "cycle lane" and x["poly"].intersects(inside)]
+                hit = [(x, d) for x, d, _, _ in mine if x["typ"] != "cycle lane" and x["poly"].intersects(inside)]
                 ws = [x["w"] for x, _ in hit]
                 srcs = sorted({m[2] for e in own for m in measured.get(e, [])}) or ["estimated"]
                 widths.append((uid, level, "middle", None, round(inside.length, 1), road_w, left, right, sum(d == "forward" for _, d in hit),
@@ -906,6 +1046,10 @@ def build(con, epsg):
             if u[1] != "subsection":
                 classic(*u)
 
+    if reshaped:
+        rdf = pd.DataFrame([(u, shapely.to_wkb(g)) for u, g in reshaped.items()], columns=["unit_id", "wkb"])
+        con.execute(f"""UPDATE space.unit u SET geometry = ST_Transform(ST_GeomFromWKB(r.wkb::BLOB), '{epsg}', 'EPSG:4326', always_xy := true)
+                        FROM rdf r WHERE u.unit_id = r.unit_id""")
     pdf = pd.DataFrame(parts, columns=["unit_id", "part_id", "level", "type", "arm", "direction", "lane", "width_m", "source", "wkb"])
     mdf = pd.DataFrame(marks, columns=["unit_id", "level", "type", "arm", "length_m", "wkb"])
     wdf = pd.DataFrame(widths, columns=["unit_id", "level", "edge", "arm", "total_m", "carriageway_m", "left_m", "right_m", "lanes_in", "lanes_out",

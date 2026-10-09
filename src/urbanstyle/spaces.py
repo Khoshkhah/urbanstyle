@@ -58,11 +58,13 @@ def _clean(g):
 
 
 def _union(gs):
-    """shapely.union_all that survives GEOS precision trouble (a non-noded intersection, a free hole): as is, else on a 1 cm grid,
-    else each piece snapped to that grid first."""
+    """shapely.union_all that survives GEOS precision trouble (a non-noded intersection, a free hole): as is, else on a 1 cm grid, else
+    as a coverage (pieces that do not overlap), else each piece snapped to that grid first, else one piece at a time."""
     import shapely
+    one_by_one = lambda: __import__("functools").reduce(lambda a, b: shapely.make_valid(a.union(b, grid_size=0.01)), gs, shapely.Polygon())
     for f in (lambda: shapely.union_all(gs), lambda: shapely.union_all(gs, grid_size=0.01),
-              lambda: shapely.union_all([shapely.make_valid(shapely.set_precision(g, 0.01)) for g in gs]).buffer(0)):
+              lambda: shapely.coverage_union_all(gs),      # Voronoi cells never overlap: a coverage, unioned edge by edge
+              lambda: shapely.union_all([shapely.make_valid(shapely.set_precision(g, 0.01)) for g in gs]).buffer(0), one_by_one):
         try:
             return f()
         except shapely.errors.GEOSException:

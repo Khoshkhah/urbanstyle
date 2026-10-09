@@ -844,7 +844,7 @@ def main(db, out):
                 coalesce(direction, '') AS direction, lane, width_m, source, method, ref,
                 round(ST_Area(ST_Transform(geometry, 'EPSG:4326', '{ep}', always_xy := true)), 1) AS area_m2 FROM space.part ORDER BY level""")   # upper levels drawn last
             pts_["color"] = [PART_COLORS.get(f"{t} {d}".strip(), PART_COLORS.get(t, "#999999")) for t, d in zip(pts_["type"], pts_["direction"])]
-            marks = frame(con, "SELECT ST_AsWKB(geometry) AS geometry, unit_id, level, type, coalesce(arm, '') AS arm, length_m FROM space.mark ORDER BY level")
+            marks = frame(con, "SELECT ST_AsWKB(geometry) AS geometry, unit_id, level, type, coalesce(arm, '') AS arm, length_m, source, method, ref FROM space.mark ORDER BY level")
             uwidths = con.execute("SELECT unit_id, edge, arm, total_m, carriageway_m, left_m, right_m, lanes_in, lanes_out, source FROM space.width").fetchall()
         except duckdb.CatalogException:
             pts_, marks, uwidths = pd.DataFrame({"type": []}), pd.DataFrame({"type": []}), []
@@ -925,7 +925,7 @@ def main(db, out):
                  + [o(pts_, color="#999999", color_col="color", opacity=0.95, outline="#475569", width=0, label="Parts", visible=False,
                       popup=["part_id", "type", "arm", "direction", "lane", "width_m", "area_m2", "source", "method", "ref"], tooltip=["type", "direction", "arm"])] * (len(pts_) > 0)
                  + [rs.Overlay(marks[marks["type"] == t], kind="line", placement="over", color=c, width_m=w, dash=dash, label=f"Mark: {t}", visible=False,
-                               popup=["unit_id", "type", "arm", "length_m"], tooltip=["type", "arm"]) for t, c, w, dash in MARKS if (marks["type"] == t).any()]
+                               popup=["unit_id", "type", "arm", "length_m", "source", "method", "ref"], tooltip=["type", "arm"]) for t, c, w, dash in MARKS if (marks["type"] == t).any()]
                  + [o(portals, color="#bdb8b0", color_col="color", opacity=0, width=0, label="Tunnel portals", visible=False,
                       popup=["part"], tooltip=["part"])] * (len(portals) > 0)      # drawn only by the 3D view (draw3d)
                  + [o(furn, color="#71717a", color_col="color", opacity=0, width=0, label="Street furniture 3D", visible=False,
@@ -975,7 +975,7 @@ def main(db, out):
                 newu["inter"][iid].setdefault("adj", []).append(sid)
         ways = {}           # (intersection, arm edge) -> its in lanes, rightmost first, and the ways each may go (SUMO's turns, space.turn)
         try:
-            for uid, edge, lane, turn in con.execute("SELECT DISTINCT unit_id, from_edge, from_lane, turn FROM space.turn ORDER BY 1, 2, 3").fetchall():
+            for uid, edge, lane, turn in con.execute("SELECT DISTINCT unit_id, from_edge, from_lane, turn FROM space.turn WHERE vehicles IS NULL ORDER BY 1, 2, 3").fetchall():
                 ways.setdefault((uid, edge), {}).setdefault(lane, set()).add(turn)
         except duckdb.CatalogException:
             pass

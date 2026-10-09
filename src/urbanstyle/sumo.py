@@ -14,18 +14,28 @@ NETCONVERT = {"junctions.join": "true",        # a dogleg's or a split road's cl
               "junctions.corner-detail": "8"}  # rounded kerbs at the junction corners
 
 
+CLASSES = ("passenger", "bus", "taxi", "truck", "bicycle")    # the vehicle classes a turn rule names (duckOSM turn_permission)
+
+
+def who(allow, disallow):
+    """The vehicles a SUMO lane lets through, from its allow / disallow: None for all traffic (cars, buses and lorries), else the
+    classes of CLASSES it lets through, e.g. "bus,taxi" for a turn open only to buses and taxis."""
+    ok = [c for c in CLASSES if (allow is None or c in allow.split()) and c not in (disallow or "").split()]
+    return None if {"passenger", "bus", "truck"} <= set(ok) else ",".join(ok)
+
+
 def network(con, edge_attrs, epsg):
     """`edge_attrs`: {edge_id: {sumo edge attribute: value}} for duckOSM's directed driving edges. Returns a dict:
     lanes [(edge, index from the right, lanes of the edge, width, kind driving / bus / bike, [(x, y)])], junctions {id: [(x, y)]},
     ends {edge: (from junction, to junction)}, conns [(from edge, from lane, to edge, to lane, dir, [(x, y)] of the path through the
-    junction)], in `epsg` (a UTM zone). None when duckOSM's SUMO export or netconvert is missing or fails, or SUMO did not use our zone:
+    junction, the vehicles it is open to: None for all traffic, else e.g. "bus,taxi" (who))], in `epsg` (a UTM zone). None when duckOSM's SUMO export or netconvert is missing or fails, or SUMO did not use our zone:
     the parts are then built without it."""
     import xml.etree.ElementTree as ET
     try:
         from duckosm.sumo import to_sumo
         cur = con.cursor()
         cur.execute("USE osm")
-        lanes, junctions, ends, conns, internal, onward = [], {}, {}, [], {}, {}
+        lanes, junctions, ends, conns, internal, onward, vehicles = [], {}, {}, [], {}, {}, {}
         with tempfile.TemporaryDirectory() as d:
             zone = int(epsg[-2:])          # our UTM zone, not the one SUMO would pick (they differ near a zone border)
             proj = f"+proj=utm +zone={zone}{' +south' if epsg.startswith('EPSG:327') else ''} +ellps=WGS84 +datum=WGS84 +units=m +no_defs"
@@ -43,6 +53,7 @@ def network(con, edge_attrs, epsg):
                     if el.get("function") == "internal":
                         for la in ls:
                             internal[la.get("id")] = pts(la.get("shape"))
+                            vehicles[la.get("id")] = who(la.get("allow"), la.get("disallow"))
                     elif el.get("function") is None:
                         ends[el.get("id")] = (el.get("from"), el.get("to"))
                         for la in ls:
@@ -60,12 +71,13 @@ def network(con, edge_attrs, epsg):
                         conns.append((el.get("from"), int(el.get("fromLane")), el.get("to"), int(el.get("toLane")), el.get("dir"), el.get("via")))
         path = []
         for f, fl, t, tl, dr, via in conns:
+            veh = vehicles.get(via)
             xy, seen = [], set()
             while via and via not in seen:
                 seen.add(via)
                 xy += internal.get(via, [])
                 via = onward.get(via)
-            path.append((f, fl, t, tl, dr, xy))
+            path.append((f, fl, t, tl, dr, xy, veh))
         return dict(lanes=lanes, junctions=junctions, ends=ends, conns=path)
     except Exception as e:
         log.warning(f"no SUMO roadway ({type(e).__name__}: {str(e)[:200]})")

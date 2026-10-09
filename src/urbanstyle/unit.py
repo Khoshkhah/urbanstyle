@@ -95,7 +95,8 @@ def match(con, seen):
 
 def clip(src, out, lon, lat, radius=CLIP_M):
     """A duckOSM database holding only what lies within `radius` m of (lon, lat): the mode networks (edges, their nodes, the turn
-    graph between kept edges), the raw tags of their ways, the raw nodes and the feature layers in the box."""
+    graph between kept edges and the turns open or closed to some vehicles), the raw tags of their ways, the raw nodes and the feature
+    layers in the box."""
     import duckdb
     if os.path.exists(out):
         os.remove(out)
@@ -112,6 +113,12 @@ def clip(src, out, lon, lat, radius=CLIP_M):
                         (SELECT source FROM {mode}.edges UNION SELECT target FROM {mode}.edges)""")
         con.execute(f"""CREATE TABLE {mode}.edge_graph AS SELECT * FROM s.{mode}.edge_graph
                         WHERE from_edge IN (SELECT edge_id FROM {mode}.edges) AND to_edge IN (SELECT edge_id FROM {mode}.edges)""")
+        for t in ("turn_permission", "turn_path_restrictions"):   # turns for some vehicles only, via-way restrictions (duckOSM)
+            try:
+                con.execute(f"""CREATE TABLE {mode}.{t} AS SELECT * FROM s.{mode}.{t}
+                                WHERE from_edge IN (SELECT edge_id FROM {mode}.edges) AND to_edge IN (SELECT edge_id FROM {mode}.edges)""")
+            except duckdb.CatalogException:
+                pass
     con.execute("""CREATE TABLE raw.ways AS SELECT * FROM s.raw.ways WHERE osm_id IN
                    (SELECT osm_id FROM driving.edges UNION SELECT osm_id FROM walking.edges UNION SELECT osm_id FROM cycling.edges)""")
     con.execute(f"CREATE TABLE raw.nodes AS SELECT * FROM s.raw.nodes WHERE ST_Intersects(ST_Point(lon, lat), {box})")
@@ -194,7 +201,7 @@ def dossier(space_db, osm_db, unit_id, out, name, city, nvdb=None, flows=None, m
     con.execute(f"""CREATE TABLE line AS SELECT row_number() OVER () AS line_id, type, arm, length_m,
                     CASE type WHEN 'stop line' THEN 0.4 WHEN 'give-way line' THEN 0.35 WHEN 'zebra' THEN 0.5 ELSE 0.12 END AS width_m,
                     CASE WHEN type = 'kerb' THEN 'kerb' WHEN type = 'guide line' THEN 'virtual' ELSE 'paint' END AS kind,
-                    {prov('urbanstyle', 'derived')}, {m('geometry')} AS geometry FROM sp.space.mark WHERE unit_id = '{unit_id}'""")
+                    source, method, ref, {ccase} AS confidence, {m('geometry')} AS geometry FROM sp.space.mark WHERE unit_id = '{unit_id}'""")
 
     # objects: what OSM maps and what Mapillary's photos see, in or by the unit, with a height
     hcase = "CASE class " + " ".join(f"WHEN '{k}' THEN {v}" for k, v in HEIGHT.items()) + " ELSE 1.0 END"
@@ -233,7 +240,7 @@ def dossier(space_db, osm_db, unit_id, out, name, city, nvdb=None, flows=None, m
     con.execute(f"""CREATE TABLE lane AS SELECT part_id AS lane_id, arm AS road_name, direction, lane AS lane_from_right, width_m, type AS kind,
                     {prov('sumo', 'derived')}, {m('geometry')} AS geometry FROM sp.space.part
                     WHERE unit_id = '{unit_id}' AND type IN ('lane', 'bus lane', 'cycle lane')""")
-    con.execute(f"""CREATE TABLE movement AS SELECT from_edge, from_lane, to_edge, to_lane, turn, {prov('sumo', 'derived')}, {m('geometry')} AS geometry
+    con.execute(f"""CREATE TABLE movement AS SELECT from_edge, from_lane, to_edge, to_lane, turn, vehicles, {prov('sumo', 'derived')}, {m('geometry')} AS geometry
                     FROM sp.space.turn WHERE unit_id = '{unit_id}'""")
 
     # rules: speed, parking and turn lanes from OSM's tags on the unit's roads; NVDB's prohibited turns

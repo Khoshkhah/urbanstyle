@@ -72,7 +72,7 @@ def tree_data(con, epsg):
 
 
 # the parts of a space (parts.py): a colour per type, lanes by direction
-PART_COLORS = {"lane circulating": "#4b5260", "junction box": "#3f4651", "lane in": "#4b5260", "lane out": "#454c59", "lane forward": "#4b5260", "lane backward": "#454c59",
+PART_COLORS = {"lane circulating": "#4b5260", "ring": "#4b5260", "junction box": "#4b5260", "lane in": "#4b5260", "lane out": "#454c59", "lane forward": "#4b5260", "lane backward": "#454c59",
                "lane both": "#4b5260", "lane": "#4b5260", "shoulder": "#5c6370", "carriageway": "#4b5260", "bus lane": "#9b2c2c",
                "cycle lane": "#2f855a", "cycle crossing": "#38a169", "crosswalk": "#4b5260", "island": "#8fbf6f",
                "sidewalk": "#d8d2c6", "furnishing": "#b9a58b", "open": "#e9e4d6"}   # asphalt, paving; crosswalks are asphalt under their zebra bars
@@ -538,7 +538,7 @@ def main(db, out):
                                popup=["node_id", "type", "level_a", "level_b", "assumed", "station_id", "match", "dist_m"], tooltip=["node_id", "type"]) for t, name, c, _ in defs]
                  + [o(units, color="#a78bfa", color_col="color", opacity=0.45, outline="#1f2937", width=1.2, label="Spaces",
                       popup=["unit_id", "kind", "section_id", "level"], tooltip=["unit_id", "kind"])] * (len(units) > 0)
-                 + [o(pts_, color="#999999", color_col="color", opacity=0.95, outline="#475569", width=0.5, label="Parts", visible=False,
+                 + [o(pts_, color="#999999", color_col="color", opacity=0.95, outline="#475569", width=0, label="Parts", visible=False,
                       popup=["part_id", "type", "arm", "direction", "lane", "width_m", "area_m2", "source"], tooltip=["type", "direction", "arm"])] * (len(pts_) > 0)
                  + [rs.Overlay(marks[marks["type"] == t], kind="line", placement="over", color=c, width_m=w, dash=dash, label=f"Mark: {t}", visible=False,
                                popup=["unit_id", "type", "arm", "length_m"], tooltip=["type", "arm"]) for t, c, w, dash in MARKS if (marks["type"] == t).any()]

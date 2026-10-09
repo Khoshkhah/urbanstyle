@@ -36,6 +36,7 @@ KERB_RADIUS_M = 3.0    # the radius of a junction's kerb around a block corner
 BAND_PAD_M = 12.0      # a road's bands are drawn this far past its unit and trimmed to it: they reach a slanted cut exactly
 ZEBRA_BAR_M, ZEBRA_GAP_M = 0.5, 0.5
 ARROW_M = 3.0          # a painted lane arrow's length
+SHOULDER_MAX_M = 2.5   # a shoulder beside SUMO's lanes is at most a parking lane; a wider measured kerb is left to the pedestrian realm
 
 
 def _unit(x, y):
@@ -224,16 +225,25 @@ def build(con, epsg):
             mark(uid, level, "zebra", safe("intersection", bar, poly.buffer(-0.1)))
             k += ZEBRA_BAR_M + ZEBRA_GAP_M
 
+    def across_road(seg, axes):     # does a path piece run across the nearest road (more than 45 degrees to it), not along it?
+        if not axes:
+            return True
+        m = seg.interpolate(0.5, normalized=True)
+        ln = min(axes, key=lambda a: a.distance(m))
+        tx, ty = direction(ln, ln.project(m))
+        sx, sy = _unit(seg.coords[-1][0] - seg.coords[0][0], seg.coords[-1][1] - seg.coords[0][1])
+        return abs(tx * sx + ty * sy) < math.cos(math.radians(45))
+
     def crossings(uid, level, U, C, axes):
-        """Crosswalks and cycle crossings over the roadway C: mapped crossing paths, else crossing points square across the nearest of
-        `axes` [line]. Draws the zebra bars. Returns the ground they took."""
+        """Crosswalks and cycle crossings over the roadway C: mapped crossing paths (the pieces that run across a road, not along it),
+        else crossing points square across the nearest of `axes` [line]. Draws the zebra bars. Returns the ground they took."""
         near = [paths[k] for k in ptree.query(U)] if ptree is not None else []
         mapped, taken = [], shapely.Polygon()
         for typ, sub, lv, ln in near:
             if lv != level or not (sub == "crossing" or typ == "cycleway"):
                 continue
             on = safe("intersection", ln, C.buffer(1.0))
-            for seg in [x for x in shapely.get_parts(on) if x.geom_type == "LineString" and x.length >= 1.0]:
+            for seg in [x for x in shapely.get_parts(on) if x.geom_type == "LineString" and x.length >= 1.0 and across_road(x, axes)]:
                 w = CROSSWALK_M if typ == "walkway" else CYCLE_M
                 got = add(uid, level, "crosswalk" if typ == "walkway" else "cycle crossing", safe("intersection", seg.buffer(w / 2, cap_style="flat"), C), "measured", width=w)
                 if typ == "walkway":
@@ -295,7 +305,15 @@ def build(con, epsg):
             piece = shapely.LineString(pc)
             marks.append((uid, level, "arrow", arm, round(piece.length, 1), shapely.to_wkb(piece)))
 
-    def lane_set(uid, level, C, ln, r, right, left, one, arm=None, half=None, arrows="middle"):     # arrows: middle, ends, out (in lanes: turn arrows)
+    def curve(pa, ha, pb, hb):  # a quadratic curve from pa (heading ha) to pb (heading hb), its control where the two headings meet
+        cr = ha[0] * hb[1] - ha[1] * hb[0]
+        dx, dy = pb[0] - pa[0], pb[1] - pa[1]
+        u, v = ((dx * hb[1] - dy * hb[0]) / cr, (ha[0] * dy - ha[1] * dx) / cr) if abs(cr) > 0.2 else (-1, -1)
+        q = (pa[0] + u * ha[0], pa[1] + u * ha[1]) if u > 0 and v > 0 else ((pa[0] + pb[0]) / 2, (pa[1] + pb[1]) / 2)
+        return shapely.LineString([((1 - t) ** 2 * pa[0] + 2 * (1 - t) * t * q[0] + t * t * pb[0],
+                                    (1 - t) ** 2 * pa[1] + 2 * (1 - t) * t * q[1] + t * t * pb[1]) for t in [i / 12 for i in range(13)]])
+
+    def lane_set(uid, level, C, ln, r, right, left, one, arm=None, half=None, arrows="middle"):
         """The lanes of road `r` (its line `ln`) in the roadway C, each side's measured width shared equally among that side's lanes;
         a tagged cycle or bus lane takes the outer edge of its side first. Lanes come back as (direction, polygon, from, to offsets). Two-way: `right` lanes on the right of the line, `left` on its
         left; one-way: all `one`. `half`: (left, right, source) measured elsewhere (an arm's approach). Returns ([(direction, polygon)],
@@ -361,7 +379,7 @@ def build(con, epsg):
             if typ == "lane":
                 out.append((d, got, a0, b0))
                 sgn = 1 if d == right else (-1 if d == left else 0)          # `right` lanes run along the line, `left` lanes back
-                if sgn and la is not None and la.length >= ARROW_M + 2 and not (arrows == "out" and sgn < 0):
+                if sgn and la is not None and la.length >= ARROW_M + 2:
                     t = (la.length / 2 + sgn * ARROW_M / 2 if arrows == "middle" else
                          (1.0 if sgn < 0 else la.length - 1.0))           # ends: an arm's in lanes point at the junction, out lanes away
                     arrow(uid, level, la, (a0 + b0) / 2, t, sgn, arm)
@@ -415,7 +433,6 @@ def build(con, epsg):
                     if x.geom_type == "LineString" and not x.is_empty), key=lambda x: x.length, default=None)
 
     counts = {}     # road (edge id) -> [(lanes src -> dst, lanes dst -> src, lane width)] in its subsections
-    turns = None    # SUMO's lane-to-lane connections, once the subsections are done
     turn_rows = []
     measured = {}   # road (edge id) -> [(left, right)] measured mid-block in its subsections, sides seen along the road's own geometry
 
@@ -423,36 +440,223 @@ def build(con, epsg):
         g0, g1, l0, l1 = r["g"].coords[0], r["g"].coords[-1], ln.coords[0], ln.coords[-1]
         return (g1[0] - g0[0]) * (l1[0] - l0[0]) + (g1[1] - g0[1]) * (l1[1] - l0[1]) >= 0
 
-    def sumo_turns():
-        """SUMO's lane-to-lane connections on duckOSM's driving network, its lanes as measured in the subsections. Returns
-        (connections, lanes per edge, {(osm way, from node, to node): directed edge}, {directed edge: road element})."""
+    directed, elem_of, bus_edges, shoulders = {}, {}, set(), {}     # shoulders: directed edge -> (right, left) m beyond its lanes   # (osm way, from node, to node) -> directed duckOSM edge; directed edge -> road element
+
+    def sumo_roadway():
+        """SUMO's roadway (sumo.network) on duckOSM's driving network, each direction of a road with the lanes measured in its
+        subsections (count and width; a tagged bus lane is one more lane at its right, a cycle lane SUMO's bike lane). None without SUMO."""
         from urbanstyle import sumo
         try:
-            dir_edges = con.execute("SELECT edge_id::VARCHAR, source, target, osm_id FROM osm.driving.edges").fetchall()
-        except Exception:
-            return None, {}, {}, {}
+            dir_edges = con.execute("SELECT edge_id::VARCHAR, source, target, osm_id, coalesce(is_reverse, false) FROM osm.driving.edges").fetchall()
+        except Exception as e:
+            sumo.log.warning(f"no SUMO roadway: no duckOSM driving network ({type(e).__name__})")
+            return None
         own = {(r["osm"], min(r["src"], r["dst"]), max(r["src"], r["dst"])): e for e, r in roads.items()}
-        directed, elem_of, attrs = {}, {}, {}
-        for de, s_, t_, osm in dir_edges:
+        attrs = {}
+        for de, s_, t_, osm, rev in dir_edges:
             directed[(osm, s_, t_)] = de
             e = own.get((osm, min(s_, t_), max(s_, t_)))
             if e is None:
                 continue
             elem_of[de] = e
+            if not counts.get(e):       # no subsection measured it (a roundabout's ring, a junction's own link): estimated
+                k = max(1, round(sum(estimate(roads[e])) / EST_LANE_M))
+                counts[e] = [(k, 0, EST_LANE_M) if roads[e]["oneway"] else (max(1, k // 2), max(1, k // 2), EST_LANE_M)]
             if counts.get(e):
                 c = sorted(counts[e])[len(counts[e]) // 2]
                 n = c[0] if (s_, t_) == (roads[e]["src"], roads[e]["dst"]) else c[1]
                 if n > 0:
                     attrs[de] = {"numLanes": n, "width": round(min(max(c[2], MIN_LANE_M), MAX_LANE_M), 2)}
-        conns, nlanes = sumo.connections(con, attrs)
-        return conns, nlanes or {}, directed, elem_of
+                    sl, sr, _ = sides.get(osm, (None, None, []))
+                    extra = sl if rev else sr                     # what the way has on this direction's right
+                    if extra == "bus lane":
+                        attrs[de]["numLanes"] = n + 1
+                        bus_edges.add(de)
+                    elif extra == "cycle lane":
+                        attrs[de]["bikeLaneWidth"] = CYCLE_M
+                    ms = measured.get(e)
+                    if ms:      # the measured kerbs beyond the lanes: a shoulder (parking, a hard strip). Two-way: each direction right of
+                        hl = sorted(m[0] for m in ms)[len(ms) // 2]      # the line, out to its own kerb; one-way: centred on it
+                        hr = sorted(m[1] for m in ms)[len(ms) // 2]
+                        if (s_, t_) != (roads[e]["src"], roads[e]["dst"]):
+                            hl, hr = hr, hl
+                        L = attrs[de]["numLanes"] * attrs[de]["width"] + attrs[de].get("bikeLaneWidth", 0)
+                        sr, sl = (hr - L, 0.0) if c[0] and c[1] else (hr - L / 2, hl - L / 2)
+                        if max(sr, sl) > 0.3:
+                            shoulders[de] = tuple(min(x, SHOULDER_MAX_M) if x > 0.3 else 0.0 for x in (sr, sl))
+        return sumo.network(con, attrs, epsg)
 
-    for uid, kind, sec, level, U in sorted(units, key=lambda u: u[1] != "subsection"):
+    def from_sumo(net):
+        """Every unit's parts on SUMO's roadway: its lanes (each at its own width, numbered from the right) and junction shapes are the
+        roadway; to it come the mapped crosswalks, a roundabout's island, the markings, the turns (space.turn) and the pedestrian realm
+        out to the buildings (docs/design/space-parts.md, "The roadway from SUMO")."""
+        lane_type = {"driving": "lane", "bus": "bus lane", "bike": "cycle lane"}
+        way = {"s": "straight", "l": "left", "L": "left", "r": "right", "R": "right"}      # SUMO's dir; "t", a u-turn, is left out
+        lanes, by_edge = [], {}
+        for edge, i, n, w, kind_, xy in net["lanes"]:
+            e = elem_of.get(edge)
+            ln = shapely.LineString(xy) if len(xy) >= 2 else None
+            if e is None or ln is None or ln.length < 0.2:
+                continue
+            x = dict(edge=edge, i=i, n=n, w=w, ln=ln, poly=ln.buffer(w / 2, cap_style="flat"), level=roads[e]["level"],
+                     typ="bus lane" if kind_ == "driving" and i == 0 and edge in bus_edges else lane_type[kind_])
+            lanes.append(x)
+            by_edge.setdefault(edge, []).append(x)
+        sh = []         # shoulders: beside the outer lanes, stopping short of the junctions (parking stops before a corner)
+        for edge, (sr, sl) in shoulders.items():
+            xs = sorted(by_edge.get(edge, []), key=lambda x: x["i"])
+            if not xs:
+                continue
+            for w_, x, sgn in ((sr, xs[0], -1), (sl, xs[-1], 1)):
+                base = shapely.offset_curve(x["ln"], sgn * x["w"] / 2)
+                if w_ <= 0 or base.is_empty or base.geom_type != "LineString" or base.length < 8:
+                    continue
+                base = substring(base, KERB_RADIUS_M, base.length - KERB_RADIUS_M)
+                sh.append(dict(edge=edge, w=w_, level=x["level"], poly=base.buffer(sgn * w_, single_sided=True, cap_style="flat")))
+        votes = {}      # a junction is on the level of the roads that meet there
+        for edge, ends in net["ends"].items():
+            for j in ends:
+                if edge in elem_of:
+                    votes.setdefault(j, []).append(roads[elem_of[edge]]["level"])
+        juncs = [dict(id=j, poly=area(shapely.Polygon(xy)), level=max(set(votes[j]), key=votes[j].count))
+                 for j, xy in net["junctions"].items() if len(xy) >= 3 and j in votes]
+        juncs = [j for j in juncs if not j["poly"].is_empty]
+        road_of = {}    # level -> the roadway: lanes and junctions, closed over the slivers between neighbouring lanes at a bend
+        for lv in {x["level"] for x in lanes} | {j["level"] for j in juncs}:
+            road_of[lv] = area(shapely.union_all([x["poly"] for x in lanes + sh if x["level"] == lv] + [j["poly"] for j in juncs if j["level"] == lv])
+                               .buffer(0.2, join_style="mitre").buffer(-0.2, join_style="mitre"))
+        ltree = shapely.STRtree([x["poly"] for x in lanes]) if lanes else None
+        jtree = shapely.STRtree([j["poly"] for j in juncs]) if juncs else None
+        stree = shapely.STRtree([x["poly"] for x in sh]) if sh else None
+        by_ends = {v: k for k, v in net["ends"].items()}
+        into = {}       # junction -> the lanes that end there
+        for x in lanes:
+            into.setdefault(net["ends"][x["edge"]][1], []).append(x)
+        utree = shapely.STRtree([u[4] for u in units])
+
+        def unit_at(pt, level, default):     # the unit a point lies in
+            return next((units[k][0] for k in utree.query(pt) if units[k][3] == level and units[k][4].distance(pt) < 0.1), default)
+        conns = {}
+        for f, fl, t, tl, dr, xy in net["conns"]:
+            conns.setdefault((f, fl), []).append((t, tl, dr, xy))
+
+        def longest(geom):
+            return max((x for x in shapely.get_parts(shapely.line_merge(geom) if geom.geom_type == "MultiLineString" else geom)
+                        if x.geom_type == "LineString" and not x.is_empty), key=lambda x: x.length, default=None)
+
+        for uid, kind, sec, level, U in units:
+            rb, sub = kind == "roundabout", kind == "subsection"
+            C = area(safe("intersection", road_of.get(level, shapely.Polygon()), U))
+            own = [e for e in (rtree_ids[k] for k in rtree.query(U))] if rtree is not None else []
+            own = [e for e in own if roads[e]["level"] == level]
+            taken = crossings(uid, level, U, C, [x for x in (line_in(roads[e], U) for e in own) if x is not None])
+            if rb:          # the island: the ground the ring's line encloses, less half the ring's roadway (SUMO's junction shapes reach into it)
+                ring_e = [e for e in own if roads[e]["osm"] in ring_osm]
+                ring = [x for x in (line_in(roads[e], U, pad=BAND_PAD_M) for e in ring_e) if x is not None]
+                enclosed = shapely.union_all(list(shapely.get_parts(shapely.polygonize(ring))) or [shapely.Polygon()])
+                half = max((sum(estimate(roads[e])) / 2 for e in ring_e), default=0)
+                C = area(safe("union", C, safe("intersection", enclosed.buffer(half), U)))     # the ring's roadway, round, whatever SUMO's pieces
+                island = add(uid, level, "island", safe("intersection", enclosed.buffer(-half - 2).buffer(2), U), "measured")
+                taken = safe("union", taken, island)
+                C = area(safe("difference", C, island))
+            jq = [juncs[k] for k in jtree.query(U) if juncs[k]["level"] == level] if jtree is not None else []
+            jhere = {j["id"] for j in jq if U.buffer(0.5).contains(j["poly"].representative_point())}
+            line = sub_of.get(uid, (None, None))[1]
+            mine = []       # (lane, direction, its line inside the unit)
+            for x in ([lanes[k] for k in ltree.query(U) if lanes[k]["level"] == level] if ltree is not None else []):
+                fj, tj = net["ends"][x["edge"]]
+                if sub:
+                    d = "forward" if line is None or line.project(shapely.Point(x["ln"].coords[-1])) >= line.project(shapely.Point(x["ln"].coords[0])) else "backward"
+                else:
+                    d = ("circulating" if rb else None) if fj in jhere and tj in jhere else "in" if tj in jhere else "out" if fj in jhere else None
+                piece = safe("intersection", x["poly"], U)
+                if d == "circulating":          # a roundabout's ring is one part (the ring), its lanes only painted
+                    got = piece
+                else:
+                    got = add(uid, level, x["typ"], piece, "sumo", arm=None if sub else roads[elem_of[x["edge"]]]["name"],
+                              direction=d, lane=x["i"] + 1, width=x["w"])
+                if not area(got).is_empty:
+                    mine.append((x, d, longest(safe("intersection", x["ln"], U))))
+            for x in ([sh[k] for k in stree.query(U) if sh[k]["level"] == level] if stree is not None else []):
+                add(uid, level, "shoulder", safe("intersection", x["poly"], U), "measured", width=x["w"])
+            add(uid, level, "carriageway" if sub else "ring" if rb else "junction box", C, "sumo")   # the rest of the roadway, one part
+            names = [(roads[e]["name"], roads[e]["g"]) for e, _ in cuts.get(uid, []) if e in roads]
+            pedestrian(uid, level, U, C, None if sub or not names else
+                       lambda piece, k: " / ".join(nm for nm, _ in sorted(names, key=lambda t: t[1].distance(piece))[:2]))
+            # markings
+            mark(uid, level, "kerb", safe("intersection", C.boundary, U.buffer(-0.05)))
+            paint = safe("difference", C.buffer(0.05), taken)             # not across a crosswalk
+            for x, d, inside in mine:
+                arm = None if sub else roads[elem_of[x["edge"]]]["name"]
+                left = shapely.offset_curve(x["ln"], x["w"] / 2)          # the lane's left edge
+                if x["i"] < x["n"] - 1:
+                    mark(uid, level, "lane line", safe("intersection", left, paint), arm)
+                else:               # the leftmost lane of a two-way road: the centre line, drawn by one of its two directions
+                    twin = by_ends.get(tuple(reversed(net["ends"][x["edge"]])))
+                    if twin is not None and x["edge"] < twin:
+                        mark(uid, level, "centre line", safe("intersection", left, paint), arm)
+                if (sub or d == "circulating") and x["typ"] != "cycle lane" and inside is not None and inside.length >= ARROW_M + 2:
+                    arrow(uid, level, inside, 0.0, inside.length / 2 + ARROW_M / 2, 1)
+            # the lanes coming into this junction (SUMO's, wherever its junction shape ends: maybe beyond the cut, in a subsection):
+            # the ways each may go (space.turn, a guide line, a turn arrow) and a stop / give-way line where it enters the junction.
+            # An arrow or a line belongs to the unit it lies in.
+            for x in ([] if sub else [x for j in jhere for x in into.get(j, []) if x["level"] == level]):
+                if x["typ"] == "cycle lane" or net["ends"][x["edge"]][0] in jhere:
+                    continue
+                arm = roads[elem_of[x["edge"]]]["name"]
+                moves = [(t, tl, way[dr], xy) for t, tl, dr, xy in conns.get((x["edge"], x["i"]), []) if dr in way]
+                for t, tl, w_, xy in moves:
+                    if len(xy) >= 2:
+                        g_ = shapely.LineString(xy)
+                        if not rb:          # a roundabout has no guide lines: the ring shows the way round
+                            mark(uid, level, "guide line", safe("intersection", g_, U), arm)
+                        turn_rows.append((uid, level, elem_of[x["edge"]], x["i"] + 1, elem_of.get(t, t), tl + 1, w_, "sumo", shapely.to_wkb(g_)))
+                back = shapely.LineString(x["ln"].coords[::-1])               # from the junction back along the lane
+                if moves and back.length >= ARROW_M + 2 and not rb:
+                    turn_arrow(unit_at(back.interpolate(1.0), level, uid), level, back, 0.0, {m[2] for m in moves}, arm)
+                end = shapely.Point(x["ln"].coords[-1])
+                near = [objs[k] for k in otree.query(end.buffer(CONTROL_M))] if otree is not None else []
+                ctl = [o for o in near if o[3] and o[2] == level and o[4].distance(x["ln"]) <= x["w"] + 6]
+                if rb:
+                    ctl = [(None, None, level, "give_way", None)]      # at a roundabout every entry gives way to the ring
+                if ctl:
+                    t0 = max(x["ln"].length - 0.3, 0)
+                    c, (tx, ty), h = x["ln"].interpolate(t0), direction(x["ln"], t0), x["w"] / 2
+                    mark(unit_at(c, level, uid), level, "give-way line" if all(o[3] == "give_way" for o in ctl) else "stop line",
+                         shapely.LineString([(c.x - ty * h, c.y + tx * h), (c.x + ty * h, c.y - tx * h)]), arm)
+            # widths: at each arm's cut, or across the middle of a subsection
+            if not sub:
+                for eid, cut in cuts.get(uid, []):
+                    r = roads.get(eid)
+                    ln = line_in(r, U) if r is not None else None
+                    if ln is None:
+                        continue
+                    if shapely.Point(ln.coords[0]).distance(cut) < shapely.Point(ln.coords[-1]).distance(cut):
+                        ln = shapely.LineString(ln.coords[::-1])          # from the junction out to the cut
+                    road_w, left, right = across(uid, cut, ln, C, cut)
+                    node, far = (r["dst"], r["src"]) if not along_own(r, ln) else (r["src"], r["dst"])
+                    li = [x for x in by_edge.get(directed.get((r["osm"], far, node)), []) if x["typ"] != "cycle lane"]
+                    lo = [x for x in by_edge.get(directed.get((r["osm"], node, far)), []) if x["typ"] != "cycle lane"]
+                    ws = [x["w"] for x in li + lo]
+                    srcs = sorted(m[2] for m in measured.get(eid, [])) or ["estimated"]
+                    widths.append((uid, level, eid, r["name"], round(cut.length, 1), road_w, left, right, len(li), len(lo),
+                                   round(sum(ws) / len(ws), 2) if ws else None, srcs[0]))
+            elif line is not None and line.length > 0:
+                mid = line.interpolate(0.5, normalized=True)
+                tx, ty = direction(line, line.length / 2)
+                inside = safe("intersection", shapely.LineString([(mid.x + ty * 60, mid.y - tx * 60), (mid.x - ty * 60, mid.y + tx * 60)]), U)
+                road_w, left, right = across(uid, inside, line, C, inside)
+                hit = [(x, d) for x, d, _ in mine if x["typ"] != "cycle lane" and x["poly"].intersects(inside)]
+                ws = [x["w"] for x, _ in hit]
+                srcs = sorted({m[2] for e in own for m in measured.get(e, [])}) or ["estimated"]
+                widths.append((uid, level, "middle", None, round(inside.length, 1), road_w, left, right, sum(d == "forward" for _, d in hit),
+                               sum(d == "backward" for _, d in hit), round(sum(ws) / len(ws), 2) if ws else None, srcs[0]))
+
+    def classic(uid, kind, sec, level, U):
+        """The parts of one unit built around the OSM centrelines (the roadway as bands of the measured widths): the subsections always
+        (they measure every road's kerbs and lanes, SUMO's input), the junctions when SUMO is not there."""
         if kind in ("intersection", "roundabout"):
             rb = kind == "roundabout"
-            if turns is None:
-                turns = sumo_turns()
-            conns, nlanes, directed, elem_of = turns
             arms = []
             for eid, cut in cuts.get(uid, []):
                 r = roads.get(eid)
@@ -478,10 +682,8 @@ def build(con, epsg):
                 else:
                     hl, hr, src_ = kerbs(ln, level, r)
                 ends_here = not along_own(r, ln)     # the arm runs out from the junction: a one-way road running the other way comes in
-                node, far = (r["dst"], r["src"]) if ends_here else (r["src"], r["dst"])      # the junction's end of the road, its other end
                 arms.append(dict(eid=eid, r=r, ln=ln, lx=lx or ln, cut=cut, hl=hl, hr=hr, src=src_,
-                                 one="in" if ends_here else "out", name=r["name"],
-                                 e_in=directed.get((r["osm"], far, node)), e_out=directed.get((r["osm"], node, far))))
+                                 one="in" if ends_here else "out", name=r["name"]))
             # the roadway of a junction, built from its arms as on the street: each arm's roadway up to the junction, the kerbs of
             # neighbouring arms joined around each block corner with a rounded corner
             C = shapely.Polygon()
@@ -539,72 +741,25 @@ def build(con, epsg):
                 ap = substring(ln, s_stop, ln.length) if s_stop > 0 else ln
                 a["s_stop"], a["ap"] = s_stop, ap
                 # seen from the junction (the line runs outwards): right-hand traffic drives out on the right and comes in on the left
-                with_turns = conns is not None and not rb and a["e_in"] in nlanes
                 lanes, n_r, n_l, wl, src = lane_set(uid, level, safe("difference", C, taken), ap, a["r"], "out", "in", a["one"], arm=a["name"],
-                                                    half=(a["hl"], a["hr"], a["src"]), arrows="out" if with_turns else "ends")
+                                                    half=(a["hl"], a["hr"], a["src"]), arrows="ends")
                 arm_lanes[a["eid"]] = (lanes, wl, src)
                 taken = safe("union", taken, shapely.union_all([x[1] for x in lanes] or [shapely.Polygon()]))
             box = add(uid, level, "junction box", safe("difference", C, taken), "measured")
-            # guide lines through the junction box (a dashed line on the map): from each lane coming in to the lane it may go on to,
-            # SUMO's lane-to-lane connections (space.turn) where there are any, else from every lane in to every lane out on another arm
-            def lane_ends(a, ways):     # an arm's lanes one way, rightmost first, each with its middle at the stop position
+            # guide lines through the junction box (a dashed line on the map): from every lane coming in to every lane out on another arm
+            # (which lane may go where is known only from SUMO)
+            def lane_ends(a, ways):     # an arm's lanes one way, each with its middle at the stop position
                 c0 = a["ap"].interpolate(0)
                 tx, ty = direction(a["ap"], 0)
-                ls = sorted((x for x in arm_lanes.get(a["eid"], ([], 0, ""))[0] if x[0] in (ways, "both")),
-                            key=lambda x: -(x[2] + x[3]) if ways == "in" else x[2] + x[3])      # coming in, the right is ap's left
-                return [((c0.x - ty * (lo + hi) / 2, c0.y + tx * (lo + hi) / 2), (lo + hi) / 2) for d, p, lo, hi in ls], (tx, ty)
-
-            def curve(pa, ha, pb, hb):  # a quadratic curve from pa (heading ha) to pb (heading hb), its control where the two headings meet
-                cr = ha[0] * hb[1] - ha[1] * hb[0]
-                dx, dy = pb[0] - pa[0], pb[1] - pa[1]
-                u, v = ((dx * hb[1] - dy * hb[0]) / cr, (ha[0] * dy - ha[1] * dx) / cr) if abs(cr) > 0.2 else (-1, -1)
-                q = (pa[0] + u * ha[0], pa[1] + u * ha[1]) if u > 0 and v > 0 else ((pa[0] + pb[0]) / 2, (pa[1] + pb[1]) / 2)
-                return shapely.LineString([((1 - t) ** 2 * pa[0] + 2 * (1 - t) * t * q[0] + t * t * pb[0],
-                                            (1 - t) ** 2 * pa[1] + 2 * (1 - t) * t * q[1] + t * t * pb[1]) for t in [i / 12 for i in range(13)]])
-
-            live = [a for a in arms if "ap" in a]
-            out_of = {a["e_out"]: a for a in live if a["e_out"]}
-            Ub = U.buffer(1.0)
-
-            def reach(edge, lane, depth=0):     # the arms (and their lanes) a SUMO lane leads to, through the junction's own roads
-                for te, tl in conns.get((edge, lane), []):
-                    if te in out_of:
-                        yield out_of[te], te, tl
-                    elif depth < 6 and te in elem_of and roads[elem_of[te]]["g"].within(Ub):
-                        yield from reach(te, tl, depth + 1)
-            guided = False
+                return [(c0.x - ty * (lo + hi) / 2, c0.y + tx * (lo + hi) / 2) for d, p, lo, hi in arm_lanes.get(a["eid"], ([], 0, ""))[0]
+                        if d in (ways, "both")], (tx, ty)
+            live = [a for a in arms if "ap" in a] if not rb else []      # a roundabout: its circulating lanes show the way round
             for a in live:
-                if conns is None or rb or a["e_in"] not in nlanes:
-                    continue
                 ins, (tx, ty) = lane_ends(a, "in")
-                m = nlanes[a["e_in"]]
-                ha = (-tx, -ty)
-                for k, (pa, off) in enumerate(ins):
-                    ways = set()
-                    for b, te, tl in {(b["eid"], te, tl): (b, te, tl) for b, te, tl in reach(a["e_in"], min(m - 1, k * m // len(ins)))}.values():
-                        outs, hb = lane_ends(b, "out")
-                        if not outs or b is a:
-                            continue
-                        cr, dt = ha[0] * hb[1] - ha[1] * hb[0], ha[0] * hb[0] + ha[1] * hb[1]
-                        ang = math.degrees(math.atan2(cr, dt))
-                        way = "straight" if abs(ang) < 35 else ("u-turn" if abs(ang) > 150 else ("left" if ang > 0 else "right"))
-                        if way == "u-turn":
-                            continue
-                        j = min(len(outs) - 1, tl * len(outs) // max(nlanes.get(te, 1), 1))
-                        g_ = curve(pa, ha, outs[j][0], hb)
-                        mark(uid, level, "guide line", safe("intersection", g_, C))
-                        turn_rows.append((uid, level, a["eid"], k + 1, b["eid"], j + 1, way, "sumo", shapely.to_wkb(g_)))
-                        ways.add(way)
-                        guided = True
-                    if ways:
-                        turn_arrow(uid, level, a["ap"], off, ways, a["name"])
-            if not guided and not rb:
-                for a in live:
-                    ins, (tx, ty) = lane_ends(a, "in")
-                    for b in live:
-                        outs, hb = lane_ends(b, "out") if b is not a else ([], None)
-                        for (pa, _), (pb, _) in ((x, y) for x in ins for y in outs):
-                            mark(uid, level, "guide line", safe("intersection", curve(pa, (-tx, -ty), pb, hb), C))
+                for b in live:
+                    outs, hb = lane_ends(b, "out") if b is not a else ([], None)
+                    for pa, pb in ((x, y) for x in ins for y in outs):
+                        mark(uid, level, "guide line", safe("intersection", curve(pa, (-tx, -ty), pb, hb), C))
             for a in arms:      # stop / give-way lines: across the in lanes, at the stop position, where a sign or a signal says so
                 near = [objs[k] for k in otree.query(a["ln"].buffer(max(a["hl"], a["hr"]) + 6))] if otree is not None else []
                 ctl = [o for o in near if o[3] and o[2] == level and o[4].distance(shapely.Point(a["ln"].coords[0])) <= CONTROL_M]
@@ -672,6 +827,19 @@ def build(con, epsg):
                 n_b = sum(d in ("backward", "both") and not p.is_empty and p.intersects(inside) for d, p, *_ in ulanes)
                 widths.append((uid, level, "middle", None, round(inside.length, 1), road_w, left, right, n_f, n_b,
                                round(sum(wls) / len(wls), 2) if wls else None, sorted(srcs)[0] if srcs else "estimated"))
+
+    for u in units:
+        if u[1] == "subsection":
+            classic(*u)
+    net = sumo_roadway()
+    if net:
+        for acc in (parts, marks, widths, count, claimed):
+            acc.clear()
+        from_sumo(net)
+    else:
+        for u in units:
+            if u[1] != "subsection":
+                classic(*u)
 
     pdf = pd.DataFrame(parts, columns=["unit_id", "part_id", "level", "type", "arm", "direction", "lane", "width_m", "source", "wkb"])
     mdf = pd.DataFrame(marks, columns=["unit_id", "level", "type", "arm", "length_m", "wkb"])

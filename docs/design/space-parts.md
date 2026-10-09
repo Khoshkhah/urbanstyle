@@ -2,7 +2,7 @@
 
 <p class="lead">Every new space (an intersection or a subsection, <code>space.unit</code>) is divided into the parts you see on the street, with the lines painted on it and the width of every edge.</p>
 
-Status (2026-10-08): agreed with Kaveh; built for intersections, roundabouts and subsections. Widths are measured from mapped sidewalks and crossings where they exist (see parts.py); the fixed sidewalk bands of the first version are gone. Built on the network-first spaces
+Status (2026-10-08): agreed with Kaveh; built for intersections, roundabouts and subsections; the roadway now comes from SUMO (below). Widths are measured from mapped sidewalks and crossings where they exist (see parts.py); the fixed sidewalk bands of the first version are gone. Built on the network-first spaces
 ([network first](network-first.md)).
 
 ## Parts (`space.part`)
@@ -17,7 +17,9 @@ one, and a `source`: `tag` (lanes / width tagged), `measured` (a mapped line: a 
 | `lane` | one traffic lane, `in` or `out` (intersection), `forward` / `backward` (subsection) | lanes tag, else carriageway width / 3.25 m; two-way roads split either side of the centreline, right-hand traffic |
 | `crosswalk` | a pedestrian crossing over the carriageway, 3 m wide | a mapped crossing path; else a crossing point, square across its road |
 | `cycle crossing` / `cycle lane` | a cycle track over / along the carriageway, 2 m wide | mapped cycleways |
-| `island` | a refuge in the carriageway | island tags (rare) |
+| `island` | a refuge in the carriageway; a roundabout's central island | island tags (rare); the ring's line |
+| `ring` | a roundabout's circulating roadway, one part | the ring's line ± half its roadway, with SUMO's roadway |
+| `shoulder` | beside the outer lane, out to the measured kerb: parking or a hard strip | measured kerb minus SUMO's lanes |
 | `sidewalk`, `furnishing`, `frontage` | the pedestrian realm: kerb side (1.8 m), building side (1.2 m), the rest | the space minus the carriageway, as `strips.py` bands it |
 | `open` | ground beyond the reach of any measurement | the rest |
 
@@ -33,18 +35,37 @@ Lines painted or built on the street: `kerb` (where carriageway meets pedestrian
 `in` lanes at the junction side of its approach, where a stop or give-way sign or a traffic signal stands on that arm), `lane line`
 (between two lanes of one direction), `centre line` (between the two directions).
 
-## Turns (`space.turn`)
+## The roadway from SUMO
 
-Which lane may go where at an intersection comes from **SUMO**. duckOSM writes its driving network for SUMO (`duckosm.sumo.to_sumo`,
-SUMO edge id = duckOSM `edge_id`, the legal turns from its `edge_graph`, so turn restrictions hold), with the lane count and lane width of
-every road as measured in its subsections here (median per direction); SUMO's `netconvert` then assigns lanes to turns (right turns
-from the right lanes, left turns from the left). Its lane-to-lane connections are followed through the junction's own roads (a
-dogleg's short links) to the arm they leave by. Each becomes a row of `space.turn` (`unit_id`, `from_edge`, `from_lane`, `to_edge`,
-`to_lane`, lanes counted from the right, `turn` left / straight / right by the angle between the two arms, `source` = `sumo`, the
-curve as geometry), a guide line through the junction box, and one painted **arrow** per lane coming in, with a head for each way it
-may go. U-turns are left out; roundabouts have none (their circulating lanes show the way). Where SUMO is not available (no duckOSM
-with SUMO, or no `osm` database attached) every lane in is joined to every lane out, as before. Monaco: 1,462 turns in all 287
-intersections (636 straight, 428 right, 398 left). Built in `src/urbanstyle/sumo.py`; needs `pip install "duckosm[sumo]"`.
+Status (2026-10-08): built on Monaco. The roadway (lanes and junction shapes) is drawn by **SUMO** rather than built here from bands
+around the OSM centrelines, which left steps at the cuts and blobs at complex junctions.
+
+1. The subsections are built first, the classic way: they measure every road's kerbs and its lanes per direction (count and width).
+2. duckOSM writes its driving network for SUMO (`duckosm.sumo.to_sumo`: SUMO edge id = duckOSM `edge_id`, the legal turns from its
+   `edge_graph`) with those lanes: the median count and width per direction; a tagged bus lane is one more lane at the right
+   (`bus lane`), a tagged cycle lane SUMO's bike lane (1.5 m). A road no subsection measured (a roundabout's ring, a junction's own
+   link) gets the estimate. One-way roads are centred on their line; a two-way road's directions lie either side of it. `netconvert` joins close junctions into one and rounds the kerb
+   corners (`src/urbanstyle/sumo.py`, in our UTM zone).
+3. Every unit is then filled from SUMO's shapes: the roadway is SUMO's lanes (each at its width, numbered from the right) and junction
+   shapes, closed over the slivers between lanes, plus the **shoulders**: where the measured kerb lies beyond SUMO's outer lane, a
+   `shoulder` (parking, a hard strip; at most 2.5 m, stopping 3 m short of a junction). In it, in this order: mapped crosswalks
+   (only the pieces that run across a road), a roundabout's island (the ground its ring's line encloses, less half the ring's
+   roadway, rounded), the lanes (`in` / `out` of the junction, or `forward` / `backward` along a subsection), the shoulders, and the
+   rest of the roadway as ONE part: the `junction box` of an intersection, the `ring` of a roundabout (its circulating lanes are
+   painted on it, not separate parts; the ring is the ring's line ± half its roadway, round whatever SUMO's pieces), the
+   `carriageway` of a subsection. Then the pedestrian realm out to the buildings as before. Parts from SUMO have `source` = `sumo`.
+   The dashboard draws parts without outlines: the asphalt is one surface, and the lines on it are the marks.
+4. Marks: the kerb; lane lines between the lanes of one direction and the centre line between the two (not across a crosswalk); an
+   arrow in the middle of each lane of a subsection; at each junction, for each lane coming in, a turn arrow with a head for each way it
+   may go, a stop or give-way line where it enters the junction (a sign or signal nearby; every roundabout entry gives way), and SUMO's
+   path through the junction for each move as a guide line (not at a roundabout: arrows round its ring show the way) and a row of
+   **`space.turn`** (`unit_id`, `from_edge`, `from_lane`,
+   `to_edge`, `to_lane`, `turn` left / straight / right from SUMO's direction, `source` `sumo`). U-turns are left out. A mark lies in
+   the unit it is drawn in: SUMO's junction shape can end beyond a close cut, so an arrow or a stop line may lie in the subsection.
+
+Without SUMO (no `pip install "duckosm[sumo]"`, or no `osm` database attached) every unit is built the classic way. Monaco:
+1,181 turns (625 straight, 310 right, 246 left), 27 islands, lanes 2.5-3.75 m (median 3.25), 922 shoulders (median 1.7 m); checks
+U1-U9 pass, U10 (roadway steps at cuts) 508 (583 before).
 
 ## Edges and widths
 

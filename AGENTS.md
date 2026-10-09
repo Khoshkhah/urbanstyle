@@ -34,7 +34,8 @@ The order of work: `docs/plan.md`.
   changes), `space.unit` (one space per subsection and per intersection, cut at the block corners, `space.cut`), and inside each space
   `space.part` (lanes in/out or forward/backward, junction box, crosswalks, cycle lanes, sidewalk bands), `space.mark` (kerb, centre,
   lane, stop and give-way lines, turn arrows), `space.width` (widths per arm / across each subsection) and `space.turn` (lane-to-lane moves
-  at intersections from SUMO: `sumo.py` runs duckOSM's `to_sumo` with the measured lanes; skipped if SUMO is missing). `urbanstyle check`
+  at intersections). The roadway (lanes, junction shapes, turns) comes from SUMO: the subsections measure the lanes, `sumo.py` runs
+  duckOSM's `to_sumo` with them, `from_sumo()` fills every unit; without SUMO `classic()` builds the roadway from bands. `urbanstyle check`
   U1-U9 test them.
 - `src/urbanstyle/cli.py`: the `urbanstyle build | check | quality | dashboard` command.
 - `docs/`: the MkDocs site (`mkdocs.yml`); `docs/design/` the design notes. `docs/img/sodermalm.jpg` and `section.jpg` are screenshots of the dashboard

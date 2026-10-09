@@ -66,7 +66,8 @@ a column or a table name it is written in `code`. "Built" says whether it exists
 | **OSM way / node** | the OSM line / point objects. A way id is part of every container id |
 | **id formats** | `s0-123` street, `p0-123` path space, `r0-123` rail space, `i0-123` intersection (level, then an OSM id); `n123` / `w123` an OSM node / way as an object or building |
 | `space.*` | the tables this project writes: `element`, `container`, `zone`, `link`, `station`, `object` (and, planned, `axis`, `strip`, `boundary`); the network-first preview adds `subsection`, `unit`, `cut`, `part`, `mark`, `width`, `turn` |
-| `space.turn` | one row per lane-to-lane move through an intersection: `from_edge`/`from_lane` → `to_edge`/`to_lane` (lanes counted from the right), `turn` left / straight / right, `source` `sumo` ([the inside of a space](space-parts.md#turns-spaceturn)) |
+| `ring`, `shoulder` (part types) | a roundabout's circulating roadway as one part; the strip between the outer lane and the measured kerb (parking, a hard strip) |
+| `space.turn` | one row per lane-to-lane move through an intersection: `from_edge`/`from_lane` → `to_edge`/`to_lane` (lanes counted from the right), `turn` left / straight / right, `source` `sumo` ([the roadway from SUMO](space-parts.md#the-roadway-from-sumo)) |
 | **linear referencing** | giving a position as `s` (distance along a reference line) and `t` (offset across it), as OpenDRIVE and IFC do |
 | `s`, `t` | distance along the axis in metres from its start, and signed lateral offset (left positive) |
 | **UTM** | the metric coordinate system the measuring runs in; results are stored in lon/lat |

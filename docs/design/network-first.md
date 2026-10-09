@@ -28,7 +28,7 @@ junction. Every unit is one valid polygon; no two overlap (checks U1-U7).
 ## Step 3: inside each space (`parts.py`)
 
 See [The inside of a space](space-parts.md): lanes, junction box, roundabout island and circulating lanes, crosswalks, cycle and bus lanes,
-sidewalks; markings at real size; the turns each lane may make (from SUMO); widths per arm and across each subsection, each with its source (measured from mapped sidewalks or
+sidewalks; markings at real size; the roadway and the turns each lane may make from SUMO; widths per arm and across each subsection, each with its source (measured from mapped sidewalks or
 crossings, tagged, or estimated). Checks U8-U10.
 
 ## Where it stands

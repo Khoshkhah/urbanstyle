@@ -452,7 +452,8 @@ def test_turns_at_a_t_junction_come_from_sumo(tmp_path):
     osm = make_osm(tmp_path / "osm.duckdb", edges={"driving": rows})
     o = duckdb.connect(osm)
     o.execute("LOAD spatial; CREATE TABLE driving.nodes (node_id BIGINT, geom GEOMETRY)")
-    o.execute("ALTER TABLE driving.edges ADD COLUMN maxspeed_kmh FLOAT; ALTER TABLE driving.edges ADD COLUMN length_m FLOAT")
+    o.execute("ALTER TABLE driving.edges ADD COLUMN maxspeed_kmh FLOAT; ALTER TABLE driving.edges ADD COLUMN length_m FLOAT;"
+              "ALTER TABLE driving.edges ADD COLUMN is_reverse BOOLEAN")
     for n, (x, y) in xy.items():
         o.execute(f"INSERT INTO driving.nodes VALUES ({n}, ST_Point({x}, {y}))")
     o.execute("""CREATE TABLE driving.edge_graph AS SELECT a.edge_id AS from_edge, b.edge_id AS to_edge, 1.0 AS cost

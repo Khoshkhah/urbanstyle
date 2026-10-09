@@ -20,6 +20,10 @@ sides: the cut joins them; one corner: the cut runs through it along the street 
 none: square to the arm at the crossing street's half-width + 1 m. A cut takes at most half the street to the next junction. The intersection
 is the area its cuts enclose, minus the buildings: its core (nodes, the roads between them) and every arriving road up to its cut are its own;
 of the rest it takes what the roads' spaces do not hold. A junction holding a roundabout's ring is a **roundabout**, a kind of its own.
+Which nodes form one junction is `space.junction` (`intersection_id`, `node_id`, `level`, `cluster_id`): the container step's groups of close
+nodes (`space.arm`), except that a group holding a roundabout's ring keeps only the ring and what lies within 12 m of it (an entry's splitter
+island); a farther node that is a real junction is an intersection of its own (`i<level>-<its smallest node>`), and the roads between it and
+the ring are roads again. Sainte-Dévote: 4,210 m² before (it held the junctions around it), 909 m² now; Monaco: 16 junctions split off.
 
 A **subsection's** space is a ribbon parallel to its road: a side with buildings reaches 4 m past the facade line and the building line is its
 edge; an open side reaches the cap (or halfway to a parallel road with no building between). Square cuts at the splits, the arm's cut at a

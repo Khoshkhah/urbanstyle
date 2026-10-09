@@ -15,7 +15,7 @@ def unit_checks(c, q, epsg):
     and in no road's space or line, or a click on it in the dashboard opens the road instead of the intersection."""
     m = lambda g: f"ST_Transform({g}, 'EPSG:4326', '{epsg}', always_xy := true)"
     c.execute(f"""CREATE TEMP TABLE u AS SELECT unit_id, kind, level, ST_MakeValid(ST_Buffer({m('geometry')}, -0.01)) AS g FROM space.unit""")
-    c.execute(f"""CREATE TEMP TABLE jn AS SELECT DISTINCT a.intersection_id, a.level, n.p FROM space.arm a
+    c.execute(f"""CREATE TEMP TABLE jn AS SELECT DISTINCT a.intersection_id, a.level, n.p FROM space.junction a
                   JOIN (SELECT src AS node, {m('ST_StartPoint(geometry)')} AS p FROM space.element WHERE type = 'road' AND src IS NOT NULL
                         UNION SELECT dst, {m('ST_EndPoint(geometry)')} FROM space.element WHERE type = 'road' AND dst IS NOT NULL) n ON n.node = a.node_id""")
     return [
@@ -23,7 +23,7 @@ def unit_checks(c, q, epsg):
                                   AND ST_Intersects(a.g, b.g) WHERE ST_Area(ST_Intersection(a.g, b.g)) > 0.5"""), True),
         ("U2", "spaces invalid, empty or in more than one part", q("""SELECT count(*) FROM space.unit
                                   WHERE NOT ST_IsValid(geometry) OR ST_IsEmpty(geometry) OR ST_NumGeometries(geometry) > 1"""), True),
-        ("U3", "junctions with no intersection space", q("""SELECT count(DISTINCT intersection_id) FROM space.arm
+        ("U3", "junctions with no intersection space", q("""SELECT count(DISTINCT intersection_id) FROM space.junction
                                   WHERE intersection_id NOT IN (SELECT unit_id FROM space.unit)"""), True),
         ("U4", "junction nodes outside their own intersection space (> 0.5 m)", q("""SELECT count(*) FROM jn
                                   JOIN u ON u.unit_id = jn.intersection_id WHERE ST_Distance(u.g, jn.p) > 0.5"""), True),

@@ -1,4 +1,4 @@
-"""The `urbanstyle` command: build, check, quality, dashboard."""
+"""The `urbanstyle` command: build, check, quality, dashboard, mapillary."""
 import argparse
 import sys
 
@@ -14,6 +14,9 @@ def main(argv=None):
     d = sub.add_parser("dashboard", help="an offline HTML map with the hierarchy tree (needs roadstyle)")
     d.add_argument("db")
     d.add_argument("out")
+    m = sub.add_parser("mapillary", help="fetch Mapillary's street-level features and photos for a built area (needs a token)")
+    m.add_argument("db")
+    m.add_argument("--osm", help="the duckOSM .duckdb it was built from: rebuild the parts with them now")
     a = p.parse_args(argv)
 
     if a.cmd == "build":
@@ -31,6 +34,9 @@ def main(argv=None):
         from .quality import run
         for x in a.db:
             run(x)
+    elif a.cmd == "mapillary":
+        from .mapillary import main as mly
+        mly(a.db, a.osm)
     else:
         from .dashboard import main as dash
         dash(a.db, a.out)

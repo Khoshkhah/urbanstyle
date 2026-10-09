@@ -465,3 +465,21 @@ def test_turns_at_a_t_junction_come_from_sumo(tmp_path):
     assert {("Stem St", "left", "West St"), ("Stem St", "right", "East St"), ("West St", "straight", "East St"),
             ("West St", "right", "Stem St"), ("East St", "left", "Stem St")} <= got, got
     assert all(f != d for f, _, d in got)
+
+
+def test_mapillary_features_load_into_groups(tmp_path):
+    """A fetched Mapillary file loads as space.observed (only the classes urbanstyle uses, in their groups) and space.photo."""
+    import json
+    from urbanstyle import mapillary
+    feat = lambda i, v: {"id": str(i), "object_value": v, "geometry": {"type": "Point", "coordinates": [7.42, 43.73]},
+                         "first_seen_at": "2021-09-20T12:07:22+0000", "last_seen_at": "2022-07-22T13:28:47+0000"}
+    path = tmp_path / "x.mapillary.json"
+    path.write_text(json.dumps({"bbox": [7.4, 43.7, 7.5, 43.8], "features": [feat(1, "regulatory--no-parking--g1"), feat(2, "information--parking--g1"),
+                    feat(3, "marking--discrete--arrow--left"), feat(4, "regulatory--yield--g1")],
+                    "photos": [{"id": "9", "captured_at": 1538473168349, "geometry": {"type": "Point", "coordinates": [7.42, 43.73]}}]}))
+    con = duckdb.connect()
+    con.execute("INSTALL spatial; LOAD spatial")
+    assert mapillary.load(con, str(path)) == (4, 1)
+    assert dict(con.execute("SELECT feature_id, grp FROM space.observed").fetchall()) == {"1": "no parking", "2": "parking", "3": "lane arrow", "4": "give way"}
+    assert mapillary.group("object--support--pole") is None
+    assert con.execute("SELECT captured::DATE::VARCHAR FROM space.photo").fetchone()[0] == "2018-10-02"

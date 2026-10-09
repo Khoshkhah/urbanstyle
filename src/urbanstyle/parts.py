@@ -36,6 +36,7 @@ KERB_RADIUS_M = 3.0    # the radius of a junction's kerb around a block corner
 BAND_PAD_M = 12.0      # a road's bands are drawn this far past its unit and trimmed to it: they reach a slanted cut exactly
 ZEBRA_BAR_M, ZEBRA_GAP_M = 0.5, 0.5
 ARROW_M = 3.0          # a painted lane arrow's length
+SIGN_M = 8.0           # a Mapillary parking / no-parking sign this close to a shoulder says what it is (its position is ~1-5 m off)
 SHOULDER_MAX_M = 2.5   # a shoulder beside SUMO's lanes is at most a parking lane; a wider measured kerb is left to the pedestrian realm
 
 
@@ -117,6 +118,45 @@ def build(con, epsg):
                  THEN json_extract_string(attrs, '$.highway') END, {tr()}
             FROM space.object WHERE class LIKE 'crossing.%' OR class IN {FURNITURE}
                OR json_extract_string(attrs, '$.highway') IN ('stop', 'give_way')""").fetchall()]
+    # street-level observations (mapillary.py, where fetched): signs, signals and street furniture join the objects (stop / give-way
+    # lines, the furnishing strip); on the level of the nearest road. Parking signs also decide which shoulders are parking.
+    seen = []
+    try:
+        seen = [(fid, grp, g(w)) for fid, grp, w in con.execute(f"SELECT feature_id, grp, {tr()} FROM space.observed").fetchall()]
+    except Exception:       # not fetched for this area
+        pass
+    as_object = {"street light": ("furniture.lamp", None), "bin": ("furniture.waste", None), "bench": ("furniture.bench", None),
+                 "traffic light": ("furniture.signal", "signal"), "give way": ("furniture.sign", "give_way"), "stop": ("furniture.sign", "stop"),
+                 "parking": ("furniture.sign", None), "no parking": ("furniture.sign", None)}
+    for fid, grp, p in seen:
+        if grp in as_object and rtree is not None:
+            objs.append((f"mly{fid}", as_object[grp][0], roads[rtree_ids[rtree.nearest(p)]]["level"], as_object[grp][1], p))
+    signs = [(grp, p) for _, grp, p in seen if grp in ("parking", "no parking")]
+    sgtree = shapely.STRtree([p for _, p in signs]) if signs else None
+    # parking mapped in OSM: areas (along the kerb: parking=lane / street_side; else a lot; not underground or multi-storey) and
+    # motorcycle parking points
+    lots, moto = [], []
+    try:
+        lots = [(kind_ in ("lane", "street_side"), g(w)) for kind_, w in con.execute(f"""SELECT tags['parking'], {tr('geom')} FROM osm.features.sites
+                WHERE kind = 'parking' AND coalesce(tags['parking'], '') NOT IN ('underground', 'multi-storey', 'rooftop')""").fetchall()]
+        moto = [g(w) for (w,) in con.execute(f"SELECT {tr('geom')} FROM osm.features.pois WHERE kind = 'motorcycle_parking'").fetchall()]
+    except Exception:
+        pass
+    lot_tree = shapely.STRtree([x for _, x in lots]) if lots else None
+    moto_tree = shapely.STRtree(moto) if moto else None
+
+    def parking_of(strip):
+        """(part type, source) of a shoulder strip: parking where OSM maps street parking or motorcycle parking on it, else as the
+        nearest Mapillary parking / no-parking sign within SIGN_M says; else a shoulder of unknown use."""
+        if lot_tree is not None and any(lots[k][0] for k in lot_tree.query(strip.buffer(1.0), predicate="intersects")):
+            return "parking", "osm"
+        if moto_tree is not None and len(moto_tree.query(strip.buffer(3.0), predicate="intersects")):
+            return "parking", "osm"
+        near = sorted(((signs[k][1].distance(strip), signs[k][0]) for k in sgtree.query(strip.buffer(SIGN_M))), key=lambda t: t[0]) if sgtree is not None else []
+        if near:
+            return ("parking" if near[0][1] == "parking" else "no parking"), "mapillary"
+        return "shoulder", "measured"
+
     otree = shapely.STRtree([o[4] for o in objs]) if objs else None
     blds = [(lv, g(w)) for lv, w in con.execute(f"SELECT l, {tr()} FROM space.element, generate_series(level_min, level_max) t(l) WHERE type = 'building'").fetchall()]
     btree = shapely.STRtree([b[1] for b in blds]) if blds else None
@@ -452,6 +492,23 @@ def build(con, epsg):
             sumo.log.warning(f"no SUMO roadway: no duckOSM driving network ({type(e).__name__})")
             return None
         own = {(r["osm"], min(r["src"], r["dst"]), max(r["src"], r["dst"])): e for e, r in roads.items()}
+        # the two halves of a divided road mapped as two one-way ways close together: each lies right of its own line (side by side,
+        # as a two-way road's directions do), not centred on it, or they overlap where the lines run closer than the roadway is wide
+        ones = [e for e, r in roads.items() if r["oneway"]]
+        otr = shapely.STRtree([roads[e]["g"] for e in ones]) if ones else None
+        halves = set()
+        for e in ones:
+            g_, w_ = roads[e]["g"], sum(estimate(roads[e]))
+            for t in (0.25, 0.5, 0.75):
+                m = g_.interpolate(t, normalized=True)
+                tx, ty = direction(g_, g_.length * t)
+                for k in otr.query(m.buffer(w_)):
+                    f = ones[k]
+                    gf = roads[f]["g"]
+                    if f != e and roads[f]["level"] == roads[e]["level"] and gf.distance(m) < w_:
+                        fx, fy = direction(gf, gf.project(m))
+                        if tx * fx + ty * fy < -0.8:
+                            halves.add(e)
         attrs = {}
         for de, s_, t_, osm, rev in dir_edges:
             directed[(osm, s_, t_)] = de
@@ -481,9 +538,12 @@ def build(con, epsg):
                         if (s_, t_) != (roads[e]["src"], roads[e]["dst"]):
                             hl, hr = hr, hl
                         L = attrs[de]["numLanes"] * attrs[de]["width"] + attrs[de].get("bikeLaneWidth", 0)
-                        sr, sl = (hr - L, 0.0) if c[0] and c[1] else (hr - L / 2, hl - L / 2)
+                        sr, sl = (hr - L, 0.0) if (c[0] and c[1]) or e in halves else (hr - L / 2, hl - L / 2)
                         if max(sr, sl) > 0.3:
                             shoulders[de] = tuple(min(x, SHOULDER_MAX_M) if x > 0.3 else 0.0 for x in (sr, sl))
+        for de, e in elem_of.items():
+            if e in halves:
+                attrs.setdefault(de, {})["spreadType"] = "right"
         return sumo.network(con, attrs, epsg)
 
     def from_sumo(net):
@@ -512,7 +572,8 @@ def build(con, epsg):
                 if w_ <= 0 or base.is_empty or base.geom_type != "LineString" or base.length < 8:
                     continue
                 base = substring(base, KERB_RADIUS_M, base.length - KERB_RADIUS_M)
-                sh.append(dict(edge=edge, w=w_, level=x["level"], poly=base.buffer(sgn * w_, single_sided=True, cap_style="flat")))
+                poly = base.buffer(sgn * w_, single_sided=True, cap_style="flat")
+                sh.append(dict(edge=edge, w=w_, level=x["level"], poly=poly, base=base, kind=parking_of(poly)))
         votes = {}      # a junction is on the level of the roads that meet there
         for edge, ends in net["ends"].items():
             for j in ends:
@@ -578,8 +639,12 @@ def build(con, epsg):
                 if not area(got).is_empty:
                     mine.append((x, d, longest(safe("intersection", x["ln"], U))))
             for x in ([sh[k] for k in stree.query(U) if sh[k]["level"] == level] if stree is not None else []):
-                add(uid, level, "shoulder", safe("intersection", x["poly"], U), "measured", width=x["w"])
+                got = add(uid, level, x["kind"][0], safe("intersection", x["poly"], U), x["kind"][1], width=x["w"])
+                if not got.is_empty and x["kind"][0] != "shoulder":     # the line between the lane and the parking strip
+                    mark(uid, level, "edge line", safe("intersection", x["base"], U))
             add(uid, level, "carriageway" if sub else "ring" if rb else "junction box", C, "sumo")   # the rest of the roadway, one part
+            for street, lot in ([lots[k] for k in lot_tree.query(U)] if lot_tree is not None and level == 0 else []):
+                add(uid, level, "parking" if street else "parking lot", safe("difference", safe("intersection", lot, U), C), "osm")
             names = [(roads[e]["name"], roads[e]["g"]) for e, _ in cuts.get(uid, []) if e in roads]
             pedestrian(uid, level, U, C, None if sub or not names else
                        lambda piece, k: " / ".join(nm for nm, _ in sorted(names, key=lambda t: t[1].distance(piece))[:2]))

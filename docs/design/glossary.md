@@ -66,6 +66,9 @@ a column or a table name it is written in `code`. "Built" says whether it exists
 | **OSM way / node** | the OSM line / point objects. A way id is part of every container id |
 | **id formats** | `s0-123` street, `p0-123` path space, `r0-123` rail space, `i0-123` intersection (level, then an OSM id); `n123` / `w123` an OSM node / way as an object or building |
 | `space.*` | the tables this project writes: `element`, `container`, `zone`, `link`, `station`, `object` (and, planned, `axis`, `strip`, `boundary`); the network-first preview adds `subsection`, `unit`, `cut`, `part`, `mark`, `width`, `turn` |
+| `space.junction` | the nodes of each junction of the network-first spaces: the container step's groups (`cluster_id`), a roundabout's group cut back to its ring ([network first](network-first.md)) |
+| `space.observed`, `space.photo` | Mapillary's map features (`grp`: parking, no parking, give way, stop, traffic light, street light, bin, bench, lane arrow, zebra) and photo positions ([Mapillary observations](mapillary.md)) |
+| `parking`, `no parking`, `parking lot` (part types) | a shoulder where parking is mapped or signed; one where signs forbid it; an OSM parking area inside a space |
 | `ring`, `shoulder` (part types) | a roundabout's circulating roadway as one part; the strip between the outer lane and the measured kerb (parking, a hard strip) |
 | `space.turn` | one row per lane-to-lane move through an intersection: `from_edge`/`from_lane` → `to_edge`/`to_lane` (lanes counted from the right), `turn` left / straight / right, `source` `sumo` ([the roadway from SUMO](space-parts.md#the-roadway-from-sumo)) |
 | **linear referencing** | giving a position as `s` (distance along a reference line) and `t` (offset across it), as OpenDRIVE and IFC do |

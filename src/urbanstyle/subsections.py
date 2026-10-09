@@ -18,6 +18,7 @@ Ids: <section id>/<k>, k = 1, 2, ... along each run of the section's roads.
 import math
 
 STEP_M = 3.0
+SPLIT_M = 12.0     # a node of a roundabout's group farther than this from its ring is a junction of its own (an entry's splitter island is nearer)
 MIN_M = 12.0
 STEP_BACK_M = 3.0
 BLINE_M = 3.0
@@ -141,10 +142,61 @@ def _followers(runs, bparts, btree):
     return out
 
 
+def junctions(con, epsg):
+    """space.junction (intersection_id, node_id, level, cluster_id): which junction each node belongs to in the network-first spaces.
+    The container step groups close nodes into one intersection (space.arm, cluster_id); a group holding a roundabout's ring is cut
+    back to the ring and what lies within SPLIT_M of it (an entry's splitter island): farther nodes are junctions of their own (each
+    connected group of them, id i<level>-<its smallest node>), and the roads between them and the ring are roads again."""
+    import shapely
+    to_m = lambda col: f"ST_AsWKB(ST_Transform({col}, 'EPSG:4326', '{epsg}', always_xy := true))"
+    members = con.execute("SELECT DISTINCT intersection_id, node_id, level FROM space.arm").fetchall()
+    out = {(iid, n, lv): iid for iid, n, lv in members}
+    try:
+        ring_osm = {r[0] for r in con.execute("SELECT osm_id FROM osm.raw.ways WHERE tags['junction'] IN ('roundabout', 'circular')").fetchall()}
+    except Exception:
+        ring_osm = set()
+    if ring_osm:
+        edges = con.execute(f"""SELECT source_id, src, dst, osm_id, {to_m('geometry')}, {to_m('ST_StartPoint(geometry)')}, {to_m('ST_EndPoint(geometry)')}
+                                FROM space.element WHERE type = 'road' AND src IS NOT NULL AND dst IS NOT NULL""").fetchall()
+        xy, degree, ring_g = {}, {}, {}
+        for _, s, d, osm, g, ps, pd_ in edges:
+            xy[s], xy[d] = shapely.from_wkb(bytes(ps)), shapely.from_wkb(bytes(pd_))
+            degree[s], degree[d] = degree.get(s, 0) + 1, degree.get(d, 0) + 1
+            if osm in ring_osm:
+                for n in (s, d):
+                    ring_g.setdefault(n, []).append(shapely.from_wkb(bytes(g)))
+        clusters = {}
+        for iid, n, lv in members:
+            clusters.setdefault((iid, lv), set()).add(n)
+        for (iid, lv), nodes in clusters.items():
+            on_ring = {n for n in nodes if n in ring_g}
+            if not on_ring:
+                continue
+            ring = shapely.union_all([g for n in on_ring for g in ring_g[n]])
+            off = {n for n in nodes - on_ring if n in xy and xy[n].distance(ring) > SPLIT_M}
+            comp = {n: n for n in off}          # connected groups of the far nodes, by the roads between them
+            find = lambda n: n if comp[n] == n else find(comp[n])
+            for _, s, d, *_ in edges:
+                if s in off and d in off:
+                    comp[find(s)] = find(d)
+            groups = {}
+            for n in off:
+                groups.setdefault(find(n), []).append(n)
+            for grp in groups.values():
+                if max(degree.get(n, 0) for n in grp) >= 3:     # a real junction (a bend in a road stays with the roundabout)
+                    for n in grp:
+                        out[(iid, n, lv)] = f"i{lv}-{min(grp)}"
+    import pandas as pd
+    df = pd.DataFrame([(new, n, lv, iid) for (iid, n, lv), new in out.items()], columns=["intersection_id", "node_id", "level", "cluster_id"])
+    con.execute("""CREATE OR REPLACE TABLE space.junction AS SELECT intersection_id::VARCHAR AS intersection_id, node_id::BIGINT AS node_id,
+                   level::INT AS level, cluster_id::VARCHAR AS cluster_id FROM df""")
+
+
 def build(con, epsg):
     import pandas as pd
     import shapely
     from shapely.ops import substring
+    junctions(con, epsg)
     to_m = f"ST_AsWKB(ST_Transform(geometry, 'EPSG:4326', '{epsg}', always_xy := true))"
     # a road keeps its own section even where the container step handed a short one to its intersection (the arm still names the section)
     roads = con.execute(f"""SELECT coalesce(CASE WHEN e.container_id LIKE 's%' THEN e.container_id END, a.section_id) AS sid, e.level_min AS level,
@@ -152,7 +204,7 @@ def build(con, epsg):
                             FROM space.element e LEFT JOIN (SELECT edge_id, min(section_id) AS section_id FROM space.arm GROUP BY 1) a ON a.edge_id = e.source_id
                             WHERE e.type = 'road' AND ST_Length(e.geometry) > 0
                               -- a road between two nodes of one junction (a roundabout ring, a short link) is part of the intersection
-                              AND NOT EXISTS (SELECT 1 FROM space.arm x JOIN space.arm y USING (intersection_id) WHERE x.node_id = e.src AND y.node_id = e.dst)""").fetchall()
+                              AND NOT EXISTS (SELECT 1 FROM space.junction x JOIN space.junction y USING (intersection_id) WHERE x.node_id = e.src AND y.node_id = e.dst)""").fetchall()
     roads = [r for r in roads if r[0] is not None]
     try:    # a roundabout's ring belongs to the roundabout, never to a subsection
         ring_osm = {r[0] for r in con.execute("SELECT osm_id FROM osm.raw.ways WHERE tags['junction'] IN ('roundabout', 'circular')").fetchall()}

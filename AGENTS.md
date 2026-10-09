@@ -37,7 +37,10 @@ The order of work: `docs/plan.md`.
   at intersections). The roadway (lanes, junction shapes, turns) comes from SUMO: the subsections measure the lanes, `sumo.py` runs
   duckOSM's `to_sumo` with them, `from_sumo()` fills every unit; without SUMO `classic()` builds the roadway from bands. `urbanstyle check`
   U1-U9 test them.
-- `src/urbanstyle/cli.py`: the `urbanstyle build | check | quality | dashboard` command.
+- `src/urbanstyle/mapillary.py`: `urbanstyle mapillary DB [--osm OSM]` fetches Mapillary's features and photos into `DB.mapillary.json`
+  (token: `$MAPILLARY_TOKEN` or `~/.config/mapillary/token`, never in the repo) and loads `space.observed` / `space.photo`; `build`
+  loads that file when present (`docs/design/mapillary.md`). CC BY-SA: the data stays local.
+- `src/urbanstyle/cli.py`: the `urbanstyle build | check | quality | dashboard | mapillary` command.
 - `docs/`: the MkDocs site (`mkdocs.yml`); `docs/design/` the design notes. `docs/img/sodermalm.jpg` and `section.jpg` are screenshots of the dashboard
   (`viz/sodermalm-rs0.18.1.html` and `#c=s0-1277220079715399641`, 1600 × 1000): pictures in the docs come from the
   dashboard, never from a separate drawing script.
@@ -46,7 +49,7 @@ The order of work: `docs/plan.md`.
 
 ```bash
 P=/home/kaveh/projects/duckOSM/.venv/bin/python        # duckdb + spatial + duckOSM; has no recent roadstyle
-$P -m pytest -q                                        # 24 tests, offline (the turns test needs netconvert) (pythonpath=src from pyproject), ~10 s
+$P -m pytest -q                                        # 25 tests, offline (the turns test needs netconvert) (pythonpath=src from pyproject), ~10 s
 $P -m pytest -q tests/test_levels.py::test_street_space_width      # one test
 
 # build a container (Monaco ~1 min; Södermalm ~18 min and ~7 GB: check free memory first). Södermalm has no
@@ -58,6 +61,8 @@ PYTHONPATH=src $P -m urbanstyle check data/monaco.duckdb data/sodermalm.duckdb
 # dashboard: system python3 (roadstyle 0.13.1 from PyPI), then serve it; Street View needs http
 PYTHONPATH=src python3 -m urbanstyle dashboard data/monaco.duckdb viz/monaco.html
 (cd viz && python3 -m http.server 8765)                # viz/<area>.html#c=<container id> opens one container
+# Street View's linked panorama: GOOGLE_MAPS_KEY (the roadstyle conda env sets it on activate; its Google restriction must allow
+# http://localhost:8765/*). Clicks inside a focused space move the Street View window too (svHere in dashboard.py).
 
 # docs
 mkdocs build --strict                                  # needs pip install ".[docs]"

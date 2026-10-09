@@ -6,6 +6,7 @@ buildings and street spaces as overlays, and a left panel with the hierarchy tre
 The roads are drawn faintly: roadstyle's Street View follows a clicked road. Serve the page over http for Street View.
 """
 import json
+import os
 
 import duckdb
 import geopandas as gpd
@@ -73,9 +74,13 @@ def tree_data(con, epsg):
 
 # the parts of a space (parts.py): a colour per type, lanes by direction
 PART_COLORS = {"lane circulating": "#4b5260", "ring": "#4b5260", "junction box": "#4b5260", "lane in": "#4b5260", "lane out": "#454c59", "lane forward": "#4b5260", "lane backward": "#454c59",
-               "lane both": "#4b5260", "lane": "#4b5260", "shoulder": "#5c6370", "carriageway": "#4b5260", "bus lane": "#9b2c2c",
+               "lane both": "#4b5260", "lane": "#4b5260", "shoulder": "#5c6370", "parking": "#64748b", "no parking": "#4b5260",
+               "parking lot": "#94a3b8", "carriageway": "#4b5260", "bus lane": "#9b2c2c",
                "cycle lane": "#2f855a", "cycle crossing": "#38a169", "crosswalk": "#4b5260", "island": "#8fbf6f",
                "sidewalk": "#d8d2c6", "furnishing": "#b9a58b", "open": "#e9e4d6"}   # asphalt, paving; crosswalks are asphalt under their zebra bars
+SEEN_COLORS = {"parking": "#2563eb", "no parking": "#9333ea", "give way": "#f97316", "stop": "#dc2626", "traffic light": "#ef4444",
+               "street light": "#facc15", "bin": "#65a30d", "bench": "#84cc16", "lane arrow": "#06b6d4", "zebra": "#ffffff"}
+PHOTOS_PER_SPACE = 6
 # painted and built lines, at real size: type, colour, width in metres, dash
 MARKS = [("guide line", "#e5e7eb", 0.1, [2, 3]), ("arrow", "#ffffff", 0.15, None), ("kerb", "#9ca3af", 0.2, None), ("centre line", "#ffffff", 0.15, [3, 2]), ("lane line", "#ffffff", 0.12, [3, 3]),
          ("edge line", "#ffffff", 0.12, None), ("stop line", "#ffffff", 0.4, None), ("give-way line", "#ffffff", 0.35, [1, 1]),
@@ -170,6 +175,7 @@ function apply(){
   const PU=IX?new Set([IX,...(NEWU.inter[IX].adj||[])]):(focused&&!sel.gid&&NEWU.sec[cid])?new Set(NEWU.sec[cid].map(x=>x[0])):null;   // an intersection with the roads arriving at it
   if(HAS.includes('Parts')){setOv('Parts',!!PU); if(PU){rsFilter(rsQuery(p=>PU.has(p.unit_id),'Parts'),'Parts'); setOv('Spaces',false)}}
   MK.forEach(t=>{const lab='Mark: '+t; setOv(lab,!!PU); if(PU)rsFilter(rsQuery(p=>PU.has(p.unit_id),lab),lab)});
+  if(HAS.includes('Mapillary')){setOv('Mapillary',!!PU); if(PU)rsFilter(rsQuery(p=>PU.has(p.unit),'Mapillary'),'Mapillary')}
   LK.forEach(k=>{const lab='Link: '+k.lab, one=t==='links',
       on=one?k.t===sel.type:['root','ctr','ctrL','lnk'].includes(t)&&show['k:'+k.t]===true;
     setOv(lab,on&&(one||show['k:'+k.t]===true));
@@ -245,6 +251,8 @@ document.getElementById('jump').onclick=e=>{const j=e.target.dataset.j; if(j===u
 const OBJCOL=Object.fromEntries(OB.map(o=>[o.g,o.c]));
 const info=id=>tree.info[id]||{};
 const byId={}; Object.entries(tree.containers).forEach(([l,a])=>a.forEach(c=>byId[c.id]={...c,l:+l}));
+Object.entries(NEWU.inter).forEach(([id,it])=>{if(!byId[id]){const m=id.match(/^i(-?\d+)-/);   // a junction of the new spaces only (split off a roundabout's group)
+  byId[id]={id,k:'intersection',n:[...new Set((it.w||[]).map(r=>r[0]).filter(Boolean))].join(' / '),l:m?+m[1]:0,b:it.b}}});
 const union=cids=>{let b=null; cids.forEach(id=>{const c=byId[id]; if(c&&c.b)b=b?[Math.min(b[0],c.b[0]),Math.min(b[1],c.b[1]),Math.max(b[2],c.b[2]),Math.max(b[3],c.b[3])]:[...c.b]}); return b};
 const groupCids=sid=>{const st=tree.streets[sid]; if(!st)return new Set();
   const secs=Object.values(byId).filter(c=>c.s===sid).map(c=>c.id), inter=Object.entries(tree.arms).filter(([i,a])=>a.includes(sid)).map(([i])=>i);
@@ -298,20 +306,37 @@ function newBlock(cid){const it=NEWU.inter[cid], ss=NEWU.sec[cid];
       `<div><b>Arms</b> (widths at the cut, m)</div><table><tr><th></th><th>total</th><th>road</th><th>left</th><th>right</th><th>lanes in/out</th><th>turns</th></tr>`+
       (it.w||[]).map(([n,t,c,l,r,i,o,s,tu])=>`<tr><td>${n}</td><td>${t}</td><td>${c}</td><td>${l}</td><td>${r}</td><td>${i} / ${o}${s==='default'?' *':''}</td><td>${tu||''}</td></tr>`).join('')+
       `</table><div style="font-size:11px;color:#666">left / right: pedestrian realm, seen from the junction · * lanes estimated (no lanes tag) · turns: each lane coming in, from the right, the ways it may go (SUMO)</div>`+partsTable(cid)+
-      `<div><b>Cuts</b></div><table>`+
+      photoBlock(cid)+`<div><b>Cuts</b></div><table>`+
     it.cuts.map(([how,len])=>`<tr><td><span class=sw style="background:${CUTCOL[how]||'#6b7280'}"></span>${how}</td><td>${len} m</td></tr>`).join('')+'</table>'}
   return `<div><b>New spaces</b> · ${ss.length} subsection${ss.length===1?'':'s'} · ${ss.reduce((a,x)=>a+x[1],0).toLocaleString()} m&sup2;</div><table>`+
     ss.map(([id,a,len,l,r,col])=>{const w=(NEWU.subw||{})[id];
       return `<tr><td><span class=sw style="background:${col}"></span>${id.split('/')[1]} · ${len} m</td><td>${a.toLocaleString()} m&sup2; · ${l} | ${r}`+
         (w?`<br><small>across: ${w[1]} m = ${w[3]} + road ${w[2]} + ${w[4]} · lanes ${w[5]} fwd / ${w[6]} back</small>`:'')+`</td></tr>`}).join('')+'</table>'+
-    partsTable(...ss.map(x=>x[0]))}
+    partsTable(...ss.map(x=>x[0]))+photoBlock(...ss.map(x=>x[0]))}
+function photoBlock(...uids){const ps=uids.flatMap(u=>(NEWU.photos||{})[u]||[]).sort((a,b)=>b[1].localeCompare(a[1])).slice(0,6);   // the newest photos taken in the space
+  return ps.length?`<div><b>Photos</b> (Mapillary, newest first)</div><div>`+ps.map(([id,d,pano])=>`<a href="https://www.mapillary.com/app/?pKey=${id}&focus=photo" target="_blank">${d}${pano?' 360&deg;':''}</a>`).join(' · ')+
+    `</div><div style="font-size:11px;color:#666">photos and the Mapillary layer: &copy; Mapillary contributors, CC BY-SA 4.0</div>`:''}
 function partsTable(...uids){const t={}; uids.forEach(u=>Object.entries((NEWU.parts||{})[u]||{}).forEach(([k,v])=>t[k]=(t[k]||0)+v));
   const rows=Object.entries(t).sort((a,b)=>b[1]-a[1]);
   return rows.length?`<div><b>Parts</b></div><table>`+rows.map(([k,v])=>`<tr><td><span class=sw style="background:${PCOL[k]||PCOL[k.split(' ')[0]]||'#999'}"></span>${k}</td><td>${Math.round(v).toLocaleString()} m&sup2;</td></tr>`).join('')+'</table>':''}
 document.getElementById('focus').onchange=e=>{const k=e.target.dataset.cls; if(!k)return; sel.hide=sel.hide||new Set(); e.target.checked?sel.hide.delete(k):sel.hide.add(k); apply()};
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&(sel.t==='street'||sel.t==='zone'))focusOff()});
 // clicking a street space (or one of its zones) on the map focuses it
+// Street View: roadstyle's window follows clicks on a road's centre line only; in a space most clicks land on its parts, lines or
+// Mapillary points (overlays). While the window is open such a click moves it too: to the road nearest the spot, looking along it.
+let downAt=null; map.on('mousedown',e=>downAt=e.lngLat); map.on('touchstart',e=>downAt=e.lngLat);
+function svHere(name){const w=document.querySelector('.rs-svw'); if(!w||w.hidden||!downAt||!window.rsSetStreetViewMarkerAt)return;
+  const k=Math.cos(downAt.lat*Math.PI/180), dist=s=>Math.hypot((s.lng-downAt.lng)*k,s.lat-downAt.lat);
+  let best=null;   // the snap prefers roads running the way one looks: try four ways, keep the nearest road
+  [0,90,180,270].forEach(h=>{rsSetStreetViewMarkerAt(downAt.lng,downAt.lat,h); const s=rsGetStreetViewSpot(); if(s&&s.onRoad&&(!best||dist(s)<dist(best.s)))best={h,s}});
+  if(!best)return;
+  rsSetStreetViewMarkerAt(downAt.lng,downAt.lat,best.h); const s=rsGetStreetViewSpot();
+  const url=`https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${s.lat.toFixed(6)},${s.lng.toFixed(6)}&heading=${Math.round(s.roadHeading||0)}`;
+  document.dispatchEvent(new CustomEvent('rs:select',{detail:{sv:true,properties:{name:name||(s.properties||{}).name||'Street View'},streetView:url}}))}
 document.addEventListener('rs:select',e=>{const d=e.detail||{}, p=d.properties||{};
+  if(d.sv)return;                     // our own Street View move (svHere)
+  if(d.overlay&&['Parts','Spaces','Mapillary','Cuts','Junction roads'].concat(MK.map(t=>'Mark: '+t)).includes(d.overlay))
+    setTimeout(()=>svHere(p.arm||p.name||p.type||p.grp),0);
   // a click on a road inside a new space: the space under the click decides (roads cross every intersection, so the road would
   // otherwise always win and open its section)
   const under=!d.overlay&&(d.overlays||[]).find(o=>o.label==='Spaces');
@@ -500,10 +525,22 @@ def main(db, out):
         subs = brk = units = cuts = jroads = pd.DataFrame()
         pts_, marks, uwidths = pd.DataFrame({"type": []}), pd.DataFrame({"type": []}), []
         unit_of, ubld, ubounds = {}, [], {}
+    try:        # Mapillary (mapillary.py): what its photos saw, and the photos nearest each space (CC BY-SA, © Mapillary contributors)
+        seen = frame(con, """SELECT ST_AsWKB(any_value(o.geometry)) AS geometry, o.feature_id, any_value(o.class) AS class, any_value(o.grp) AS grp,
+            any_value(o.last_seen)::DATE::VARCHAR AS last_seen, coalesce(min(u.unit_id), '') AS unit FROM space.observed o
+            LEFT JOIN space.unit u ON ST_Intersects(u.geometry, ST_Buffer(o.geometry, 0.00003)) GROUP BY o.feature_id""")
+        seen["color"] = seen["grp"].map(SEEN_COLORS).fillna("#f59e0b")
+        photos = {}
+        for uid, pid, when, pano in con.execute("""SELECT u.unit_id, p.photo_id, p.captured::DATE::VARCHAR, p.is_pano FROM space.unit u
+                JOIN space.photo p ON ST_Intersects(u.geometry, p.geometry) ORDER BY u.unit_id, p.captured DESC""").fetchall():
+            if len(photos.setdefault(uid, [])) < PHOTOS_PER_SPACE:
+                photos[uid].append([pid, when, bool(pano)])
+    except duckdb.CatalogException:
+        seen, photos = pd.DataFrame({"grp": []}), {}
     shapes["unit"] = shapes["object_id"].map(unit_of)
     objects["unit"] = objects["object_id"].map(unit_of)
     has = [lab for lab, df in (("Track", track), ("Rail", rails), ("Station", stations), ("Objects", shapes), ("Spaces", units), ("Parts", pts_), ("Cuts", cuts), ("Junction roads", jroads), ("Subsections", subs),
-                               ("Subsection breaks", brk)) if len(df)]   # overlays present in this area
+                               ("Subsection breaks", brk), ("Mapillary", seen)) if len(df)]   # overlays present in this area
     links = frame(con, "SELECT ST_AsWKB(geometry) AS geometry, node_id, level_a, level_b, type, assumed, station_id, match, round(dist_m) AS dist_m FROM space.link")
     # type, name shown, colour, what it is. Colours differ from every other layer's on purpose.
     defs = [("ramp", "Ramp", "#f59e0b", "a bridge or tunnel is involved"), ("stairs", "Stairs", "#0f172a", "steps join two levels"),
@@ -512,7 +549,8 @@ def main(db, out):
     defs = [d for d in defs if (links["type"] == d[0]).any()]
     o = lambda g, **kw: rs.Overlay(g, placement="under", **kw)
     m = rs.render_edges(
-        edges, palette="mono", basemap="voyager", name="urbanstyle", settings={"config": {"fill_opacity": 0.35, "casing_opacity": 0.2}}, road_popup=["edge_id", "container_id", "name", "type", "highway", "level"],
+        edges, palette="mono", basemap="voyager", name="urbanstyle",
+        street_view_key=os.environ.get("GOOGLE_MAPS_KEY"),   # Street View's linked panorama (the key is written into the page: restrict it in Google Cloud) settings={"config": {"fill_opacity": 0.35, "casing_opacity": 0.2}}, road_popup=["edge_id", "container_id", "name", "type", "highway", "level"],
         color_options={"Roads": {"color_by": "type", "colors": {"road": "#555", "walkway": "#a16207", "cycleway": "#16a34a"}}},
         overlays=[o(streets[streets.kind == k], color=c, opacity=0.8, outline=dark, width=1.2, label=lab, popup=POP, tooltip=["cid", "name"])
                   for k, lab, c, dark in KINDS if (streets.kind == k).any()] + [
@@ -542,6 +580,8 @@ def main(db, out):
                       popup=["part_id", "type", "arm", "direction", "lane", "width_m", "area_m2", "source"], tooltip=["type", "direction", "arm"])] * (len(pts_) > 0)
                  + [rs.Overlay(marks[marks["type"] == t], kind="line", placement="over", color=c, width_m=w, dash=dash, label=f"Mark: {t}", visible=False,
                                popup=["unit_id", "type", "arm", "length_m"], tooltip=["type", "arm"]) for t, c, w, dash in MARKS if (marks["type"] == t).any()]
+                 + [rs.Overlay(seen, kind="circle", placement="over", color="#f59e0b", color_col="color", radius=5, label="Mapillary", visible=False,
+                               popup=["feature_id", "grp", "class", "last_seen", "unit"], tooltip=["grp", "class"])] * (len(seen) > 0)
                  + [rs.Overlay(jroads, kind="line", placement="over", color="#374151", width=7, label="Junction roads", visible=False,
                                popup=["unit_id", "name", "class"], tooltip=["name", "class"])] * (len(jroads) > 0)
                  + [rs.Overlay(cuts, kind="line", placement="over", color="#6b7280", color_col="color", width=4, label="Cuts",
@@ -551,7 +591,7 @@ def main(db, out):
                                tooltip=["subsection_id", "length_m"])] * (len(subs) > 0)
                  + [rs.Overlay(brk, kind="circle", placement="over", color="#111827", radius=5, label="Subsection breaks",
                                popup=["subsection_id", "starts_at"], tooltip=["subsection_id", "starts_at"])] * (len(brk) > 0))
-    newu = {"inter": {}, "sec": {}}
+    newu = {"inter": {}, "sec": {}, "photos": photos}
     if len(units):
         ua = dict(zip(units.unit_id, units.area_m2))
         for iid, how, ln in zip(cuts.intersection_id, cuts.how, cuts.length_m):
@@ -570,9 +610,9 @@ def main(db, out):
         for iid, b in ubounds.items():
             if iid in newu["inter"]:
                 newu["inter"][iid]["b"] = b
-        for iid, sid in con.execute("""SELECT i.unit_id, s.unit_id FROM space.unit i JOIN space.unit s ON s.kind = 'subsection' AND s.level = i.level
-                AND ST_Intersects(ST_Buffer(i.geometry, 0.00001), s.geometry) WHERE i.kind IN ('intersection', 'roundabout')""").fetchall():
-            if iid in newu["inter"]:          # the roads arriving at it: their subsections next to it
+        for iid, sid in con.execute("""SELECT DISTINCT c.intersection_id, s.unit_id FROM space.cut c JOIN space.unit s ON s.kind = 'subsection' AND s.level = c.level
+                AND ST_Intersects(ST_Buffer(c.geometry, 0.00001), s.geometry)""").fetchall():
+            if iid in newu["inter"]:          # the roads arriving at it: the subsections beyond its cuts (not every space that touches it)
                 newu["inter"][iid].setdefault("adj", []).append(sid)
         ways = {}           # (intersection, arm edge) -> its in lanes, rightmost first, and the ways each may go (SUMO's turns, space.turn)
         try:

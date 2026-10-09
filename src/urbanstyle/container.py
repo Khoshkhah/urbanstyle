@@ -8,6 +8,8 @@ Buildings come from duckOSM's features.buildings (built on a copy if the databas
 cycleways from its mode schemas, rail and stations from its features. Overture is not used (docs/design/street-space.md, "Sources").
 """
 
+import os
+
 import duckdb
 
 LEVELS = (-2, 2)  # ponytail: only these levels are kept; spans are clamped to them
@@ -893,6 +895,9 @@ def build(osm, out):
     strips.build(con, epsg)
     subsections.build(con, epsg)   # the network-first partition (preview): roads divided into subsections, then one space each
     spaces.build(con, epsg)
+    if os.path.exists(out + ".mapillary.json"):     # street-level observations fetched earlier (`urbanstyle mapillary`)
+        from . import mapillary
+        mapillary.load(con, out + ".mapillary.json")
     parts.build(con, epsg)         # ... and the inside of each space: parts, marks, widths
     return con
 

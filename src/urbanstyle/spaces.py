@@ -208,7 +208,8 @@ def build(con, epsg):
     except Exception:
         ring_osm = set()
     ring_edges = {r[0] for r in con.execute("SELECT source_id, osm_id FROM space.element WHERE type = 'road'").fetchall() if r[1] in ring_osm}
-    arm_rows = con.execute("SELECT DISTINCT intersection_id, node_id, edge_id, level FROM space.arm").fetchall()
+    arm_rows = con.execute("""SELECT DISTINCT j.intersection_id, a.node_id, a.edge_id, a.level FROM space.arm a
+                              JOIN space.junction j ON j.cluster_id = a.intersection_id AND j.node_id = a.node_id AND j.level = a.level""").fetchall()
     blds = con.execute(f"SELECT l, {to_m} FROM space.element, generate_series(level_min, level_max) t(l) WHERE type = 'building'").fetchall()
     rows, cut_rows, clipped = [], [], []
     for lv in sorted({s[2] for s in subs} | {a[3] for a in arm_rows}):

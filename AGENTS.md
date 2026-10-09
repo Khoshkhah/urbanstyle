@@ -29,6 +29,11 @@ The order of work: `docs/plan.md`.
 - `src/urbanstyle/dashboard.py` only reads those tables; it builds a roadstyle map (overlays for buildings, zones,
   links, strips, objects) plus a tree panel driven by roadstyle's `rs*` JS API. Layer ids differ per overlay: always
   pass the overlay label.
+- `src/urbanstyle/subsections.py`, `spaces.py` and `parts.py` (called at the end of `build`): the network-first partition, a preview
+  (`docs/design/network-first.md`, `docs/design/space-parts.md`): `space.subsection` (roads divided where cross-section or frontage
+  changes), `space.unit` (one space per subsection and per intersection, cut at the block corners, `space.cut`), and inside each space
+  `space.part` (lanes in/out or forward/backward, junction box, crosswalks, cycle lanes, sidewalk bands), `space.mark` (kerb, centre,
+  lane, stop and give-way lines) and `space.width` (widths per arm / across each subsection). `urbanstyle check` U1-U9 test them.
 - `src/urbanstyle/cli.py`: the `urbanstyle build | check | quality | dashboard` command.
 - `docs/`: the MkDocs site (`mkdocs.yml`); `docs/design/` the design notes. `docs/img/sodermalm.jpg` and `section.jpg` are screenshots of the dashboard
   (`viz/sodermalm-rs0.18.1.html` and `#c=s0-1277220079715399641`, 1600 × 1000): pictures in the docs come from the

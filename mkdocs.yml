@@ -51,6 +51,8 @@ nav:
       - Street space: design/street-space.md
       - Specification: design/street-space-spec.md
       - Sections and intersections v2: design/section-intersection-v2.md
+      - Network first (preview): design/network-first.md
+      - The inside of a space: design/space-parts.md
       - Street objects: design/street-objects.md
       - Objects, step 1: design/street-objects-step1.md
       - Strips, first version: design/street-strips-v1.md

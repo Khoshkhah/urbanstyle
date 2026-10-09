@@ -80,7 +80,8 @@ CAP_MAX_M = 25  # ponytail: reach cap is min(1.5 x width + 8, CAP_MAX_M); a sect
 CORNER_REACH_M = 12  # an intersection fills the free space around its cut corners out to the building faces, at most this far from their hull
 CUT_FAR_M = 200  # the half-plane beyond an arm's cut line (m) that is not the intersection
 INTERSECTION_M = 4  # the smallest an intersection can be: a disc of max half-width + this around its node
-SHAPE_M = 2  # sections lose notches and spikes narrower than twice this (closing then opening)
+BLINE_M = 3  # the building line: buildings closed by this, so a gap between two buildings narrower than twice this is frontage, not street space
+FACADE_SLACK_M = 4  # a side bounded by buildings: the outline ribbon reaches this far past its (smoothed) facade line; the building line cut out of it is the edge
 SMOOTH_SAMPLES = 4  # a side's measured distance is the median over this many samples (3 m apart) each way: facade steps shorter than ~2x this vanish
 CROSS_MARGIN_M = 1  # an arm is cut this far beyond the edge of the crossing street
 ARM_SETBACK_M = 3  # an arriving road's corner points are taken this far (plus its half-width) from the junction node
@@ -96,8 +97,6 @@ PLAZA_CORE_M = 3  # the ribbon around an element (half-width + this) is street
 PLAZA_OPEN_M = 4  # a plaza is at least twice this wide
 PLAZA_MIN_M2 = 150
 PLAZA_BUILT = 0.3  # share of a plaza's outline that must run along building faces
-GAP_M = 3  # a free spot that a section and the buildings enclose, closed by this (3 m: narrower than 6 m), is added to the section
-GAP_MAX_M2 = 60  # ... if it is smaller than this
 PARAPET_M = 1  # bridge/tunnel street space = centerline buffered by width/2 + this; buildings do not bound a deck
 CONTAINER = """
 CREATE OR REPLACE TEMP TABLE m AS SELECT rowid AS eid, level_min AS level, level_src, type, class, subtype, osm_id, source_id, oneway, name, width_m, zone, src, dst,
@@ -115,6 +114,13 @@ SELECT m.*, own.cid, near.road_eid IS NOT NULL AS attached FROM m JOIN own USING
 UPDATE space.element e SET container_id = a.cid FROM assigned a WHERE e.rowid = a.eid;
 CREATE OR REPLACE TEMP TABLE bm AS SELECT l AS level, source_id AS bid, ST_Transform(geometry, 'EPSG:4326', '{epsg}', always_xy := true) AS g
   FROM space.element, generate_series(level_min, level_max) t(l) WHERE type = 'building';
+-- The building line bounds every section and intersection: the buildings closed by {bline} m, so a gap narrower than twice that between two
+-- buildings is frontage, not street space. The closing never covers an element's own ribbon: a footpath through a passage stays open.
+CREATE OR REPLACE TEMP TABLE bline AS
+SELECT level, d.geom AS g FROM (
+  SELECT b.level, unnest(ST_Dump(ST_MakeValid(ST_Union(b.u, CASE WHEN e.g IS NULL THEN b.c ELSE ST_Difference(b.c, e.g) END)))) AS d
+  FROM (SELECT level, u, ST_MakeValid(ST_Buffer(ST_Buffer(u, {bline}), -{bline})) AS c FROM (SELECT level, ST_Union_Agg(g) AS u FROM bm GROUP BY level)) b
+  LEFT JOIN (SELECT level, ST_Union_Agg(ST_Buffer(g, width_m / 2 + 0.5)) AS g FROM assigned GROUP BY level) e USING (level));
 -- a sidewalk is a walkway or cycleway that runs along a road (within NEAR_M), not a crossing, steps or a passage
 CREATE OR REPLACE TEMP TABLE sw AS SELECT level, g FROM assigned
 WHERE type IN ('walkway', 'cycleway') AND attached AND coalesce(subtype, '') <> 'crossing'
@@ -144,6 +150,9 @@ CREATE OR REPLACE TEMP TABLE hit_m AS
 SELECT r.eid, r.i, r.s, min(ST_Distance(ST_Point(r.px, r.py)::GEOMETRY, TRY(ST_Intersection(r.ray, o.g)))) / 2 AS d
 FROM rays r JOIN gdir o ON o.level = r.level AND o.cid <> r.cid AND ST_Intersects(r.ray, o.g)
 WHERE abs(r.ny * o.ex - r.nx * o.ey) >= {parallel} AND r.cid LIKE 's%' AND o.cid LIKE 's%' GROUP BY r.eid, r.i, r.s;   -- streets only: a path space yields to a street (rank step)
+-- the halfway line counts only when no building stands between the two streets (else the building is the nearer edge anyway)
+CREATE OR REPLACE TEMP TABLE hit_m AS
+SELECT m.* FROM hit_m m LEFT JOIN hit_b b USING (eid, i, s) WHERE b.d IS NULL OR b.d > 2 * m.d;
 CREATE OR REPLACE TEMP TABLE hit AS
 SELECT eid, i, s, min(d) AS d FROM (SELECT * FROM hit_b UNION ALL SELECT * FROM hit_m) GROUP BY eid, i, s;
 CREATE OR REPLACE TEMP TABLE hit_sw AS
@@ -178,6 +187,20 @@ SELECT eid, cid, level, i,
   greatest(max(CASE WHEN s = 1 THEN h END), max(CASE WHEN s = -1 THEN h END)) AS hi,
   bool_or(CASE WHEN s = 1 THEN open END) <> bool_or(CASE WHEN s = -1 THEN open END) AS o1
 FROM half GROUP BY eid, cid, level, i;
+-- The OUTLINE is not the measured width: a side bounded by buildings reaches {slack} m past its facade line, and the building line cut out of
+-- it below is the edge itself (no samples, no smoothing); an open side reaches the cap. Neither passes halfway to a parallel street.
+CREATE OR REPLACE TEMP TABLE ribh AS
+SELECT r.eid, r.cid, r.level, r.i, r.s, r.px, r.py, r.nx, r.ny,
+  greatest(least(CASE WHEN avg((h.d IS NOT NULL)::INT) OVER (PARTITION BY r.eid, r.s) >= 0.5 THEN f.h + {slack} ELSE r.cap END,
+                 coalesce(m.d, r.cap)), r.width_m / 2) AS h
+FROM rays r JOIN half f ON f.eid = r.eid AND f.i = r.i AND f.s = r.s
+LEFT JOIN hit h ON h.eid = r.eid AND h.i = r.i AND h.s = r.s
+LEFT JOIN hit_m m ON m.eid = r.eid AND m.i = r.i AND m.s = r.s;
+CREATE OR REPLACE TEMP TABLE rsect AS
+SELECT eid, cid, level, i,
+  any_value(CASE WHEN s = 1 THEN ST_Point(px + nx * h, py + ny * h)::GEOMETRY END) AS lp,
+  any_value(CASE WHEN s = -1 THEN ST_Point(px - nx * h, py - ny * h)::GEOMETRY END) AS rp
+FROM ribh GROUP BY eid, cid, level, i;
 CREATE OR REPLACE TEMP TABLE jn AS
 SELECT level, node, any_value(p) AS p, max(width_m) AS w FROM (
   SELECT level, src AS node, ST_StartPoint(g) AS p, width_m FROM assigned WHERE type = 'road' AND src IS NOT NULL
@@ -210,21 +233,43 @@ CREATE OR REPLACE TEMP TABLE trim AS
 SELECT eid, max(CASE WHEN endpoint = 'start' THEN k END) AS clo, min(CASE WHEN endpoint = 'end' THEN n - k END) AS chi FROM armk GROUP BY eid;
 CREATE OR REPLACE TEMP TABLE quads AS
 SELECT cid, level, ST_Buffer(ST_MakeValid(ST_MakePolygon(ST_MakeLine([lp, lp2, rp2, rp, lp]))), 0.05) AS g  -- 5 cm: keeps the union robust
-FROM (SELECT s.*, lead(lp) OVER w AS lp2, lead(rp) OVER w AS rp2 FROM sect s LEFT JOIN trim t USING (eid)
+FROM (SELECT s.*, lead(lp) OVER w AS lp2, lead(rp) OVER w AS rp2 FROM rsect s LEFT JOIN trim t USING (eid)
       WHERE (t.clo IS NULL OR s.i >= t.clo) AND (t.chi IS NULL OR s.i <= t.chi) WINDOW w AS (PARTITION BY s.eid ORDER BY s.i))
 WHERE lp2 IS NOT NULL;
+-- Joints: where an element continues into another (a node of degree 2, neither a junction nor a dead end), its ribbon runs on past the node
+-- by its own reach, so a bend leaves no wedge on its outer side; the overlap with the next element goes in the union (same container) or
+-- to the rank step below (another container).
+CREATE OR REPLACE TEMP TABLE ndeg AS
+SELECT level, node, count(*) AS n FROM (SELECT level, src AS node FROM ground JOIN assigned USING (eid, cid, level) WHERE src IS NOT NULL
+  UNION ALL SELECT level, dst FROM ground JOIN assigned USING (eid, cid, level) WHERE dst IS NOT NULL) GROUP BY level, node;
+CREATE OR REPLACE TEMP TABLE joints AS
+SELECT j.cid, j.level, ST_MakeValid(ST_MakePolygon(ST_MakeLine([
+    ST_Point(lx, ly), ST_Point(lx + e * tx * L, ly + e * ty * L), ST_Point(rx + e * tx * L, ry + e * ty * L), ST_Point(rx, ry), ST_Point(lx, ly)]::GEOMETRY[]))) AS g
+FROM (SELECT r.eid, r.cid, r.level, CASE WHEN r.i = 0 THEN -1 ELSE 1 END AS e, any_value(r.ny) AS tx, -any_value(r.nx) AS ty, max(r.h) AS L,
+        any_value(CASE WHEN r.s = 1 THEN r.px + r.nx * r.h END) AS lx, any_value(CASE WHEN r.s = 1 THEN r.py + r.ny * r.h END) AS ly,
+        any_value(CASE WHEN r.s = -1 THEN r.px - r.nx * r.h END) AS rx, any_value(CASE WHEN r.s = -1 THEN r.py - r.ny * r.h END) AS ry
+      FROM ribh r JOIN (SELECT eid, max(i) AS n FROM ribh GROUP BY eid) m USING (eid) WHERE r.i = 0 OR r.i = m.n GROUP BY r.eid, r.cid, r.level, r.i) j
+JOIN assigned a USING (eid)
+JOIN ndeg d ON d.level = j.level AND d.node = CASE WHEN j.e = -1 THEN a.src ELSE a.dst END
+WHERE d.n = 2 AND (j.level, d.node) NOT IN (SELECT level, node FROM jn);
+CREATE OR REPLACE TEMP TABLE quads AS SELECT cid, level, g FROM quads UNION ALL SELECT cid, level, g FROM joints;
 CREATE OR REPLACE TEMP TABLE struct_e AS SELECT eid FROM assigned WHERE eid NOT IN (SELECT eid FROM ground);
 CREATE OR REPLACE TEMP TABLE struct AS
 SELECT cid, level, ST_Buffer(g, width_m / 2 + {parapet}) AS g FROM assigned WHERE eid NOT IN (SELECT eid FROM ground);
 CREATE OR REPLACE TEMP TABLE ss0 AS
 SELECT cid, level, ST_Union_Agg(g) AS g FROM quads GROUP BY cid, level;
--- The ribbons minus the buildings (a ribbon can run over a building where the face is nearer than its low percentile); the elements' own widths are
--- added back so a footpath through an arcade survives. Structures (a deck has no building beside it) are added after, as they are.
-CREATE OR REPLACE TEMP TABLE ssp AS
-SELECT s.cid, s.level, ST_CollectionExtract(ST_MakeValid(ST_Union(CASE WHEN b.g IS NULL THEN s.g ELSE ST_Difference(s.g, b.g) END, coalesce(w.g, s.g))), 3) AS g
+-- The ribbons minus the building line: where buildings bound a side, the edge IS their faces. The elements' own widths are added back so a
+-- footpath through an arcade survives, and only the pieces connected to the container's own elements are kept (a ribbon reaching past a thin
+-- building leaves a piece behind it). Structures (a deck has no building beside it) are added after, as they are.
+CREATE OR REPLACE TEMP TABLE ssp0 AS
+SELECT s.cid, s.level, w.g AS wg,
+  ST_CollectionExtract(ST_MakeValid(ST_Union(CASE WHEN b.g IS NULL THEN s.g ELSE ST_Difference(s.g, b.g) END, coalesce(w.g, s.g))), 3) AS g
 FROM ss0 s
 LEFT JOIN (SELECT cid, level, ST_Union_Agg(ST_Buffer(g, width_m / 2)) AS g FROM assigned WHERE eid NOT IN (SELECT eid FROM struct_e) GROUP BY cid, level) w USING (cid, level)
-LEFT JOIN (SELECT s.cid, ST_Union_Agg(m.g) AS g FROM ss0 s JOIN bm m ON m.level = s.level AND ST_Intersects(s.g, m.g) GROUP BY s.cid) b ON b.cid = s.cid;
+LEFT JOIN (SELECT s.cid, ST_Union_Agg(m.g) AS g FROM ss0 s JOIN bline m ON m.level = s.level AND ST_Intersects(s.g, m.g) GROUP BY s.cid) b ON b.cid = s.cid;
+CREATE OR REPLACE TEMP TABLE ssp AS
+SELECT cid, level, ST_Union_Agg(d.geom) AS g FROM (SELECT cid, level, wg, unnest(ST_Dump(g)) AS d FROM ssp0)
+WHERE wg IS NULL OR ST_Intersects(d.geom, wg) GROUP BY cid, level;
 CREATE OR REPLACE TEMP TABLE ss AS
 SELECT cid, level, ST_Union_Agg(g) AS g FROM (SELECT cid, level, g FROM ssp UNION ALL SELECT cid, level, g FROM struct) GROUP BY cid, level;
 -- partition (docs/design/street-space.md): street space = union of the measured pieces, minus intersections, cut by nearest
@@ -237,7 +282,7 @@ FROM armsec r JOIN half h ON h.eid = r.eid AND h.i = r.i;
 -- INTERSECTIONS-SPLIT (python fills icomp(level, cid, g) and jcluster(level, node, cid): the hull per cluster of junction nodes)
 CREATE OR REPLACE TEMP TABLE inter AS
 SELECT c.cid, c.level, ST_CollectionExtract(ST_MakeValid(CASE WHEN b.g IS NULL THEN c.g ELSE ST_Difference(c.g, b.g) END), 3) AS g FROM icomp c
-LEFT JOIN (SELECT c2.cid, ST_Union_Agg(m.g) AS g FROM icomp c2 JOIN bm m ON m.level = c2.level AND ST_Intersects(c2.g, m.g) GROUP BY c2.cid) b ON b.cid = c.cid;
+LEFT JOIN (SELECT c2.cid, ST_Union_Agg(m.g) AS g FROM icomp c2 JOIN bline m ON m.level = c2.level AND ST_Intersects(c2.g, m.g) GROUP BY c2.cid) b ON b.cid = c.cid;
 CREATE OR REPLACE TEMP TABLE inter1 AS
 SELECT cid, level, g FROM (SELECT cid, level, d.geom AS g, row_number() OVER (PARTITION BY cid ORDER BY ST_Area(d.geom) DESC) AS rn
   FROM (SELECT cid, level, unnest(ST_Dump(g)) AS d FROM inter)) WHERE rn = 1;
@@ -304,27 +349,6 @@ JOIN (SELECT z.pid, coalesce(sum(ST_Length(ST_Intersection(ST_Boundary(z.g), ST_
 UPDATE reg SET g = ST_CollectionExtract(ST_MakeValid(ST_Difference(reg.g, z.g)), 3) FROM (SELECT parent, ST_Union_Agg(g) AS g FROM zkeep GROUP BY parent) z WHERE reg.cid = z.parent;
 INSERT INTO reg (cid, orig, level, kind, g) SELECT 'z' || substr(parent, 2) || '.' || k, 'z' || substr(parent, 2) || '.' || k, level, 'plaza', g FROM zkeep;
 -- Any residual overlap (a few m2 at most) goes to the container of the higher rank: intersection, section, path, rail; then the smaller id.
--- Shape: a section's edge keeps no feature narrower than 2 x {shape_m} m: closing then opening by {shape_m} m fills the notches and removes the spikes that a
--- gap between two buildings or a 1 m facade offset leaves in it. Buildings are cut out again; the rank step below still gives intersections priority.
-CREATE OR REPLACE TEMP TABLE regp AS
-SELECT p.cid, ST_CollectionExtract(ST_MakeValid(CASE WHEN b.g IS NULL THEN p.g ELSE ST_Difference(p.g, b.g) END), 3) AS g, p.g0
-FROM (SELECT cid, level, g AS g0, ST_Buffer(ST_Buffer(ST_Buffer(ST_Buffer(g, {shape_m}), -{shape_m}), -{shape_m}), {shape_m}) AS g FROM reg WHERE kind = 'section') p
-LEFT JOIN (SELECT r2.cid, ST_Union_Agg(m.g) AS g FROM reg r2 JOIN bm m ON m.level = r2.level AND ST_Intersects(ST_Buffer(r2.g, {shape_m} + 0.1), m.g) GROUP BY r2.cid) b ON b.cid = p.cid;
-UPDATE reg SET g = p.g FROM regp p WHERE reg.cid = p.cid AND p.g IS NOT NULL AND NOT ST_IsEmpty(p.g) AND ST_Area(p.g) > 0.8 * ST_Area(p.g0);
--- Gaps: the opening above rounds a section's corners, which leaves small free spots between it and a facade. Close the section together with its buildings
--- by {gap_m} m and give the spots that enclosed (under {gap_max} m2) back to the section, but only the part no other container holds (a section outranks a path below).
-CREATE OR REPLACE TEMP TABLE gapb AS SELECT cid, level, g, ST_Buffer(g, {gap_m} + 0.1) AS bg FROM reg WHERE kind = 'section';
-CREATE OR REPLACE TEMP TABLE gapp AS
-SELECT cid, level, g, unnest(ST_Dump(ST_Difference(ST_Buffer(ST_Buffer(u, {gap_m}), -{gap_m}), u))).geom AS d
-FROM (SELECT r.cid, r.level, r.g, ST_Union(r.g, ST_Union_Agg(m.g)) AS u FROM gapb r JOIN bm m ON m.level = r.level AND ST_Intersects(r.bg, m.g) GROUP BY r.cid, r.level, r.g);
-CREATE OR REPLACE TEMP TABLE gapq AS
-SELECT p.cid, p.g, p.d, ST_Union_Agg(o.g) AS og FROM (SELECT * FROM gapp WHERE ST_Area(d) BETWEEN 0.05 AND {gap_max}) p
-LEFT JOIN reg o ON o.level = p.level AND o.cid <> p.cid AND ST_Intersects(p.d, o.g) GROUP BY p.cid, p.g, p.d;
-CREATE OR REPLACE TEMP TABLE gapf AS
-SELECT cid, g, unnest(ST_Dump(ST_CollectionExtract(ST_MakeValid(CASE WHEN og IS NULL THEN d ELSE ST_Difference(d, og) END), 3))).geom AS d FROM gapq;
-CREATE OR REPLACE TEMP TABLE gapu AS
-SELECT cid, ST_Union_Agg(d) AS d FROM gapf WHERE ST_Area(d) > 0.05 AND ST_Intersects(ST_Buffer(d, 0.05), g) GROUP BY cid;
-UPDATE reg SET g = ST_CollectionExtract(ST_MakeValid(ST_Union(reg.g, ST_Buffer(u.d, 0.01))), 3) FROM gapu u WHERE reg.cid = u.cid;
 CREATE OR REPLACE TEMP TABLE rnk AS SELECT cid, level, g, CASE kind WHEN 'intersection' THEN 0 WHEN 'section' THEN 1 WHEN 'path' THEN 2 WHEN 'plaza' THEN 2 ELSE 3 END AS rk FROM reg;
 CREATE OR REPLACE TEMP TABLE overl AS
 SELECT a.cid, ST_Union_Agg(ST_CollectionExtract(ST_MakeValid(ST_Intersection(a.g, b.g)), 3)) AS g
@@ -759,7 +783,7 @@ def intersection_shapes(con):
     roundabout (a way tagged junction=roundabout or circular). Each road arriving at a cluster ends its section ribbon with a straight cut
     across the street, half-width + ARM_SETBACK_M from the node; the cut's two end points are the arm's corner points (`armpts`).
     The intersection is the street space between those cuts, bounded by the buildings: the free space around the nodes (at most
-    CORNER_REACH_M from the hull of the nodes and corner points) with the buildings cut out and everything beyond an arm's cut taken away,
+    CORNER_REACH_M from the hull of the nodes and corner points) with the building line cut out and everything beyond an arm's cut taken away,
     so its edges are building faces and straight cuts across the arms (the hull itself is only the fallback for very short arms). A roundabout adds its ring's width,
     a cluster with no arm keeps a small disc.
     Id: i<level>-<smallest node id>. Shape: roundabout, dogleg (several nodes), T, Y, cross or multi."""
@@ -773,7 +797,7 @@ def intersection_shapes(con):
     rings = [set(r[0]) for r in con.execute("SELECT refs FROM osm.raw.ways WHERE tags['junction'] IN ('roundabout', 'circular')").fetchall()]
     extra = con.execute("SELECT level, a, b FROM dualnodes").fetchall()
     cid_by_node, ring_cids = junction_clusters([(n[0], n[1], n[2], n[3]) for n in nodes], rings, extra)
-    brows = con.execute("SELECT level, ST_AsWKB(g) FROM bm").fetchall()
+    brows = con.execute("SELECT level, ST_AsWKB(g) FROM bline").fetchall()   # the building line, as for the sections
     blevel = [r[0] for r in brows]
     bld = shapely.from_wkb([r[1] for r in brows]) if brows else []
     btree = shapely.STRtree(bld) if len(bld) else None
@@ -854,7 +878,7 @@ def build(osm, out):
     con.execute(CLAMP)
     lon = con.execute("SELECT avg(ST_X(ST_Centroid(geometry))) FROM space.element").fetchone()[0]
     epsg = f"EPSG:{32600 + int((lon + 180) // 6) + 1}"  # northern-hemisphere UTM, metres
-    fmt = dict(epsg=epsg, near=NEAR_M, along=ALONG_MIN, step=STEP_M, cap_max=CAP_MAX_M, parapet=PARAPET_M, bound_tol=BOUND_TOL_M, parallel=PARALLEL_COS, plaza_core=PLAZA_CORE_M, plaza_open=PLAZA_OPEN_M, plaza_min=PLAZA_MIN_M2, plaza_built=PLAZA_BUILT, int_margin=INTERSECTION_M, sw_half=SIDEWALK_HALF_M, setback=ARM_SETBACK_M, cross_margin=CROSS_MARGIN_M, smooth=SMOOTH_SAMPLES, shape_m=SHAPE_M, gap_m=GAP_M, gap_max=GAP_MAX_M2)
+    fmt = dict(epsg=epsg, near=NEAR_M, along=ALONG_MIN, step=STEP_M, cap_max=CAP_MAX_M, parapet=PARAPET_M, bound_tol=BOUND_TOL_M, parallel=PARALLEL_COS, plaza_core=PLAZA_CORE_M, plaza_open=PLAZA_OPEN_M, plaza_min=PLAZA_MIN_M2, plaza_built=PLAZA_BUILT, int_margin=INTERSECTION_M, sw_half=SIDEWALK_HALF_M, setback=ARM_SETBACK_M, cross_margin=CROSS_MARGIN_M, smooth=SMOOTH_SAMPLES, bline=BLINE_M, slack=FACADE_SLACK_M)
     p1, rest = CONTAINER.split("-- STREETS-SPLIT")
     p2a, p2b = rest.split("-- INTERSECTIONS-SPLIT")
     con.execute(p1.format(**fmt))
@@ -865,8 +889,11 @@ def build(osm, out):
     con.execute(STATIONS)
     con.execute(LINKS.format(name_m=ENTRANCE_NAME_M, near_m=ENTRANCE_NEAR_M))
     con.execute(OBJECTS.format(lo=LEVELS[0], hi=LEVELS[1], epsg=epsg, near_m=OBJECT_NEAR_M, attrs=list(OBJECT_ATTRS)))
-    from . import strips  # lazy: shapely
+    from . import parts, spaces, strips, subsections  # lazy: shapely
     strips.build(con, epsg)
+    subsections.build(con, epsg)   # the network-first partition (preview): roads divided into subsections, then one space each
+    spaces.build(con, epsg)
+    parts.build(con, epsg)         # ... and the inside of each space: parts, marks, widths
     return con
 
 

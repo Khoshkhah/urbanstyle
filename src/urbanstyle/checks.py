@@ -10,6 +10,60 @@ import duckdb
 KINDS = ("section", "intersection", "path", "rail", "plaza")
 
 
+def unit_checks(c, q, epsg):
+    """U1-U7: the network-first spaces (space.unit, docs/design/network-first.md). A junction node must lie in its own intersection
+    and in no road's space or line, or a click on it in the dashboard opens the road instead of the intersection."""
+    m = lambda g: f"ST_Transform({g}, 'EPSG:4326', '{epsg}', always_xy := true)"
+    c.execute(f"""CREATE TEMP TABLE u AS SELECT unit_id, kind, level, ST_MakeValid(ST_Buffer({m('geometry')}, -0.01)) AS g FROM space.unit""")
+    c.execute(f"""CREATE TEMP TABLE jn AS SELECT DISTINCT a.intersection_id, a.level, n.p FROM space.arm a
+                  JOIN (SELECT src AS node, {m('ST_StartPoint(geometry)')} AS p FROM space.element WHERE type = 'road' AND src IS NOT NULL
+                        UNION SELECT dst, {m('ST_EndPoint(geometry)')} FROM space.element WHERE type = 'road' AND dst IS NOT NULL) n ON n.node = a.node_id""")
+    return [
+        ("U1", "spaces overlapping by more than 0.5 m2", q("""SELECT count(*) FROM u a JOIN u b ON a.level = b.level AND a.unit_id < b.unit_id
+                                  AND ST_Intersects(a.g, b.g) WHERE ST_Area(ST_Intersection(a.g, b.g)) > 0.5"""), True),
+        ("U2", "spaces invalid, empty or in more than one part", q("""SELECT count(*) FROM space.unit
+                                  WHERE NOT ST_IsValid(geometry) OR ST_IsEmpty(geometry) OR ST_NumGeometries(geometry) > 1"""), True),
+        ("U3", "junctions with no intersection space", q("""SELECT count(DISTINCT intersection_id) FROM space.arm
+                                  WHERE intersection_id NOT IN (SELECT unit_id FROM space.unit)"""), True),
+        ("U4", "junction nodes outside their own intersection space (> 0.5 m)", q("""SELECT count(*) FROM jn
+                                  JOIN u ON u.unit_id = jn.intersection_id WHERE ST_Distance(u.g, jn.p) > 0.5"""), True),
+        ("U5", "junction nodes inside a road's space", q("""SELECT count(*) FROM jn JOIN u ON u.kind = 'subsection' AND u.level = jn.level
+                                  AND ST_Intersects(u.g, jn.p)"""), True),
+        ("U6", "subsection lines reaching more than 1 m into an intersection", q(f"""SELECT count(*) FROM space.subsection s
+                                  JOIN u ON u.kind IN ('intersection', 'roundabout') AND u.level = s.level AND ST_Intersects(u.g, {m('s.geometry')})
+                                  WHERE ST_Length(ST_Intersection(u.g, {m('s.geometry')})) > 1"""), True),
+        ("U7", "subsections with no space", q("SELECT count(*) FROM space.subsection WHERE subsection_id NOT IN (SELECT unit_id FROM space.unit)"), True),
+    ] + part_checks(c, q, m)
+
+
+def part_checks(c, q, m):
+    """U8-U9: the parts of a space (space.part, docs/design/space-parts.md) cover it exactly."""
+    if not q("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'space' AND table_name = 'part'"):
+        return []
+    c.execute(f"CREATE TEMP TABLE pt AS SELECT unit_id, part_id, ST_MakeValid(ST_Buffer({m('geometry')}, -0.01)) AS g, ST_Area({m('geometry')}) AS a FROM space.part")
+    return [
+        ("U8", "spaces whose parts do not add up to them (3% or 1.5 m2)", q(f"""SELECT count(*) FROM (SELECT u.unit_id, ST_Area({m('u.geometry')}) AS a,
+                                  coalesce(sum(p.a), 0) AS pa FROM space.unit u LEFT JOIN pt p USING (unit_id) GROUP BY u.unit_id, u.geometry)
+                                  WHERE abs(a - pa) > greatest(0.03 * a, 1.5)"""), True),
+        ("U9", "parts of one space overlapping by more than 0.5 m2", q("""SELECT count(*) FROM pt a JOIN pt b ON a.unit_id = b.unit_id AND a.part_id < b.part_id
+                                  AND ST_Intersects(a.g, b.g) WHERE ST_Area(ST_Intersection(a.g, b.g)) > 0.5"""), True),
+        ("U10", "cuts where the roadway differs by more than 0.5 m on the two sides", roadway_mismatch(c, q, m), False),
+    ]
+
+
+def roadway_mismatch(c, q, m):
+    """Along each cut line, the roadway (lanes, shoulders, bus / cycle lanes, crosswalks, junction box) on the intersection side and on the
+    road side should be the same width: the arm and the road meet there."""
+    road = "('lane', 'shoulder', 'bus lane', 'cycle lane', 'cycle crossing', 'island', 'crosswalk', 'junction box', 'carriageway')"
+    return q(f"""WITH cut AS (SELECT intersection_id, edge_id, {m('geometry')} AS g FROM space.cut),
+      rw AS (SELECT unit_id, ST_MakeValid(ST_Union_Agg(ST_MakeValid(ST_Buffer({m('geometry')}, 0.01)))) AS g FROM space.part WHERE type IN {road} GROUP BY unit_id),
+      side AS (SELECT cut.intersection_id, cut.edge_id, ST_Length(ST_Intersection(cut.g, ST_Buffer(i.g, 0.3))) AS iw,
+                 (SELECT max(ST_Length(ST_Intersection(cut.g, ST_Buffer(s.g, 0.3)))) FROM rw s JOIN space.unit su ON su.unit_id = s.unit_id
+                  WHERE su.kind = 'subsection' AND ST_DWithin(s.g, cut.g, 0.5)) AS sw
+               FROM cut JOIN rw i ON i.unit_id = cut.intersection_id)
+      SELECT count(*) FROM side WHERE sw IS NOT NULL AND abs(iw - sw) > 0.5""")
+
+
 def run(path):
     c = duckdb.connect(path, read_only=True)
     c.execute("LOAD spatial")
@@ -52,6 +106,8 @@ def run(path):
                   JOIN space.container i ON i.container_id = a.intersection_id JOIN nodepts n ON n.node = a.node_id
                   WHERE ST_Distance(ST_Transform(i.geometry, 'EPSG:4326', '{epsg}', always_xy := true),
                                     ST_Transform(n.p, 'EPSG:4326', '{epsg}', always_xy := true)) > 3"""), False))
+    if q("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'space' AND table_name = 'unit'"):
+        rows += unit_checks(c, q, epsg)
     total = q("SELECT count(*) FROM space.container")
     print(f"\n== {path}  ({total} containers, all levels)")
     failed = False

@@ -71,6 +71,15 @@ def tree_data(con, epsg):
     return tree
 
 
+# the parts of a space (parts.py): a colour per type, lanes by direction
+PART_COLORS = {"lane circulating": "#4b5260", "junction box": "#3f4651", "lane in": "#4b5260", "lane out": "#454c59", "lane forward": "#4b5260", "lane backward": "#454c59",
+               "lane both": "#4b5260", "lane": "#4b5260", "shoulder": "#5c6370", "carriageway": "#4b5260", "bus lane": "#9b2c2c",
+               "cycle lane": "#2f855a", "cycle crossing": "#38a169", "crosswalk": "#4b5260", "island": "#8fbf6f",
+               "sidewalk": "#d8d2c6", "furnishing": "#b9a58b", "open": "#e9e4d6"}   # asphalt, paving; crosswalks are asphalt under their zebra bars
+# painted and built lines, at real size: type, colour, width in metres, dash
+MARKS = [("guide line", "#e5e7eb", 0.1, [2, 3]), ("arrow", "#ffffff", 0.15, None), ("kerb", "#9ca3af", 0.2, None), ("centre line", "#ffffff", 0.15, [3, 2]), ("lane line", "#ffffff", 0.12, [3, 3]),
+         ("edge line", "#ffffff", 0.12, None), ("stop line", "#ffffff", 0.4, None), ("give-way line", "#ffffff", 0.35, [1, 1]),
+         ("zebra", "#ffffff", 0.5, None)]
 PANEL = """
 <style>#map{left:340px!important}.ov-ctrl{display:none!important}  /* roadstyle's own Layers box: the panel list replaces it */
 #us{position:fixed;top:0;left:0;bottom:0;width:340px;overflow:auto;padding:8px;box-sizing:border-box;background:#fafafa;
@@ -88,8 +97,8 @@ PANEL = """
 <details id=more><summary>More layers</summary><div id=lg></div></details>
 <input id=q placeholder="find a street, or type an id (s0-123, p0-4, i0-5) + Enter"><div id=tree></div></div>
 <script>
-const tree=__TREE__, LV=__LEVELS__, LK=__LINKDEF__, HAS=__HAS__, OB=__OBJDEF__, KD=__KINDS__, SD=__STRIPS__;
-const setOv=(lab,on)=>{if(lab.startsWith('Link: ')||lab.startsWith('Objects: ')||lab.startsWith('Strip: ')||['Pedestrian realm','Travelway','Buildings',...KD.map(k=>k.lab)].includes(lab)||HAS.includes(lab))rsSetOverlay(lab,on)};           // LK: [{t, lab, c, d}] link types present in this area
+const NEWU=__NEWU__, MK=__MARKS__, tree=__TREE__, LV=__LEVELS__, LK=__LINKDEF__, HAS=__HAS__, OB=__OBJDEF__, KD=__KINDS__, SD=__STRIPS__;
+const setOv=(lab,on)=>{if(lab.startsWith('Link: ')||lab.startsWith('Objects: ')||lab.startsWith('Strip: ')||lab.startsWith('Mark: ')||['Pedestrian realm','Travelway','Buildings',...KD.map(k=>k.lab)].includes(lab)||HAS.includes(lab))rsSetOverlay(lab,on)};           // LK: [{t, lab, c, d}] link types present in this area
 const LKLAB=Object.fromEntries(LK.map(k=>[k.t,k.lab]));
 // Layers in groups: [title, rows]. A row: key, name, colour, swatch shape, what it is. Only the street spaces and the buildings start ticked;
 // everything else is off until ticked, or shown automatically when a street space is in focus.
@@ -103,7 +112,7 @@ const GROUPS=[
   ['Objects (shown in focus)',OB.map(o=>['o:'+o.g,o.g,o.c,'ci',({furniture:'lamps, signs, benches, bins, bollards, bike parking, vending, post boxes',vegetation:'trees',transit:'bus stops and platforms',crossing:'zebra, signalised and other crossings',kerb:'kerb points',access:'building and car-park entrances',barrier:'other barrier points'})[o.g]||''])],
   ['Network',[['r:road','Road centerline','#555','ln','click one for Street View'],['r:walkway','Walkway centerline','#a16207','ln','footway, steps, crossing'],['r:cycleway','Cycleway centerline','#16a34a','ln',''],
     ['rail','Rail line','#c026d3','ln',''],['stations','Station','#0d9488','ci','']].concat(LK.map(k=>['k:'+k.t,'Link: '+k.lab,k.c,'ci',k.d]))]];
-const show={}; GROUPS.forEach(g=>g[1].forEach(r=>show[r[0]]=r[0].startsWith('c:')||r[0]==='buildings'));
+const show={}; GROUPS.forEach(g=>g[1].forEach(r=>show[r[0]]=(r[0].startsWith('c:')&&!HAS.includes('Spaces'))||r[0]==='buildings'));   // with the new spaces (space.unit) the old containers start hidden
 const row=r=>`<label><input type=checkbox data-k="${r[0]}" ${show[r[0]]?'checked':''}><span class="sw ${r[3]}" style="background:${r[2]}"></span>${r[1]}${r[4]?` <i>${r[4]}</i>`:''}</label>`;
 document.getElementById('chips').innerHTML=GROUPS[0][1].concat(GROUPS[2][1]).map(r=>`<label title="${r[4]}"><input type=checkbox data-k="${r[0]}" checked><span class="sw" style="background:${r[2]}"></span>${r[1]}</label>`).join('');
 document.getElementById('lg').innerHTML=GROUPS.slice(1).map((g,i)=>`<div class=gh><label><input type=checkbox data-g="${i+1}"><b>${g[0]}</b></label></div>`+g[1].map(row).join('')).join('')+
@@ -119,21 +128,25 @@ let sel={t:'root',l:0};
 function apply(){
   const {t,l,cid,zone}=sel, cs=sel.cids, showB=['root','bld','bldL','ctr','ctrL','stn'].includes(t), showZ=t!=='bld'&&t!=='bldL';
   const focused=t==='street'||t==='zone';
+  // an intersection with a new space in focus: exactly that space (its area, cuts, road pieces, bounding buildings, what stands inside)
+  const IX=focused&&!sel.gid&&NEWU.inter[cid]?cid:null;
   // centerlines: hidden in the overview (Street View needs one clicked: focus a street space, or tick them); in focus, the container's own
-  rsFilter(rsQuery(p=>p.level===l&&(focused?cs.has(p.container_id):show['r:'+p.type]===true)));
+  // (an intersection shows its own road pieces instead: the Junction roads layer, clipped to it)
+  rsFilter(rsQuery(p=>!IX&&p.level===l&&(focused?cs.has(p.container_id):show['r:'+p.type]===true)));
   setMask(focused); setLabels(focused?cs:null); renderFocus();
   // buildings: all of them in the overview; in focus only the ones that bound the focused containers
-  const bb=new Set(); if(focused)[...cs].forEach(id=>(info(id).bb||[]).forEach(b=>bb.add(b)));
+  const bb=new Set(); if(IX)(NEWU.inter[IX].bb||[]).forEach(b=>bb.add(b[0])); else if(focused)[...cs].forEach(id=>(info(id).bb||[]).forEach(b=>bb.add(b)));
   setOv('Buildings',focused||(showB&&show.buildings));
   if(focused) rsFilter(rsQuery(p=>bb.has(p.id),'Buildings'),'Buildings');
   else if(showB) rsFilter(t==='bld'?null:rsQuery(span(l),'Buildings'),'Buildings');
-  KD.forEach(k=>{setOv(k.lab,showZ&&t!=='zone'&&(focused||show['c:'+k.k]));
+  const NEW=HAS.includes('Spaces');   // the new spaces replace the old containers in focus; their checkboxes still bring them back
+  KD.forEach(k=>{setOv(k.lab,showZ&&t!=='zone'&&((focused&&!NEW)||show['c:'+k.k]));
     if(showZ&&t!=='zone') rsFilter(rsQuery(p=>p.level===l&&(!cs||cs.has(p.cid)),k.lab),k.lab)});
   const ex=new Set(cs||[]); if(t==='street'&&cs)[...cs].forEach(id=>(tree.secarms[id]||[]).forEach(i=>ex.add(i)));   // a section's crossings and signals sit in its intersections
-  const stripsOn=t==='street'&&SD.length>0;   // a focused street space is shown as its strips (lanes, sidewalk, ...) instead of its two zones
+  const stripsOn=t==='street'&&SD.length>0&&!NEW;   // a focused street space is shown as its strips (lanes, sidewalk, ...) instead of its two zones
   SD.forEach(s=>{const lab='Strip: '+s.t; setOv(lab,stripsOn); if(stripsOn) rsFilter(rsQuery(p=>p.level===l&&ex.has(p.cid),lab),lab)});
   [['Travelway','travelway','travelway'],['Pedestrian realm','pedestrian_realm','pedestrian'],['Track','track','track']].forEach(([lab,z,k])=>{
-    const on=showZ&&!stripsOn&&(!zone||zone===z)&&(focused||show[k]); setOv(lab,on);
+    const on=showZ&&!stripsOn&&(!zone||zone===z)&&((focused&&!NEW)||show[k]); setOv(lab,on);
     if(on&&(lab!=='Track'||HAS.includes('Track'))) rsFilter(rsQuery(p=>p.level===l&&(!cs||cs.has(p.cid))&&(!zone||p.zone===z),lab),lab)});
   const here=['root','ctr','ctrL','lnk','stn','station'].includes(t);
   if(HAS.includes('Rail')){setOv('Rail',here&&show.rail===true); if(here) rsFilter(rsQuery(p=>p.level===l,'Rail'),'Rail')}
@@ -144,7 +157,19 @@ function apply(){
     setOv(lab,on&&(pick||show['o:'+o.g]===true));
     if(on) rsFilter(rsQuery(p=>p.level===l&&(!sel.cls||p.class===sel.cls)&&!(sel.hide&&sel.hide.has(p.class)),lab),lab)});
   if(HAS.includes('Objects')){const on=t==='street'||t==='zone'; setOv('Objects',on);
-    if(on) rsFilter(rsQuery(p=>p.level===l&&ex.has(p.cid)&&!(sel.hide&&sel.hide.has(p.class)),'Objects'),'Objects')}
+    if(on) rsFilter(rsQuery(p=>p.level===l&&(IX?p.unit===IX:ex.has(p.cid))&&!(sel.hide&&sel.hide.has(p.class)),'Objects'),'Objects')}
+  // subsections (lines, a colour each) and the points where a section is split: a focused section shows its own, a focused intersection those of its sections
+  const ownSec=sid=>!focused||cs.has(sid)||(tree.secarms[sid]||[]).some(i=>cs.has(i));
+  if(HAS.includes('Spaces')){setOv('Spaces',true); rsFilter(rsQuery(p=>p.level===l&&(IX?p.unit_id===IX:ownSec(p.section_id)),'Spaces'),'Spaces')}
+  const inside=IX||(focused&&!sel.gid&&HAS.includes('Parts')&&NEWU.sec[cid]);   // a space shown with its parts: its painted lines, not the subsection lines
+  ['Subsections','Subsection breaks'].forEach(lab=>{if(HAS.includes(lab)){setOv(lab,!inside); if(!inside)rsFilter(rsQuery(p=>p.level===l&&ownSec(p.section_id),lab),lab)}});
+  if(HAS.includes('Cuts')){setOv('Cuts',true); rsFilter(rsQuery(p=>p.level===l&&(IX?p.intersection_id===IX:(!focused||cs.has(p.intersection_id)||[...cs].some(s=>(tree.secarms[s]||[]).includes(p.intersection_id)))),'Cuts'),'Cuts')}
+  if(HAS.includes('Junction roads')){const jr=!!IX&&!HAS.includes('Parts');   // with its parts shown, the lanes and markings draw the roads
+    setOv('Junction roads',jr); if(jr)rsFilter(rsQuery(p=>p.unit_id===IX,'Junction roads'),'Junction roads')}
+  // the inside of the focused space(s): an intersection's parts, or a section's subsections' parts, with their painted lines
+  const PU=IX?new Set([IX,...(NEWU.inter[IX].adj||[])]):(focused&&!sel.gid&&NEWU.sec[cid])?new Set(NEWU.sec[cid].map(x=>x[0])):null;   // an intersection with the roads arriving at it
+  if(HAS.includes('Parts')){setOv('Parts',!!PU); if(PU){rsFilter(rsQuery(p=>PU.has(p.unit_id),'Parts'),'Parts'); setOv('Spaces',false)}}
+  MK.forEach(t=>{const lab='Mark: '+t; setOv(lab,!!PU); if(PU)rsFilter(rsQuery(p=>PU.has(p.unit_id),lab),lab)});
   LK.forEach(k=>{const lab='Link: '+k.lab, one=t==='links',
       on=one?k.t===sel.type:['root','ctr','ctrL','lnk'].includes(t)&&show['k:'+k.t]===true;
     setOv(lab,on&&(one||show['k:'+k.t]===true));
@@ -201,6 +226,7 @@ document.getElementById('q').oninput=e=>{const v=e.target.value.toLowerCase();
 document.getElementById('q').onchange=e=>{const v=e.target.value.trim().toLowerCase();       // exact container id: select it and zoom there
   for(const [lvl,arr] of Object.entries(tree.containers)){const c=arr.find(c=>c.id.toLowerCase()===v);
     if(c){focusOn(c.id);return}}
+  if(HAS.includes('Spaces')){const v0=e.target.value.trim(); if(rsQuery(q=>q.unit_id===v0,'Spaces').length){focusUnit({unit_id:v0,section_id:v0.split('/')[0]});return}}
   if(tree.streets[e.target.value.trim()])focusGroup(e.target.value.trim())};
 document.getElementById('lv').onclick=e=>{const l=e.target.dataset.l; if(l===undefined)return;
   sel=(sel.t==='street'||sel.t==='zone')?{t:'ctrL',l:+l}:sel.t==='links'?{t:'lnk',l:+l}:{...sel,l:+l}; apply()};
@@ -224,7 +250,7 @@ const groupCids=sid=>{const st=tree.streets[sid]; if(!st)return new Set();
   const secs=Object.values(byId).filter(c=>c.s===sid).map(c=>c.id), inter=Object.entries(tree.arms).filter(([i,a])=>a.includes(sid)).map(([i])=>i);
   return new Set([...secs,...inter].filter(id=>byId[id]))};
 function fit(b){if(b)map.fitBounds([[b[0],b[1]],[b[2],b[3]]],{padding:70,maxZoom:23})}
-function focusOn(cid){const c=byId[cid]; if(!c)return; sel={t:'street',l:c.l,cid,cids:new Set([cid]),hide:new Set()}; apply(); fit(c.b)}
+function focusOn(cid){const c=byId[cid]; if(!c)return; sel={t:'street',l:c.l,cid,cids:new Set([cid]),hide:new Set()}; apply(); fit((NEWU.inter[cid]||{}).b||c.b)}
 function focusGroup(gid){const cids=groupCids(gid), st=tree.streets[gid]; if(!st||!cids.size)return; sel={t:'street',l:st.l,gid,cids,hide:new Set()}; apply(); fit(union(cids))}
 function focusOff(){sel={t:'ctrL',l:sel.l}; apply()}
 function renderFocus(){const box=document.getElementById('focus'), {t,cid,gid}=sel;
@@ -233,7 +259,8 @@ function renderFocus(){const box=document.getElementById('focus'), {t,cid,gid}=s
   const sum=fn=>parts.reduce((a,p)=>a+(fn(p)||0),0), z={}, ob={};
   ids.forEach(id=>{const i=info(id); Object.entries(i.z||{}).forEach(([k,v])=>z[k]=(z[k]||0)+v)});
   const exi=new Set(ids); if(!gid)ids.forEach(id=>(tree.secarms[id]||[]).forEach(i=>exi.add(i)));
-  exi.forEach(id=>Object.entries(info(id).ob||{}).forEach(([k,v])=>ob[k]=(ob[k]||0)+v));
+  const nix=!gid&&NEWU.inter[cid];
+  if(nix)Object.assign(ob,nix.ob||{}); else exi.forEach(id=>Object.entries(info(id).ob||{}).forEach(([k,v])=>ob[k]=(ob[k]||0)+v));
   const area=ids.reduce((a,id)=>a+(info(id).a||0),0), tot=Object.values(z).reduce((a,b)=>a+b,0)||1;
   const kind={section:'street section',path:'path space',rail:'rail space',plaza:'plaza',intersection:'intersection'};
   const zrow=Object.entries(z).map(([k,v])=>`<tr><td>${k.replace('_',' ')}</td><td>${v.toLocaleString()} m&sup2; · ${Math.round(100*v/tot)}%</td></tr>`).join('');
@@ -246,27 +273,57 @@ function renderFocus(){const box=document.getElementById('focus'), {t,cid,gid}=s
   let head, extra='';
   if(gid){const st=tree.streets[gid], ns=parts.filter(p=>p.k==='section').length, ni=parts.filter(p=>p.k==='intersection').length;
     head=`Focus: street ${st.n||'(unnamed)'} <small>${gid}</small>`; extra=`<div>${ns} sections and ${ni} intersections · ${area.toLocaleString()} m&sup2;</div>`}
-  else{const i=info(cid);
-    head=`Focus: ${c.k==='intersection'?'Intersection: ':''}${c.n||'(unnamed)'} <small>${cid}</small>`;
-    extra=`<div>${kind[c.k]||c.k}, level ${c.l} · ${area.toLocaleString()} m&sup2;${c.m?` · ${f(c.m,0)} m wide`:''}</div>`+
+  else{const i=info(cid), nu=NEWU.inter[cid]||NEWU.sec[cid];
+    head=`Focus: ${(NEWU.inter[cid]||{}).rb?'Roundabout: ':c.k==='intersection'?'Intersection: ':''}${c.n||'(unnamed)'} <small>${cid}</small>`;
+    extra=nu?`<div>${kind[c.k]||c.k}, level ${c.l}</div>`+newBlock(cid):
+      `<div>${kind[c.k]||c.k}, level ${c.l} · ${area.toLocaleString()} m&sup2;${c.m?` · ${f(c.m,0)} m wide`:''}</div>`+
       (i.nh!=null?`<div>half-widths: narrow side ${f(i.nh)} m, wide side ${f(i.wh)} m · open share ${f(i.o,2)} · kerb found ${f(i.ks,2)}</div>`:'');
     // the street(s) this belongs to: a section is in one street group, an intersection in several (one per street that meets there)
     const gs=c.k==='intersection'?(tree.arms[cid]||[]):(c.s?[c.s]:[]);
     if(gs.length)extra+=`<div>${c.k==='intersection'?'meets':'part of'}: `+gs.map(g=>`<button data-gid="${g}">${(tree.streets[g]||{}).n||'(unnamed)'}</button>`).join(' ')+`</div>`}
-  box.innerHTML=`<h4>${head}</h4>${extra}<div>${counts}</div>
+  const isNew=!gid&&(NEWU.inter[cid]||NEWU.sec[cid]);   // the new spaces describe themselves; the old container's numbers are left out
+  box.innerHTML=`<h4>${head}</h4>${extra}<div>${counts}</div>`+(isNew?'':`
     <div>bounded by <b>${bbn[0]}</b> building${bbn[0]===1?'':'s'} (${bbn[1]} m of edge); the rest of its edge is open ground, a wall or another street space. The bounding buildings are shown.</div>
-    <table>${strow||zrow}</table>
-    <b>Inside${exi.size>ids.length?' and at its intersections':''} (${nob} objects)</b><table>${orows||'<tr><td>no objects</td><td></td></tr>'}</table>
+    <table>${strow||zrow}</table>`)+`
+    <b>Inside${exi.size>ids.length&&!nix?' and at its intersections':''} (${nob} objects)</b><table>${orows||'<tr><td>no objects</td><td></td></tr>'}</table>
     <label><input type=checkbox id=bmshow ${bmDim?'checked':''}> keep the basemap visible (dimmed)</label><br>
     <button id=exitfocus>Exit focus (Esc)</button>`;
   document.getElementById('exitfocus').onclick=focusOff; document.getElementById('bmshow').onchange=e=>{bmDim=e.target.checked; setMask(true)}}
 document.getElementById('focus').onclick=e=>{const g=e.target.dataset.gid; if(g)focusGroup(g)};
+// the new spaces (space.unit): an intersection's area and how each arm was cut; a section's subsections, one row each
+const CUTCOL={'block corners':'#16a34a','one corner':'#f59e0b'}, PCOL=__PCOL__;
+function newBlock(cid){const it=NEWU.inter[cid], ss=NEWU.sec[cid];
+  if(it){const bl=it.bb||[], bm=Math.round(bl.reduce((a,b)=>a+b[1],0));
+    return `<div><b>${it.rb?'Roundabout':'Intersection'} space</b> · ${it.a.toLocaleString()} m&sup2; · bounded by <b>${bl.length}</b> building${bl.length===1?'':'s'} (${bm} m of edge), the rest by its cuts</div>`+
+      `<div><b>Arms</b> (widths at the cut, m)</div><table><tr><th></th><th>total</th><th>road</th><th>left</th><th>right</th><th>lanes in/out</th></tr>`+
+      (it.w||[]).map(([n,t,c,l,r,i,o,s])=>`<tr><td>${n}</td><td>${t}</td><td>${c}</td><td>${l}</td><td>${r}</td><td>${i} / ${o}${s==='default'?' *':''}</td></tr>`).join('')+
+      `</table><div style="font-size:11px;color:#666">left / right: pedestrian realm, seen from the junction · * lanes estimated (no lanes tag)</div>`+partsTable(cid)+
+      `<div><b>Cuts</b></div><table>`+
+    it.cuts.map(([how,len])=>`<tr><td><span class=sw style="background:${CUTCOL[how]||'#6b7280'}"></span>${how}</td><td>${len} m</td></tr>`).join('')+'</table>'}
+  return `<div><b>New spaces</b> · ${ss.length} subsection${ss.length===1?'':'s'} · ${ss.reduce((a,x)=>a+x[1],0).toLocaleString()} m&sup2;</div><table>`+
+    ss.map(([id,a,len,l,r,col])=>{const w=(NEWU.subw||{})[id];
+      return `<tr><td><span class=sw style="background:${col}"></span>${id.split('/')[1]} · ${len} m</td><td>${a.toLocaleString()} m&sup2; · ${l} | ${r}`+
+        (w?`<br><small>across: ${w[1]} m = ${w[3]} + road ${w[2]} + ${w[4]} · lanes ${w[5]} fwd / ${w[6]} back</small>`:'')+`</td></tr>`}).join('')+'</table>'+
+    partsTable(...ss.map(x=>x[0]))}
+function partsTable(...uids){const t={}; uids.forEach(u=>Object.entries((NEWU.parts||{})[u]||{}).forEach(([k,v])=>t[k]=(t[k]||0)+v));
+  const rows=Object.entries(t).sort((a,b)=>b[1]-a[1]);
+  return rows.length?`<div><b>Parts</b></div><table>`+rows.map(([k,v])=>`<tr><td><span class=sw style="background:${PCOL[k]||PCOL[k.split(' ')[0]]||'#999'}"></span>${k}</td><td>${Math.round(v).toLocaleString()} m&sup2;</td></tr>`).join('')+'</table>':''}
 document.getElementById('focus').onchange=e=>{const k=e.target.dataset.cls; if(!k)return; sel.hide=sel.hide||new Set(); e.target.checked?sel.hide.delete(k):sel.hide.add(k); apply()};
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&(sel.t==='street'||sel.t==='zone'))focusOff()});
 // clicking a street space (or one of its zones) on the map focuses it
 document.addEventListener('rs:select',e=>{const d=e.detail||{}, p=d.properties||{};
+  // a click on a road inside a new space: the space under the click decides (roads cross every intersection, so the road would
+  // otherwise always win and open its section)
+  const under=!d.overlay&&(d.overlays||[]).find(o=>o.label==='Spaces');
+  if(under){focusUnit(under.properties);return}
+  if(d.overlay==='Cuts'&&p.intersection_id){focusUnit({unit_id:p.intersection_id,section_id:p.intersection_id});return}   // a cut opens its intersection
   if([...KD.map(k=>k.lab),'Travelway','Pedestrian realm','Track'].includes(d.overlay)&&p.cid&&!(sel.cids&&sel.cids.has(p.cid)))focusOn(p.cid);
-  else if(!d.overlay&&p.container_id&&!(sel.cids&&sel.cids.has(p.container_id)))focusOn(p.container_id)});   // a centerline click (Street View) focuses its street space too
+  else if(!d.overlay&&p.container_id&&!(sel.cids&&sel.cids.has(p.container_id)))focusOn(p.container_id)   // a centerline click (Street View) focuses its street space too
+  else if(['Spaces','Subsections','Subsection breaks'].includes(d.overlay))focusUnit(p)});
+// a new space (space.unit) or a subsection line: focus its section (or its intersection); a section only the new division has: zoom to the space
+function focusUnit(p){const id=[p.section_id,p.unit_id].find(x=>x&&byId[x]);
+  if(id){if(!(sel.cids&&sel.cids.has(id)))focusOn(id);return}
+  const ids=rsQuery(q=>q.unit_id===(p.unit_id||p.subsection_id),'Spaces'); if(ids.length)rsFocus(ids,{maxZoom:19},'Spaces')}
 let maskReady=false, bmDim=false, labels0;   // bmDim: keep the basemap visible, dimmed, in focus
 function setLabels(cs){if(!map.getLayer('roads-labels'))return; if(labels0===undefined)labels0=map.getFilter('roads-labels')||null;
   map.setFilter('roads-labels',cs?['all',...(labels0?[labels0]:[]),['in',['get','container_id'],['literal',[...cs]]]]:labels0)}   // street names: the focused container's only
@@ -295,8 +352,8 @@ function paintObjects(){const ov=(window.RS_OVERLAYS||[]).find(x=>x.label==='Obj
 map.on('idle',paintObjects);   // the basemap scales its last real tile level; our layers stay sharp
 let tries=0;   // overlay data loads after the map's own load event: wait until it can be queried
 (function start(){ if(rsQuery(()=>true,'Buildings').length===0&&tries++<100){setTimeout(start,200);return} apply(); fromHash() })();
-// direct link: viz/<area>.html#c=<container id> focuses that container
-function fromHash(){const m=location.hash.match(/^#c=(.+)$/); if(m)focusOn(decodeURIComponent(m[1]))}
+// direct link: viz/<area>.html?c=<container id> (or #c=<container id>) focuses that container; ?c= survives link openers that drop the #
+function fromHash(){const m=location.hash.match(/^#c=(.+)$/)||location.search.match(/[?&]c=([^&]+)/); if(m)focusOn(decodeURIComponent(m[1]))}
 window.addEventListener('hashchange',fromHash);
 </script>
 """
@@ -402,12 +459,51 @@ def main(db, out):
                          ("open", "Open ground", "#efe9dc", "#d8d0bd"), ("plaza", "Plaza", "#f4a6b4", "#d97c8f"), ("track", "Track", "#e879f9", "#a21caf"))
              if (strips["type"] == d[0]).any()]
     shapes = object_shapes(con, epsg_of(con))
+
     ogroups = [(g, c) for g, c in (("furniture", "#4f46e5"), ("vegetation", "#65a30d"), ("transit", "#0891b2"), ("crossing", "#eab308"),
                                    ("kerb", "#6b7280"), ("access", "#db2777"), ("barrier", "#78350f")) if (objects.grp == g).any()]
     lon = con.execute("SELECT avg(ST_X(ST_Centroid(geometry))) FROM space.container").fetchone()[0]
     epsg = f"EPSG:{32600 + int((lon + 180) // 6) + 1}"   # the metric zone, as in urbanstyle.build
     track = zones[zones.zone == "track"]
-    has = [lab for lab, df in (("Track", track), ("Rail", rails), ("Station", stations), ("Objects", shapes)) if len(df)]   # overlays present in this area
+    try:
+        subs = frame(con, """SELECT ST_AsWKB(geometry) AS geometry, subsection_id, section_id, level, class, width_m, oneway, length_m, "left", "right",
+            starts_at, color FROM space.subsection""")
+        brk = frame(con, """SELECT ST_AsWKB(ST_StartPoint(geometry)) AS geometry, subsection_id, section_id, level, starts_at FROM space.subsection
+            WHERE starts_at <> 'section end'""")
+        units = frame(con, f"""SELECT ST_AsWKB(geometry) AS geometry, unit_id, kind, section_id, level, color,
+            round(ST_Area(ST_Transform(geometry, 'EPSG:4326', '{epsg_of(con)}', always_xy := true)))::INT AS area_m2 FROM space.unit""")
+        cuts = frame(con, """SELECT ST_AsWKB(geometry) AS geometry, intersection_id, edge_id, level, how, length_m,
+            CASE how WHEN 'block corners' THEN '#16a34a' WHEN 'one corner' THEN '#f59e0b' ELSE '#6b7280' END AS color FROM space.cut""")
+        ep = epsg_of(con)
+        jroads = frame(con, """SELECT ST_AsWKB(ST_CollectionExtract(ST_Intersection(e.geometry, u.geometry), 2)) AS geometry, u.unit_id, e.level_min AS level,
+            e.name, e.class FROM space.element e JOIN space.unit u ON u.kind IN ('intersection', 'roundabout') AND u.level = e.level_min AND ST_Intersects(e.geometry, u.geometry)
+            WHERE e.type = 'road'""")
+        jroads = jroads[~jroads.geometry.is_empty]
+        try:    # the inside of each space (parts.py): parts, marks, widths
+            pts_ = frame(con, f"""SELECT ST_AsWKB(geometry) AS geometry, unit_id, part_id, level, type, coalesce(arm, '') AS arm,
+                coalesce(direction, '') AS direction, lane, width_m, source,
+                round(ST_Area(ST_Transform(geometry, 'EPSG:4326', '{ep}', always_xy := true)), 1) AS area_m2 FROM space.part""")
+            pts_["color"] = [PART_COLORS.get(f"{t} {d}".strip(), PART_COLORS.get(t, "#999999")) for t, d in zip(pts_["type"], pts_["direction"])]
+            marks = frame(con, "SELECT ST_AsWKB(geometry) AS geometry, unit_id, level, type, coalesce(arm, '') AS arm, length_m FROM space.mark")
+            uwidths = con.execute("SELECT unit_id, edge, arm, total_m, carriageway_m, left_m, right_m, lanes_in, lanes_out, source FROM space.width").fetchall()
+        except duckdb.CatalogException:
+            pts_, marks, uwidths = pd.DataFrame({"type": []}), pd.DataFrame({"type": []}), []
+        unit_of = dict(con.execute("""SELECT o.object_id, min(u.unit_id) FROM space.object o JOIN space.unit u ON u.level = o.level
+            AND ST_Intersects(u.geometry, o.geometry) GROUP BY 1""").fetchall())
+        ubld = con.execute(f"""SELECT u.unit_id, b.source_id, round(ST_Length(ST_Intersection(ST_Boundary(ST_Transform(u.geometry, 'EPSG:4326', '{ep}', always_xy := true)),
+              ST_Buffer(ST_Transform(b.geometry, 'EPSG:4326', '{ep}', always_xy := true), 1.0))), 1) AS m
+            FROM space.unit u JOIN space.element b ON b.type = 'building' AND b.level_min <= u.level AND b.level_max >= u.level
+              AND ST_Intersects(ST_Buffer(u.geometry, 0.00002), b.geometry) WHERE u.kind IN ('intersection', 'roundabout')""").fetchall()
+        ubounds = {r[0]: [round(x, 7) for x in r[1:]] for r in con.execute(
+            "SELECT unit_id, ST_XMin(geometry), ST_YMin(geometry), ST_XMax(geometry), ST_YMax(geometry) FROM space.unit WHERE kind IN ('intersection', 'roundabout')").fetchall()}
+    except duckdb.CatalogException:
+        subs = brk = units = cuts = jroads = pd.DataFrame()
+        pts_, marks, uwidths = pd.DataFrame({"type": []}), pd.DataFrame({"type": []}), []
+        unit_of, ubld, ubounds = {}, [], {}
+    shapes["unit"] = shapes["object_id"].map(unit_of)
+    objects["unit"] = objects["object_id"].map(unit_of)
+    has = [lab for lab, df in (("Track", track), ("Rail", rails), ("Station", stations), ("Objects", shapes), ("Spaces", units), ("Parts", pts_), ("Cuts", cuts), ("Junction roads", jroads), ("Subsections", subs),
+                               ("Subsection breaks", brk)) if len(df)]   # overlays present in this area
     links = frame(con, "SELECT ST_AsWKB(geometry) AS geometry, node_id, level_a, level_b, type, assumed, station_id, match, round(dist_m) AS dist_m FROM space.link")
     # type, name shown, colour, what it is. Colours differ from every other layer's on purpose.
     defs = [("ramp", "Ramp", "#f59e0b", "a bridge or tunnel is involved"), ("stairs", "Stairs", "#0f172a", "steps join two levels"),
@@ -439,8 +535,61 @@ def main(db, out):
                                popup=["object_id", "class", "cid", "zone", "level", "name", "attrs", "near_m"], tooltip=["class", "object_id"])
                     for g, c in ogroups]
                  + [rs.Overlay(links[links["type"] == t], kind="circle", placement="over", color=c, radius=6, label=f"Link: {name}",
-                               popup=["node_id", "type", "level_a", "level_b", "assumed", "station_id", "match", "dist_m"], tooltip=["node_id", "type"]) for t, name, c, _ in defs])
-    panel = (PANEL.replace("__TREE__", json.dumps(tree_data(con, epsg)).replace("</", "<\\/"))
+                               popup=["node_id", "type", "level_a", "level_b", "assumed", "station_id", "match", "dist_m"], tooltip=["node_id", "type"]) for t, name, c, _ in defs]
+                 + [o(units, color="#a78bfa", color_col="color", opacity=0.45, outline="#1f2937", width=1.2, label="Spaces",
+                      popup=["unit_id", "kind", "section_id", "level"], tooltip=["unit_id", "kind"])] * (len(units) > 0)
+                 + [o(pts_, color="#999999", color_col="color", opacity=0.95, outline="#475569", width=0.5, label="Parts", visible=False,
+                      popup=["part_id", "type", "arm", "direction", "lane", "width_m", "area_m2", "source"], tooltip=["type", "direction", "arm"])] * (len(pts_) > 0)
+                 + [rs.Overlay(marks[marks["type"] == t], kind="line", placement="over", color=c, width_m=w, dash=dash, label=f"Mark: {t}", visible=False,
+                               popup=["unit_id", "type", "arm", "length_m"], tooltip=["type", "arm"]) for t, c, w, dash in MARKS if (marks["type"] == t).any()]
+                 + [rs.Overlay(jroads, kind="line", placement="over", color="#374151", width=7, label="Junction roads", visible=False,
+                               popup=["unit_id", "name", "class"], tooltip=["name", "class"])] * (len(jroads) > 0)
+                 + [rs.Overlay(cuts, kind="line", placement="over", color="#6b7280", color_col="color", width=4, label="Cuts",
+                               popup=["intersection_id", "edge_id", "how", "length_m"], tooltip=["how", "length_m"])] * (len(cuts) > 0)
+                 + [rs.Overlay(subs, kind="line", placement="over", color="#e6194b", color_col="color", width=5, label="Subsections",
+                               popup=["subsection_id", "section_id", "class", "width_m", "oneway", "length_m", "left", "right", "starts_at"],
+                               tooltip=["subsection_id", "length_m"])] * (len(subs) > 0)
+                 + [rs.Overlay(brk, kind="circle", placement="over", color="#111827", radius=5, label="Subsection breaks",
+                               popup=["subsection_id", "starts_at"], tooltip=["subsection_id", "starts_at"])] * (len(brk) > 0))
+    newu = {"inter": {}, "sec": {}}
+    if len(units):
+        ua = dict(zip(units.unit_id, units.area_m2))
+        for iid, how, ln in zip(cuts.intersection_id, cuts.how, cuts.length_m):
+            newu["inter"].setdefault(iid, {"a": int(ua.get(iid, 0)), "cuts": []})["cuts"].append([how, float(ln)])
+        for iid, kd in zip(units.unit_id, units.kind):
+            if kd in ("intersection", "roundabout"):
+                newu["inter"].setdefault(iid, {"a": int(ua[iid]), "cuts": []})["rb"] = kd == "roundabout"
+        for iid, bid, along in ubld:                  # the buildings that bound it, and how much of its edge runs along them
+            if iid in newu["inter"] and along and along >= 1.0:
+                newu["inter"][iid].setdefault("bb", []).append([bid, float(along)])
+        for oid, iid in unit_of.items():               # what stands inside it, by class
+            if iid in newu["inter"]:
+                cls = objects.loc[objects.object_id == oid, "class"]
+                if len(cls):
+                    ob = newu["inter"][iid].setdefault("ob", {}); ob[cls.iloc[0]] = ob.get(cls.iloc[0], 0) + 1
+        for iid, b in ubounds.items():
+            if iid in newu["inter"]:
+                newu["inter"][iid]["b"] = b
+        for iid, sid in con.execute("""SELECT i.unit_id, s.unit_id FROM space.unit i JOIN space.unit s ON s.kind = 'subsection' AND s.level = i.level
+                AND ST_Intersects(ST_Buffer(i.geometry, 0.00001), s.geometry) WHERE i.kind IN ('intersection', 'roundabout')""").fetchall():
+            if iid in newu["inter"]:          # the roads arriving at it: their subsections next to it
+                newu["inter"][iid].setdefault("adj", []).append(sid)
+        for uid, edge, arm, tot, cw, lw, rw, li, lo, src in uwidths:     # edges and their widths
+            tgt = newu["inter"].get(uid) if uid.startswith("i") else newu.setdefault("subw", {})
+            row = [arm or "", tot, cw, lw, rw, li, lo, src]
+            if uid.startswith("i") and tgt is not None:
+                tgt.setdefault("w", []).append(row)
+            elif not uid.startswith("i"):
+                tgt[uid] = row
+        if len(pts_):                                                     # the area of each kind of part, per unit
+            for uid, typ, d, a in zip(pts_.unit_id, pts_["type"], pts_.direction, pts_.area_m2):
+                pa = newu.setdefault("parts", {}).setdefault(uid, {})
+                key = f"{typ} {d}".strip()
+                pa[key] = round(pa.get(key, 0) + float(a), 1)
+        for r in subs.assign(k=subs.subsection_id.str.split("/").str[-1].astype(int)).sort_values(["section_id", "k"]).itertuples():
+            if r.subsection_id in ua:
+                newu["sec"].setdefault(r.section_id, []).append([r.subsection_id, int(ua[r.subsection_id]), float(r.length_m), r.left, r.right, r.color])
+    panel = (PANEL.replace("__PCOL__", json.dumps(PART_COLORS)).replace("__NEWU__", json.dumps(newu)).replace("__MARKS__", json.dumps([t for t, *_ in MARKS if len(marks) and (marks["type"] == t).any()])).replace("__TREE__", json.dumps(tree_data(con, epsg)).replace("</", "<\\/"))
              .replace("__LEVELS__", json.dumps(list(range(LEVELS[0], LEVELS[1] + 1)))).replace("__LINKDEF__", json.dumps([{"t": t, "lab": n, "c": c, "d": d} for t, n, c, d in defs]))
              .replace("__KINDS__", json.dumps([{"k": k, "lab": lab, "c": c} for k, lab, c in kinds])).replace("__OBJDEF__", json.dumps([{"g": g, "c": c} for g, c in ogroups])).replace("__OBJCOLORS__", json.dumps({k: v[2] for k, v in OBJ_SHAPES.items()})).replace("__STRIPS__", json.dumps([{"t": t, "lab": lab, "c": c} for t, lab, c, _ in sdefs])).replace("__HAS__", json.dumps(has)).replace("__LEVELBTNS__", "".join(f'<button data-l="{l}">{l}</button>' for l in range(LEVELS[0], LEVELS[1] + 1))))
     open(out, "w").write(m.html.replace("</body>", panel + "</body>"))

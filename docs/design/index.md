@@ -8,6 +8,9 @@
   axioms and the invariants `urbanstyle check` runs.
 - [Sections and intersections, version 2](section-intersection-v2.md): the replacement of Voronoi and hulls by
   offset corridors and straight arm cuts.
+- [Network first (preview)](network-first.md): divide the roads into subsections, then one space per subsection, intersection and
+  roundabout, cut at the block corners.
+- [The inside of a space](space-parts.md): lanes, junction box, crosswalks, sidewalks, markings and widths, with their sources.
 - [Street objects](street-objects.md): what goes inside a street space: axis and `(s, t)`, strips, objects,
   boundaries, and the order of work.
 - [Objects, step 1](street-objects-step1.md): the point-object taxonomy and `space.object`.

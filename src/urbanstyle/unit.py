@@ -22,7 +22,6 @@ import os
 
 CLIP_M = 400.0      # the neighbourhood built around a unit: enough for its arms, its neighbours and their cuts
 FLOW_M = 60.0       # traffic counted on a road this close to the unit belongs to it
-METHOD = {"sumo": "derived", "measured": "measured", "tag": "mapped", "osm": "mapped", "mapillary": "observed", "estimated": "estimated"}
 CONFIDENCE = {"surveyed": 0.9, "mapped": 0.7, "measured": 0.6, "observed": 0.5, "derived": 0.5, "estimated": 0.3, "checked": 1.0}
 HEIGHT = {"furniture.lamp": 7.6, "furniture.signal": 3.3, "furniture.sign": 2.6, "furniture.bench": 0.9, "furniture.waste": 1.0,
           "furniture.bollard": 0.9, "vegetation.tree": 7.5, "transit.stop": 2.7, "furniture.post_box": 1.2, "furniture.parking_meter": 1.5,
@@ -38,6 +37,60 @@ VAN_OBJECT = {"public-trees": "vegetation.tree", "street-lighting-poles": "furni
               "street-lighting-junction-boxes": "utility.junction_box"}
 VAN_OTHER = ("disability-parking", "right-of-way-widths", "bikeways", "sidewalk-condition-rating", "pavement-condition-rating",
              "pavement-condition-rating-major-road-network-2023", "intersection-traffic-movement-counts", "directional-traffic-count-locations")
+
+MATCH_M = 10.0      # objects of one class from two sources this close are one real object (Mapillary's positions are 1-5 m off, often more)
+RANK = {"vancouver": 0, "nvdb": 1, "osm": 2, "mapillary": 3}   # whose position a matched object takes: a city's survey, a map, photos
+
+
+def match(con, seen):
+    """`match`: one row per real object, the objects of all sources that stand for it (`object.match_id`). Objects of one class within
+    MATCH_M of a member join it, nearest first, at most one per source; except that two Mapillary features seen in periods that do not
+    overlap (`seen`: id -> (first, last)) are one object detected again from newer photos. Position and height from the best source
+    (RANK); confidence: any one of its sources right (1 - product of 1 - confidence)."""
+    import shapely
+    rows = con.execute("SELECT object_id, class, source, height_m, confidence::DOUBLE, ST_AsWKB(geometry) FROM object").fetchall()
+    newest = lambda oid: -(seen[oid][1].timestamp() if seen.get(oid, (None, None))[1] else 0)
+    rows.sort(key=lambda r: (RANK.get(r[2], 9), newest(r[0])))
+    apart = lambda a, b: a is not None and b is not None and None not in (*a, *b) and (a[1] <= b[0] or b[1] <= a[0])
+    # members a and b may be one object: no source twice, unless two Mapillary features seen at different times
+    fits = lambda a, b: all(x[1] != y[1] or (x[1] == "mapillary" and apart(seen.get(x[0]), seen.get(y[0]))) for x in a for y in b)
+    groups = []     # [class, [(object_id, source, point, height, confidence)]]
+    for oid, cls, src, h, conf, wkb in rows:   # ponytail: greedy and O(objects x groups), fine for one unit; a tree for a whole city
+        p, best = shapely.from_wkb(bytes(wkb)), None
+        for g in groups:
+            if g[0] != cls:
+                continue
+            d = min(p.distance(m[2]) for m in g[1])
+            if d <= MATCH_M and (best is None or d < best[0]) and fits([(oid, src)], g[1]):
+                best = (d, g)
+        if best is None:
+            best = (0, [cls, []])
+            groups.append(best[1])
+        best[1][1].append((oid, src, p, h, conf))
+    merged = True   # then two groups that are one object (each joined a different neighbour first) become one
+    while merged:
+        merged = False
+        for i, j in ((i, j) for i in range(len(groups)) for j in range(i + 1, len(groups))):
+            a, b = groups[i], groups[j]
+            if a[0] == b[0] and min(x[2].distance(y[2]) for x in a[1] for y in b[1]) <= MATCH_M and fits(a[1], b[1]):
+                a[1] = sorted(a[1] + b[1], key=lambda m: (RANK.get(m[1], 9), newest(m[0])))
+                del groups[j]
+                merged = True
+                break
+    con.execute("ALTER TABLE object ADD COLUMN match_id VARCHAR")
+    con.execute("""CREATE TABLE match (match_id VARCHAR, class VARCHAR, n_sources INT, sources VARCHAR, refs VARCHAR, height_m DOUBLE,
+                   confidence DOUBLE, geometry GEOMETRY)""")
+    out, links = [], []
+    for k, (cls, ms) in enumerate(groups):
+        mid = f"m{k + 1}"
+        srcs = sorted({m[1] for m in ms}, key=lambda x: RANK.get(x, 9))
+        miss = 1.0
+        for x in srcs:
+            miss *= 1 - max(m[4] for m in ms if m[1] == x)
+        out.append((mid, cls, len(srcs), ", ".join(srcs), ", ".join(m[0] for m in ms), ms[0][3], round(1 - miss, 2), shapely.to_wkb(ms[0][2])))
+        links += [(mid, m[0]) for m in ms]
+    con.executemany("INSERT INTO match VALUES (?, ?, ?, ?, ?, ?, ?, ST_GeomFromWKB(?))", out)
+    con.executemany("UPDATE object SET match_id = ? WHERE object_id = ?", links)
 
 
 def clip(src, out, lon, lat, radius=CLIP_M):
@@ -132,15 +185,12 @@ def dossier(space_db, osm_db, unit_id, out, name, city, nvdb=None, flows=None, m
                      arg_min(l.speed_limit_fwd, ST_Distance(r2.geometry, {m('l.geom')})) AS speed_limit_fwd
               FROM road r2 JOIN nv.nvdb.road_network l ON ST_DWithin(r2.geometry, {m('l.geom')}, 5) GROUP BY 1) n WHERE r.road_id = n.road_id""")
 
-    # surfaces and lines: urbanstyle's parts and marks of the unit (kept with their part source as provenance)
+    # surfaces and lines: urbanstyle's parts and marks of the unit, each part with its source, method and the source's id (parts.PROV)
+    ccase = "CASE method " + " ".join(f"WHEN '{k}' THEN {v}" for k, v in CONFIDENCE.items()) + " ELSE 0.3 END"
     con.execute(f"""CREATE TABLE surface AS SELECT part_id AS surface_id, type, direction, arm, lane, width_m,
                     CASE WHEN type IN ('sidewalk', 'furnishing', 'open') THEN 0.15 WHEN type = 'island' THEN 0.2 ELSE 0.0 END AS top_m,
-                    coalesce(source, 'estimated') AS part_source, {m('geometry')} AS geometry FROM sp.space.part WHERE unit_id = '{unit_id}'""")
-    con.execute("ALTER TABLE surface ADD COLUMN source VARCHAR; ALTER TABLE surface ADD COLUMN method VARCHAR; ALTER TABLE surface ADD COLUMN confidence DOUBLE")
-    for ps, method in METHOD.items():
-        src = "sumo" if ps == "sumo" else ("mapillary" if ps == "mapillary" else ("osm" if ps in ("osm", "tag") else "urbanstyle"))
-        con.execute("UPDATE surface SET source = ?, method = ?, confidence = ? WHERE part_source = ?", [src, method, CONFIDENCE[method], ps])
-    con.execute("UPDATE surface SET source = 'urbanstyle', method = 'estimated', confidence = 0.3 WHERE source IS NULL")
+                    coalesce(source, 'urbanstyle') AS source, coalesce(method, 'estimated') AS method, ref, {ccase} AS confidence,
+                    {m('geometry')} AS geometry FROM sp.space.part WHERE unit_id = '{unit_id}'""")
     con.execute(f"""CREATE TABLE line AS SELECT row_number() OVER () AS line_id, type, arm, length_m,
                     CASE type WHEN 'stop line' THEN 0.4 WHEN 'give-way line' THEN 0.35 WHEN 'zebra' THEN 0.5 ELSE 0.12 END AS width_m,
                     CASE WHEN type = 'kerb' THEN 'kerb' WHEN type = 'guide line' THEN 'virtual' ELSE 'paint' END AS kind,
@@ -172,6 +222,12 @@ def dossier(space_db, osm_db, unit_id, out, name, city, nvdb=None, flows=None, m
                         coalesce(try_cast(p->>'height_m' AS DOUBLE), {hcase}), p::VARCHAR, {prov('vancouver', 'surveyed')}, {m('geometry')}
                         FROM van JOIN (VALUES {", ".join(f"('{d}', '{c}')" for d, c in VAN_OBJECT.items())}) c(ds, class) USING (ds)
                         WHERE {near('geometry', 3)}""")
+        # what the city says of each road piece, from its item nearest the piece (within 15 m): legal width, pavement, bikeway
+        for col, ds, val in (("row_width", "right-of-way-widths", "(p->>'width') || ' (ft or m)'"), ("pavement", "%pavement-condition%", "p->>'pci_rating'"),
+                             ("bikeway", "bikeways", "concat_ws(' ', p->>'bikeway_type', p->>'bikeway_direction')")):
+            con.execute(f"""ALTER TABLE road ADD COLUMN {col} VARCHAR;
+                UPDATE road r SET {col} = n.v FROM (SELECT r2.road_id, arg_min({val}, ST_Distance(r2.geometry, {m('v.geometry')})) AS v
+                  FROM road r2 JOIN van v ON v.ds LIKE '{ds}' AND ST_DWithin(r2.geometry, {m('v.geometry')}, 15) GROUP BY 1) n WHERE r.road_id = n.road_id""")
 
     # lanes and moves: SUMO's (through urbanstyle's parts and turns)
     con.execute(f"""CREATE TABLE lane AS SELECT part_id AS lane_id, arm AS road_name, direction, lane AS lane_from_right, width_m, type AS kind,
@@ -227,6 +283,11 @@ def dossier(space_db, osm_db, unit_id, out, name, city, nvdb=None, flows=None, m
             UNION ALL SELECT CASE ds WHEN 'intersection-traffic-movement-counts' THEN 'turning counts' ELSE 'directional counts' END,
                    coalesce(p->>'url', p->>'location'), NULL, NULL, NULL, 'vancouver', 'surveyed', NULL, {CONFIDENCE['surveyed']}, {m('geometry')}
                 FROM van WHERE ds LIKE '%traffic-%count%' AND {near('geometry', FLOW_M)}""")
+    try:
+        seen = {k: (a, b) for k, a, b in con.execute("SELECT 'mly' || feature_id, first_seen, last_seen FROM sp.space.observed").fetchall()}
+    except duckdb.CatalogException:
+        seen = {}
+    match(con, seen)
     con.execute("""CREATE TABLE "check" (item_table VARCHAR, item_id VARCHAR, how VARCHAR, result VARCHAR, note VARCHAR, by_whom VARCHAR, on_date VARCHAR)""")
     return con
 
@@ -252,7 +313,7 @@ def main(name, lon, lat, osm, nvdb=None, flows=None, city="", mapillary=True, va
     d = dossier(base + ".space.duckdb", base + ".osm.duckdb", unit_id, base + ".duckdb", name, city, nvdb, flows,
                 base + ".space.duckdb.mapillary.json" if mapillary else None, base + ".vancouver.json" if vancouver else None)
     counts = {t: d.execute(f'SELECT count(*) FROM "{t}"').fetchone()[0] for t in
-              ("unit", "source", "road", "surface", "line", "object", "lane", "movement", "rule", "observation", "check")}
+              ("unit", "source", "road", "surface", "line", "object", "match", "lane", "movement", "rule", "observation", "check")}
     print(f"{name}: unit {unit_id} -> {base}.duckdb")
     print("  " + ", ".join(f"{t} {n}" for t, n in counts.items()))
     return unit_id

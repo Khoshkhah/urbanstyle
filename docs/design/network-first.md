@@ -17,7 +17,9 @@ belong to the junction. Ids `<section id>/<k>`.
 
 **Intersections** are cut at the block corners: the building-line vertex nearest the junction in the angle between two arms. Corners on both
 sides: the cut joins them; one corner: the cut runs through it along the street on its other side (the prolongation of that building line);
-none: square to the arm at the crossing street's half-width + 1 m. A cut takes at most half the street to the next junction. The intersection
+none: square to the arm at the crossing street's half-width + 1 m. A crosswalk the cut runs through, or one starting at most 6 m beyond it,
+is the junction's own and stays whole (one part, one id): the cut moves out past it to the stop line (1.5 + 2 m beyond the crossing), square across the arm (`how` =
+`crosswalk`; 2026-10-09). A cut takes at most half the street to the next junction. The intersection
 is the area its cuts enclose, minus the buildings: its core (nodes, the roads between them) and every arriving road up to its cut are its own;
 of the rest it takes what the roads' spaces do not hold. A junction holding a roundabout's ring is a **roundabout**, a kind of its own.
 Which nodes form one junction is `space.junction` (`intersection_id`, `node_id`, `level`, `cluster_id`): the container step's groups of close

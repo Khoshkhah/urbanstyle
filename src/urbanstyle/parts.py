@@ -22,6 +22,9 @@ EST_LANE_M = 3.25      # a lane's width when nothing is measured
 SIDEWALK_HALF_M = 1.0  # a sidewalk is mapped along its middle: the kerb lies this much nearer the road
 KERB_SEARCH_M = 12.0   # how far from a road its sidewalks are looked for (a sidewalk farther away is not this road's)
 CROSSWALK_M = 3.0
+# how a part was made -> (where its data comes from, how it was obtained): space.part `source`, `method`; `ref` is the source's own id
+PROV = {"sumo": ("sumo", "derived"), "measured": ("osm", "measured"), "measured one side": ("osm", "measured"), "crossing": ("osm", "measured"),
+        "tag": ("osm", "mapped"), "osm": ("osm", "mapped"), "mapillary": ("mapillary", "observed"), "estimated": ("urbanstyle", "estimated")}
 SAME_CROSSING_M = 6.0  # a crossing point this close to a mapped crossing path is that crossing, not a second one
 CYCLE_M = 1.5          # a cycle lane at the roadway's edge
 BUS_M = 3.2            # a bus lane (shared with bikes: cycleway=share_busway)
@@ -148,8 +151,9 @@ def build(con, epsg):
         roads[eid] = dict(osm=osm, level=lv, w=w, oneway=ow, src=src, dst=dst, cid=cid, name=name or "(unnamed)", g=g(wk))
     rtree_ids = list(roads)
     rtree = shapely.STRtree([roads[e]["g"] for e in rtree_ids]) if rtree_ids else None
-    paths = [(typ, sub, lv, g(w)) for typ, sub, lv, w in con.execute(
-        f"SELECT type, coalesce(subtype, ''), level_min, {tr()} FROM space.element WHERE type IN ('walkway', 'cycleway')").fetchall()]
+    prows = con.execute(f"SELECT type, coalesce(subtype, ''), level_min, {tr()}, osm_id FROM space.element WHERE type IN ('walkway', 'cycleway')").fetchall()
+    paths = [(typ, sub, lv, g(w)) for typ, sub, lv, w, _ in prows]
+    path_osm = {id(p[3]): f"w{r[4]}" for p, r in zip(paths, prows) if r[4] is not None}   # a path's OSM way, by its geometry
     ptree = shapely.STRtree([p[3] for p in paths]) if paths else None
     objs = [(oid, cls, lv, ctl, g(w)) for oid, cls, lv, ctl, w in con.execute(f"""SELECT object_id, class, level,
             CASE WHEN class = 'furniture.signal' THEN 'signal' WHEN json_extract_string(attrs, '$.highway') IN ('stop', 'give_way')
@@ -262,7 +266,7 @@ def build(con, epsg):
 
     parts, marks, widths, count, claimed = [], [], [], {}, {}
 
-    def add(uid, level, typ, geom, source, arm=None, direction=None, lane=None, width=None):
+    def add(uid, level, typ, geom, how, arm=None, direction=None, lane=None, width=None, ref=None):
         # a part takes only ground no earlier part of this unit took: no overlaps by construction (priority = the order of the calls)
         def precise(op, a, b):     # on a 1 cm grid: exact enough, robust where floating point is not (else the plain overlay)
             try:
@@ -277,7 +281,8 @@ def build(con, epsg):
             claimed[uid] = precise("union", claimed[uid], new) if uid in claimed else area(new)
         for p in got:
             n = count[uid] = count.get(uid, 0) + 1
-            parts.append((uid, f"{uid}#{n}", level, typ, arm, direction, lane, round(width, 2) if width else None, source, shapely.to_wkb(p)))
+            parts.append((uid, f"{uid}#{n}", level, typ, arm, direction, lane, round(width, 2) if width else None, *PROV.get(how, (how, None)), ref,
+                          shapely.to_wkb(p)))
         return shapely.union_all(got) if got else shapely.Polygon()
 
     def mark(uid, level, typ, geom, arm=None):
@@ -324,7 +329,8 @@ def build(con, epsg):
             on = safe("intersection", ln, C.buffer(1.0))
             for seg in [x for x in shapely.get_parts(on) if x.geom_type == "LineString" and x.length >= 1.0 and across_road(x, axes)]:
                 w = CROSSWALK_M if typ == "walkway" else CYCLE_M
-                got = add(uid, level, "crosswalk" if typ == "walkway" else "cycle crossing", safe("intersection", seg.buffer(w / 2, cap_style="flat"), C), "measured", width=w)
+                got = add(uid, level, "crosswalk" if typ == "walkway" else "cycle crossing", safe("intersection", seg.buffer(w / 2, cap_style="flat"), C), "measured",
+                          width=w, ref=path_osm.get(id(ln)))
                 if typ == "walkway":
                     zebra(uid, level, got, _unit(seg.coords[-1][0] - seg.coords[0][0], seg.coords[-1][1] - seg.coords[0][1]))
                 taken = safe("union", taken, got)
@@ -340,7 +346,7 @@ def build(con, epsg):
             c, L, H = ln.interpolate(t), 30.0, CROSSWALK_M / 2
             rect = shapely.Polygon([(c.x - tx * H - ty * L, c.y - ty * H + tx * L), (c.x + tx * H - ty * L, c.y + ty * H + tx * L),
                                     (c.x + tx * H + ty * L, c.y + ty * H - tx * L), (c.x - tx * H + ty * L, c.y - ty * H - tx * L)])
-            got = add(uid, level, "crosswalk", safe("intersection", rect, C), "estimated", width=CROSSWALK_M)
+            got = add(uid, level, "crosswalk", safe("intersection", rect, C), "estimated", width=CROSSWALK_M, ref=oid)
             zebra(uid, level, got, (-ty, tx))
             taken = safe("union", taken, got)
         return taken
@@ -374,7 +380,7 @@ def build(con, epsg):
     def turn_arrow(uid, level, ap, off, ways, arm=None):
         """A painted arrow in a lane coming into a junction, its tip 1 m before the stop position (`ap` runs out from it), `off` m
         to the left of `ap`; a head for each way the lane may go: straight on, left, right."""
-        if ap.length < ARROW_M + 2:
+        if ap.length < ARROW_M + 1:      # its tip 1 m before the stop position: SUMO's last piece of a lane may be short (lanes split)
             return
         c = ap.interpolate(1.0)
         tx, ty = direction(ap, 1.0)
@@ -425,7 +431,7 @@ def build(con, epsg):
                 if w <= 0:
                     continue
                 a, b = (h - w, h + 30) if s == 1 else (-h - 30, -h + w)
-                got = add(uid, level, kind, safe("intersection", band(ln, a, b), C), "tag", arm=arm, width=w)
+                got = add(uid, level, kind, safe("intersection", band(ln, a, b), C), "tag", arm=arm, width=w, ref=f"w{r['osm']}")
                 mark(uid, level, "lane line", safe("intersection", shapely.offset_curve(ln, (h - w) * s), C), arm)
                 if s == 1:
                     hl -= w
@@ -469,7 +475,7 @@ def build(con, epsg):
             a1 = a0 - 30 if i == 0 else a0                 # the outer bands run on to the (irregular) kerb
             b1 = b0 + 30 if i == len(bands_) - 1 else b0
             got = add(uid, level, typ, safe("intersection", band(ln, a1, b1), C), lsrc, arm=arm, direction=d,
-                      lane=i + 1 if typ == "lane" else None, width=b0 - a0)
+                      lane=i + 1 if typ == "lane" else None, width=b0 - a0, ref=f"w{r['osm']}")
             if typ == "lane":
                 out.append((d, got, a0, b0))
                 sgn = 1 if d == right else (-1 if d == left else 0)          # `right` lanes run along the line, `left` lanes back
@@ -771,7 +777,7 @@ def build(con, epsg):
                     got = piece
                 else:
                     got = add(uid, level, x["typ"], piece, "sumo", arm=None if sub else roads[elem_of[x["edge"]]]["name"],
-                              direction=d, lane=x["i"] + 1, width=x["w"])
+                              direction=d, lane=x["i"] + 1, width=x["w"], ref=f"w{roads[elem_of[x['edge']]]['osm']}" if x["edge"] in elem_of else None)
                 if not area(got).is_empty:
                     mine.append((x, d, longest(safe("intersection", x["ln"], U)), area(got).area))
             for x in ([sh[k] for k in stree.query(U) if sh[k]["level"] == level] if stree is not None else []):
@@ -817,7 +823,7 @@ def build(con, epsg):
                             mark(uid, level, "guide line", safe("intersection", g_, U), arm)
                         turn_rows.append((uid, level, elem_of[x["edge"]], x["i"] + 1, elem_of.get(t, t), tl + 1, w_, "sumo", shapely.to_wkb(g_)))
                 back = shapely.LineString(x["ln"].coords[::-1])               # from the junction back along the lane
-                if moves and back.length >= ARROW_M + 2 and not rb:
+                if moves and back.length >= ARROW_M + 1 and not rb:
                     turn_arrow(unit_at(back.interpolate(1.0), level, uid), level, back, 0.0, {m[2] for m in moves}, arm)
                 end = shapely.Point(x["ln"].coords[-1])
                 near = [objs[k] for k in otree.query(end.buffer(CONTROL_M))] if otree is not None else []
@@ -1038,7 +1044,7 @@ def build(con, epsg):
             classic(*u)
     net = sumo_roadway()
     if net:
-        for acc in (parts, marks, widths, count, claimed):
+        for acc in (parts, marks, widths, count, claimed, arrow_tips):     # the measuring pass's arrows too: else they block SUMO's
             acc.clear()
         from_sumo(net)
     else:
@@ -1050,13 +1056,13 @@ def build(con, epsg):
         rdf = pd.DataFrame([(u, shapely.to_wkb(g)) for u, g in reshaped.items()], columns=["unit_id", "wkb"])
         con.execute(f"""UPDATE space.unit u SET geometry = ST_Transform(ST_GeomFromWKB(r.wkb::BLOB), '{epsg}', 'EPSG:4326', always_xy := true)
                         FROM rdf r WHERE u.unit_id = r.unit_id""")
-    pdf = pd.DataFrame(parts, columns=["unit_id", "part_id", "level", "type", "arm", "direction", "lane", "width_m", "source", "wkb"])
+    pdf = pd.DataFrame(parts, columns=["unit_id", "part_id", "level", "type", "arm", "direction", "lane", "width_m", "source", "method", "ref", "wkb"])
     mdf = pd.DataFrame(marks, columns=["unit_id", "level", "type", "arm", "length_m", "wkb"])
     wdf = pd.DataFrame(widths, columns=["unit_id", "level", "edge", "arm", "total_m", "carriageway_m", "left_m", "right_m", "lanes_in", "lanes_out",
                                         "lane_m", "source"])
     to_ll = f"ST_Transform(ST_GeomFromWKB(wkb::BLOB), '{epsg}', 'EPSG:4326', always_xy := true)"
     con.execute(f"""CREATE OR REPLACE TABLE space.part AS SELECT unit_id, part_id, level::INT AS level, type, arm, direction, lane::INT AS lane,
-                    width_m::DOUBLE AS width_m, source, ST_CollectionExtract(ST_MakeValid({to_ll}), 3) AS geometry FROM pdf""")
+                    width_m::DOUBLE AS width_m, source, method, ref::VARCHAR AS ref, ST_CollectionExtract(ST_MakeValid({to_ll}), 3) AS geometry FROM pdf""")
     con.execute(f"CREATE OR REPLACE TABLE space.mark AS SELECT unit_id, level::INT AS level, type, arm, length_m, {to_ll} AS geometry FROM mdf")
     con.execute("CREATE OR REPLACE TABLE space.width AS SELECT * FROM wdf")
     tdf = pd.DataFrame(turn_rows, columns=["unit_id", "level", "from_edge", "from_lane", "to_edge", "to_lane", "turn", "source", "wkb"])

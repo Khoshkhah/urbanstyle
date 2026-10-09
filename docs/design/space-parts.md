@@ -9,7 +9,10 @@ Status (2026-10-08): agreed with Kaveh; built for intersections, roundabouts and
 
 The parts of a unit cover it exactly: no gaps, no overlaps (check U8). Each has a `type`, an `arm` (the road it belongs to, at an
 intersection), a `direction` for a lane (`in` / `out` of the junction, or `forward` / `backward` along a subsection), a width where it has
-one, and a `source`: `tag` (lanes / width tagged), `measured` (a mapped line: a crossing, a sidewalk, the measured kerb) or `default`.
+one, and its provenance (2026-10-09; before, one `source` word mixed the two): `source`, where its data comes from (`osm`, `sumo`,
+`mapillary`, `urbanstyle` for a default); `method`, how it was obtained (`mapped`: lanes / width tagged; `measured`: from a mapped line, a
+crossing, a sidewalk, the kerb; `derived`: SUMO's lanes and junction shapes; `observed`: a Mapillary sign; `estimated`: a default); and `ref`,
+the source's own id where there is one (the OSM way of a crosswalk or of the road a lane belongs to, the OSM node of a crossing point).
 
 | type | what | where it comes from |
 |---|---|---|

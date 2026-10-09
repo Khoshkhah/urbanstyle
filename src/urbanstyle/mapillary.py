@@ -15,7 +15,7 @@ import sys
 import time
 
 API = "https://graph.mapillary.com"
-STEP = 0.005        # degrees: the API answers a small box at a time
+STEP = 0.001        # degrees: a box of 0.005 came back incomplete and different on each call (28 or 99 of 153 photos); 0.001 is complete
 
 # Mapillary's class -> our group; only these are kept
 GROUPS = {"information--parking--g1": "parking", "information--parking--g5": "parking", "object--traffic-sign--information-parking": "parking",

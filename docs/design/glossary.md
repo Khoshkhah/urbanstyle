@@ -101,6 +101,15 @@ something is on the Earth; (s, t) says where it is *in the street*. That lets us
 order along the street, and ask for everything within 2 m of the kerb. OpenDRIVE and IFC 4.3 position road objects the same way.
 Not built yet (step 3 of `street-objects.md`).
 
+## Unit dossier
+
+| term | meaning |
+|---|---|
+| **unit dossier** | everything known about one unit (an intersection or a street section) from every source, in `data/units/<name>.duckdb`, every row with its `source`, `method` and `confidence` (`docs/design/unit-dossier.md`) |
+| **match** | one real object that several sources describe: the city's surveyed pole, OSM's node and Mapillary's detections of one street light are one `match` row (`match_id` `m<k>`, `sources`, `refs`: every source's own id); `object.match_id` links each source's object to it |
+| **ref** | an object's id in its own source (OSM node, Mapillary feature, a city's asset), kept so every drawn object leads back to where it came from |
+| **source / method** | on every part, object and dossier row: where its data comes from (`osm`, `sumo`, `mapillary`, `vancouver`, `urbanstyle`) and how it was obtained (`surveyed`, `mapped`, `measured`, `derived`, `observed`, `estimated`, `checked`) |
+
 ## Dashboard
 
 | term | meaning |

@@ -56,6 +56,7 @@ method (`surveyed`, `mapped`, `measured` here, `derived`, `estimated`, `checked 
 | `surface` | the ground, split by use: lane, bus lane, cycle lane, parking, sidewalk, furnishing, island, planting, ... with its top height |
 | `line` | kerbs and markings: lane lines, stop lines, zebras, arrows; type, pattern, colour, width |
 | `object` | street furniture and trees: class, position (x, y, z), height, facing, attributes |
+| `match` | the real objects: the objects of all sources that stand for one thing (a surveyed pole, an OSM node, two Mapillary detections of one lamp); position and height from the best source, every source's id |
 | `lane` / `movement` | each lane (road, direction, number from the right, width, allowed modes) and each move from lane to lane, with its signal or priority |
 | `rule` | regulations and where they apply: parking times and fees, loading zones, speed, no stopping |
 | `observation` | timed data: traffic counts per edge or lane and hour, photos with their position and view, sensor readings |
@@ -63,6 +64,12 @@ method (`surveyed`, `mapped`, `measured` here, `derived`, `estimated`, `checked 
 
 Every table maps to **CityGML 3.0 Transportation** (Road / Section / Intersection, TrafficSpace and AuxiliaryTrafficSpace with
 their TrafficArea, Marking, Hole) and to CityFurniture and Vegetation, so a unit can be exported to the standard later.
+
+**Matching** (`unit.match`, 2026-10-09): objects of one class within 10 m of a member join it, nearest first, at most one per source; two
+Mapillary features seen in periods that do not overlap are one object detected again from newer photos (at Broadway × Granville one lamp
+was seen as `1098977867852801` until 2021-01-22 and as `2642214999294836` from that day, 8 m apart). Groups that are one object are then
+merged. Position and height come from the best source (a city's survey, then OSM, then Mapillary); confidence is that any one source is
+right. Greedy, for one unit; a whole city needs a spatial index.
 
 ## Step 3: build each unit, then judge it
 

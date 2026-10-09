@@ -1,4 +1,4 @@
-"""The `urbanstyle` command: build, check, quality, dashboard, mapillary."""
+"""The `urbanstyle` command: build, check, quality, dashboard, mapillary, unit."""
 import argparse
 import sys
 
@@ -17,6 +17,15 @@ def main(argv=None):
     m = sub.add_parser("mapillary", help="fetch Mapillary's street-level features and photos for a built area (needs a token)")
     m.add_argument("db")
     m.add_argument("--osm", help="the duckOSM .duckdb it was built from: rebuild the parts with them now")
+    u = sub.add_parser("unit", help="one unit in full: clip, build and write its dossier (docs/design/unit-dossier.md)")
+    u.add_argument("name")
+    u.add_argument("--at", nargs=2, type=float, metavar=("LON", "LAT"), required=True, help="a point of the junction or street")
+    u.add_argument("--osm", required=True, help="duckOSM .duckdb (a copy with features is made when it has none)")
+    u.add_argument("--nvdb", help="a .duckdb with NVDB's nvdb.road_network (fetching-sweden-data)")
+    u.add_argument("--flows", help="glob of hourly flow parquet files (edge_id, date, hour, flow)")
+    u.add_argument("--city", default="")
+    u.add_argument("--no-mapillary", action="store_true")
+    u.add_argument("--vancouver", action="store_true", help="add the City of Vancouver's open data (trees, lamps, meters, ...)")
     a = p.parse_args(argv)
 
     if a.cmd == "build":
@@ -34,6 +43,9 @@ def main(argv=None):
         from .quality import run
         for x in a.db:
             run(x)
+    elif a.cmd == "unit":
+        from .unit import main as unit
+        unit(a.name, a.at[0], a.at[1], a.osm, a.nvdb, a.flows, a.city, not a.no_mapillary, a.vancouver)
     elif a.cmd == "mapillary":
         from .mapillary import main as mly
         mly(a.db, a.osm)

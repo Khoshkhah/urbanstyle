@@ -2,6 +2,8 @@
 
 <p class="lead">How urbanstyle came to be built the way it is: the problems, the options and what was decided.</p>
 
+- [One unit in full (proposal)](unit-dossier.md): the new direction: one intersection or street section with every source, in a
+  structure with provenance; three units in Stockholm and Vancouver.
 - [Street space](street-space.md): **read first.** Definitions, sources, the cross-section algorithm, levels,
   containers, zones, rail and stations, links between levels, parameters and results.
 - [Street space specification](street-space-spec.md): sections and intersections as a formal partition, its

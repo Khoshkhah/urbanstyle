@@ -46,8 +46,12 @@ nav:
   - Home: index.md
   - Get started: get-started.md
   - Roadmap: plan.md
+  - Units:
+      - Skanstull: units/skanstull.md
+      - W Broadway × Granville St: units/broadway-granville.md
   - Design notes:
       - design/index.md
+      - One unit in full (proposal): design/unit-dossier.md
       - Street space: design/street-space.md
       - Specification: design/street-space-spec.md
       - Sections and intersections v2: design/section-intersection-v2.md

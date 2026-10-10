@@ -1,4 +1,5 @@
 import duckdb
+import pytest
 
 import urbanstyle
 

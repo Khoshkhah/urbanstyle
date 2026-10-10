@@ -11,6 +11,9 @@ from collections import Counter
 
 KEYS = ("building:use", "building", "amenity", "shop", "disused:shop", "vacant", "healthcare", "craft", "leisure", "office",
         "level", "name")    # the OSM keys read here (for the source inventory)
+CITY_OVER = 0.3     # a city outline overlapping OSM's buildings by more than this share of its area is one OSM already has
+MIN_FLOOR_M = 2.0   # a LiDAR height under this per OSM floor is from before the building changed: OSM's floors win
+LIDAR_COVER = 0.6   # a building takes a city LiDAR height where the measured roof parts cover this share of its footprint (else it changed)
 STORE_M = 10.0      # a storefront (at its parcel's centre) belongs to the building it falls in, else the nearest one this close
 
 # OSM building / building:use value -> use; values not here (yes, roof, ...) say nothing
@@ -62,6 +65,63 @@ def city_stores(path):
              f"{p.get('business_name')} ({p.get('general_business_category')}, {year})",
              tuple(f["geometry"]["coordinates"][:2]))
             for f in fc if f["geometry"] and (p := f["properties"]).get("year_recorded") == year]
+
+
+def city(con):
+    """A city's building footprints (Vancouver: `building-footprints-2015`, outlines traced from the 2015 orthophotos;
+    `building-footprints-2009`, roof parts with heights from the 2009 LiDAR; both "approximate", not updated), read from the unit's
+    city file next to the space database. Run right after BUILD, before the street space is measured.
+
+    - An outline overlapping no OSM building (less than CITY_OVER of it) becomes a building, source the city, unless something newer
+      says it is gone or never was one: it lies in an OSM construction site, or a road crosses it.
+    - A building whose footprint the 2009 roof parts cover (LIDAR_COVER) takes their height, the highest part's, unless OSM maps a
+      `height`; its floors stay OSM's `building:levels` where mapped, else height / FLOOR_M. OSM is newer: where its floors need
+      more than MIN_FLOOR_M a floor beyond the measured height, the building changed since 2009 and the LiDAR height is not used."""
+    import duckdb
+    from urbanstyle.container import FLOOR_M
+    (path,) = con.execute("SELECT path FROM duckdb_databases() WHERE database_name = current_database()").fetchone()
+    path = path[:-len(".space.duckdb")] + ".vancouver.json" if path and path.endswith(".space.duckdb") else None
+    if not path or not os.path.exists(path):
+        return
+    data = json.load(open(path))
+    rows = [(ds, str((f["properties"] or {}).get("object_id") or (f["properties"] or {}).get("id") or i), json.dumps(f["geometry"]),
+             (f["properties"] or {}).get("hgt_agl")) for ds in ("building-footprints-2015", "building-footprints-2009")
+            for i, f in enumerate((data.get(ds) or {}).get("features", [])) if f.get("geometry")]     # the city's own ids
+    if not rows:
+        return
+    con.execute("CREATE OR REPLACE TEMP TABLE cfp (ds VARCHAR, i VARCHAR, g GEOMETRY, h DOUBLE)")
+    con.executemany("INSERT INTO cfp VALUES (?, ?, ST_MakeValid(ST_GeomFromGeoJSON(?)), ?)", rows)
+    try:    # only where OSM's data reaches (a clip's box): beyond it, OSM lacking a building says nothing
+        con.execute("DELETE FROM cfp WHERE NOT ST_Intersects(ST_Centroid(g), (SELECT ST_Union_Agg(geometry) FROM osm.main.boundary))")
+    except duckdb.CatalogException:     # a whole duckOSM database, not a clip: the city's file covers less than it
+        pass
+    try:
+        con.execute("CREATE OR REPLACE TEMP TABLE site AS SELECT geom FROM osm.features.sites WHERE kind = 'construction'")
+    except duckdb.CatalogException:
+        con.execute("CREATE OR REPLACE TEMP TABLE site (geom GEOMETRY)")
+    # outlines OSM lacks (shares of areas in lon/lat: a ratio, so degrees do)
+    con.execute(f"""INSERT INTO space.element BY NAME
+        SELECT 'vancouver' AS source, 'vb' || c.i AS source_id, 'building' AS type, 0 AS level_min, 0 AS level_max,
+               'chosen' AS level_src, c.g AS geometry, 1 AS floors
+        FROM cfp c WHERE c.ds = 'building-footprints-2015'
+          AND coalesce((SELECT sum(ST_Area(ST_Intersection(c.g, e.geometry))) FROM space.element e
+                        WHERE e.type = 'building' AND e.source = 'osm' AND ST_Intersects(c.g, e.geometry)), 0) < {CITY_OVER} * ST_Area(c.g)
+          AND NOT EXISTS (SELECT 1 FROM site s WHERE ST_Intersects(s.geom, ST_Centroid(c.g)))
+          AND NOT EXISTS (SELECT 1 FROM space.element r WHERE r.type = 'road' AND ST_Intersects(r.geometry, c.g))""")
+    # heights from the 2009 LiDAR where its roof parts still cover the footprint
+    con.execute(f"""CREATE OR REPLACE TEMP TABLE lidar AS
+        SELECT e.source_id, max(c.h) AS h FROM space.element e JOIN cfp c ON c.ds = 'building-footprints-2009' AND c.h IS NOT NULL
+          AND ST_Intersects(e.geometry, ST_Centroid(c.g))
+        WHERE e.type = 'building' GROUP BY e.source_id, e.geometry
+        HAVING sum(ST_Area(ST_Intersection(c.g, e.geometry))) >= {LIDAR_COVER} * ST_Area(e.geometry)""")
+    con.execute(f"""UPDATE space.element e SET height_m = round(l.h, 1),
+            floors = CASE WHEN e.level_src = 'num_floors' THEN e.floors ELSE greatest(1, round(l.h / {FLOOR_M})::INT) END,
+            level_max = CASE WHEN e.level_src = 'num_floors' THEN e.level_max ELSE e.level_min + greatest(1, round(l.h / {FLOOR_M})::INT) - 1 END,
+            level_src = CASE WHEN e.level_src = 'num_floors' THEN 'num_floors; height: city LiDAR 2009 (approximate)'
+                             ELSE 'city LiDAR 2009 (approximate)' END
+        FROM lidar l WHERE e.source_id = l.source_id AND e.type = 'building' AND e.level_src <> 'height'
+          -- OSM is newer than the 2009 LiDAR: where its floors need more height than measured, the building changed since
+          AND NOT (e.level_src = 'num_floors' AND l.h < {MIN_FLOOR_M} * e.floors)""")
 
 
 def build(con, epsg):

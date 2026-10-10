@@ -50,7 +50,7 @@ reaches our tables; the gaps it found and the rules proposed for them are in [Wh
 
 One self-contained dossier per unit (a DuckDB file, exportable to GeoPackage). Everything is in metres in the local UTM zone,
 with a real height (z) from the elevation data. **Every item carries its provenance:** the source, the date of the data, the
-method (`surveyed`, `mapped`, `measured` here, `derived`, `estimated`, `checked by hand`) and a confidence.
+method (`surveyed`, `mapped`, `measured` here, `derived`, `chosen` (urbanstyle's own value for a type), `checked by hand`) and a confidence.
 
 | table | holds |
 |---|---|

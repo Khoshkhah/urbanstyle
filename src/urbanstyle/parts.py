@@ -28,7 +28,7 @@ KERB_BEYOND_M = 10.0   # a road's sidewalks are looked for up to this far beyond
 CROSSWALK_M = 3.0
 # how a part was made -> (where its data comes from, how it was obtained): space.part `source`, `method`; `ref` is the source's own id
 PROV = {"sumo": ("sumo", "derived"), "measured": ("osm", "measured"), "measured one side": ("osm", "measured"), "crossing": ("osm", "measured"),
-        "tag": ("osm", "mapped"), "osm": ("osm", "mapped"), "mapillary": ("mapillary", "observed"), "estimated": ("urbanstyle", "estimated"),
+        "tag": ("osm", "mapped"), "osm": ("osm", "mapped"), "mapillary": ("mapillary", "observed"), "estimated": ("urbanstyle", "chosen"),
         "rule": ("urbanstyle", "derived")}   # rule: drawn from a rule, e.g. every roundabout entry gives way
 SAME_CROSSING_M = 6.0  # a crossing point this close to a mapped crossing path is that crossing, not a second one
 CYCLE_M = 1.5          # a cycle lane at the roadway's edge
@@ -62,10 +62,17 @@ STOP_GAP_M = 1.0       # ... and this far before it (the stop line before the cr
 # the parts standing above the roadway, and how high their top is (m): a kerb stands where they meet the flush ground (lanes, parking,
 # a parking lot, a crosswalk); the dossier's top_m and the 3D view use the same heights
 RAISED = {"sidewalk": 0.15, "furnishing": 0.15, "open": 0.15, "bus stop": 0.15, "island": 0.2, "tree pit": 0.1, "driveway": 0.05}
-DRIVEWAY_M = 3.5       # a driveway's apron across the sidewalk, when OSM gives no width (a default)
+DRIVEWAY_M = 3.5       # a driveway's apron across the sidewalk, when OSM gives no width (urbanstyle's chosen width)
 CROSS_ON_M = 1.0       # a crossing point is a node of the road it crosses: this close to its line, else it crosses something else
+# urbanstyle's chosen width of each painted or built line (m), stored on every mark (space.mark.width_m) and drawn at it in 2D and 3D;
+# a kerb's width is its stone's, standing KERB_TOP_M above the roadway
+LINE = {"stop line": 0.4, "give-way line": 0.35, "zebra": 0.5, "lane line": 0.12, "edge line": 0.12, "centre line": 0.12, "arrow": 0.15,
+        "guide line": 0.1, "kerb": 0.25}
+KERB_TOP_M = 0.2
+SLIVER_CUT_M = 0.02     # a part loses what is thinner than twice this (hairline slivers between other parts)
+NO_WIDTH = ("junction area", "ring")   # parts with no single width (a junction's area, a roundabout's ring)
 PARK_GAP_M = 3.0       # ground between the lanes and a mapped street-parking area narrower than this (no lane fits) is that parking
-TREE_PIT_M = 1.5       # a street tree's pit (a tree well, grate or soil): a square this wide round its trunk; a default, no source maps pits
+TREE_PIT_M = 1.5       # a street tree's pit (a tree well, grate or soil): a square this wide round its trunk; urbanstyle's chosen size
 FURN_SNAP_M = 8.0      # street furniture mapped on the roadway this close to pedestrian ground stands there (a point a metre or two off)
 FURN_BACK_M = 0.5      # ... this far behind the kerb (a tree: its pit's half and a little)
 SHOULDER_MAX_M = 3.5   # a shoulder beside SUMO's lanes is at most a curb lane (parking by day, a travel lane at rush hour); a wider
@@ -359,7 +366,7 @@ def build(con, epsg):
         if spans:
             t = sorted(spans)[len(spans) // 2]
             return t / 2, t / 2, "crossing"
-        return (*estimate(r), "estimated")
+        return (*estimate(r), "chosen")
 
     def estimate(r):
         """(left, right) half-widths of a road's roadway from its tags or width_m when nothing is measured."""
@@ -382,7 +389,9 @@ def build(con, epsg):
 
     parts, marks, widths, count, claimed = [], [], [], {}, {}
 
-    def add(uid, level, typ, geom, how, arm=None, direction=None, lane=None, width=None, ref=None, holds=None, rule=None):
+    def add(uid, level, typ, geom, how, arm=None, direction=None, lane=None, width=None, ref=None, holds=None, rule=None, wsrc=None):
+        # wsrc: where the width comes from (source, method). A width given here is urbanstyle's chosen one unless wsrc says otherwise;
+        # a width from the part's shape (its area and outline) is derived; a junction's area or a ring has no single width
         # a part takes only ground no earlier part of this unit took: no overlaps by construction (priority = the order of the calls)
         def precise(op, a, b):     # on a 1 cm grid: exact enough, robust where floating point is not (else the plain overlay)
             try:
@@ -391,6 +400,8 @@ def build(con, epsg):
                 return area(safe(op, a, b))
         if uid in claimed and geom is not None and not geom.is_empty:
             geom = precise("difference", area(geom), claimed[uid])
+        if geom is not None and not geom.is_empty:     # no hairlines: what is thinner than 2 x SLIVER_CUT_M (a gap left between two lanes) goes
+            geom = area(geom.buffer(-SLIVER_CUT_M, join_style="mitre").buffer(SLIVER_CUT_M, join_style="mitre"))
         got = polys(geom) if geom is not None else []
         if got:
             new = shapely.union_all(got)
@@ -398,8 +409,11 @@ def build(con, epsg):
         for p in got:
             n = count[uid] = count.get(uid, 0) + 1
             w_, len_ = strip_size(p)        # a width measured on the way (a lane's, a kerb strip's) wins over the shape's
-            parts.append((uid, f"{uid}#{n}", level, typ, arm, direction, lane, round(width or w_, 2), round(len_ if not width else p.area / width, 1),
-                          *(how if isinstance(how, tuple) else PROV.get(how, (how, None))), ref, holds, rule, shapely.to_wkb(p)))
+            ws = wsrc or (("urbanstyle", "chosen") if width else ("urbanstyle", "derived"))
+            wide = None if typ in NO_WIDTH else round(width or w_, 2)
+            parts.append((uid, f"{uid}#{n}", level, typ, arm, direction, lane, wide, round(len_ if not width else p.area / width, 1),
+                          *(how if isinstance(how, tuple) else PROV.get(how, (how, None))), ref, holds, rule,
+                          *((None, None) if wide is None else ws), shapely.to_wkb(p)))
         return shapely.union_all(got) if got else shapely.Polygon()
 
     def mark(uid, level, typ, geom, arm=None, how="sumo", ref=None):
@@ -409,7 +423,13 @@ def build(con, epsg):
                  if x.geom_type == "LineString"]
         for ln in (shapely.get_parts(shapely.line_merge(shapely.MultiLineString(lines))) if len(lines) > 1 else lines):
             if ln.geom_type == "LineString" and ln.length >= 0.3:
-                marks.append((uid, level, typ, arm, round(ln.length, 1), *PROV.get(how, (how, None)), ref, shapely.to_wkb(ln)))
+                marks.append((uid, level, typ, arm, round(ln.length, 1), LINE.get(typ), *PROV.get(how, (how, None)), ref, shapely.to_wkb(ln)))
+
+    def lane_wsrc(x):
+        """Where a SUMO lane's width comes from: measured (both kerbs of its road from OSM's sidewalks, shared by its lanes), else
+        urbanstyle's chosen lane width."""
+        ms = measured.get(elem_of.get(x["edge"]), [])
+        return ("osm", "measured") if ms and sum(m[2] == "measured" for m in ms) * 2 > len(ms) else ("urbanstyle", "chosen")
 
     def wref(edge):
         """The OSM way of the road a SUMO edge was built from."""
@@ -518,7 +538,7 @@ def build(con, epsg):
         for pc in pieces:
             piece = shapely.LineString(pc)
             idx.append(len(marks))
-            marks.append((uid, level, "arrow", arm, round(piece.length, 1), *PROV.get(how, (how, None)), ref, shapely.to_wkb(piece)))
+            marks.append((uid, level, "arrow", arm, round(piece.length, 1), LINE["arrow"], *PROV.get(how, (how, None)), ref, shapely.to_wkb(piece)))
         arrow_tips.setdefault((level, cx, cy), []).append([tip[0], tip[1], kind, idx])
         return True
 
@@ -577,7 +597,8 @@ def build(con, epsg):
                 if w <= 0:
                     continue
                 a, b = (h - w, h + 30) if s == 1 else (-h - 30, -h + w)
-                got = add(uid, level, kind, safe("intersection", band(ln, a, b), C), "tag", arm=arm, width=w, ref=f"w{r['osm']}")
+                got = add(uid, level, kind, safe("intersection", band(ln, a, b), C), "tag", arm=arm, width=w, ref=f"w{r['osm']}",
+                          wsrc=("urbanstyle", "derived"))
                 mark(uid, level, "lane line", safe("intersection", shapely.offset_curve(ln, (h - w) * s), C), arm, how="tag", ref=f"w{r['osm']}")
                 if s == 1:
                     hl -= w
@@ -666,7 +687,7 @@ def build(con, epsg):
                     (st[5], "derived"), arm=grp, ref=st[0], holds=held, rule=tt_)
             for ref_, dl, dw in (d for d in drives if d[1].intersects(piece)):     # where a driveway crosses the sidewalk: its apron
                 add(uid, level, "driveway", safe("intersection", piece, dl.buffer(dw / 2, cap_style="flat")), "osm", arm=grp, width=dw, ref=ref_,
-                    holds="apron across the sidewalk, kerb lowered" + ("" if dw != DRIVEWAY_M else f"; {DRIVEWAY_M} m wide, a default"))
+                    holds="apron across the sidewalk, kerb lowered", wsrc=("osm", "mapped") if dw != DRIVEWAY_M else None)
             here = [f for f in furn if f[3].within(piece)]
             for f in (x for x in here if x[1] == "vegetation.tree"):    # a street tree stands in its pit, square to the kerb
                 k_ = nearest_points(kerb, f[3])[0] if not kerb.is_empty else None
@@ -676,7 +697,7 @@ def build(con, epsg):
                 sq = shapely.Polygon([(f[3].x + sx * a * -ny_ + sy * a * nx_, f[3].y + sx * a * nx_ + sy * a * ny_)
                                       for sx, sy in ((-1, -1), (1, -1), (1, 1), (-1, 1))])
                 add(uid, level, "tree pit", safe("intersection", sq, piece), ("urbanstyle", "derived"), arm=grp, width=TREE_PIT_M, ref=f[0],
-                    holds=f"1 tree ({f[4]}); {TREE_PIT_M} m square, a default size: no source maps tree pits")
+                    holds=f"1 tree ({f[4]}); urbanstyle's {TREE_PIT_M} m square: no source maps tree pits")
             if here and not kerb.is_empty:
                 d = min(max(sorted(f[3].distance(kerb) for f in here)[int(0.8 * (len(here) - 1))] + 0.6, 0.8), 4.0)
                 strip = safe("intersection", safe("intersection", piece, kerb.buffer(d)), shapely.union_all([f[3].buffer(FURNISH_ALONG_M) for f in here]))
@@ -686,7 +707,8 @@ def build(con, epsg):
                     kinds = collections.Counter(f[1].split(".")[-1].replace("_", " ") for f in inside)
                     # the strip is ours, drawn by this rule from the kerb and the objects: its source is urbanstyle, its method derived;
                     # `ref` names the objects, `holds` what they are and whose survey or map they come from
-                    add(uid, level, "furnishing", s_, ("urbanstyle", "derived"), arm=grp, width=d, ref="; ".join(f[0] for f in inside) or None,
+                    add(uid, level, "furnishing", s_, ("urbanstyle", "derived"), arm=grp, width=d, wsrc=("urbanstyle", "derived"),
+                        ref="; ".join(f[0] for f in inside) or None,
                         holds=(", ".join(f"{n} {k}" for k, n in sorted(kinds.items())) + f" ({srcs})") if kinds else None)
             reach = [x.buffer(OPEN_M) for x in (B, kerb) if not x.is_empty]
             far = safe("difference", piece, shapely.union_all(reach)) if reach else shapely.Polygon()
@@ -1082,7 +1104,8 @@ def build(con, epsg):
                     got = piece
                 else:
                     got = add(uid, level, x["typ"], piece, "sumo", arm=None if sub else roads[elem_of[x["edge"]]]["name"],
-                              direction=d, lane=x["i"] + 1, width=x["w"], ref=f"w{roads[elem_of[x['edge']]]['osm']}" if x["edge"] in elem_of else None)
+                              direction=d, lane=x["i"] + 1, width=x["w"], ref=f"w{roads[elem_of[x['edge']]]['osm']}" if x["edge"] in elem_of else None,
+                              wsrc=lane_wsrc(x))
                 if not area(got).is_empty:
                     mine.append((x, d, longest(safe("intersection", x["ln"], U)), area(got).area))
             if sub:     # across a node inside a road's space (where the lane count changes, an alley meets an alley) a lane goes on along
@@ -1099,7 +1122,8 @@ def build(con, epsg):
                     by = [i for i, pt in meters if pt.distance(piece) <= METER_M]
                     held = "; ".join(filter(None, [f"{len(by)} parking meter ({'; '.join(by)})" if by else
                                                    f"pay parking along this kerb ({len(meters)} meter(s) on it)", held]))
-                got = add(uid, level, typ_, piece, how_, width=x["w"], ref=wref(x["edge"]), holds=held, rule=rule_)
+                got = add(uid, level, typ_, piece, how_, width=x["w"], ref=wref(x["edge"]), holds=held, rule=rule_,
+                          wsrc=("urbanstyle", "derived"))     # the measured kerb less the lanes
                 if not got.is_empty and x["kind"][0] != "shoulder":     # the line between the lane and the parking strip
                     mark(uid, level, "edge line", safe("intersection", x["base"], U), ref=wref(x["edge"]))
             for ref_, lot in ([lots[k] for k in lot_tree.query(U)] if lot_tree is not None and level in park_ground else []):
@@ -1178,7 +1202,7 @@ def build(con, epsg):
                     li = [x for x in by_edge.get(directed.get((r["osm"], far, node)), []) if x["typ"] != "cycle lane"]
                     lo = [x for x in by_edge.get(directed.get((r["osm"], node, far)), []) if x["typ"] != "cycle lane"]
                     ws = [x["w"] for x in li + lo]
-                    srcs = sorted(m[2] for m in measured.get(eid, [])) or ["estimated"]
+                    srcs = sorted(m[2] for m in measured.get(eid, [])) or ["chosen"]
                     widths.append((uid, level, eid, r["name"], round(cut.length, 1), road_w, left, right, len(li), len(lo),
                                    round(sum(ws) / len(ws), 2) if ws else None, srcs[0]))
             elif line is not None and line.length > 0:
@@ -1188,7 +1212,7 @@ def build(con, epsg):
                 road_w, left, right = across(uid, inside, line, C, inside)
                 hit = [(x, d) for x, d, _, _ in mine if x["typ"] != "cycle lane" and x["poly"].intersects(inside)]
                 ws = [x["w"] for x, _ in hit]
-                srcs = sorted({m[2] for e in own for m in measured.get(e, [])}) or ["estimated"]
+                srcs = sorted({m[2] for e in own for m in measured.get(e, [])}) or ["chosen"]
                 widths.append((uid, level, "middle", None, round(inside.length, 1), road_w, left, right, sum(d == "forward" for _, d in hit),
                                sum(d == "backward" for _, d in hit), round(sum(ws) / len(ws), 2) if ws else None, srcs[0]))
 
@@ -1266,7 +1290,7 @@ def build(con, epsg):
                 # the circulating lanes, in the ring's driving direction (a ring is one-way along its own geometry)
                 for e, lr, hl_, hr_ in ring:
                     lanes_r, *_ = lane_set(uid, level, safe("difference", C, taken), lr, roads[e], "circulating", "circulating", "circulating",
-                                           arm="ring", half=(hl_, hr_, "estimated"))
+                                           arm="ring", half=(hl_, hr_, "chosen"))
                     taken = safe("union", taken, shapely.union_all([x[1] for x in lanes_r] or [shapely.Polygon()]))
             bodies = {a["eid"]: band(a["lx"], -a["hr"], a["hl"]) for a in arms}
             arm_lanes = {}
@@ -1364,7 +1388,7 @@ def build(con, epsg):
                 n_f = sum(d in ("forward", "both") and not p.is_empty and p.intersects(inside) for d, p, *_ in ulanes)    # the lanes the line across meets
                 n_b = sum(d in ("backward", "both") and not p.is_empty and p.intersects(inside) for d, p, *_ in ulanes)
                 widths.append((uid, level, "middle", None, round(inside.length, 1), road_w, left, right, n_f, n_b,
-                               round(sum(wls) / len(wls), 2) if wls else None, sorted(srcs)[0] if srcs else "estimated"))
+                               round(sum(wls) / len(wls), 2) if wls else None, sorted(srcs)[0] if srcs else "chosen"))
 
     for u in units:
         if u[1] == "subsection":
@@ -1391,8 +1415,8 @@ def build(con, epsg):
         if flush and up:
             mark(uid, level, "kerb", safe("intersection", shapely.union_all(up).boundary, shapely.union_all(flush).buffer(0.05)), how="rule")
     pdf = pd.DataFrame(parts, columns=["unit_id", "part_id", "level", "type", "arm", "direction", "lane", "width_m", "length_m", "source", "method", "ref", "holds",
-                                       "rule", "wkb"])
-    mdf = pd.DataFrame([m for m in marks if m is not None], columns=["unit_id", "level", "type", "arm", "length_m", "source", "method", "ref", "wkb"])   # None: an arrow replaced
+                                       "rule", "width_source", "width_method", "wkb"])
+    mdf = pd.DataFrame([m for m in marks if m is not None], columns=["unit_id", "level", "type", "arm", "length_m", "width_m", "source", "method", "ref", "wkb"])   # None: an arrow replaced
     wdf = pd.DataFrame(widths, columns=["unit_id", "level", "edge", "arm", "total_m", "carriageway_m", "left_m", "right_m", "lanes_in", "lanes_out",
                                         "lane_m", "source"])
     to_ll = f"ST_Transform(ST_GeomFromWKB(wkb::BLOB), '{epsg}', 'EPSG:4326', always_xy := true)"
@@ -1400,12 +1424,13 @@ def build(con, epsg):
     # lighting, the road's lane count. Where OSM says nothing, a stated default: 50 km/h, the limit in built-up areas in Canada, Sweden
     # and Monaco (not on a motorway), and asphalt; each value says where it comes from
     con.execute(f"""CREATE OR REPLACE TABLE space.part AS SELECT p.unit_id, p.part_id, p.level::INT AS level, p.type, p.arm, p.direction,
-                    p.lane::INT AS lane, p.width_m::DOUBLE AS width_m, p.length_m::DOUBLE AS length_m, p.source, p.method, p.ref::VARCHAR AS ref,
+                    p.lane::INT AS lane, p.width_m::DOUBLE AS width_m, p.width_source::VARCHAR AS width_source, p.width_method::VARCHAR AS width_method,
+                    p.length_m::DOUBLE AS length_m, p.source, p.method, p.ref::VARCHAR AS ref,
                     e.name AS road, e.class AS road_class,
                     CASE WHEN e.osm_id IS NULL THEN NULL WHEN w.tags['maxspeed'] IS NOT NULL THEN w.tags['maxspeed'] || ' (OSM)'
-                         WHEN e.class LIKE 'motorway%' THEN NULL ELSE '50 km/h (default in built-up areas; not in OSM)' END AS speed,
+                         WHEN e.class LIKE 'motorway%' THEN NULL ELSE '50 km/h (urbanstyle, chosen: the limit in built-up areas; not in OSM)' END AS speed,
                     CASE WHEN e.osm_id IS NULL THEN NULL WHEN w.tags['surface'] IS NOT NULL THEN w.tags['surface'] || ' (OSM)'
-                         ELSE 'asphalt (assumed; not in OSM)' END AS surface,
+                         ELSE 'asphalt (urbanstyle, chosen; not in OSM)' END AS surface,
                     CASE WHEN e.osm_id IS NOT NULL THEN coalesce(w.tags['lit'], 'not in OSM') END AS lit,
                     w.tags['lanes'] AS road_lanes, CASE WHEN e.osm_id IS NOT NULL THEN coalesce(w.tags['oneway'], 'no') END AS oneway,
                     p.holds::VARCHAR AS holds, p.rule::VARCHAR AS rule, ST_CollectionExtract(ST_MakeValid({to_ll}), 3) AS geometry
@@ -1413,7 +1438,8 @@ def build(con, epsg):
                     LEFT JOIN (SELECT osm_id, any_value(name) AS name, any_value(class) AS class FROM space.element WHERE type = 'road' GROUP BY osm_id) e
                       ON p.ref = 'w' || e.osm_id
                     LEFT JOIN osm.raw.ways w ON w.osm_id = e.osm_id""")
-    con.execute(f"""CREATE OR REPLACE TABLE space.mark AS SELECT unit_id, level::INT AS level, type, arm, length_m, source, method, ref::VARCHAR AS ref,
+    con.execute(f"""CREATE OR REPLACE TABLE space.mark AS SELECT unit_id, level::INT AS level, type, arm, length_m,
+                    width_m::DOUBLE AS width_m, 'urbanstyle' AS width_source, 'chosen' AS width_method, source, method, ref::VARCHAR AS ref,
                     {to_ll} AS geometry FROM mdf""")
     con.execute("CREATE OR REPLACE TABLE space.width AS SELECT * FROM wdf")
     adf = pd.DataFrame(approach_rows, columns=["unit_id", "level", "from_edge", "lane", "moves", "ways", "arrow", "no_arrow_because"])

@@ -30,10 +30,15 @@ check U14 with the rule that gives street ground left to no space to a neighbour
 
 In order; each item is a general rule, checked on Broadway x Granville before and after.
 
-- [ ] **City building footprints where OSM has none.** A city footprint (Vancouver `building-footprints-2015`) overlapping no OSM
-      building becomes a building (source the city); the 2009 record gives every building its measured height. Example: the row
-      between West Broadway and the alley south of the Impark lot (1400 block) is not in OSM, so the street there has no edge and
-      Broadway's north sidewalk is in no space.
+- [x] **City building footprints where OSM has none** (built 2026-10-10: 15 added, LiDAR heights for 321; the row in the example is the
+      South Granville Station construction site, its buildings demolished: see the next item).
+- [x] **Sizes from the data** (built 2026-10-10): every part's width with its source and method (lanes measured from OSM's sidewalks or
+      urbanstyle's chosen 3.25 m), every line's width, every object's width and height (a city's measurement, else urbanstyle's chosen size);
+      3D draws only what is stored; "default / estimated / assumed" became urbanstyle's `chosen` or `derived`.
+- [ ] **Stable part ids**: `#1`, `#2`, ... are counted in build order, so the same id names another part after a rebuild. An id from what
+      a part is (its space, type, OSM way, direction, lane number).
+- [ ] **Construction sites as plots**: an OSM construction site (South Granville Station, opening 2027) is ground beside the street
+      like a car park; the street should end at its edge, and the site carry its name, what is built and when it opens.
 - [ ] **U14 cleanup.** (A) Measure U14 against the partition's own building line: 39 pieces (209 m2) are gaps under 6 m between
       buildings, not street. (B) A small piece the fill cannot merge cleanly still goes to the neighbour with the longest shared edge,
       closed by a few cm: 13 pieces, 292 m2.

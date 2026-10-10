@@ -14,6 +14,8 @@ import pandas as pd
 import roadstyle as rs
 from shapely import wkb
 
+from urbanstyle.parts import KERB_TOP_M, LINE, RAISED
+
 LEVELS = (-2, 2)
 
 
@@ -83,9 +85,10 @@ SEEN_COLORS = {"parking": "#2563eb", "no parking": "#9333ea", "give way": "#f973
                "street light": "#facc15", "bin": "#65a30d", "bench": "#84cc16", "lane arrow": "#06b6d4", "zebra": "#ffffff"}
 PHOTOS_PER_SPACE = 6
 # painted and built lines, at real size: type, colour, width in metres, dash
-MARKS = [("guide line", "#e5e7eb", 0.1, [2, 3]), ("arrow", "#ffffff", 0.15, None), ("kerb", "#9ca3af", 0.2, None), ("centre line", "#ffffff", 0.15, [3, 2]), ("lane line", "#ffffff", 0.12, [3, 3]),
-         ("edge line", "#ffffff", 0.12, None), ("stop line", "#ffffff", 0.4, None), ("give-way line", "#ffffff", 0.35, [1, 1]),
-         ("zebra", "#ffffff", 0.5, None)]
+# painted and built lines: type, colour, dash; drawn at the width stored on the mark (parts.LINE, space.mark.width_m)
+MARKS = [(t, c, LINE[t], d) for t, c, d in (("guide line", "#e5e7eb", [2, 3]), ("arrow", "#ffffff", None), ("kerb", "#9ca3af", None),
+         ("centre line", "#ffffff", [3, 2]), ("lane line", "#ffffff", [3, 3]), ("edge line", "#ffffff", None), ("stop line", "#ffffff", None),
+         ("give-way line", "#ffffff", [1, 1]), ("zebra", "#ffffff", None))]
 PANEL = """
 <style>.co-lg{display:none}  /* no road legend: the panel says what is drawn */
 body.u3d .rs-tip{display:none!important}#map{left:340px!important}body.us-off #map{left:0!important}body.us-off #us{display:none}
@@ -334,7 +337,7 @@ function newBlock(cid){const it=NEWU.inter[cid], ss=NEWU.sec[cid];
     return `<div><b>${it.rb?'Roundabout':'Intersection'} space</b> · ${it.a.toLocaleString()} m&sup2; · bounded by <b>${bl.length}</b> building${bl.length===1?'':'s'} (${bm} m of edge), the rest by its cuts</div>`+
       `<div><b>Arms</b> (widths at the cut, m)</div><table><tr><th></th><th>total</th><th>road</th><th>left</th><th>right</th><th>lanes in/out</th><th>turns</th></tr>`+
       (it.w||[]).map(([n,t,c,l,r,i,o,s,tu])=>`<tr><td>${n}</td><td>${t}</td><td>${c}</td><td>${l}</td><td>${r}</td><td>${i} / ${o}${s==='default'?' *':''}</td><td>${tu||''}</td></tr>`).join('')+
-      `</table><div style="font-size:11px;color:#666">left / right: pedestrian realm, seen from the junction · * lanes estimated (no lanes tag) · turns: each lane coming in, from the right, the ways it may go (SUMO)</div>`+partsTable(cid)+
+      `</table><div style="font-size:11px;color:#666">left / right: pedestrian realm, seen from the junction · * lane count urbanstyle's (no lanes tag) · turns: each lane coming in, from the right, the ways it may go (SUMO)</div>`+partsTable(cid)+
       photoBlock(cid)+`<div><b>Cuts</b></div><table>`+
     it.cuts.map(([how,len])=>`<tr><td><span class=sw style="background:${CUTCOL[how]||'#6b7280'}"></span>${how}</td><td>${len} m</td></tr>`).join('')+'</table>'}
   return `<div><b>New spaces</b> · ${ss.length} subsection${ss.length===1?'':'s'} · ${ss.reduce((a,x)=>a+x[1],0).toLocaleString()} m&sup2;</div><table>`+
@@ -387,7 +390,7 @@ function draw3d(){
     add({id:'u3d-'+o.layers[0],type:l2.type,source:o.source,paint:l2.paint||{},layout:Object.assign({},l2.layout||{},{visibility:'none'})},lvl)});
   // the kerb: a stone 0.25 m wide along the roadway's edge
   add({id:'u3d-kerb',type:'fill-extrusion',source:ovSrc('Kerbs 3D'),paint:{'fill-extrusion-color':'#8f8b86','fill-extrusion-opacity':1,
-      'fill-extrusion-height':0.2}},lvl);     // a grey stone, standing 5 cm above the sidewalk: the kerb reads as a line
+      'fill-extrusion-height':__KERBTOP__}},lvl);     // a grey stone, standing 5 cm above the sidewalk: the kerb reads as a line
   add({id:'u3d-raised',type:'fill-extrusion',source:ovSrc('Parts'),paint:{'fill-extrusion-color':['get','color'],'fill-extrusion-opacity':1,
       'fill-extrusion-height':byKey('type',RAISE,0)}},['all',lvl,['in',['get','type'],['literal',Object.keys(RAISE)]]]);
   add({id:'u3d-bld',type:'fill-extrusion',source:ovSrc('Buildings'),paint:{'fill-extrusion-color':'#e7e2d8','fill-extrusion-opacity':0.92,
@@ -549,7 +552,6 @@ OBJ_SHAPES = {
 SNAP = ("furniture.lamp", "furniture.sign", "furniture.signal", "furniture.waste", "furniture.bench", "furniture.post_box", "furniture.vending",
         "furniture.advertising", "furniture.bike_parking", "transit.stop", "vegetation.tree")
 from urbanstyle.mapillary import CLASS_OF as _CLASS_OF
-from urbanstyle.parts import RAISED
 SEEN_CLASS = {g: c for g, c in _CLASS_OF.items() if c.startswith("furniture.")}     # the observations that are street objects
 SIGN_COLOR = {"give way": "#dc2626", "stop": "#b91c1c", "parking": "#1d4ed8", "no parking": "#2563eb"}
 KERB_BACK_M = 0.5     # a pole moved off the roadway stands this far behind the kerb
@@ -559,8 +561,8 @@ FACADE_SNAP_M = 3.0   # a point this far inside a building is at its facade (map
 # an object's popup and tooltip, the same in 2D and in 3D: the tooltip names its type, the popup says what it is and who knows it
 DOT_COLORS = {"furniture": "#4f46e5", "vegetation": "#16a34a", "utility": "#6b7280", "transit": "#0891b2", "access": "#db2777", "barrier": "#78350f"}
 LOT_POPUP = ["type", "name", "operator", "parking", "access", "fee", "id"]     # an off-street car park (space.lot), 2D and 3D
-BLD_POPUP = ["type", "name", "use", "ground_floor", "evidence", "class", "floors", "height_m", "level_src", "id"]     # a building's popup, the same in 2D and 3D
-OBJ_POPUP, OBJ_TIP = ["type", "height_m", "details", "sources", "method", "refs", "space"], ["type"]
+BLD_POPUP = ["type", "name", "use", "ground_floor", "evidence", "class", "floors", "height_m", "level_src", "source", "id"]     # a building's popup, the same in 2D and 3D
+OBJ_POPUP, OBJ_TIP = ["type", "width_m", "height_m", "size_from", "details", "sources", "method", "refs", "space"], ["type"]
 TYPE_NAME = {"crossing.zebra": "zebra crossing", "crossing.signalised": "signalised crossing", "crossing.other": "crossing", "kerb.node": "kerb",
              "transit.stop": "transit stop", "access.entrance": "entrance", "access.parking_entrance": "parking entrance", "barrier.other": "barrier",
              "utility.junction_box": "electrical box"}     # a street-lighting junction box: a lid in the pavement, not the junction area
@@ -646,13 +648,13 @@ def matched_objects(con, epsg, db):
     items = []
     for oid, cls, lv, w, attrs in con.execute(f"SELECT object_id, class, level, {to_m()}, attrs::VARCHAR FROM space.object").fetchall():
         if not cls.startswith(NOT_OBJECTS):
-            items.append((oid, cls, lv, None, "osm", shapely.from_wkb(bytes(w)), None, "mapped"))
+            items.append((oid, cls, lv, None, "osm", shapely.from_wkb(bytes(w)), None, "mapped", None))
             info[str(oid)] = _fields(attrs)
     seen = {}
     try:
         for fid, grp, a, b, w in con.execute(f"SELECT feature_id, grp, first_seen, last_seen, {to_m()} FROM space.observed").fetchall():
             if grp in SEEN_CLASS:
-                items.append((fid, SEEN_CLASS[grp], 0, grp, "mapillary", shapely.from_wkb(bytes(w)), None, "observed"))
+                items.append((fid, SEEN_CLASS[grp], 0, grp, "mapillary", shapely.from_wkb(bytes(w)), None, "observed", None))
                 seen[fid] = (a, b)
                 info[str(fid)] = f"seen {a:%Y-%m-%d} .. {b:%Y-%m-%d}" if a and b else ""
     except duckdb.CatalogException:
@@ -665,29 +667,35 @@ def matched_objects(con, epsg, db):
         for ds, fc in json.load(open(city)).items():
             for i, ft in enumerate(fc["features"]):
                 if ds in VAN_OBJECT and ft["geometry"] and ft["geometry"]["type"] == "Point":
-                    h = (ft["properties"] or {}).get("height_m")
+                    h, d = ((ft["properties"] or {}).get(k) for k in ("height_m", "diameter_cm"))
                     items.append((f"{ds}-{i}", VAN_OBJECT[ds], 0, None, "vancouver", shapely.Point(fwd(*ft["geometry"]["coordinates"][:2])),
-                                  float(h) if isinstance(h, (int, float)) else None, van_method(ds, ft["properties"])))
+                                  float(h) if isinstance(h, (int, float)) and h > 0 else None, van_method(ds, ft["properties"]),
+                                  d / 100 if isinstance(d, (int, float)) and d > 0 else None))
                     info[f"{ds}-{i}"] = _fields(ft["properties"])
     elif dos != db and os.path.exists(dos):
         con.execute(f"ATTACH IF NOT EXISTS '{dos}' AS dos (READ_ONLY)")
         crs = con.execute("SELECT crs FROM dos.unit").fetchone()[0]
-        items += [(oid, cls, 0, None, src, shapely.from_wkb(bytes(w)), h, meth) for oid, cls, src, w, h, meth in con.execute(
-            f"SELECT object_id, class, source, {to_m(crs=crs)}, height_m, method FROM dos.object WHERE source NOT IN ('osm', 'mapillary')").fetchall()]
+        items += [(oid, cls, 0, None, src, shapely.from_wkb(bytes(w)), h, meth, wd) for oid, cls, src, w, h, meth, wd in con.execute(
+            f"""SELECT object_id, class, source, {to_m(crs=crs)}, CASE WHEN height_source <> 'urbanstyle' THEN height_m END, method,
+                CASE WHEN width_source <> 'urbanstyle' THEN width_m END FROM dos.object WHERE source NOT IN ('osm', 'mapillary')""").fetchall()]
     m = duckdb.connect()
     m.execute("LOAD spatial")
     m.execute("CREATE TABLE object (object_id VARCHAR, class VARCHAR, source VARCHAR, height_m DOUBLE, confidence DOUBLE, geometry GEOMETRY)")
     m.executemany("INSERT INTO object VALUES (?, ?, ?, NULL, ?, ST_GeomFromWKB(?))",       # confidence: by how the source got it (method)
-                  [(str(oid), f"{cls}@{lv}", src, CONFIDENCE.get(meth, 0.5), shapely.to_wkb(p)) for oid, cls, lv, _, src, p, _h, meth in items])
+                  [(str(oid), f"{cls}@{lv}", src, CONFIDENCE.get(meth, 0.5), shapely.to_wkb(p)) for oid, cls, lv, _, src, p, _h, meth, _w in items])
     match(m, {str(k): v for k, v in seen.items()})
     by_id = {str(i[0]): i for i in items}
     out = []
     for refs, sources in m.execute("SELECT refs, sources FROM match").fetchall():
-        oid, cls, lv, grp, _, p, _h, _m = by_id[refs.split(", ")[0]]      # the best source's
-        h = next((by_id[r][6] for r in refs.split(", ") if by_id[r][6]), None)   # a measured height (a city's tree), from any source
+        oid, cls, lv, grp, _, p, _h, _m, _w = by_id[refs.split(", ")[0]]      # the best source's
+        # a measured height and width (a city's tree: height, trunk), from any source, with who measured them and how
+        hr = next((r for r in refs.split(", ") if by_id[r][6]), None)
+        wr = next((r for r in refs.split(", ") if by_id[r][8]), None)
+        h = (by_id[hr][6], f"{by_id[hr][4]} ({by_id[hr][7]})") if hr else None
+        wd = (by_id[wr][8], f"{by_id[wr][4]} ({by_id[wr][7]})") if wr else None
         details = " | ".join(f"{by_id[r][4]}: {info[r]}" for r in refs.split(", ") if info.get(r))
         methods = "; ".join(f"{by_id[r][4]}: {by_id[r][7]}" for r in refs.split(", "))      # in the order of refs
-        out.append((oid, cls, lv, grp, p, refs, sources, h, details, methods))
+        out.append((oid, cls, lv, grp, p, refs, sources, h, details, methods, wd))
     return out
 
 
@@ -708,7 +716,13 @@ def furniture_3d(con, epsg, place, objs):
     ug = [shapely.from_wkb(bytes(u[2])) for u in units]
     utree = shapely.STRtree(ug)
     out = []
-    for oid, cls, lv, grp, p, refs, sources, measured, details, methods in objs:
+    from urbanstyle.unit import SIZE
+    sizes = {}      # refs -> (width, height, where they come from): what the popup shows is what is drawn
+    for oid, cls, lv, grp, p, refs, sources, measured, details, methods, mwidth in objs:
+        W0, H0 = SIZE.get(cls, (0.3, 1.0))
+        W, H = (mwidth or (W0, None))[0], (measured or (H0, None))[0]
+        sizes[refs] = (W, H, f"width {W:.2f} m: {mwidth[1] if mwidth else 'urbanstyle (chosen)'}; "
+                             f"height {H:.2f} m: {measured[1] if measured else 'urbanstyle (chosen)'}")
         if not cls.startswith("utility."):       # a manhole, a drain, a lid lies in the ground where it is mapped (a roadway too)
             p = place(p, lv, cls, refs)
         cand = [k for k in rtree.query(p.buffer(25)) if roads[k][0] == lv]
@@ -724,50 +738,50 @@ def furniture_3d(con, epsg, place, objs):
             cx, cy = p.x + ux * off, p.y + uy * off
             pts = [(cx + ax * a * L / 2 + ux * c * W / 2, cy + ay * a * L / 2 + uy * c * W / 2) for a, c in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
             out.append((shapely.Polygon(pts), b, t, col, cls, lv, refs, sources, None, details, methods))
-        if cls == "furniture.lamp":
-            blk(0, 0.22, 0.22, 0, 7.6, "#52525b"); blk(0.8, 0.12, 1.6, 7.35, 7.5, "#52525b"); blk(1.6, 0.35, 0.6, 7.05, 7.35, "#fde68a")
-        elif cls == "furniture.signal":
-            blk(0, 0.16, 0.16, 0, 2.3, "#3f3f46"); blk(0.12, 0.32, 0.28, 2.3, 3.3, "#111827"); blk(0.27, 0.2, 0.04, 3.0, 3.2, "#ef4444")
-        elif cls == "furniture.sign":
-            blk(0, 0.08, 0.08, 0, 2.05, "#9ca3af"); blk(0.05, 0.65, 0.05, 2.0, 2.65, SIGN_COLOR.get(grp, "#2563eb"))
+        if cls == "furniture.lamp":             # pole W wide, H high; its arm and lamp over the road
+            blk(0, W, W, 0, H, "#52525b"); blk(0.8, 0.12, 1.6, H - 0.25, H - 0.1, "#52525b"); blk(1.6, 0.35, 0.6, H - 0.55, H - 0.25, "#fde68a")
+        elif cls == "furniture.signal":         # pole W wide; its signal head the top metre
+            blk(0, W, W, 0, H - 1.0, "#3f3f46"); blk(0.12, 0.32, 0.28, H - 1.0, H, "#111827"); blk(0.27, 0.2, 0.04, H - 0.3, H - 0.1, "#ef4444")
+        elif cls == "furniture.sign":           # a plate W wide at the top, on a post
+            blk(0, 0.08, 0.08, 0, H - 0.6, "#9ca3af"); blk(0.05, W, 0.05, H - 0.65, H, SIGN_COLOR.get(grp, "#2563eb"))
         elif cls == "furniture.waste":
-            blk(0, 0.5, 0.5, 0, 1.0, "#3f6212")
-        elif cls == "furniture.bench":
-            blk(0, 1.8, 0.45, 0.4, 0.48, "#92400e"); blk(-0.2, 1.8, 0.07, 0.48, 0.9, "#92400e"); blk(0, 0.08, 0.4, 0, 0.4, "#44403c")
+            blk(0, W, W, 0, H, "#3f6212")
+        elif cls == "furniture.bench":          # W long: seat, back, legs
+            blk(0, W, 0.45, 0.4, 0.48, "#92400e"); blk(-0.2, W, 0.07, 0.48, H, "#92400e"); blk(0, 0.08, 0.4, 0, 0.4, "#44403c")
         elif cls == "furniture.bollard":
-            blk(0, 0.18, 0.18, 0, 0.9, "#374151")
-        elif cls == "vegetation.tree":         # at its measured height where a source has one (a city's tree survey), else 7.5 m
-            top = measured or 7.5
-            blk(0, 0.35, 0.35, 0, top * 0.35, "#78350f")
-            out.append((p.buffer(max(1.2, top * 0.27), quad_segs=4), top * 0.35, top, "#4d9a52", cls, lv, refs, sources, top, details, methods))
-        elif cls == "utility.manhole":          # in the ground: a cast-iron cover, 0.6 m across
-            out.append((p.buffer(0.3, quad_segs=6), 0, 0.04, "#3f3f46", cls, lv, refs, sources, 0, details, methods))
-        elif cls == "utility.catch_basin":      # a drain grate at the kerb, 0.6 m along the road, 0.4 m across
-            blk(0, 0.6, 0.4, 0, 0.04, "#27272a")
+            blk(0, W, W, 0, H, "#374151")
+        elif cls == "vegetation.tree":          # trunk W thick (a city's survey: the trunk's diameter); the crown from the height (derived)
+            blk(0, W, W, 0, H * 0.35, "#78350f")
+            out.append((p.buffer(max(1.2, H * 0.27), quad_segs=4), H * 0.35, H, "#4d9a52", cls, lv, refs, sources, H, details, methods))
+        elif cls == "utility.manhole":          # in the ground: a cover W across
+            out.append((p.buffer(W / 2, quad_segs=6), 0, H, "#3f3f46", cls, lv, refs, sources, 0, details, methods))
+        elif cls == "utility.catch_basin":      # a drain grate at the kerb, W along the road
+            blk(0, W, 0.4, 0, H, "#27272a")
         elif cls == "utility.junction_box":     # a lid in the pavement
-            blk(0, 0.45, 0.3, 0, 0.04, "#71717a")
+            blk(0, W, 0.3, 0, H, "#71717a")
         elif cls == "furniture.parking_meter":
-            blk(0, 0.08, 0.08, 0, 1.15, "#6b7280"); blk(0, 0.22, 0.16, 1.15, 1.5, "#1f2937")
-        elif cls == "furniture.map_stand":      # a wayfinding stand: a panel 1 m wide, 2.4 m high
-            blk(0, 1.0, 0.15, 0, 2.4, "#1e3a8a")
-        elif cls == "furniture.bike_parking":   # a row of stands, 2 m along the kerb
-            blk(0, 2.0, 0.6, 0, 0.8, "#94a3b8")
+            blk(0, 0.08, 0.08, 0, H - 0.35, "#6b7280"); blk(0, W, 0.16, H - 0.35, H, "#1f2937")
+        elif cls == "furniture.map_stand":      # a wayfinding panel W wide
+            blk(0, W, 0.15, 0, H, "#1e3a8a")
+        elif cls == "furniture.bike_parking":   # a row of stands W along the kerb
+            blk(0, W, 0.6, 0, H, "#94a3b8")
         elif cls == "access.entrance":          # a door in the facade
-            blk(0, 1.2, 0.2, 0, 2.2, "#78350f")
+            blk(0, W, 0.2, 0, H, "#78350f")
         elif cls == "access.parking_entrance":  # a garage door
-            blk(0, 3.0, 0.2, 0, 2.4, "#52525b")
+            blk(0, W, 0.2, 0, H, "#52525b")
         elif cls == "barrier.other":            # a short piece of wall or fence
-            blk(0, 1.5, 0.25, 0, 1.0, "#6b7280")
-        elif cls == "transit.stop":
-            blk(0, 0.1, 0.1, 0, 2.4, "#9ca3af"); blk(0.05, 0.45, 0.05, 2.0, 2.7, "#1d4ed8")
+            blk(0, W, 0.25, 0, H, "#6b7280")
+        elif cls == "transit.stop":             # a pole with its plate W wide at the top
+            blk(0, 0.1, 0.1, 0, H - 0.3, "#9ca3af"); blk(0.05, W, 0.05, H - 0.7, H, "#1d4ed8")
             if "shelter: yes" in (details or ""):      # its shelter (OSM shelter=yes), behind the pole, away from the road
                 blk(-1.2, 3.0, 0.08, 0, 2.4, "#cbd5e1"); blk(-0.6, 3.2, 1.4, 2.4, 2.55, "#94a3b8")
         elif cls == "furniture.shelter":
-            blk(0, 3.0, 0.08, 0, 2.4, "#cbd5e1"); blk(0.6, 3.2, 1.6, 2.4, 2.55, "#94a3b8")
-        elif cls in ("furniture.post_box", "furniture.vending", "furniture.hydrant", "furniture.advertising", "furniture.charging", "furniture.water"):
-            size = {"furniture.post_box": (0.5, 0.4, 1.2, "#b91c1c"), "furniture.vending": (0.8, 0.6, 1.8, "#7c3aed"), "furniture.hydrant": (0.3, 0.3, 0.8, "#ef4444"),
-                    "furniture.advertising": (1.2, 0.3, 2.2, "#ec4899"), "furniture.charging": (0.5, 0.3, 1.5, "#16a34a"), "furniture.water": (0.3, 0.3, 1.0, "#38bdf8")}[cls]
-            blk(0, size[0], size[1], 0, size[2], size[3])
+            blk(0, W, 0.08, 0, H - 0.15, "#cbd5e1"); blk(0.6, W + 0.2, 1.6, H - 0.15, H, "#94a3b8")
+        else:                                   # a post box, a vending machine, a hydrant, an advertising column, a charger, a fountain
+            across = {"furniture.post_box": 0.4, "furniture.vending": 0.6, "furniture.hydrant": 0.3, "furniture.advertising": 0.3}.get(cls, 0.3)
+            col = {"furniture.post_box": "#b91c1c", "furniture.vending": "#7c3aed", "furniture.hydrant": "#ef4444", "furniture.advertising": "#ec4899",
+                   "furniture.charging": "#16a34a", "furniture.water": "#38bdf8"}.get(cls, "#9ca3af")
+            blk(0, W, across, 0, H, col)
     back = pyproj.Transformer.from_crs(epsg, "EPSG:4326", always_xy=True).transform
     rows = []
     tops = {}                                   # an object's height: the top of its highest block
@@ -776,9 +790,11 @@ def furniture_3d(con, epsg, place, objs):
     for g, b, t, col, cls, lv, refs, sources, top, details, methods in out:
         top = tops[refs]
         hits = [units[k][0] for k in utree.query(g.centroid) if units[k][1] == lv and ug[k].distance(g.centroid) < 0.5]
-        rows.append((cls, type_of(cls), b, t, col, lv, hits[0] if hits else "", refs, sources, methods, round(top, 1), details, transform(back, g)))
-    return gpd.GeoDataFrame([r[:12] for r in rows], columns=["class", "type", "base", "height", "color", "level", "space", "refs", "sources",
-                                                             "method", "height_m", "details"], geometry=[r[12] for r in rows], crs=4326)
+        W, H, size_from = sizes[refs]
+        rows.append((cls, type_of(cls), b, t, col, lv, hits[0] if hits else "", refs, sources, methods, round(H, 2), round(W, 2), size_from, details,
+                     transform(back, g)))
+    return gpd.GeoDataFrame([r[:14] for r in rows], columns=["class", "type", "base", "height", "color", "level", "space", "refs", "sources",
+                                                             "method", "height_m", "width_m", "size_from", "details"], geometry=[r[14] for r in rows], crs=4326)
 
 
 def object_shapes(con, epsg, place=None):
@@ -869,9 +885,10 @@ def main(db, out):
     con.execute("LOAD spatial")
     edges = frame(con, """SELECT ST_AsWKB(geometry) AS geometry, class AS highway, name, level_min AS level, type, container_id,
         CASE WHEN level_src = 'bridge' THEN 'yes' END AS bridge, CASE WHEN level_src = 'tunnel' THEN 'yes' END AS tunnel,
-        level_min AS layer, try_cast(source_id AS BIGINT) AS edge_id, coalesce(oneway, false) AS oneway FROM space.element WHERE type <> 'building'""")
+        level_min AS layer, try_cast(source_id AS BIGINT) AS edge_id, coalesce(oneway, false) AS oneway, round(width_m, 2) AS width_m, width_src
+        FROM space.element WHERE type <> 'building'""")
     edges["edge_id"] = edges["edge_id"].astype("Int64")
-    buildings = frame(con, """SELECT ST_AsWKB(geometry) AS geometry, source_id AS id, name, class, level_min, level_max, level_src,
+    buildings = frame(con, """SELECT ST_AsWKB(geometry) AS geometry, source_id AS id, source, name, class, level_min, level_max, level_src,
         CASE WHEN coalesce(class, 'yes') = 'yes' THEN 'building' ELSE 'building (' || class || ')' END AS type,
         -- its real size (space.element floors, height_m: before levels are clamped to -2..2), else one floor
         coalesce(floors, greatest(level_max, 0) + 1) AS floors, coalesce(height_m, round((greatest(level_max, 0) + 1) * 3.2, 1)) AS height_m,
@@ -950,9 +967,9 @@ def main(db, out):
                 coalesce(direction, '') AS direction, lane, width_m, {length}, source, method, ref, road, road_class, speed, surface, lit, road_lanes, oneway,
                 {holds}, round(ST_Area(ST_Transform(geometry, 'EPSG:4326', '{ep}', always_xy := true)), 1) AS area_m2 FROM space.part ORDER BY level""")   # upper levels drawn last
             pts_["color"] = [PART_COLORS.get(f"{t} {d}".strip(), PART_COLORS.get(t, "#999999")) for t, d in zip(pts_["type"], pts_["direction"])]
-            marks = frame(con, "SELECT ST_AsWKB(geometry) AS geometry, unit_id, level, type, coalesce(arm, '') AS arm, length_m, source, method, ref FROM space.mark ORDER BY level")
+            marks = frame(con, "SELECT ST_AsWKB(geometry) AS geometry, unit_id, level, type, coalesce(arm, '') AS arm, length_m, width_m, width_source, width_method, source, method, ref FROM space.mark ORDER BY level")
             kerbs3d = marks[marks["type"] == "kerb"].copy()     # 3D's kerbstones: each kerb line as a strip 0.25 m wide
-            kerbs3d = kerbs3d.set_geometry(kerbs3d.to_crs(ep).buffer(0.125, cap_style="flat").to_crs(4326))
+            kerbs3d = kerbs3d.set_geometry(kerbs3d.to_crs(ep).buffer(LINE["kerb"] / 2, cap_style="flat").to_crs(4326))
             kerbs3d["kerb_id"] = [f"kerb-{k}" for k in range(len(kerbs3d))]
             uwidths = con.execute("SELECT unit_id, edge, arm, total_m, carriageway_m, left_m, right_m, lanes_in, lanes_out, source FROM space.width").fetchall()
         except duckdb.CatalogException:
@@ -1010,7 +1027,8 @@ def main(db, out):
     o = lambda g, **kw: rs.Overlay(g, placement="under", **kw)
     m = rs.render_edges(
         edges, palette="mono", basemap="voyager", name="urbanstyle", filter_control=False,   # no road-class filter window
-        street_view_key=os.environ.get("GOOGLE_MAPS_KEY"),   # Street View's linked panorama (the key is written into the page: restrict it in Google Cloud) settings={"config": {"fill_opacity": 0.35, "casing_opacity": 0.2}}, road_popup=["edge_id", "container_id", "name", "type", "highway", "level"],
+        street_view_key=os.environ.get("GOOGLE_MAPS_KEY"),
+        settings={"config": {"fill_opacity": 0.35, "casing_opacity": 0.2}}, road_popup=["edge_id", "container_id", "name", "type", "highway", "level", "width_m", "width_src"],   # Street View's linked panorama (the key is written into the page: restrict it in Google Cloud)
         color_options={"Roads": {"color_by": "type", "colors": {"road": "#555", "walkway": "#a16207", "cycleway": "#16a34a"}}},
         overlays=[o(streets[streets.kind == k], color=c, opacity=0.8, outline=dark, width=1.2, label=lab, popup=POP, tooltip=["cid", "name"])
                   for k, lab, c, dark in KINDS if (streets.kind == k).any()] + [
@@ -1037,7 +1055,7 @@ def main(db, out):
                       popup=["part_id", "type", "holds", "rule", "road", "road_class", "direction", "lane", "width_m", "length_m", "speed", "surface", "lit", "road_lanes", "oneway",
                               "area_m2", "source", "method", "ref"], tooltip=["type", "direction", "arm"])] * (len(pts_) > 0)
                  + [rs.Overlay(marks[marks["type"] == t], kind="line", placement="over", color=c, width_m=w, dash=dash, label=f"Mark: {t}", visible=False,
-                               popup=["unit_id", "type", "arm", "length_m", "source", "method", "ref"], tooltip=["type", "arm"]) for t, c, w, dash in MARKS if (marks["type"] == t).any()]
+                               popup=["unit_id", "type", "arm", "length_m", "width_m", "width_source", "width_method", "source", "method", "ref"], tooltip=["type", "arm"]) for t, c, w, dash in MARKS if (marks["type"] == t).any()]
                  # the street objects, one per real object, from the same data in both views: in 2D a dot where it stands, coloured by kind;
                  # in 3D (draw3d) its model, from the blocks below (never drawn in 2D)
                  + [rs.Overlay(dots, kind="circle", placement="over", color="#4f46e5", color_col="color", radius=4, label="Street objects",
@@ -1110,7 +1128,7 @@ def main(db, out):
         for r in subs.assign(k=subs.subsection_id.str.split("/").str[-1].astype(int)).sort_values(["section_id", "k"]).itertuples():
             if r.subsection_id in ua:
                 newu["sec"].setdefault(r.section_id, []).append([r.subsection_id, int(ua[r.subsection_id]), float(r.length_m), r.left, r.right, r.color])
-    panel = (PANEL.replace("__PCOL__", json.dumps(PART_COLORS)).replace("__RAISED__", json.dumps(RAISED)).replace("__OBJPOPUP__", json.dumps(OBJ_POPUP)).replace("__BLDPOPUP__", json.dumps(BLD_POPUP)).replace("__LOTPOPUP__", json.dumps(LOT_POPUP)).replace("__NEWU__", json.dumps(newu)).replace("__MARKS__", json.dumps([t for t, *_ in MARKS if len(marks) and (marks["type"] == t).any()])).replace("__TREE__", json.dumps(tree_data(con, epsg)).replace("</", "<\\/"))
+    panel = (PANEL.replace("__PCOL__", json.dumps(PART_COLORS)).replace("__RAISED__", json.dumps(RAISED)).replace("__KERBTOP__", json.dumps(KERB_TOP_M)).replace("__OBJPOPUP__", json.dumps(OBJ_POPUP)).replace("__BLDPOPUP__", json.dumps(BLD_POPUP)).replace("__LOTPOPUP__", json.dumps(LOT_POPUP)).replace("__NEWU__", json.dumps(newu)).replace("__MARKS__", json.dumps([t for t, *_ in MARKS if len(marks) and (marks["type"] == t).any()])).replace("__TREE__", json.dumps(tree_data(con, epsg)).replace("</", "<\\/"))
              .replace("__LEVELS__", json.dumps(list(range(LEVELS[0], LEVELS[1] + 1)))).replace("__LINKDEF__", json.dumps([{"t": t, "lab": n, "c": c, "d": d} for t, n, c, d in defs]))
              .replace("__KINDS__", json.dumps([{"k": k, "lab": lab, "c": c} for k, lab, c in kinds])).replace("__OBJDEF__", json.dumps([{"g": g, "c": c} for g, c in ogroups])).replace("__OBJCOLORS__", json.dumps({k: v[2] for k, v in OBJ_SHAPES.items()})).replace("__STRIPS__", json.dumps([{"t": t, "lab": lab, "c": c} for t, lab, c, _ in sdefs])).replace("__HAS__", json.dumps(has)).replace("__LEVELBTNS__", "".join(f'<button data-l="{l}">{l}</button>' for l in range(LEVELS[0], LEVELS[1] + 1))))
     open(out, "w").write(m.html.replace("</body>", panel + "</body>"))

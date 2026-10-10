@@ -10,8 +10,8 @@ Status (2026-10-08): agreed with Kaveh; built for intersections, roundabouts and
 The parts of a unit cover it exactly: no gaps, no overlaps (check U8). Each has a `type`, an `arm` (the road it belongs to, at an
 intersection), a `direction` for a lane (`in` / `out` of the junction, or `forward` / `backward` along a subsection), a width where it has
 one, and its provenance (2026-10-09; before, one `source` word mixed the two): `source`, where its data comes from (`osm`, `sumo`,
-`mapillary`, `urbanstyle` for a default); `method`, how it was obtained (`mapped`: lanes / width tagged; `measured`: from a mapped line, a
-crossing, a sidewalk, the kerb; `derived`: SUMO's lanes and junction shapes; `observed`: a Mapillary sign; `estimated`: a default); and `ref`,
+`mapillary`, `urbanstyle` for urbanstyle's own value); `method`, how it was obtained (`mapped`: lanes / width tagged; `measured`: from a mapped line, a
+crossing, a sidewalk, the kerb; `derived`: SUMO's lanes and junction shapes; `observed`: a Mapillary sign; `chosen`: urbanstyle's own value for a type); and `ref`,
 the source's own id where there is one (the OSM way of a crosswalk or of the road a lane belongs to, the OSM node of a crossing point). A part of a road (a lane, a shoulder) also carries what is known of its road: `road`, `road_class`, `speed`,
 `surface`, `lit`, `road_lanes`, `oneway`, from the road's OSM way; where OSM says nothing, a stated default (50 km/h in built-up areas,
 asphalt), labelled as such.
@@ -29,8 +29,8 @@ area and perimeter (exact for a rectangle; for a long strip, a sidewalk or a cro
 | `ring` | a roundabout's circulating roadway, one part | the ring's line ± half its roadway, with SUMO's roadway |
 | `parking`, `no parking`, `shoulder` | (OSM street parking, `parking=lane` / `street_side`, is roadway: flush, the kerb its outer edge, with the ground between it and the lanes where no lane fits; `ref` its OSM area, 2026-10-10.) The kerb strip beside the outer lane, out to the measured kerb: parking, no parking, or of unknown use (`shoulder`). `holds` names the evidence, `rule` the rules that apply ("pay $2.00/h 9am-6pm (2 Hr), ...; no parking rush hours 7:00am to 10:00am") | measured kerb minus SUMO's lanes; what it is from the evidence, strongest first: a parking meter within 3 m (pay parking, the meter's own rules; a city's meters carry rates, limits, rush-hour bans), the way's `parking:<side>` / `parking:both` tag (`no`, `separate` or a no-parking restriction: no parking), a mapped bay on it (OSM street or motorcycle parking, a city's accessible bay) (Mapillary's signs do not decide it: their positions are too rough; they are checks) |
 | `furnishing` | the strip by the kerb where street furniture stands (trees, lamps, signs, signals, benches, bike racks, hydrants, parking meters, map stands, transit stops, ...); only where some stands. `holds` says what stands in it and whose those objects are ("2 tree, 1 lamp (vancouver, osm)"), `ref` which objects (each real object once, its ids in all sources); the strip's own `source` is urbanstyle, its method `derived` (drawn by this rule) | the street furniture of OSM, Mapillary and a city's survey, one per real object (`unit.group_objects`, the dossier's rule): out from the kerb to the furniture (80 % of it) + 0.6 m, 0.8 to 4 m wide, 6 m along the kerb either side of each object |
-| `tree pit` | a street tree's pit (tree well, grate or soil), 1.5 m square round the trunk, square to the kerb, inside the furnishing strip; `ref` the tree's ids, `holds` whose survey or map; source urbanstyle, `derived` (2026-10-10) | a default size: no source maps tree pits. A tree mapped on the roadway (a point a metre off) is first moved onto the pedestrian ground behind the kerb, and its pit and strip are built round that one position; the map draws the tree in its pit |
-| `driveway` | the apron where a driveway (OSM `service=driveway`) crosses the sidewalk, kerb lowered; `ref` its OSM way (2026-10-10) | the way's line through the pedestrian ground, its `width` or 3.5 m (a default). A driveway is no street: no space, no lanes |
+| `tree pit` | a street tree's pit (tree well, grate or soil), 1.5 m square round the trunk, square to the kerb, inside the furnishing strip; `ref` the tree's ids, `holds` whose survey or map; source urbanstyle, `derived` (2026-10-10) | urbanstyle's chosen size (no source maps tree pits). A tree mapped on the roadway (a point a metre off) is first moved onto the pedestrian ground behind the kerb, and its pit and strip are built round that one position; the map draws the tree in its pit |
+| `driveway` | the apron where a driveway (OSM `service=driveway`) crosses the sidewalk, kerb lowered; `ref` its OSM way (2026-10-10) | the way's line through the pedestrian ground, its `width` or urbanstyle's chosen 3.5 m. A driveway is no street: no space, no lanes |
 | `bus stop` | a bus stop's waiting area: the sidewalk by the kerb, 8 m either side of its pole and 3 m deep. `holds` what it has (shelter, bench, bin, lit, wheelchair, kerb: OSM's tags on the stop), `rule` its timetable (routes, departures on a weekday, the busiest hour: GTFS) | OSM's stops, each tied to the timetable's stop of its number (OSM `ref` = GTFS `stop_code`); a timetable stop OSM lacks (none within 30 m) at its own position |
 | `bus zone` | the kerb strip where a bus stops: 20 m behind the pole (an articulated bus) and 2 m past it; no parking | cut out of the kerb strip before the parking rule decides the rest |
 | `sidewalk` | the rest of the pedestrian realm, from the kerb to the buildings | the space minus the roadway and the furnishing strip |
@@ -41,6 +41,21 @@ The **carriageway** is the measured travelway (`space.zone`, measured to the ker
 At an **intersection**, each arm's lanes are the part of the carriageway that only that arm's road covers (its centreline ± half its
 carriageway width); where two arms' carriageways meet, and the turning corners between them, is the junction area. Crosswalks are cut
 out of lanes and box. The pedestrian realm falls apart into one **corner** per block corner.
+
+## Widths and sizes (2026-10-10)
+
+Every part has a `width_m` with `width_source` and `width_method`: a lane's width `osm, measured` (both kerbs of its road measured from
+OSM's sidewalks, kerb to kerb over its lanes) or `urbanstyle, chosen` (3.25 m a lane); a kerb strip's `urbanstyle, derived` (the measured
+kerb less the lanes); a crosswalk's, a tree pit's, a driveway's apron `urbanstyle, chosen` (3 m, 1.5 m, 3.5 m) unless OSM maps a width;
+any other part's `urbanstyle, derived` from its shape (the mean width of a strip: the rectangle of its area and outline). A junction's area
+and a roundabout's ring have none (no single width). Parts lose what is thinner than 4 cm (hairlines between two lanes).
+
+Every mark has its width (`width_m`, urbanstyle's chosen per type, `parts.LINE`): stop line 0.4, give-way line 0.35, zebra bar 0.5,
+lane, edge and centre line 0.12, arrow 0.15, guide line 0.1, kerb 0.25 m (its stone, 0.2 m high in 3D); 2D and 3D draw exactly that.
+Every street object has a width and a height (the dossier's `object`, the page's popup `width_m`, `height_m`, `size_from`): a source's
+measurement where there is one (a city's tree survey: trunk diameter, height), else urbanstyle's chosen size for its kind
+(`unit.SIZE`); the 3D models are built from them. A road's `width_m` says where it comes from (`width_src`: OSM's lanes x 3.25 m, or
+urbanstyle's width for its class).
 
 ## Marks (`space.mark`)
 
@@ -126,6 +141,6 @@ space is selected; the map then shows exactly its parts, marks and objects.
 
 ## Limits
 
-Widths are mostly estimated: in Monaco 45 % of roads carry a lanes tag, 3 % a width tag, 14 a turn-lanes tag. Islands are mapped 3 times.
+Widths are mostly urbanstyle's chosen ones: in Monaco 45 % of roads carry a lanes tag, 3 % a width tag, 14 a turn-lanes tag. Islands are mapped 3 times.
 No parking yet. SUMO assigns lanes to turns from the lane counts alone: `turn:lanes` tags (14 in Monaco) are not read yet.
 A crossing way longer than 2.5 × a road's estimated roadway is not used to measure it (it runs over more than that road).

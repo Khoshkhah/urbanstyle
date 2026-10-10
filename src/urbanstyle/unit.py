@@ -13,7 +13,7 @@
           (`source`, `method`, `observed`, `confidence`). Geometry in metres (the local UTM zone, `unit.crs`).
 
 Methods: `surveyed` (a city's own survey), `mapped` (OSM, a register), `measured` (measured here from mapped lines),
-`observed` (seen in photos: Mapillary), `derived` (computed from other rows, e.g. SUMO's lanes), `estimated` (a default),
+`observed` (seen in photos: Mapillary), `derived` (computed from other rows, e.g. SUMO's lanes), `chosen` (urbanstyle's own value for a type),
 `checked` (verified by hand).
 """
 import datetime
@@ -23,11 +23,18 @@ import os
 CLIP_M = 400.0      # the neighbourhood built around a unit: enough for its arms, its neighbours and their cuts
 FLOW_M = 60.0       # traffic counted on a road this close to the unit belongs to it
 CONFIDENCE = {"surveyed": 0.9, "recorded": 0.7, "mapped": 0.7, "measured": 0.6, "observed": 0.5, "derived": 0.5, "approximate": 0.4,
-              "estimated": 0.3, "checked": 1.0}
-HEIGHT = {"furniture.lamp": 7.6, "furniture.signal": 3.3, "furniture.sign": 2.6, "furniture.bench": 0.9, "furniture.waste": 1.0,
-          "furniture.bollard": 0.9, "vegetation.tree": 7.5, "transit.stop": 2.7, "furniture.post_box": 1.2, "furniture.parking_meter": 1.5,
-          "furniture.hydrant": 0.8, "furniture.water": 1.0, "furniture.map_stand": 2.4, "utility.manhole": 0.0, "utility.catch_basin": 0.0,
-          "utility.junction_box": 0.0}
+              "chosen": 0.3, "checked": 1.0}
+# each kind of street object's size, urbanstyle's chosen values (width: its pole's or trunk's thickness, a plate's or a bench's length;
+# height: its top above the ground), stored on every object and drawn at them in 3D; a source's measurement wins (a city's tree survey:
+# trunk diameter, height)
+SIZE = {"furniture.lamp": (0.22, 7.6), "furniture.signal": (0.16, 3.3), "furniture.sign": (0.65, 2.65), "furniture.bench": (1.8, 0.9),
+        "furniture.waste": (0.5, 1.0), "furniture.bollard": (0.18, 0.9), "vegetation.tree": (0.35, 7.5), "transit.stop": (0.45, 2.7),
+        "furniture.post_box": (0.5, 1.2), "furniture.parking_meter": (0.22, 1.5), "furniture.hydrant": (0.3, 0.8), "furniture.water": (0.3, 1.0),
+        "furniture.map_stand": (1.0, 2.4), "furniture.bike_parking": (2.0, 0.8), "furniture.shelter": (3.0, 2.55), "furniture.vending": (0.8, 1.8),
+        "furniture.advertising": (1.2, 2.2), "furniture.charging": (0.5, 1.5), "access.entrance": (1.2, 2.2),
+        "access.parking_entrance": (3.0, 2.4), "barrier.other": (1.5, 1.0), "utility.manhole": (0.6, 0.04), "utility.catch_basin": (0.6, 0.04),
+        "utility.junction_box": (0.45, 0.04)}
+HEIGHT = {k: h for k, (w, h) in SIZE.items()}
 
 # City of Vancouver open data (Opendatasoft Explore API v2.1, no key; Open Government Licence - Vancouver): the city's surveyed
 # layers, fetched by `opendata_vancouver` and loaded by `dossier`. Dataset -> object class; the other datasets give rules and observations.
@@ -38,7 +45,7 @@ VAN_OBJECT = {"public-trees": "vegetation.tree", "street-lighting-poles": "furni
               "street-lighting-junction-boxes": "utility.junction_box"}
 VAN_OTHER = ("traffic-signals", "disability-parking", "right-of-way-widths", "bikeways", "sidewalk-condition-rating", "pavement-condition-rating",
              "pavement-condition-rating-major-road-network-2023", "intersection-traffic-movement-counts", "directional-traffic-count-locations",
-             "storefronts-inventory")
+             "storefronts-inventory", "building-footprints-2015", "building-footprints-2009")
 
 MATCH_M = 10.0      # objects of one class from two sources this close are one real object (Mapillary's positions are 1-5 m off, often more)
 RANK = {"vancouver": 0, "nvdb": 1, "osm": 2, "mapillary": 3}   # whose position a matched object takes: a city's survey, a map, photos
@@ -184,7 +191,8 @@ def opendata_vancouver(lon, lat, out, radius=CLIP_M):
     where = f"within_distance(geom, geom'POINT({lon} {lat})', {radius:.0f}m)"
     data = {}
     for ds in (*VAN_OBJECT, *VAN_OTHER):
-        with urllib.request.urlopen(f"{VAN_API}/{ds}/exports/geojson?" + urllib.parse.urlencode({"where": where}), timeout=120) as r:
+        w = where.replace(f"{radius:.0f}m", f"{radius * 1.5:.0f}m") if ds.startswith("building-footprints") else where   # the clip's corners too
+        with urllib.request.urlopen(f"{VAN_API}/{ds}/exports/geojson?" + urllib.parse.urlencode({"where": w}), timeout=120) as r:
             data[ds] = json.load(r)
     with open(out, "w") as f:
         json.dump(data, f)
@@ -246,18 +254,17 @@ def dossier(space_db, osm_db, unit_id, out, name, city, nvdb=None, flows=None, m
     from urbanstyle.parts import RAISED
     # surfaces and lines: urbanstyle's parts and marks of the unit, each part with its source, method and the source's id (parts.PROV)
     ccase = "CASE method " + " ".join(f"WHEN '{k}' THEN {v}" for k, v in CONFIDENCE.items()) + " ELSE 0.3 END"
-    con.execute(f"""CREATE TABLE surface AS SELECT part_id AS surface_id, type, direction, arm, lane, width_m, length_m,
+    con.execute(f"""CREATE TABLE surface AS SELECT part_id AS surface_id, type, direction, arm, lane, width_m, width_source, width_method, length_m,
                     {"CASE type " + " ".join(f"WHEN '{t}' THEN {h}" for t, h in RAISED.items()) + " ELSE 0.0 END"} AS top_m,
                     road, road_class, speed, surface, lit, holds, rule,
-                    coalesce(source, 'urbanstyle') AS source, coalesce(method, 'estimated') AS method, ref, {ccase} AS confidence,
+                    coalesce(source, 'urbanstyle') AS source, coalesce(method, 'chosen') AS method, ref, {ccase} AS confidence,
                     {m('geometry')} AS geometry FROM sp.space.part WHERE unit_id = '{unit_id}'""")
-    con.execute(f"""CREATE TABLE line AS SELECT row_number() OVER () AS line_id, type, arm, length_m,
-                    CASE type WHEN 'stop line' THEN 0.4 WHEN 'give-way line' THEN 0.35 WHEN 'zebra' THEN 0.5 ELSE 0.12 END AS width_m,
+    con.execute(f"""CREATE TABLE line AS SELECT row_number() OVER () AS line_id, type, arm, length_m, width_m, width_source, width_method,
                     CASE WHEN type = 'kerb' THEN 'kerb' WHEN type = 'guide line' THEN 'virtual' ELSE 'paint' END AS kind,
                     source, method, ref, {ccase} AS confidence, {m('geometry')} AS geometry FROM sp.space.mark WHERE unit_id = '{unit_id}'""")
 
     # objects: what OSM maps and what Mapillary's photos see, in or by the unit, with a height
-    hcase = "CASE class " + " ".join(f"WHEN '{k}' THEN {v}" for k, v in HEIGHT.items()) + " ELSE 1.0 END"
+    hcase = "CASE class " + " ".join(f"WHEN '{k}' THEN {v}::DOUBLE" for k, v in HEIGHT.items()) + " END"    # none for what is no object (a kerb point)
     con.execute(f"""CREATE TABLE object AS SELECT object_id, class, NULL::VARCHAR AS sign, {hcase} AS height_m, attrs::VARCHAR AS attrs,
                     {prov('osm', 'mapped')}, {m('geometry')} AS geometry FROM sp.space.object WHERE {near('geometry', 3)}""")
     from urbanstyle.mapillary import CLASS_OF
@@ -280,6 +287,18 @@ def dossier(space_db, osm_db, unit_id, out, name, city, nvdb=None, flows=None, m
                         coalesce(try_cast(p->>'height_m' AS DOUBLE), {hcase}), p::VARCHAR, {vprov}, {m('geometry')}
                         FROM van JOIN (VALUES {", ".join(f"('{d}', '{c}')" for d, c in VAN_OBJECT.items())}) c(ds, class) USING (ds)
                         WHERE {near('geometry', 3)}""")
+    # every object's size and where it comes from: a city's measurement (a tree's trunk and height), else urbanstyle's chosen size (SIZE)
+    wcase = "CASE class " + " ".join(f"WHEN '{k}' THEN {w}::DOUBLE" for k, (w, h) in SIZE.items()) + " END"
+    con.execute(f"""ALTER TABLE object ADD COLUMN width_m DOUBLE; ALTER TABLE object ADD COLUMN width_source VARCHAR;
+        ALTER TABLE object ADD COLUMN width_method VARCHAR; ALTER TABLE object ADD COLUMN height_source VARCHAR; ALTER TABLE object ADD COLUMN height_method VARCHAR;
+        UPDATE object SET width_m = {wcase};
+        UPDATE object SET width_source = 'urbanstyle', width_method = 'chosen' WHERE width_m IS NOT NULL;
+        UPDATE object SET height_source = 'urbanstyle', height_method = 'chosen' WHERE height_m IS NOT NULL;
+        UPDATE object SET width_m = try_cast(json_extract_string(attrs, '$.diameter_cm') AS DOUBLE) / 100, width_source = source, width_method = method
+          WHERE source = 'vancouver' AND try_cast(json_extract_string(attrs, '$.diameter_cm') AS DOUBLE) > 0;
+        UPDATE object SET height_source = source, height_method = method
+          WHERE source = 'vancouver' AND try_cast(json_extract_string(attrs, '$.height_m') AS DOUBLE) > 0""")
+    if vancouver_json:
         # what the city says of each road piece, from its item nearest the piece (within 15 m): legal width, pavement, bikeway
         for col, ds, val in (("row_width", "right-of-way-widths", "(p->>'width') || ' (ft or m)'"), ("pavement", "%pavement-condition%", "p->>'pci_rating'"),
                              ("bikeway", "bikeways", "concat_ws(' ', p->>'bikeway_type', p->>'bikeway_direction')")):
@@ -288,7 +307,8 @@ def dossier(space_db, osm_db, unit_id, out, name, city, nvdb=None, flows=None, m
                   FROM road r2 JOIN van v ON v.ds LIKE '{ds}' AND ST_DWithin(r2.geometry, {m('v.geometry')}, 15) GROUP BY 1) n WHERE r.road_id = n.road_id""")
 
     # lanes and moves: SUMO's (through urbanstyle's parts and turns)
-    con.execute(f"""CREATE TABLE lane AS SELECT part_id AS lane_id, arm AS road_name, direction, lane AS lane_from_right, width_m, type AS kind,
+    con.execute(f"""CREATE TABLE lane AS SELECT part_id AS lane_id, arm AS road_name, direction, lane AS lane_from_right, width_m, width_source,
+                    width_method, type AS kind,
                     {prov('sumo', 'derived')}, {m('geometry')} AS geometry FROM sp.space.part
                     WHERE unit_id = '{unit_id}' AND type IN ('lane', 'bus lane', 'cycle lane')""")
     con.execute(f"""CREATE TABLE movement AS SELECT from_edge, from_lane, to_edge, to_lane, turn, vehicles, condition, {prov('sumo', 'derived')}, {m('geometry')} AS geometry

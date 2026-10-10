@@ -78,7 +78,7 @@ def export(con, sid, epsg):
     def boundary(bounded, end):
         if not bounded:
             return {"id": uuid.uuid4().hex[:21], "variant": "grass", "floors": 1, "elevation": KERB_M}
-        floors, known = con.execute(f"""SELECT max(level_max) + 1, bool_or(level_src <> 'default') FROM space.element WHERE type = 'building'
+        floors, known = con.execute(f"""SELECT max(level_max) + 1, bool_or(level_src <> 'chosen') FROM space.element WHERE type = 'building'
                                  AND level_min <= 0 AND ST_DWithin({m().replace('ST_AsWKB(', '(')}, ST_GeomFromText(?), 3)""", [end.wkt]).fetchone()
         return {"id": uuid.uuid4().hex[:21], "variant": "narrow", "floors": int(floors) if known else 4, "elevation": KERB_M}   # height unknown: 4
     inside = cross.intersection(unit)

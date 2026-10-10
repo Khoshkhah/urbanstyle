@@ -61,21 +61,17 @@ def van_method(ds, props):
     return VAN_METHOD.get(ds, "recorded")
 
 
-def match(con, seen):
-    """`match`: one row per real object, the objects of all sources that stand for it (`object.match_id`). Objects of one class within
-    MATCH_M of a member join it, nearest first, at most one per source; except that two Mapillary features seen in periods that do not
-    overlap (`seen`: id -> (first, last)) are one object detected again from newer photos. Position and height from the best source
-    (RANK); confidence: any one of its sources right (1 - product of 1 - confidence)."""
-    import shapely
-    rows = con.execute("SELECT object_id, class, source, height_m, confidence::DOUBLE, ST_AsWKB(geometry) FROM object").fetchall()
+def group_objects(rows, seen):
+    """The real objects among `rows` [(object_id, class, source, height_m, confidence, point in metres)] of several sources:
+    [[class, [(object_id, source, point, height_m, confidence)]]], each group's members best source first (RANK). The rules of `match`."""
     newest = lambda oid: -(seen[oid][1].timestamp() if seen.get(oid, (None, None))[1] else 0)
-    rows.sort(key=lambda r: (RANK.get(r[2], 9), newest(r[0])))
+    rows = sorted(rows, key=lambda r: (RANK.get(r[2], 9), newest(r[0])))
     apart = lambda a, b: a is not None and b is not None and None not in (*a, *b) and (a[1] <= b[0] or b[1] <= a[0])
     # members a and b may be one object: no source twice, unless two Mapillary features seen at different times
     fits = lambda a, b: all(x[1] != y[1] or (x[1] == "mapillary" and apart(seen.get(x[0]), seen.get(y[0]))) for x in a for y in b)
     groups = []     # [class, [(object_id, source, point, height, confidence)]]
-    for oid, cls, src, h, conf, wkb in rows:   # ponytail: greedy and O(objects x groups), fine for one unit; a tree for a whole city
-        p, best = shapely.from_wkb(bytes(wkb)), None
+    for oid, cls, src, h, conf, p in rows:     # ponytail: greedy and O(objects x groups), fine for one unit; a tree for a whole city
+        best = None
         for g in groups:
             if g[0] != cls:
                 continue
@@ -96,6 +92,18 @@ def match(con, seen):
                 del groups[j]
                 merged = True
                 break
+    return groups
+
+
+def match(con, seen):
+    """`match`: one row per real object, the objects of all sources that stand for it (`object.match_id`). Objects of one class within
+    MATCH_M of a member join it, nearest first, at most one per source; except that two Mapillary features seen in periods that do not
+    overlap (`seen`: id -> (first, last)) are one object detected again from newer photos. Position and height from the best source
+    (RANK); confidence: any one of its sources right (1 - product of 1 - confidence)."""
+    import shapely
+    rows = [(oid, cls, src, h, conf, shapely.from_wkb(bytes(wkb))) for oid, cls, src, h, conf, wkb in
+            con.execute("SELECT object_id, class, source, height_m, confidence::DOUBLE, ST_AsWKB(geometry) FROM object").fetchall()]
+    groups = group_objects(rows, seen)
     con.execute("ALTER TABLE object ADD COLUMN match_id VARCHAR")
     con.execute("""CREATE TABLE match (match_id VARCHAR, class VARCHAR, n_sources INT, sources VARCHAR, refs VARCHAR, height_m DOUBLE,
                    confidence DOUBLE, geometry GEOMETRY)""")
@@ -218,7 +226,7 @@ def dossier(space_db, osm_db, unit_id, out, name, city, nvdb=None, flows=None, m
     ccase = "CASE method " + " ".join(f"WHEN '{k}' THEN {v}" for k, v in CONFIDENCE.items()) + " ELSE 0.3 END"
     con.execute(f"""CREATE TABLE surface AS SELECT part_id AS surface_id, type, direction, arm, lane, width_m,
                     CASE WHEN type IN ('sidewalk', 'furnishing', 'open') THEN 0.15 WHEN type = 'island' THEN 0.2 ELSE 0.0 END AS top_m,
-                    road, road_class, speed, surface, lit,
+                    road, road_class, speed, surface, lit, holds,
                     coalesce(source, 'urbanstyle') AS source, coalesce(method, 'estimated') AS method, ref, {ccase} AS confidence,
                     {m('geometry')} AS geometry FROM sp.space.part WHERE unit_id = '{unit_id}'""")
     con.execute(f"""CREATE TABLE line AS SELECT row_number() OVER () AS line_id, type, arm, length_m,

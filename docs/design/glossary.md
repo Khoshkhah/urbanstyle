@@ -20,7 +20,7 @@ a column or a table name it is written in `code`. "Built" says whether it exists
 | **junction** | a node with three or more road edges; a node with two is a continuation | yes |
 | **zone** | what a part of a container is for: `travelway`, `pedestrian_realm` or `track`. One row of `space.zone` per container and zone | yes |
 | **travelway** | the part of the street space where vehicles move. Measured out to the kerb where a sidewalk is found, else the lane width | yes |
-| **pedestrian realm** | the rest of the street space beside the travelway: sidewalk, furnishing, frontage. Still a remainder, but its inner edge is the measured kerb where one was found | yes |
+| **pedestrian realm** | the rest of the street space beside the travelway: sidewalk, furnishing strip, open ground. Still a remainder, but its inner edge is the measured kerb where one was found | yes |
 | **track** | the zone of a rail space: the tracks plus a strip for the tunnel or embankment | yes |
 | **element** | one centerline or building in `space.element`: a `road`, `walkway`, `cycleway`, `rail` or `building`, with its level, width and OSM ids | yes |
 | **link** | a place where you change level: a node where elements of two levels meet, or a station entrance. Types `ramp`, `stairs`, `elevator`, `entrance`, `connection` (shown as *Other level change*) | yes |
@@ -110,6 +110,7 @@ Not built yet (step 3 of `street-objects.md`).
 | **floors, height_m** | `space.element`: a building's real floors (`building:levels`, else from `height`) and height (`height`, else floors x 3 m), kept beside its clamped `level_min` / `level_max` (-2..2); 3D draws a building at its real height |
 | **road information on a part** | `space.part` `road`, `road_class`, `speed`, `surface`, `lit`, `road_lanes`, `oneway`: what is known of the road a lane or shoulder belongs to (its OSM way, `ref`); a value OSM lacks is a stated default ("50 km/h (default in built-up areas; not in OSM)", "asphalt (assumed; not in OSM)") |
 | **approach (`space.approach`)** | a lane coming into a junction: its moves, the ways it may go for all traffic, its turn arrow or why it has none; checks U11-U13 count what looks wrong |
+| **furnishing strip, `holds`** | the strip by the kerb where street furniture stands (`space.part` type `furnishing`), only where some does; `holds` says what stands in it ("2 tree, 1 lamp"), each real object once whatever sources map it (OSM, Mapillary, a city's survey: `unit.group_objects`), `ref` their ids, `source` whose |
 | **vehicles, condition (turns)** | `space.turn`: who may make a move (NULL: all traffic; else e.g. `bus,taxi`) and when a time rule binds (e.g. `Mo-Su 07:00-19:00`), from duckOSM's turn rules |
 | **junction area** | the roadway inside an intersection where the arms' carriageways meet and the turning corners between them (`space.part` type `junction area`, called "junction box" before 2026-10-09): an area of our model, nothing painted on the road; not the city's street-lighting junction box (type "electrical box", a lid in the pavement) |
 | **ref** | an object's id in its own source (OSM node, Mapillary feature, a city's asset), kept so every drawn object leads back to where it came from |

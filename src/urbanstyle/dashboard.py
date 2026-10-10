@@ -916,9 +916,11 @@ def main(db, out):
             WHERE e.type = 'road'""")
         jroads = jroads[~jroads.geometry.is_empty]
         try:    # the inside of each space (parts.py): parts, marks, widths
+            holds = "holds" if con.execute("""SELECT count(*) FROM information_schema.columns WHERE table_schema = 'space' AND table_name = 'part'
+                                               AND column_name = 'holds'""").fetchone()[0] else "NULL AS holds"     # (a build before 2026-10-09)
             pts_ = frame(con, f"""SELECT ST_AsWKB(geometry) AS geometry, unit_id, part_id, level, type, coalesce(arm, '') AS arm,
                 coalesce(direction, '') AS direction, lane, width_m, source, method, ref, road, road_class, speed, surface, lit, road_lanes, oneway,
-                round(ST_Area(ST_Transform(geometry, 'EPSG:4326', '{ep}', always_xy := true)), 1) AS area_m2 FROM space.part ORDER BY level""")   # upper levels drawn last
+                {holds}, round(ST_Area(ST_Transform(geometry, 'EPSG:4326', '{ep}', always_xy := true)), 1) AS area_m2 FROM space.part ORDER BY level""")   # upper levels drawn last
             pts_["color"] = [PART_COLORS.get(f"{t} {d}".strip(), PART_COLORS.get(t, "#999999")) for t, d in zip(pts_["type"], pts_["direction"])]
             marks = frame(con, "SELECT ST_AsWKB(geometry) AS geometry, unit_id, level, type, coalesce(arm, '') AS arm, length_m, source, method, ref FROM space.mark ORDER BY level")
             kerbs3d = marks[marks["type"] == "kerb"].copy()     # 3D's kerbstones: each kerb line as a strip 0.25 m wide
@@ -1000,7 +1002,7 @@ def main(db, out):
                  + [o(units, color="#a78bfa", color_col="color", opacity=0.45, outline="#1f2937", width=1.2, label="Spaces",
                       popup=["unit_id", "kind", "section_id", "level"], tooltip=["unit_id", "kind"])] * (len(units) > 0)
                  + [o(pts_, color="#999999", color_col="color", opacity=0.95, outline="#475569", width=0, label="Parts", visible=False,
-                      popup=["part_id", "type", "road", "road_class", "direction", "lane", "width_m", "speed", "surface", "lit", "road_lanes", "oneway",
+                      popup=["part_id", "type", "holds", "road", "road_class", "direction", "lane", "width_m", "speed", "surface", "lit", "road_lanes", "oneway",
                               "area_m2", "source", "method", "ref"], tooltip=["type", "direction", "arm"])] * (len(pts_) > 0)
                  + [rs.Overlay(marks[marks["type"] == t], kind="line", placement="over", color=c, width_m=w, dash=dash, label=f"Mark: {t}", visible=False,
                                popup=["unit_id", "type", "arm", "length_m", "source", "method", "ref"], tooltip=["type", "arm"]) for t, c, w, dash in MARKS if (marks["type"] == t).any()]

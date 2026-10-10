@@ -13,7 +13,9 @@ The sidewalk runs from the kerb to the building face (measured); a furnishing st
 Right-hand traffic: lanes coming into a junction lie on the left of the arm seen from the junction, a subsection's forward lanes on the
 right of its road.
 """
+import collections
 import math
+import os
 
 LANE_M = 3.0           # (kept for reference) a typical lane
 LANE_FIT_M = 3.5       # untagged: as many whole lanes as fit at this width; what is left is shoulder (parking, a hard strip)
@@ -33,7 +35,8 @@ TRACK_M = 2.0          # a mapped cycle track
 OPEN_M = 6.0           # pedestrian ground farther than this from both the kerb and the buildings is open ground, not sidewalk
 FURNITURE = ("vegetation.tree", "furniture.lamp", "furniture.bench", "furniture.waste", "furniture.sign", "furniture.signal",
              "furniture.bike_parking", "furniture.post_box", "furniture.bollard", "furniture.hydrant", "furniture.advertising",
-             "furniture.shelter", "furniture.vending", "furniture.water", "furniture.charging", "transit.stop")
+             "furniture.shelter", "furniture.vending", "furniture.water", "furniture.charging", "transit.stop", "furniture.parking_meter",
+             "furniture.map_stand")
 FURNISH_ALONG_M = 6.0  # a furnishing strip runs this far along the kerb either side of a piece of street furniture
 CONTROL_M = 35.0       # a stop / give-way sign or a signal this close to the junction, beside an arm, puts a line across its in lanes
 MIN_M2 = 0.3
@@ -201,6 +204,28 @@ def build(con, epsg):
         return "shoulder", "measured"
 
     otree = shapely.STRtree([o[4] for o in objs]) if objs else None
+    # the street furniture once per real thing, for the furnishing strip: OSM's, Mapillary's and a city's survey (the file the unit
+    # fetched next to this database), grouped as the dossier groups them (unit.group_objects): [(ids, class, level, point, sources)]
+    from urbanstyle.unit import RANK, VAN_OBJECT, group_objects
+    rows = [(o[0], o[1], "mapillary" if o[0].startswith("mly") else "osm", None, None, o[4]) for o in objs if o[1] in FURNITURE]
+    try:
+        (path,) = con.execute("SELECT path FROM duckdb_databases() WHERE database_name = current_database()").fetchone()
+        city = path[:-len(".space.duckdb")] + ".vancouver.json" if path and path.endswith(".space.duckdb") else None
+        if city and os.path.exists(city) and rtree is not None:
+            import json
+            import pyproj
+            fwd = pyproj.Transformer.from_crs("EPSG:4326", epsg, always_xy=True).transform
+            for ds, fc in json.load(open(city)).items():
+                for i, ft in enumerate(fc["features"]):
+                    if VAN_OBJECT.get(ds) in FURNITURE and (ft["geometry"] or {}).get("type") == "Point":
+                        rows.append((f"{ds}-{i}", VAN_OBJECT[ds], "vancouver", None, None, shapely.Point(fwd(*ft["geometry"]["coordinates"][:2]))))
+        seen_at = {f"mly{f}": (a, b) for f, a, b in con.execute("SELECT feature_id, first_seen, last_seen FROM space.observed").fetchall()}
+    except Exception:       # no Mapillary for this area
+        seen_at = {}
+    lv_of = {o[0]: o[2] for o in objs}
+    furniture = [(", ".join(m[0] for m in ms), cls, lv_of.get(ms[0][0], roads[rtree_ids[rtree.nearest(ms[0][2])]]["level"] if rtree is not None else 0),
+                  ms[0][2], ", ".join(dict.fromkeys(m[1] for m in ms))) for cls, ms in group_objects(rows, seen_at)]
+    ftree = shapely.STRtree([f[3] for f in furniture]) if furniture else None
     blds = [(lv, g(w)) for lv, w in con.execute(f"SELECT l, {tr()} FROM space.element, generate_series(level_min, level_max) t(l) WHERE type = 'building'").fetchall()]
     btree = shapely.STRtree([b[1] for b in blds]) if blds else None
     cuts = {}
@@ -267,7 +292,7 @@ def build(con, epsg):
 
     parts, marks, widths, count, claimed = [], [], [], {}, {}
 
-    def add(uid, level, typ, geom, how, arm=None, direction=None, lane=None, width=None, ref=None):
+    def add(uid, level, typ, geom, how, arm=None, direction=None, lane=None, width=None, ref=None, holds=None):
         # a part takes only ground no earlier part of this unit took: no overlaps by construction (priority = the order of the calls)
         def precise(op, a, b):     # on a 1 cm grid: exact enough, robust where floating point is not (else the plain overlay)
             try:
@@ -282,8 +307,8 @@ def build(con, epsg):
             claimed[uid] = precise("union", claimed[uid], new) if uid in claimed else area(new)
         for p in got:
             n = count[uid] = count.get(uid, 0) + 1
-            parts.append((uid, f"{uid}#{n}", level, typ, arm, direction, lane, round(width, 2) if width else None, *PROV.get(how, (how, None)), ref,
-                          shapely.to_wkb(p)))
+            parts.append((uid, f"{uid}#{n}", level, typ, arm, direction, lane, round(width, 2) if width else None,
+                          *(how if isinstance(how, tuple) else PROV.get(how, (how, None))), ref, holds, shapely.to_wkb(p)))
         return shapely.union_all(got) if got else shapely.Polygon()
 
     def mark(uid, level, typ, geom, arm=None, how="sumo", ref=None):
@@ -518,14 +543,19 @@ def build(con, epsg):
         B = shapely.union_all(near) if near else shapely.Polygon()
         # the kerb: the level's, near by, when given (so two neighbouring spaces judge their shared ground alike), else its own
         kerb = kerb_near if kerb_near is not None and not kerb_near.is_empty else (C.boundary if not C.is_empty else shapely.LineString())
-        furn = [o for o in ([objs[k] for k in otree.query(P)] if otree is not None else []) if o[2] == level and o[1] in FURNITURE and o[4].within(P)]
+        furn = [f for f in ([furniture[k] for k in ftree.query(P)] if ftree is not None else []) if f[2] == level and f[3].within(P)]
         for k, piece in enumerate(polys(P), start=1):
             grp = corner_of(piece, k) if corner_of else None
-            here = [o[4] for o in furn if o[4].within(piece)]
+            here = [f for f in furn if f[3].within(piece)]
             if here and not kerb.is_empty:
-                d = min(max(sorted(p.distance(kerb) for p in here)[int(0.8 * (len(here) - 1))] + 0.6, 0.8), 4.0)
-                strip = safe("intersection", safe("intersection", piece, kerb.buffer(d)), shapely.union_all([p.buffer(FURNISH_ALONG_M) for p in here]))
-                add(uid, level, "furnishing", strip, "measured", arm=grp, width=d)
+                d = min(max(sorted(f[3].distance(kerb) for f in here)[int(0.8 * (len(here) - 1))] + 0.6, 0.8), 4.0)
+                strip = safe("intersection", safe("intersection", piece, kerb.buffer(d)), shapely.union_all([f[3].buffer(FURNISH_ALONG_M) for f in here]))
+                for s_ in polys(strip):     # each strip says what stands in it (`holds`), whose they are (source) and which (`ref`)
+                    inside = [f for f in here if f[3].distance(s_) < FURNISH_ALONG_M]     # the objects it runs along
+                    srcs = ", ".join(sorted({x for f in inside for x in f[4].split(", ")}, key=lambda x: RANK.get(x, 9))) or "osm"
+                    kinds = collections.Counter(f[1].split(".")[-1].replace("_", " ") for f in inside)
+                    add(uid, level, "furnishing", s_, (srcs, "measured"), arm=grp, width=d, ref="; ".join(f[0] for f in inside) or None,
+                        holds=", ".join(f"{n} {k}" for k, n in sorted(kinds.items())) or None)
             reach = [x.buffer(OPEN_M) for x in (B, kerb) if not x.is_empty]
             far = safe("difference", piece, shapely.union_all(reach)) if reach else shapely.Polygon()
             add(uid, level, "open", far, "measured", arm=grp)
@@ -1141,7 +1171,8 @@ def build(con, epsg):
         rdf = pd.DataFrame([(u, shapely.to_wkb(g)) for u, g in reshaped.items()], columns=["unit_id", "wkb"])
         con.execute(f"""UPDATE space.unit u SET geometry = ST_Transform(ST_GeomFromWKB(r.wkb::BLOB), '{epsg}', 'EPSG:4326', always_xy := true)
                         FROM rdf r WHERE u.unit_id = r.unit_id""")
-    pdf = pd.DataFrame(parts, columns=["unit_id", "part_id", "level", "type", "arm", "direction", "lane", "width_m", "source", "method", "ref", "wkb"])
+    pdf = pd.DataFrame(parts, columns=["unit_id", "part_id", "level", "type", "arm", "direction", "lane", "width_m", "source", "method", "ref", "holds",
+                                       "wkb"])
     mdf = pd.DataFrame([m for m in marks if m is not None], columns=["unit_id", "level", "type", "arm", "length_m", "source", "method", "ref", "wkb"])   # None: an arrow replaced
     wdf = pd.DataFrame(widths, columns=["unit_id", "level", "edge", "arm", "total_m", "carriageway_m", "left_m", "right_m", "lanes_in", "lanes_out",
                                         "lane_m", "source"])
@@ -1158,7 +1189,7 @@ def build(con, epsg):
                          ELSE 'asphalt (assumed; not in OSM)' END AS surface,
                     CASE WHEN e.osm_id IS NOT NULL THEN coalesce(w.tags['lit'], 'not in OSM') END AS lit,
                     w.tags['lanes'] AS road_lanes, CASE WHEN e.osm_id IS NOT NULL THEN coalesce(w.tags['oneway'], 'no') END AS oneway,
-                    ST_CollectionExtract(ST_MakeValid({to_ll}), 3) AS geometry
+                    p.holds::VARCHAR AS holds, ST_CollectionExtract(ST_MakeValid({to_ll}), 3) AS geometry
                     FROM pdf p
                     LEFT JOIN (SELECT osm_id, any_value(name) AS name, any_value(class) AS class FROM space.element WHERE type = 'road' GROUP BY osm_id) e
                       ON p.ref = 'w' || e.osm_id

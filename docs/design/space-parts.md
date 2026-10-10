@@ -25,8 +25,9 @@ asphalt), labelled as such.
 | `island` | a refuge in the carriageway; a roundabout's central island | island tags (rare); the ring's line |
 | `ring` | a roundabout's circulating roadway, one part | the ring's line ± half its roadway, with SUMO's roadway |
 | `shoulder` | beside the outer lane, out to the measured kerb: parking or a hard strip | measured kerb minus SUMO's lanes |
-| `sidewalk`, `furnishing`, `frontage` | the pedestrian realm: kerb side (1.8 m), building side (1.2 m), the rest | the space minus the carriageway, as `strips.py` bands it |
-| `open` | ground beyond the reach of any measurement | the rest |
+| `furnishing` | the strip by the kerb where street furniture stands (trees, lamps, signs, signals, benches, bike racks, hydrants, parking meters, map stands, transit stops, ...); only where some stands. `holds` says what stands in it ("2 tree, 1 lamp"), `ref` which objects (each real object once, its ids in all sources), `source` whose | the street furniture of OSM, Mapillary and a city's survey, one per real object (`unit.group_objects`, the dossier's rule): out from the kerb to the furniture (80 % of it) + 0.6 m, 0.8 to 4 m wide, 6 m along the kerb either side of each object |
+| `sidewalk` | the rest of the pedestrian realm, from the kerb to the buildings | the space minus the roadway and the furnishing strip |
+| `open` | pedestrian ground farther than 6 m from both the kerb and the buildings (a square, a forecourt) | the same remainder, far from both |
 
 The **carriageway** is the measured travelway (`space.zone`, measured to the kerb where a sidewalk was found, else lanes × lane width).
 

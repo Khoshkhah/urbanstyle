@@ -36,7 +36,9 @@ line (a street narrower than 6 m between facades kept its space). A road whose r
 space; a subsection whose road the junctions took entirely is dropped and its scrap joins a neighbour. Then a final sweep: road
 surface no space holds, and small holes the spaces enclose with the buildings (at most 300 m², spaces along at least half their edge, not a
 block's garden or courtyard), join the neighbouring space they share the longest border with. An off-street car park (`space.lot`) is a plot, as a building is: the
-building line holds both, so a space stops at a car park's edge, and its parking aisles are no street (2026-10-10). Each space's outline is then closed by 5 cm
+building line holds both, so a space stops at a car park's edge, and its parking aisles are no street, nor is a driveway (`service=driveway`: its apron is a part of the sidewalk) (2026-10-10).
+A crossing point counts only for a road it lies on (within 1 m), never for the nearest one: a crossing of a driveway, a cycle track or
+another footway is no crosswalk across the street. Each space's outline is then closed by 5 cm
 (the zero-width cracks merging leaves along old edges: a point on one lay in no space). Monaco: road centre line outside every space 1,095 m -> 22 m.
 
 A **subsection's** space is a ribbon parallel to its road: a side with buildings reaches 4 m past the facade line and the building line is its

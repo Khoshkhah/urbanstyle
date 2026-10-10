@@ -23,7 +23,8 @@ LANE_FIT_M = 3.5       # untagged: as many whole lanes as fit at this width; wha
 MIN_LANE_M, MAX_LANE_M = 2.5, 3.75   # a two-way road narrower than 2 x MIN is one lane used both ways; a side wider than its lanes x MAX has a shoulder
 EST_LANE_M = 3.25      # a lane's width when nothing is measured
 SIDEWALK_HALF_M = 1.0  # a sidewalk is mapped along its middle: the kerb lies this much nearer the road
-KERB_SEARCH_M = 12.0   # how far from a road its sidewalks are looked for (a sidewalk farther away is not this road's)
+KERB_BEYOND_M = 10.0   # a road's sidewalks are looked for up to this far beyond its estimated roadway edge (an OSM line metres off
+                       # the middle of a wide road, a sidewalk's half, a boulevard); farther away is not this road's
 CROSSWALK_M = 3.0
 # how a part was made -> (where its data comes from, how it was obtained): space.part `source`, `method`; `ref` is the source's own id
 PROV = {"sumo": ("sumo", "derived"), "measured": ("osm", "measured"), "measured one side": ("osm", "measured"), "crossing": ("osm", "measured"),
@@ -60,8 +61,15 @@ STOP_REACH_M = 15.0    # a lane's stop position: clear of the junction and of a 
 STOP_GAP_M = 1.0       # ... and this far before it (the stop line before the crosswalk; the turn arrows behind the stop line)
 # the parts standing above the roadway, and how high their top is (m): a kerb stands where they meet the flush ground (lanes, parking,
 # a parking lot, a crosswalk); the dossier's top_m and the 3D view use the same heights
-RAISED = {"sidewalk": 0.15, "furnishing": 0.15, "open": 0.15, "bus stop": 0.15, "island": 0.2}
-SHOULDER_MAX_M = 2.5   # a shoulder beside SUMO's lanes is at most a parking lane; a wider measured kerb is left to the pedestrian realm
+RAISED = {"sidewalk": 0.15, "furnishing": 0.15, "open": 0.15, "bus stop": 0.15, "island": 0.2, "tree pit": 0.1, "driveway": 0.05}
+DRIVEWAY_M = 3.5       # a driveway's apron across the sidewalk, when OSM gives no width (a default)
+CROSS_ON_M = 1.0       # a crossing point is a node of the road it crosses: this close to its line, else it crosses something else
+PARK_GAP_M = 3.0       # ground between the lanes and a mapped street-parking area narrower than this (no lane fits) is that parking
+TREE_PIT_M = 1.5       # a street tree's pit (a tree well, grate or soil): a square this wide round its trunk; a default, no source maps pits
+FURN_SNAP_M = 8.0      # street furniture mapped on the roadway this close to pedestrian ground stands there (a point a metre or two off)
+FURN_BACK_M = 0.5      # ... this far behind the kerb (a tree: its pit's half and a little)
+SHOULDER_MAX_M = 3.5   # a shoulder beside SUMO's lanes is at most a curb lane (parking by day, a travel lane at rush hour); a wider
+                       # measured kerb is left to the pedestrian realm (a grass boulevard between kerb and sidewalk)
 
 
 def _unit(x, y):
@@ -112,7 +120,7 @@ def strip_size(p):
 def build(con, epsg):
     import pandas as pd
     import shapely
-    from shapely.ops import substring
+    from shapely.ops import nearest_points, substring
 
     tr = lambda col="geometry": f"ST_AsWKB(ST_Transform({col}, 'EPSG:4326', '{epsg}', always_xy := true))"
     g = lambda w: shapely.make_valid(shapely.from_wkb(bytes(w)))
@@ -200,12 +208,19 @@ def build(con, epsg):
     lots, moto = [], []
     try:
         from urbanstyle.container import STREET_PARKING     # a car park off the street is no part: it is a lot (space.lot)
-        lots = [(True, g(w)) for (w,) in con.execute(f"""SELECT {tr('geom')} FROM osm.features.sites
+        lots = [(ref_, g(w)) for ref_, w in con.execute(f"""SELECT left(osm_type, 1) || osm_id, {tr('geom')} FROM osm.features.sites
                 WHERE kind = 'parking' AND tags['parking'] IN {STREET_PARKING}""").fetchall()]
         moto = [g(w) for (w,) in con.execute(f"SELECT {tr('geom')} FROM osm.features.pois WHERE kind = 'motorcycle_parking'").fetchall()]
     except Exception:
         pass
     lot_tree = shapely.STRtree([x for _, x in lots]) if lots else None
+    drives = []     # driveways (OSM service=driveway): no street (container.ROADS), their apron across the sidewalk: [(ref, line, width)]
+    try:
+        drives = [(f"w{osm}", g(w), try_w or DRIVEWAY_M) for osm, w, try_w in con.execute(f"""SELECT osm_id, ST_AsWKB(ST_Union_Agg(
+                  ST_Transform(e.geometry, 'EPSG:4326', '{epsg}', always_xy := true))), any_value(try_cast(w.tags['width'] AS DOUBLE))
+                  FROM osm.driving.edges e JOIN osm.raw.ways w USING (osm_id) WHERE w.tags['service'] = 'driveway' GROUP BY osm_id""").fetchall()]
+    except Exception:
+        pass
     moto_tree = shapely.STRtree(moto) if moto else None
 
     def parking_of(strip, de=None, right=True):
@@ -311,7 +326,8 @@ def build(con, epsg):
         """(left, right, source): where the kerbs of road `r` (its line `ln`) are. From the mapped sidewalks either side: a sidewalk is
         mapped along its middle, so the kerb is SIDEWALK_HALF_M nearer the road (`measured`; one side only: the same both ways, `measured
         one side`). Else from a crossing path across it: its length minus two half sidewalks is kerb to kerb (`crossing`). Else estimated."""
-        near = [paths[k] for k in ptree.query(ln.buffer(KERB_SEARCH_M))] if ptree is not None else []
+        reach = max(estimate(r)) + KERB_BEYOND_M
+        near = [paths[k] for k in ptree.query(ln.buffer(reach))] if ptree is not None else []
         sw = [p[3] for p in near if p[2] == level and p[1] != "crossing"]
         swu = shapely.union_all(sw) if sw else None
         L, R = [], []
@@ -323,7 +339,7 @@ def build(con, epsg):
             for s_, out in ((1, L), (-1, R)):
                 if swu is None:
                     continue
-                ray = shapely.LineString([(c.x, c.y), (c.x - s_ * ty * KERB_SEARCH_M, c.y + s_ * tx * KERB_SEARCH_M)])
+                ray = shapely.LineString([(c.x, c.y), (c.x - s_ * ty * reach, c.y + s_ * tx * reach)])
                 hit = safe("intersection", ray, swu)
                 if not hit.is_empty:
                     d = c.distance(hit) - SIDEWALK_HALF_M
@@ -452,6 +468,8 @@ def build(con, epsg):
             if lv != level or not cls.startswith("crossing.") or not p.within(U) or any(p.distance(m) < SAME_CROSSING_M for m in mapped + paths_here) or not axes:
                 continue
             ln = min(axes, key=lambda a: a.distance(p))
+            if ln.distance(p) > CROSS_ON_M:     # on no road here: it crosses a driveway or a car park's aisle
+                continue
             t = ln.project(p)
             tx, ty = direction(ln, t)
             c, L, H = ln.interpolate(t), 30.0, CROSSWALK_M / 2
@@ -627,14 +645,38 @@ def build(con, epsg):
         B = shapely.union_all(near) if near else shapely.Polygon()
         # the kerb: the level's, near by, when given (so two neighbouring spaces judge their shared ground alike), else its own
         kerb = kerb_near if kerb_near is not None and not kerb_near.is_empty else (C.boundary if not C.is_empty else shapely.LineString())
-        furn = [f for f in ([furniture[k] for k in ftree.query(P)] if ftree is not None else []) if f[2] == level and f[3].within(P)]
+        def onto(f):    # furniture mapped on the roadway (a survey point a metre off) stands on the pedestrian ground beside it, behind the kerb
+            if f[3].within(P):
+                return f
+            if f[3].distance(P) > FURN_SNAP_M:
+                return None
+            q = nearest_points(P, f[3])[0]
+            gap = TREE_PIT_M / 2 + 0.1 if f[1] == "vegetation.tree" else FURN_BACK_M
+            dx, dy = q.x - f[3].x, q.y - f[3].y
+            h = math.hypot(dx, dy) or 1.0
+            m = shapely.Point(q.x + dx / h * gap, q.y + dy / h * gap)
+            return (f[0], f[1], f[2], m if m.within(P) else q, f[4])
+        furn = [x for x in (onto(f) for f in ([furniture[k] for k in ftree.query(U)] if ftree is not None else [])
+                            if f[2] == level and f[3].within(U)) if x is not None]
         for k, piece in enumerate(polys(P), start=1):
             grp = corner_of(piece, k) if corner_of else None
             for st in ([] if kerb.is_empty else [st for st in stops if st[2] == level and st[1].distance(piece) <= 1.0]):
                 held, tt_ = stop_text(st)     # a bus stop's waiting area, by the kerb at its pole
                 add(uid, level, "bus stop", safe("intersection", piece, safe("intersection", kerb.buffer(STOP_WAIT_M), st[1].buffer(STOP_AREA_M))),
                     (st[5], "derived"), arm=grp, ref=st[0], holds=held, rule=tt_)
+            for ref_, dl, dw in (d for d in drives if d[1].intersects(piece)):     # where a driveway crosses the sidewalk: its apron
+                add(uid, level, "driveway", safe("intersection", piece, dl.buffer(dw / 2, cap_style="flat")), "osm", arm=grp, width=dw, ref=ref_,
+                    holds="apron across the sidewalk, kerb lowered" + ("" if dw != DRIVEWAY_M else f"; {DRIVEWAY_M} m wide, a default"))
             here = [f for f in furn if f[3].within(piece)]
+            for f in (x for x in here if x[1] == "vegetation.tree"):    # a street tree stands in its pit, square to the kerb
+                k_ = nearest_points(kerb, f[3])[0] if not kerb.is_empty else None
+                nx_, ny_ = (f[3].x - k_.x, f[3].y - k_.y) if k_ is not None else (0.0, 1.0)
+                h = math.hypot(nx_, ny_) or 1.0
+                nx_, ny_, a = nx_ / h, ny_ / h, TREE_PIT_M / 2
+                sq = shapely.Polygon([(f[3].x + sx * a * -ny_ + sy * a * nx_, f[3].y + sx * a * nx_ + sy * a * ny_)
+                                      for sx, sy in ((-1, -1), (1, -1), (1, 1), (-1, 1))])
+                add(uid, level, "tree pit", safe("intersection", sq, piece), ("urbanstyle", "derived"), arm=grp, width=TREE_PIT_M, ref=f[0],
+                    holds=f"1 tree ({f[4]}); {TREE_PIT_M} m square, a default size: no source maps tree pits")
             if here and not kerb.is_empty:
                 d = min(max(sorted(f[3].distance(kerb) for f in here)[int(0.8 * (len(here) - 1))] + 0.6, 0.8), 4.0)
                 strip = safe("intersection", safe("intersection", piece, kerb.buffer(d)), shapely.union_all([f[3].buffer(FURNISH_ALONG_M) for f in here]))
@@ -642,12 +684,18 @@ def build(con, epsg):
                     inside = [f for f in here if f[3].distance(s_) < FURNISH_ALONG_M]     # the objects it runs along
                     srcs = ", ".join(sorted({x for f in inside for x in f[4].split(", ")}, key=lambda x: RANK.get(x, 9))) or "osm"
                     kinds = collections.Counter(f[1].split(".")[-1].replace("_", " ") for f in inside)
-                    add(uid, level, "furnishing", s_, (srcs, "measured"), arm=grp, width=d, ref="; ".join(f[0] for f in inside) or None,
-                        holds=", ".join(f"{n} {k}" for k, n in sorted(kinds.items())) or None)
+                    # the strip is ours, drawn by this rule from the kerb and the objects: its source is urbanstyle, its method derived;
+                    # `ref` names the objects, `holds` what they are and whose survey or map they come from
+                    add(uid, level, "furnishing", s_, ("urbanstyle", "derived"), arm=grp, width=d, ref="; ".join(f[0] for f in inside) or None,
+                        holds=(", ".join(f"{n} {k}" for k, n in sorted(kinds.items())) + f" ({srcs})") if kinds else None)
             reach = [x.buffer(OPEN_M) for x in (B, kerb) if not x.is_empty]
             far = safe("difference", piece, shapely.union_all(reach)) if reach else shapely.Polygon()
             add(uid, level, "open", far, "measured", arm=grp)
-            add(uid, level, "sidewalk", piece, "measured", arm=grp)
+            # its source: the OSM walkways it was measured from (in it or along its edge); none: it is only what the space leaves
+            ways = sorted({path_osm[id(p[3])] for p in ([paths[k] for k in ptree.query(piece.buffer(1.5))] if ptree is not None else [])
+                           if p[2] == level and p[1] != "crossing" and id(p[3]) in path_osm and p[3].distance(piece) <= 1.5})
+            add(uid, level, "sidewalk", piece, "measured" if ways else ("urbanstyle", "derived"), arm=grp, ref=", ".join(ways) or None,
+                holds=None if ways else "the space minus its roadway; no mapped sidewalk in or along it")
 
     def across(uid, line_or_cut, ln, C, inside):
         """Widths along a cross line: (roadway, pedestrian left, pedestrian right), left / right seen along `ln`."""
@@ -737,7 +785,8 @@ def build(con, epsg):
                         hr = sorted(m[1] for m in ms)[len(ms) // 2]
                         if (s_, t_) != (roads[e]["src"], roads[e]["dst"]):
                             hl, hr = hr, hl
-                        room[de] = (hl, hr, bool(c[0] and c[1]))
+                        both = sum(m[2] == "measured" for m in ms) * 2 > len(ms)     # both kerbs measured (from sidewalks) mostly
+                        room[de] = (hl, hr, bool(c[0] and c[1]), both)
         # each half of a divided road is centred on its own line (OSM draws a carriageway along its middle). Where the lines run closer
         # than the two roadways' half widths, the halves are pushed apart, each by half the overlap, and meet: no ground between them,
         # as where only paint parts the directions
@@ -749,6 +798,18 @@ def build(con, epsg):
             over = sorted((wide(de) + wide(de_of[f])) / 2 - gap for f, gap in near if de in attrs and de_of.get(f) in attrs)
             if over and over[len(over) // 2] > 0.1:
                 shift[de] = over[len(over) // 2] / 2
+        # a two-way road with both kerbs measured is centred between them: OSM's line is often metres off the painted centre (West
+        # Broadway at Hemlock: 5.5 m), and lanes laid round it left real roadway on one side to the sidewalk. Each direction moves the
+        # same way: right of itself by (its right room - its left room - its own width + the other direction's) / 2
+        other = {}
+        for de in room:
+            other.setdefault(elem_of[de], []).append(de)
+        for de, (hl, hr, two_way, both) in room.items():
+            pair = [d for d in other[elem_of[de]] if d != de]
+            if two_way and both and pair and de in attrs and pair[0] in attrs and de not in shift:
+                s = (hr - hl - wide(de) + wide(pair[0])) / 2
+                if abs(s) > 0.3:
+                    shift[de] = s
         for de, s in shift.items():
             r = roads[elem_of[de]]
             ahead = ends_of[de] == (r["src"], r["dst"])
@@ -757,10 +818,10 @@ def build(con, epsg):
                 (wkt,) = con.execute(f"SELECT ST_AsText(ST_Transform(ST_GeomFromText(?), '{epsg}', 'EPSG:4326', always_xy := true))",
                                      [moved.wkt]).fetchone()
                 attrs[de]["shape"] = " ".join(f"{x:.7f},{y:.7f}" for x, y in shapely.from_wkt(wkt).coords)
-        for de, (hl, hr, two_way) in room.items():   # the measured kerbs beyond the lanes: a shoulder. Two-way: each direction right of
-            L = wide(de)                              # its line, out to its own kerb; one-way: centred on it (a half: only its right)
+        for de, (hl, hr, two_way, both) in room.items():   # the measured kerbs beyond the lanes: a shoulder. Two-way: each direction
+            L = wide(de)                              # right of its line, out to its own kerb; one-way: centred on it (a half: only its right)
             if two_way:
-                sr, sl = hr - L, 0.0
+                sr, sl = hr - L - shift.get(de, 0.0), 0.0
             elif elem_of[de] in halves:
                 sr, sl = hr - L / 2 - shift.get(de, 0.0), 0.0
             else:
@@ -861,11 +922,17 @@ def build(con, epsg):
                 near = [area(safe("intersection", x["poly"], j["poly"].buffer(3.0))) for x in ends_at.get(j["id"], [])]
                 hull = shapely.union_all([g for g in near if not g.is_empty] or [shapely.Polygon()]).convex_hull
                 j["poly"] = area(hull) if not hull.is_empty else j["poly"]
+        park_ground = {}    # level -> street parking and the ground between it and the lanes
         road_of = {}    # level -> the roadway: lanes and junctions, closed over gaps narrower than ROADWAY_GAP_M (between two roads drawn side by
         #                 side, between neighbouring lanes at a bend): no kerb in the middle of the road
         for lv in {x["level"] for x in lanes} | {j["level"] for j in juncs}:
-            road_of[lv] = area(shapely.union_all([x["poly"] for x in lanes + sh if x["level"] == lv] + [j["poly"] for j in juncs if j["level"] == lv])
-                               .buffer(ROADWAY_GAP_M / 2, join_style="mitre").buffer(-ROADWAY_GAP_M / 2, join_style="mitre"))
+            base = [x["poly"] for x in lanes + sh if x["level"] == lv] + [j["poly"] for j in juncs if j["level"] == lv]
+            road_of[lv] = area(shapely.union_all(base).buffer(ROADWAY_GAP_M / 2, join_style="mitre").buffer(-ROADWAY_GAP_M / 2, join_style="mitre"))
+            if lv == 0 and lots:    # street parking (OSM parking=lane / street_side) is roadway, flush: the kerb is its outer edge. So is
+                lot_u = shapely.union_all([x for _, x in lots])     # the ground between it and the lanes where no lane fits (PARK_GAP_M)
+                both = shapely.union_all(base + [lot_u]).buffer(PARK_GAP_M / 2, join_style="mitre").buffer(-PARK_GAP_M / 2, join_style="mitre")
+                park_ground[lv] = area(safe("difference", safe("intersection", both, lot_u.buffer(PARK_GAP_M)), road_of[lv]))
+                road_of[lv] = area(safe("union", road_of[lv], park_ground[lv]))
         ltree = shapely.STRtree([x["poly"] for x in lanes]) if lanes else None
         road_parts = {lv: list(shapely.get_parts(g_)) for lv, g_ in road_of.items()}
         road_trees = {lv: shapely.STRtree(v) for lv, v in road_parts.items() if v}
@@ -952,6 +1019,8 @@ def build(con, epsg):
         for oid, cls, lv, ctl, p in objs:       # a crossing point: only where no crossing is mapped as a path (as crossings() draws it)
             if cls.startswith("crossing.") and rtree is not None and not any(p.distance(m) < SAME_CROSSING_M for m in xpaths.get(lv, [])):
                 r = roads[rtree_ids[rtree.nearest(p)]]["g"]
+                if r.distance(p) > CROSS_ON_M:      # on no road: it crosses a driveway or a car park's aisle
+                    continue
                 tx, ty = direction(r, r.project(p))
                 bands.setdefault(lv, []).append(shapely.LineString([(p.x - ty * 15, p.y + tx * 15), (p.x + ty * 15, p.y - tx * 15)])
                                                 .buffer(CROSSWALK_M / 2, cap_style="flat"))
@@ -1026,9 +1095,10 @@ def build(con, epsg):
                 got = add(uid, level, typ_, piece, how_, width=x["w"], ref=wref(x["edge"]), holds=held, rule=rule_)
                 if not got.is_empty and x["kind"][0] != "shoulder":     # the line between the lane and the parking strip
                     mark(uid, level, "edge line", safe("intersection", x["base"], U), ref=wref(x["edge"]))
+            for ref_, lot in ([lots[k] for k in lot_tree.query(U)] if lot_tree is not None and level in park_ground else []):
+                add(uid, level, "parking", safe("intersection", safe("intersection", park_ground[level], lot.buffer(PARK_GAP_M)), U), "osm", ref=ref_,
+                    holds="OSM street parking")
             add(uid, level, "carriageway" if sub else "ring" if rb else "junction area", C, "sumo")   # the rest of the roadway, one part
-            for street, lot in ([lots[k] for k in lot_tree.query(U)] if lot_tree is not None and level == 0 else []):
-                add(uid, level, "parking", safe("difference", safe("intersection", lot, U), C), "osm")
             names = [(roads[e]["name"], roads[e]["g"]) for e, _ in cuts.get(uid, []) if e in roads]
             pedestrian(uid, level, U, C, None if sub or not names else
                        lambda piece, k: " / ".join(nm for nm, _ in sorted(names, key=lambda t: t[1].distance(piece))[:2]), kerb_near=kerb_at(level, U))
@@ -1083,8 +1153,10 @@ def build(con, epsg):
                 if ctl:         # at the stop position: before the crosswalk, out of the junction
                     c, (bx, by), h = back.interpolate(s_stop), direction(back, s_stop), x["w"] / 2
                     tx, ty = -bx, -by
-                    mark(unit_at(c, level, uid), level, "give-way line" if all(o[3] == "give_way" for o in ctl) else "stop line",
-                         shapely.LineString([(c.x - ty * h, c.y + tx * h), (c.x + ty * h, c.y - tx * h)]), arm, *ordered_by(ctl))
+                    if not (level in xw and xw[level].contains(c)):   # never on a crosswalk: a lane piece between a crosswalk and its
+                        #       junction (a road split at the crossing's node) has its stop line on the piece before the crosswalk
+                        mark(unit_at(c, level, uid), level, "give-way line" if all(o[3] == "give_way" for o in ctl) else "stop line",
+                             shapely.LineString([(c.x - ty * h, c.y + tx * h), (c.x + ty * h, c.y - tx * h)]), arm, *ordered_by(ctl))
             # widths: at each arm's cut, or across the middle of a subsection
             if not sub:
                 for eid, cut in cuts.get(uid, []):

@@ -77,7 +77,8 @@ PART_COLORS = {"lane circulating": "#4b5260", "ring": "#4b5260", "junction area"
                "lane both": "#4b5260", "lane": "#4b5260", "shoulder": "#5c6370", "parking": "#64748b", "no parking": "#4b5260", "bus zone": "#7f1d1d",
                "parking lot": "#94a3b8", "carriageway": "#4b5260", "bus lane": "#9b2c2c",
                "cycle lane": "#2f855a", "cycle crossing": "#38a169", "crosswalk": "#4b5260", "island": "#8fbf6f",
-               "sidewalk": "#d8d2c6", "furnishing": "#b9a58b", "open": "#e9e4d6", "bus stop": "#93c5fd"}   # asphalt, paving; crosswalks are asphalt under their zebra bars
+               "sidewalk": "#d8d2c6", "furnishing": "#b9a58b", "open": "#e9e4d6", "bus stop": "#93c5fd",
+               "tree pit": "#6b4f2a", "driveway": "#a8a29e"}   # asphalt, paving; crosswalks are asphalt under their zebra bars
 SEEN_COLORS = {"parking": "#2563eb", "no parking": "#9333ea", "give way": "#f97316", "stop": "#dc2626", "traffic light": "#ef4444",
                "street light": "#facc15", "bin": "#65a30d", "bench": "#84cc16", "lane arrow": "#06b6d4", "zebra": "#ffffff"}
 PHOTOS_PER_SPACE = 6
@@ -576,10 +577,12 @@ def placer(con, epsg):
     import shapely
     from shapely.ops import nearest_points
     to_m = f"ST_AsWKB(ST_Transform(geometry, 'EPSG:4326', '{epsg}', always_xy := true))"
-    road, walk, bld = {}, {}, {}
+    road, walk, bld, pit = {}, {}, {}, {}
     try:
-        for lv, t, w in con.execute(f"SELECT level, type, {to_m} FROM space.part").fetchall():
-            (walk if t in ("sidewalk", "furnishing", "open", "island", "parking lot", "bus stop") else road).setdefault(lv, []).append(shapely.from_wkb(bytes(w)))
+        for lv, t, w, ref in con.execute(f"SELECT level, type, {to_m}, ref FROM space.part").fetchall():
+            (walk if t in RAISED else road).setdefault(lv, []).append(shapely.from_wkb(bytes(w)))
+            if t == "tree pit":     # a street tree stands in the middle of its pit (parts.py placed both)
+                pit.update({i: shapely.from_wkb(bytes(w)).centroid for i in (ref or "").split(", ") if i})
     except duckdb.CatalogException:
         pass
     for lv, w in con.execute(f"SELECT l, {to_m} FROM space.element, generate_series(level_min, level_max) t(l) WHERE type = 'building'").fetchall():
@@ -590,7 +593,10 @@ def placer(con, epsg):
         t = trees[kind].get(lv)
         return [t[1][k] for k in t[0].query(p, predicate="within")] if t else []
 
-    def place(p, lv, cls):
+    def place(p, lv, cls, refs=""):
+        trunk = [pit[i] for i in (refs or "").split(", ") if i in pit]
+        if cls == "vegetation.tree" and trunk:
+            return trunk[0]
         if cls not in SNAP:
             return p
         for kind, gap, near in (("road", KERB_BACK_M, "walk"), ("bld", 0.3, None)):
@@ -704,7 +710,7 @@ def furniture_3d(con, epsg, place, objs):
     out = []
     for oid, cls, lv, grp, p, refs, sources, measured, details, methods in objs:
         if not cls.startswith("utility."):       # a manhole, a drain, a lid lies in the ground where it is mapped (a roadway too)
-            p = place(p, lv, cls)
+            p = place(p, lv, cls, refs)
         cand = [k for k in rtree.query(p.buffer(25)) if roads[k][0] == lv]
         ux, uy = 0.0, 1.0           # towards the road
         if cand:
@@ -789,7 +795,7 @@ def object_shapes(con, epsg, place=None):
         shape, size, _ = OBJ_SHAPES.get(cls, ("circle", 0.25, "#888888"))
         p = shapely.from_wkb(bytes(w))
         if place is not None:
-            p = place(p, level, cls)
+            p = place(p, level, cls, oid)
         cand = [k for k in tree.query(p.buffer(15)) if roads[k][0] == level]
         tx, ty, rw = 1.0, 0.0, 6.5
         toward = (0.0, 1.0)

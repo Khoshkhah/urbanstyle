@@ -63,7 +63,7 @@ FROM (
     UNION ALL BY NAME SELECT 'cycleway' t, * FROM osm.cycling.edges
       WHERE osm_id NOT IN (SELECT osm_id FROM osm.driving.edges UNION SELECT osm_id FROM osm.walking.edges))) e
 LEFT JOIN osm.raw.ways rw ON rw.osm_id = e.osm_id
-WHERE coalesce(rw.tags['service'], '') <> 'parking_aisle';    -- an aisle is inside a car park (space.lot), not a street
+WHERE coalesce(rw.tags['service'], '') NOT IN ('parking_aisle', 'driveway');   -- inside a car park (space.lot), into a property: no street
 """
 
 # Off-street car parks (OSM amenity=parking on the ground, not along the kerb): private ground beside the street, like a building's

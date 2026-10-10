@@ -49,7 +49,7 @@ The order of work: `docs/plan.md`.
 
 ```bash
 P=/home/kaveh/projects/duckOSM/.venv/bin/python        # duckdb + spatial + duckOSM; has no recent roadstyle
-$P -m pytest -q                                        # 26 tests, offline (the turns test needs netconvert) (pythonpath=src from pyproject), ~10 s
+$P -m pytest -q                                        # 27 tests, offline (the turns test needs netconvert) (pythonpath=src from pyproject), ~10 s
 $P -m pytest -q tests/test_levels.py::test_street_space_width      # one test
 
 # build a container (Monaco ~1 min; Södermalm ~18 min and ~7 GB: check free memory first). Södermalm has no
@@ -87,14 +87,16 @@ mkdocs build --strict                                  # needs pip install ".[do
 - roadstyle ids are not `edge_id`s (ids past 2**53); query with `rsQuery`, never pass `edge_id` to `rsSelect`.
 - The dashboard's panel script shares the page's global scope with roadstyle's: a top-level name roadstyle already uses (`srcOf`,
   `map`, `OVERLAYS`, ...) throws and silently kills the WHOLE panel. Check new globals in a headless load (page errors) before shipping.
-- Tilting the map (roadstyle's 3D button) shows only what exists, at real size (`draw3d` and `tilt2d` in dashboard.py): every space's
-  ground on the level (the roadway flat with its painted lines, sidewalks and islands raised), buildings by floors x 3.2 m, the levels above
-  as bridge decks 6 m a level, and one 3D object per real thing (`matched_objects`: OSM, Mapillary and a city's survey matched by
-  `unit.match`; `furniture_3d`: lamp, signal, sign, tree at its surveyed height, bench, bin, meter, manhole, drain, ...; placed off the
-  roadway by `placer`, except covers in the ground). The 2D symbols (centre lines, dots, icons, guide lines, the kerb line, cuts,
-  footprints) are hidden while tilted and come back when flat; a hover shows only an object's type, a click its popup. Terrain only when
-  "rough terrain" is ticked: the public AWS Terrain Tiles (~30 m) are too coarse for Monaco and broke the map; needs a 1-5 m terrain.
-  "every space in detail" (on by default) shows every space's parts with nothing focused.
+- 2D and 3D are two views of the same data, two separate layer sets (`setView`, `draw3d` in dashboard.py); switching shows one set
+  and hides the other. 2D is a map: roads as lines, one dot per street object, building footprints, spaces and cuts as outlines; the
+  real-size road surface only with "road surface in 2D". 3D (roadstyle's 3D button) is the street: every space's ground on the level
+  (roadway flat, sidewalks and islands raised, kerbstones), the painted lines and the lane-to-lane guide lines, buildings at their real
+  height (`space.element.floors`, `height_m`: before levels are clamped to -2..2), bridge decks 6 m a level, one model per street
+  object (`matched_objects`: OSM, Mapillary and a city's survey matched by `unit.match`; `furniture_3d`). In 3D a hover lights a lane,
+  kerb, building or object and names its type; a click selects it and opens its popup (the same fields as in 2D: OBJ_POPUP,
+  BLD_POPUP, the Parts popup); Esc, a second click or closing the popup deselects. 2D overlays' wanted visibility is roadstyle's
+  `ov.visible`; a 3D layer is never drawn in 2D. Terrain only when "rough terrain" is ticked: the public AWS Terrain Tiles (~30 m) are
+  too coarse for Monaco and broke the map; needs a 1-5 m terrain.
 - Heavy imports (shapely, pandas, geopandas, roadstyle) stay inside functions so the CLI starts fast.
 
 ## Rules

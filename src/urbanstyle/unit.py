@@ -217,6 +217,7 @@ def dossier(space_db, osm_db, unit_id, out, name, city, nvdb=None, flows=None, m
     ccase = "CASE method " + " ".join(f"WHEN '{k}' THEN {v}" for k, v in CONFIDENCE.items()) + " ELSE 0.3 END"
     con.execute(f"""CREATE TABLE surface AS SELECT part_id AS surface_id, type, direction, arm, lane, width_m,
                     CASE WHEN type IN ('sidewalk', 'furnishing', 'open') THEN 0.15 WHEN type = 'island' THEN 0.2 ELSE 0.0 END AS top_m,
+                    road, road_class, speed, surface, lit,
                     coalesce(source, 'urbanstyle') AS source, coalesce(method, 'estimated') AS method, ref, {ccase} AS confidence,
                     {m('geometry')} AS geometry FROM sp.space.part WHERE unit_id = '{unit_id}'""")
     con.execute(f"""CREATE TABLE line AS SELECT row_number() OVER () AS line_id, type, arm, length_m,
@@ -261,7 +262,7 @@ def dossier(space_db, osm_db, unit_id, out, name, city, nvdb=None, flows=None, m
     con.execute(f"""CREATE TABLE lane AS SELECT part_id AS lane_id, arm AS road_name, direction, lane AS lane_from_right, width_m, type AS kind,
                     {prov('sumo', 'derived')}, {m('geometry')} AS geometry FROM sp.space.part
                     WHERE unit_id = '{unit_id}' AND type IN ('lane', 'bus lane', 'cycle lane')""")
-    con.execute(f"""CREATE TABLE movement AS SELECT from_edge, from_lane, to_edge, to_lane, turn, vehicles, {prov('sumo', 'derived')}, {m('geometry')} AS geometry
+    con.execute(f"""CREATE TABLE movement AS SELECT from_edge, from_lane, to_edge, to_lane, turn, vehicles, condition, {prov('sumo', 'derived')}, {m('geometry')} AS geometry
                     FROM sp.space.turn WHERE unit_id = '{unit_id}'""")
 
     # rules: speed, parking and turn lanes from OSM's tags on the unit's roads; NVDB's prohibited turns

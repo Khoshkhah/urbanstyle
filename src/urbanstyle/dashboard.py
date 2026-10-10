@@ -343,7 +343,11 @@ function partsTable(...uids){const t={}; uids.forEach(u=>Object.entries((NEWU.pa
   const rows=Object.entries(t).sort((a,b)=>b[1]-a[1]);
   return rows.length?`<div><b>Parts</b></div><table>`+rows.map(([k,v])=>`<tr><td><span class=sw style="background:${PCOL[k]||PCOL[k.split(' ')[0]]||'#999'}"></span>${k}</td><td>${Math.round(v).toLocaleString()} m&sup2;</td></tr>`).join('')+'</table>':''}
 document.getElementById('focus').onchange=e=>{const k=e.target.dataset.cls; if(!k)return; sel.hide=sel.hide||new Set(); e.target.checked?sel.hide.delete(k):sel.hide.add(k); apply()};
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&(sel.t==='street'||sel.t==='zone'))focusOff()});
+// Esc: first deselects what is selected (3D: the lane or object; 2D: roadstyle's selection), then leaves a focus
+document.addEventListener('keydown',e=>{if(e.key!=='Escape')return;
+  if(in3d&&deselect3d())return;
+  if(!in3d&&typeof _sel!=='undefined'&&_sel){rsDeselect(); document.querySelectorAll('.maplibregl-popup').forEach(x=>x.remove()); return}
+  if(sel.t==='street'||sel.t==='zone')focusOff()});
 // clicking a street space (or one of its zones) on the map focuses it
 // Two views of the same data, each its own set of layers. 2D: roadstyle's overlays (their wanted visibility is ov.visible, kept by the
 // panel and the layer list in both views). 3D (tilt the map, roadstyle's 3D button): the u3d-* layers below, made from the same sources:
@@ -353,7 +357,7 @@ const RAISE={sidewalk:0.15,furnishing:0.15,open:0.15,island:0.2};
 const LEVEL_M=3.2, DECK_M=6, SLAB_M=0.6;   // a building's floor; a bridge level's height above the one viewed, its deck's thickness
 const ovSrc=lab=>(OVERLAYS.find(o=>o.label===lab)||{}).source;
 const byKey=(key,table,dflt)=>['match',['get',key],...Object.entries(table).flatMap(([k,v])=>[k,v]),dflt];
-const NOT_IN_3D=['Mark: guide line','Mark: kerb'];   // a guide line is no paint, and the raised sidewalk's edge is the kerb
+const NOT_IN_3D=['Mark: kerb'];   // the raised sidewalk's edge is the kerb; the guide lines (lane to lane through a junction) stay
 let lv3d=0, in3d=false, roads2d={};
 const U3D=[];
 function up3d(PU,l,all){lv3d=l; if(in3d)draw3d()}
@@ -374,10 +378,13 @@ function draw3d(){
   OVERLAYS.filter(o=>o.label.startsWith('Mark: ')&&!NOT_IN_3D.includes(o.label)).forEach(o=>{   // the paint, as in 2D, on the 3D ground
     const l2=map.getStyle().layers.find(x=>x.id===o.layers[0]); if(!l2)return;
     add({id:'u3d-'+o.layers[0],type:l2.type,source:o.source,paint:l2.paint||{},layout:Object.assign({},l2.layout||{},{visibility:'none'})},lvl)});
+  // the kerb: a stone 0.25 m wide along the roadway's edge
+  add({id:'u3d-kerb',type:'fill-extrusion',source:ovSrc('Kerbs 3D'),paint:{'fill-extrusion-color':'#8f8b86','fill-extrusion-opacity':1,
+      'fill-extrusion-height':0.2}},lvl);     // a grey stone, standing 5 cm above the sidewalk: the kerb reads as a line
   add({id:'u3d-raised',type:'fill-extrusion',source:ovSrc('Parts'),paint:{'fill-extrusion-color':['get','color'],'fill-extrusion-opacity':1,
       'fill-extrusion-height':byKey('type',RAISE,0)}},['all',lvl,['in',['get','type'],['literal',Object.keys(RAISE)]]]);
   add({id:'u3d-bld',type:'fill-extrusion',source:ovSrc('Buildings'),paint:{'fill-extrusion-color':'#e7e2d8','fill-extrusion-opacity':0.92,
-      'fill-extrusion-height':['*',['+',['get','level_max'],1],LEVEL_M],'fill-extrusion-base':['*',['max',['get','level_min'],0],LEVEL_M]}},
+      'fill-extrusion-height':['get','height_m'],'fill-extrusion-base':['*',['max',['get','level_min'],0],LEVEL_M]}},     // its real height
       ['>=',['get','level_max'],0]);
   const up=['*',['-',['get','level'],lv3d],DECK_M];   // bridges: the levels above, as decks in the air
   add({id:'u3d-deck',type:'fill-extrusion',source:ovSrc('Parts'),paint:{'fill-extrusion-color':['get','color'],'fill-extrusion-opacity':1,
@@ -398,23 +405,41 @@ function setView(){const t=map.getPitch()>5; document.body.classList.toggle('u3d
 // in 3D a 2D overlay switched on (by the panel or the layer list) is only remembered (ov.visible), not drawn
 document.addEventListener('rs:overlaychange',e=>{if(!in3d)return; const o=OVERLAYS.find(o=>o.label===e.detail.overlay);
   ((o&&o.layers)||[]).forEach(id=>{if(map.getLayer(id))map.setLayoutProperty(id,'visibility','none')})});
-// in 3D: the mouse over a street object lights it up and names its type (a small tooltip, nothing more); a click on an object or on the
-// ground opens its popup, the same fields as in 2D
-let bound3d=false, hov3d=null;
+// in 3D: the mouse over a lane, a sidewalk or a street object lights it up (yellow) and names its type (a small tooltip, nothing more);
+// a click selects it (orange) and opens its popup, the same fields as in 2D; a click on nothing clears the selection
+let bound3d=false, hov3d=null, sel3d=null;     // hovered / selected: an object's refs or a part's part_id
 const tip3d=new maplibregl.Popup({closeButton:false,closeOnClick:false,offset:12,className:'u3d-tip'}), OBJ_POPUP=__OBJPOPUP__;
-const pop3d=(e,p,fields)=>setTimeout(()=>{document.querySelectorAll('.maplibregl-popup:not(.u3d-tip)').forEach(x=>x.remove());
-  new maplibregl.Popup({closeButton:true,maxWidth:'320px'}).setLngLat(e.lngLat).setHTML('<table>'+
-    fields.filter(k=>p[k]!==undefined&&p[k]!==null&&p[k]!=='').map(k=>`<tr><td><b>${k}</b></td><td>${p[k]}</td></tr>`).join('')+'</table>').addTo(map)},0);
+// a popup for the selected thing (`who`: its refs or part_id); closing it deselects it
+const pop3d=(e,p,fields,who)=>setTimeout(()=>{if(sel3d!==who)return;     // deselected meanwhile (a quick second click)
+  document.querySelectorAll('.maplibregl-popup:not(.u3d-tip)').forEach(x=>x.remove());
+  const pp=new maplibregl.Popup({closeButton:true,maxWidth:'320px'}).setLngLat(e.lngLat).setHTML('<table>'+
+    fields.filter(k=>p[k]!==undefined&&p[k]!==null&&p[k]!=='').map(k=>`<tr><td><b>${k}</b></td><td>${p[k]}</td></tr>`).join('')+'</table>');
+  pp.on('close',()=>{if(sel3d===who){sel3d=null; paint3d()}});    // (Popup.on does not return the popup: no chaining)
+  pp.addTo(map)},0);
+function deselect3d(){if(sel3d===null)return false; sel3d=null; paint3d();
+  document.querySelectorAll('.maplibregl-popup:not(.u3d-tip)').forEach(x=>x.remove()); return true}
+// layer -> [its colour property, the key of a feature, its own colour, its popup fields]
+const L3D={'u3d-furn':['fill-extrusion-color','refs',['get','color'],OBJ_POPUP],
+  'u3d-bld':['fill-extrusion-color','id','#e7e2d8',__BLDPOPUP__],
+  'u3d-kerb':['fill-extrusion-color','kerb_id','#8f8b86',['type','unit_id','arm','length_m','source','method','ref']],
+  'u3d-ground':['fill-color','part_id',['get','color'],null],'u3d-raised':['fill-extrusion-color','part_id',['get','color'],null]};
+function paint3d(){Object.entries(L3D).forEach(([id,[prop,key,base]])=>{if(!map.getLayer(id))return;
+  map.setPaintProperty(id,prop,['case',['==',['get',key],sel3d||'\u0000'],'#f97316',['==',['get',key],hov3d||'\u0000'],'#facc15',base])})}
 function bind3d(){if(bound3d||!map.getLayer('u3d-furn'))return; bound3d=true;
-  const paint=r=>map.setPaintProperty('u3d-furn','fill-extrusion-color',r?['case',['==',['get','refs'],r],'#facc15',['get','color']]:['get','color']);
-  map.on('mousemove','u3d-furn',e=>{const f=e.features&&e.features[0]; if(!f)return; map.getCanvas().style.cursor='pointer';
-    if(hov3d!==f.properties.refs){hov3d=f.properties.refs; paint(hov3d)}
-    tip3d.setLngLat(e.lngLat).setText(f.properties.type).addTo(map)});
-  map.on('mouseleave','u3d-furn',()=>{hov3d=null; map.getCanvas().style.cursor=''; paint(null); tip3d.remove()});
-  let onObj=0;
-  map.on('click','u3d-furn',e=>{onObj=Date.now(); pop3d(e,e.features[0].properties,OBJ_POPUP)});
   const groundPop=(OVERLAYS.find(o=>o.label==='Parts')||{}).popup||[];
-  ['u3d-ground','u3d-raised'].forEach(id=>map.on('click',id,e=>{if(Date.now()-onObj>50)pop3d(e,e.features[0].properties,groundPop)}))}
+  let took=0;     // the topmost layer under the mouse takes the click: an object before the ground under it
+  Object.entries(L3D).forEach(([id,[prop,key,base,fields]])=>{
+    map.on('mousemove',id,e=>{const f=e.features&&e.features[0]; if(!f)return; map.getCanvas().style.cursor='pointer';
+      const top=map.queryRenderedFeatures(e.point,{layers:Object.keys(L3D).filter(x=>map.getLayer(x))})[0];
+      if(!top||top.layer.id!==id)return;
+      if(hov3d!==f.properties[key]){hov3d=f.properties[key]; paint3d()}
+      tip3d.setLngLat(e.lngLat).setText(f.properties.type).addTo(map)});
+    map.on('mouseleave',id,()=>{hov3d=null; map.getCanvas().style.cursor=''; paint3d(); tip3d.remove()});
+    map.on('click',id,e=>{if(Date.now()-took<50)return; took=Date.now(); const p=e.features[0].properties;
+      if(sel3d===p[key]){deselect3d(); return}          // a click on the selected one deselects it
+      sel3d=p[key]; paint3d(); pop3d(e,p,fields||groundPop,p[key])})});
+  map.on('click',e=>{if(!in3d)return; const hit=map.queryRenderedFeatures(e.point,{layers:Object.keys(L3D).filter(x=>map.getLayer(x))});
+    if(!hit.length)deselect3d()})}
 map.on('pitchend',()=>{setView(); apply()});   // the view follows the tilt: 3D's own layers, or 2D's
 // Street View: roadstyle's window follows clicks on a road's centre line only; in a space most clicks land on its parts, lines or
 // Mapillary points (overlays). While the window is open such a click moves it too: to the road nearest the spot, looking along it.
@@ -520,6 +545,7 @@ FACADE_SNAP_M = 3.0   # a point this far inside a building is at its facade (map
 
 # an object's popup and tooltip, the same in 2D and in 3D: the tooltip names its type, the popup says what it is and who knows it
 DOT_COLORS = {"furniture": "#4f46e5", "vegetation": "#16a34a", "utility": "#6b7280", "transit": "#0891b2", "access": "#db2777", "barrier": "#78350f"}
+BLD_POPUP = ["type", "name", "class", "floors", "height_m", "level_src", "id"]     # a building's popup, the same in 2D and 3D
 OBJ_POPUP, OBJ_TIP = ["type", "height_m", "details", "sources", "method", "refs", "space"], ["type"]
 TYPE_NAME = {"crossing.zebra": "zebra crossing", "crossing.signalised": "signalised crossing", "crossing.other": "crossing", "kerb.node": "kerb",
              "transit.stop": "transit stop", "access.entrance": "entrance", "access.parking_entrance": "parking entrance", "barrier.other": "barrier",
@@ -824,7 +850,10 @@ def main(db, out):
         CASE WHEN level_src = 'bridge' THEN 'yes' END AS bridge, CASE WHEN level_src = 'tunnel' THEN 'yes' END AS tunnel,
         level_min AS layer, try_cast(source_id AS BIGINT) AS edge_id, coalesce(oneway, false) AS oneway FROM space.element WHERE type <> 'building'""")
     edges["edge_id"] = edges["edge_id"].astype("Int64")
-    buildings = frame(con, """SELECT ST_AsWKB(geometry) AS geometry, source_id AS id, name, class, level_min, level_max, level_src
+    buildings = frame(con, """SELECT ST_AsWKB(geometry) AS geometry, source_id AS id, name, class, level_min, level_max, level_src,
+        CASE WHEN coalesce(class, 'yes') = 'yes' THEN 'building' ELSE 'building (' || class || ')' END AS type,
+        -- its real size (space.element floors, height_m: before levels are clamped to -2..2), else one floor
+        coalesce(floors, greatest(level_max, 0) + 1) AS floors, coalesce(height_m, round((greatest(level_max, 0) + 1) * 3.2, 1)) AS height_m
         FROM space.element WHERE type = 'building'""")
     zones = frame(con, """SELECT ST_AsWKB(z.geometry) AS geometry, z.level, z.zone, z.container_id AS cid, c.name
         FROM space.zone z JOIN space.container c USING (container_id)""")
@@ -888,13 +917,17 @@ def main(db, out):
         jroads = jroads[~jroads.geometry.is_empty]
         try:    # the inside of each space (parts.py): parts, marks, widths
             pts_ = frame(con, f"""SELECT ST_AsWKB(geometry) AS geometry, unit_id, part_id, level, type, coalesce(arm, '') AS arm,
-                coalesce(direction, '') AS direction, lane, width_m, source, method, ref,
+                coalesce(direction, '') AS direction, lane, width_m, source, method, ref, road, road_class, speed, surface, lit, road_lanes, oneway,
                 round(ST_Area(ST_Transform(geometry, 'EPSG:4326', '{ep}', always_xy := true)), 1) AS area_m2 FROM space.part ORDER BY level""")   # upper levels drawn last
             pts_["color"] = [PART_COLORS.get(f"{t} {d}".strip(), PART_COLORS.get(t, "#999999")) for t, d in zip(pts_["type"], pts_["direction"])]
             marks = frame(con, "SELECT ST_AsWKB(geometry) AS geometry, unit_id, level, type, coalesce(arm, '') AS arm, length_m, source, method, ref FROM space.mark ORDER BY level")
+            kerbs3d = marks[marks["type"] == "kerb"].copy()     # 3D's kerbstones: each kerb line as a strip 0.25 m wide
+            kerbs3d = kerbs3d.set_geometry(kerbs3d.to_crs(ep).buffer(0.125, cap_style="flat").to_crs(4326))
+            kerbs3d["kerb_id"] = [f"kerb-{k}" for k in range(len(kerbs3d))]
             uwidths = con.execute("SELECT unit_id, edge, arm, total_m, carriageway_m, left_m, right_m, lanes_in, lanes_out, source FROM space.width").fetchall()
         except duckdb.CatalogException:
             pts_, marks, uwidths = pd.DataFrame({"type": []}), pd.DataFrame({"type": []}), []
+            kerbs3d = gpd.GeoDataFrame({"type": []}, geometry=[], crs=4326)
         unit_of = dict(con.execute("""SELECT o.object_id, min(u.unit_id) FROM space.object o JOIN space.unit u ON u.level = o.level
             AND ST_Intersects(u.geometry, o.geometry) GROUP BY 1""").fetchall())
         ubld = con.execute(f"""SELECT u.unit_id, b.source_id, round(ST_Length(ST_Intersection(ST_Boundary(ST_Transform(u.geometry, 'EPSG:4326', '{ep}', always_xy := true)),
@@ -906,6 +939,7 @@ def main(db, out):
     except duckdb.CatalogException:
         subs = brk = units = cuts = jroads = pd.DataFrame()
         pts_, marks, uwidths = pd.DataFrame({"type": []}), pd.DataFrame({"type": []}), []
+        kerbs3d = gpd.GeoDataFrame({"type": []}, geometry=[], crs=4326)
         unit_of, ubld, ubounds = {}, [], {}
     try:        # Mapillary (mapillary.py): what its photos saw, and the photos nearest each space (CC BY-SA, © Mapillary contributors)
         seen = frame(con, """SELECT ST_AsWKB(any_value(o.geometry)) AS geometry, o.feature_id, any_value(o.class) AS class, any_value(o.grp) AS grp,
@@ -952,7 +986,7 @@ def main(db, out):
                   o(zones[zones.zone == "travelway"], color="#6b7280", opacity=0.9, outline="#4b5563", label="Travelway",
                     popup=["cid", "name", "level", "zone"], tooltip=["cid", "zone"]),
                   o(buildings, color="#3b82f6", opacity=0.85, outline="#334", label="Buildings",
-                    popup=["id", "name", "class", "level_min", "level_max", "level_src"], tooltip=["id", "name"])]
+                    popup=BLD_POPUP, tooltip=["type"])]
                  + [o(track, color="#f0abfc", opacity=0.7, outline="#c026d3", label="Track", popup=["cid", "name", "level", "zone"],
                       tooltip=["cid", "zone"])] * (len(track) > 0)
                  + [o(strips[strips["type"] == t], color=c, opacity=0.97, outline=dark, width=0.4, label=f"Strip: {t}", popup=["cid", "type", "side", "width_m", "source", "level"],
@@ -966,7 +1000,8 @@ def main(db, out):
                  + [o(units, color="#a78bfa", color_col="color", opacity=0.45, outline="#1f2937", width=1.2, label="Spaces",
                       popup=["unit_id", "kind", "section_id", "level"], tooltip=["unit_id", "kind"])] * (len(units) > 0)
                  + [o(pts_, color="#999999", color_col="color", opacity=0.95, outline="#475569", width=0, label="Parts", visible=False,
-                      popup=["part_id", "type", "arm", "direction", "lane", "width_m", "area_m2", "source", "method", "ref"], tooltip=["type", "direction", "arm"])] * (len(pts_) > 0)
+                      popup=["part_id", "type", "road", "road_class", "direction", "lane", "width_m", "speed", "surface", "lit", "road_lanes", "oneway",
+                              "area_m2", "source", "method", "ref"], tooltip=["type", "direction", "arm"])] * (len(pts_) > 0)
                  + [rs.Overlay(marks[marks["type"] == t], kind="line", placement="over", color=c, width_m=w, dash=dash, label=f"Mark: {t}", visible=False,
                                popup=["unit_id", "type", "arm", "length_m", "source", "method", "ref"], tooltip=["type", "arm"]) for t, c, w, dash in MARKS if (marks["type"] == t).any()]
                  # the street objects, one per real object, from the same data in both views: in 2D a dot where it stands, coloured by kind;
@@ -975,6 +1010,8 @@ def main(db, out):
                                popup=OBJ_POPUP, tooltip=OBJ_TIP)] * (len(dots) > 0)
                  + [o(furn, color="#71717a", color_col="color", opacity=0, width=0, label="Street objects 3D", visible=False,
                       popup=OBJ_POPUP, tooltip=OBJ_TIP)] * (len(furn) > 0)
+                 + [o(kerbs3d, color="#cfcac2", opacity=0, width=0, label="Kerbs 3D", visible=False,
+                      popup=["type", "unit_id", "arm", "length_m"], tooltip=["type"])] * (len(kerbs3d) > 0)      # drawn only by 3D (draw3d)
                  + [rs.Overlay(jroads, kind="line", placement="over", color="#374151", width=7, label="Junction roads", visible=False,
                                popup=["unit_id", "name", "class"], tooltip=["name", "class"])] * (len(jroads) > 0)
                  + [rs.Overlay(cuts, kind="line", placement="over", color="#6b7280", color_col="color", width=4, label="Cuts",
@@ -1037,7 +1074,7 @@ def main(db, out):
         for r in subs.assign(k=subs.subsection_id.str.split("/").str[-1].astype(int)).sort_values(["section_id", "k"]).itertuples():
             if r.subsection_id in ua:
                 newu["sec"].setdefault(r.section_id, []).append([r.subsection_id, int(ua[r.subsection_id]), float(r.length_m), r.left, r.right, r.color])
-    panel = (PANEL.replace("__PCOL__", json.dumps(PART_COLORS)).replace("__OBJPOPUP__", json.dumps(OBJ_POPUP)).replace("__NEWU__", json.dumps(newu)).replace("__MARKS__", json.dumps([t for t, *_ in MARKS if len(marks) and (marks["type"] == t).any()])).replace("__TREE__", json.dumps(tree_data(con, epsg)).replace("</", "<\\/"))
+    panel = (PANEL.replace("__PCOL__", json.dumps(PART_COLORS)).replace("__OBJPOPUP__", json.dumps(OBJ_POPUP)).replace("__BLDPOPUP__", json.dumps(BLD_POPUP)).replace("__NEWU__", json.dumps(newu)).replace("__MARKS__", json.dumps([t for t, *_ in MARKS if len(marks) and (marks["type"] == t).any()])).replace("__TREE__", json.dumps(tree_data(con, epsg)).replace("</", "<\\/"))
              .replace("__LEVELS__", json.dumps(list(range(LEVELS[0], LEVELS[1] + 1)))).replace("__LINKDEF__", json.dumps([{"t": t, "lab": n, "c": c, "d": d} for t, n, c, d in defs]))
              .replace("__KINDS__", json.dumps([{"k": k, "lab": lab, "c": c} for k, lab, c in kinds])).replace("__OBJDEF__", json.dumps([{"g": g, "c": c} for g, c in ogroups])).replace("__OBJCOLORS__", json.dumps({k: v[2] for k, v in OBJ_SHAPES.items()})).replace("__STRIPS__", json.dumps([{"t": t, "lab": lab, "c": c} for t, lab, c, _ in sdefs])).replace("__HAS__", json.dumps(has)).replace("__LEVELBTNS__", "".join(f'<button data-l="{l}">{l}</button>' for l in range(LEVELS[0], LEVELS[1] + 1))))
     open(out, "w").write(m.html.replace("</body>", panel + "</body>"))

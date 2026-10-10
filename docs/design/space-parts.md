@@ -12,7 +12,9 @@ intersection), a `direction` for a lane (`in` / `out` of the junction, or `forwa
 one, and its provenance (2026-10-09; before, one `source` word mixed the two): `source`, where its data comes from (`osm`, `sumo`,
 `mapillary`, `urbanstyle` for a default); `method`, how it was obtained (`mapped`: lanes / width tagged; `measured`: from a mapped line, a
 crossing, a sidewalk, the kerb; `derived`: SUMO's lanes and junction shapes; `observed`: a Mapillary sign; `estimated`: a default); and `ref`,
-the source's own id where there is one (the OSM way of a crosswalk or of the road a lane belongs to, the OSM node of a crossing point).
+the source's own id where there is one (the OSM way of a crosswalk or of the road a lane belongs to, the OSM node of a crossing point). A part of a road (a lane, a shoulder) also carries what is known of its road: `road`, `road_class`, `speed`,
+`surface`, `lit`, `road_lanes`, `oneway`, from the road's OSM way; where OSM says nothing, a stated default (50 km/h in built-up areas,
+asphalt), labelled as such.
 
 | type | what | where it comes from |
 |---|---|---|
@@ -75,7 +77,10 @@ around the OSM centrelines, which left steps at the cuts and blobs at complex ju
    may go, a stop or give-way line where it enters the junction (a sign or signal nearby; every roundabout entry gives way), and SUMO's
    path through the junction for each move as a guide line (not at a roundabout: arrows round its ring show the way) and a row of
    **`space.turn`** (`unit_id`, `from_edge`, `from_lane`,
-   `to_edge`, `to_lane`, `turn` left / straight / right from SUMO's direction, `source` `sumo`). U-turns are left out. A mark lies in
+   `to_edge`, `to_lane`, `turn` left / straight / right from SUMO's direction, `source` `sumo`, `vehicles`: NULL for all traffic, else
+   the classes the move is open to, e.g. `bus,taxi` (duckOSM's `turn_permission` and via-way restrictions, through SUMO's lane
+   permissions), `condition`: when a time rule binds, e.g. `Mo-Su 07:00-19:00`). U-turns are left out. Turn arrows show the moves open
+   to all traffic. A mark lies in
    the unit it is drawn in: SUMO's junction shape can end beyond a close cut, so an arrow or a stop line may lie in the subsection.
 
 Without SUMO (no `pip install "duckosm[sumo]"`, or no `osm` database attached) every unit is built the classic way. Monaco:

@@ -743,6 +743,16 @@ def build(con, epsg):
 
         def unit_at(pt, level, default):     # the unit a point lies in
             return next((units[k][0] for k in utree.query(pt) if units[k][3] == level and units[k][4].distance(pt) < 0.1), default)
+        # when a move is closed (or open) only at some times: duckOSM's turn rules with a condition, by its directed edges
+        import duckdb
+        cond = {}
+        for q in ("SELECT from_edge, to_edge, condition FROM osm.driving.turn_permission WHERE condition IS NOT NULL",
+                  "SELECT from_edge, to_edge, condition FROM osm.driving.turn_path_restrictions WHERE condition IS NOT NULL"):
+            try:
+                for fe, te, c_ in con.execute(q).fetchall():
+                    cond[(str(fe), str(te))] = c_
+            except duckdb.Error:        # a duckOSM build from before these tables
+                pass
         conns = {}
         for f, fl, t, tl, dr, xy, veh in net["conns"]:
             conns.setdefault((f, fl), []).append((t, tl, dr, xy, veh))
@@ -798,7 +808,7 @@ def build(con, epsg):
                 if not area(got).is_empty:
                     mine.append((x, d, longest(safe("intersection", x["ln"], U)), area(got).area))
             for x in ([sh[k] for k in stree.query(U) if sh[k]["level"] == level] if stree is not None else []):
-                got = add(uid, level, x["kind"][0], safe("intersection", x["poly"], U), x["kind"][1], width=x["w"])
+                got = add(uid, level, x["kind"][0], safe("intersection", x["poly"], U), x["kind"][1], width=x["w"], ref=wref(x["edge"]))
                 if not got.is_empty and x["kind"][0] != "shoulder":     # the line between the lane and the parking strip
                     mark(uid, level, "edge line", safe("intersection", x["base"], U), ref=wref(x["edge"]))
             add(uid, level, "carriageway" if sub else "ring" if rb else "junction area", C, "sumo")   # the rest of the roadway, one part
@@ -838,7 +848,8 @@ def build(con, epsg):
                         g_ = shapely.LineString(xy)
                         if not rb:          # a roundabout has no guide lines: the ring shows the way round
                             mark(uid, level, "guide line", safe("intersection", g_, U), arm, ref=wref(x["edge"]))
-                        turn_rows.append((uid, level, elem_of[x["edge"]], x["i"] + 1, elem_of.get(t, t), tl + 1, w_, "sumo", veh, shapely.to_wkb(g_)))
+                        turn_rows.append((uid, level, elem_of[x["edge"]], x["i"] + 1, elem_of.get(t, t), tl + 1, w_, "sumo", veh,
+                                          cond.get((str(x["edge"]), str(t))), shapely.to_wkb(g_)))
                 back = shapely.LineString(x["ln"].coords[::-1])               # from the junction back along the lane
                 ways_all = {m[2] for m in moves if m[4] is None}              # the arrow shows the ways open to all traffic (not a bus-only turn)
                 if ways_all and back.length >= ARROW_M + 1 and not rb:
@@ -1079,13 +1090,29 @@ def build(con, epsg):
     wdf = pd.DataFrame(widths, columns=["unit_id", "level", "edge", "arm", "total_m", "carriageway_m", "left_m", "right_m", "lanes_in", "lanes_out",
                                         "lane_m", "source"])
     to_ll = f"ST_Transform(ST_GeomFromWKB(wkb::BLOB), '{epsg}', 'EPSG:4326', always_xy := true)"
-    con.execute(f"""CREATE OR REPLACE TABLE space.part AS SELECT unit_id, part_id, level::INT AS level, type, arm, direction, lane::INT AS lane,
-                    width_m::DOUBLE AS width_m, source, method, ref::VARCHAR AS ref, ST_CollectionExtract(ST_MakeValid({to_ll}), 3) AS geometry FROM pdf""")
+    # a part of a road (a lane, a shoulder) takes what is known of its road (its OSM way, `ref`): name, class, speed limit, surface,
+    # lighting, the road's lane count. Where OSM says nothing, a stated default: 50 km/h, the limit in built-up areas in Canada, Sweden
+    # and Monaco (not on a motorway), and asphalt; each value says where it comes from
+    con.execute(f"""CREATE OR REPLACE TABLE space.part AS SELECT p.unit_id, p.part_id, p.level::INT AS level, p.type, p.arm, p.direction,
+                    p.lane::INT AS lane, p.width_m::DOUBLE AS width_m, p.source, p.method, p.ref::VARCHAR AS ref,
+                    e.name AS road, e.class AS road_class,
+                    CASE WHEN e.osm_id IS NULL THEN NULL WHEN w.tags['maxspeed'] IS NOT NULL THEN w.tags['maxspeed'] || ' (OSM)'
+                         WHEN e.class LIKE 'motorway%' THEN NULL ELSE '50 km/h (default in built-up areas; not in OSM)' END AS speed,
+                    CASE WHEN e.osm_id IS NULL THEN NULL WHEN w.tags['surface'] IS NOT NULL THEN w.tags['surface'] || ' (OSM)'
+                         ELSE 'asphalt (assumed; not in OSM)' END AS surface,
+                    CASE WHEN e.osm_id IS NOT NULL THEN coalesce(w.tags['lit'], 'not in OSM') END AS lit,
+                    w.tags['lanes'] AS road_lanes, CASE WHEN e.osm_id IS NOT NULL THEN coalesce(w.tags['oneway'], 'no') END AS oneway,
+                    ST_CollectionExtract(ST_MakeValid({to_ll}), 3) AS geometry
+                    FROM pdf p
+                    LEFT JOIN (SELECT osm_id, any_value(name) AS name, any_value(class) AS class FROM space.element WHERE type = 'road' GROUP BY osm_id) e
+                      ON p.ref = 'w' || e.osm_id
+                    LEFT JOIN osm.raw.ways w ON w.osm_id = e.osm_id""")
     con.execute(f"""CREATE OR REPLACE TABLE space.mark AS SELECT unit_id, level::INT AS level, type, arm, length_m, source, method, ref::VARCHAR AS ref,
                     {to_ll} AS geometry FROM mdf""")
     con.execute("CREATE OR REPLACE TABLE space.width AS SELECT * FROM wdf")
-    tdf = pd.DataFrame(turn_rows, columns=["unit_id", "level", "from_edge", "from_lane", "to_edge", "to_lane", "turn", "source", "vehicles", "wkb"])
+    tdf = pd.DataFrame(turn_rows, columns=["unit_id", "level", "from_edge", "from_lane", "to_edge", "to_lane", "turn", "source", "vehicles", "condition", "wkb"])
     con.execute(f"""CREATE OR REPLACE TABLE space.turn AS SELECT unit_id::VARCHAR AS unit_id, level::INT AS level, from_edge::VARCHAR AS from_edge,
                     from_lane::INT AS from_lane, to_edge::VARCHAR AS to_edge, to_lane::INT AS to_lane, turn::VARCHAR AS turn, source::VARCHAR AS source,
                     vehicles::VARCHAR AS vehicles,   -- NULL: open to all traffic; else the classes it is open to, e.g. bus,taxi
+                    condition::VARCHAR AS condition, -- when a time rule binds (OSM restriction:conditional), e.g. Mo-Su 07:00-19:00
                     {to_ll} AS geometry FROM tdf""")

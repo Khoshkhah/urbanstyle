@@ -24,7 +24,9 @@ SELECT 'osm' AS source, left(osm_type, 1) || osm_id AS source_id, 'building' AS 
   CASE WHEN fl IS NOT NULL THEN 'num_floors' WHEN h IS NOT NULL THEN 'height' ELSE 'default' END AS level_src,
   name, kind AS class, geom AS geometry,
   NULL::DOUBLE AS width_m, NULL::BIGINT AS osm_id, NULL::VARCHAR AS zone, NULL::VARCHAR AS container_id,
-  NULL::BIGINT AS src, NULL::BIGINT AS dst, NULL::VARCHAR AS subtype, NULL::BOOLEAN AS oneway
+  NULL::BIGINT AS src, NULL::BIGINT AS dst, NULL::VARCHAR AS subtype, NULL::BOOLEAN AS oneway,
+  -- a building's real size, before levels are clamped to -2..2 (CLAMP): its floors and its height (3D draws it at that height)
+  coalesce(fl, round(h / {FLOOR_M})::INT) AS floors, round(coalesce(h, fl * {FLOOR_M}), 1) AS height_m
 FROM (SELECT *, try_cast(tags['building:levels'] AS INT) AS fl, try_cast(tags['building:levels:underground'] AS INT) AS ug,
         try_cast(tags['building:min_level'] AS INT) AS mn,
         try_cast(nullif(regexp_extract(tags['height'], '^[0-9]+([.][0-9]+)?', 0), '') AS DOUBLE) AS h,
@@ -33,6 +35,8 @@ FROM (SELECT *, try_cast(tags['building:levels'] AS INT) AS fl, try_cast(tags['b
 """
 
 # ponytail: widths are lane count x 3.25 m, else a flat width per road class; use width_m from Overture/GMNS if corridors matter.
+# The lane count is the whole road's: OSM's lanes tag (both directions), else duckOSM's lanes (one direction: edges.lanes) times two
+# for a two-way road (its twins are one element here); before 2026-10-09 a two-way road got one direction's width.
 # Roads from duckOSM. A way keeps one row per direction, so dedupe on its two end nodes. A walkway is a
 # walking edge no car road shares; a cycleway is a cycling edge neither share.
 ROADS = """
@@ -45,11 +49,13 @@ SELECT 'osm', edge_id::VARCHAR, t,
   name, highway, geometry,
   CASE t WHEN 'walkway' THEN CASE highway WHEN 'pedestrian' THEN 4 WHEN 'steps' THEN 1.5 WHEN 'platform' THEN 3 ELSE 2 END
          WHEN 'cycleway' THEN 2.5
-         ELSE coalesce(lanes * 3.25, CASE highway WHEN 'motorway' THEN 14 WHEN 'trunk' THEN 12 WHEN 'primary' THEN 10
+         ELSE coalesce(try_cast(rw.tags['lanes'] AS INT) * 3.25, lanes * 3.25 * CASE WHEN coalesce(e.oneway, false) THEN 1 ELSE 2 END,
+                       CASE highway WHEN 'motorway' THEN 14 WHEN 'trunk' THEN 12 WHEN 'primary' THEN 10
               WHEN 'secondary' THEN 8 WHEN 'tertiary' THEN 7 WHEN 'service' THEN 3.5 WHEN 'living_street' THEN 5 ELSE 6 END) END,
   e.osm_id, CASE t WHEN 'walkway' THEN 'pedestrian_realm' ELSE 'travelway' END, NULL, source, target,
   CASE WHEN rw.tags['footway'] = 'crossing' OR rw.tags['highway'] = 'crossing' THEN 'crossing' WHEN rw.tags['footway'] = 'sidewalk' THEN 'sidewalk' END,
-  coalesce(e.oneway, false)   -- the edge is kept in one direction only (twins are merged); arrows are right only for a genuine one-way road
+  coalesce(e.oneway, false),  -- the edge is kept in one direction only (twins are merged); arrows are right only for a genuine one-way road
+  NULL, NULL                  -- floors, height_m: a building's
 FROM (
   SELECT DISTINCT ON (t, osm_id, least(source, target), greatest(source, target)) * FROM (
     SELECT 'road' t, * FROM osm.driving.edges
@@ -443,7 +449,7 @@ INSERT INTO space.element
 SELECT 'osm', left(s.osm_type, 1) || s.osm_id, 'rail', s.lvl, s.lvl,
   CASE WHEN s.lay IS NOT NULL THEN 'layer' WHEN coalesce(s.tags['bridge'], 'no') <> 'no' THEN 'bridge'
        WHEN coalesce(s.tags['tunnel'], 'no') <> 'no' THEN 'tunnel' ELSE 'default' END,
-  s.name, s.kind, s.geom, CASE s.kind WHEN 'tram' THEN 3.0 ELSE 4.0 END, s.osm_id, 'track', NULL, w.refs[1], w.refs[-1], NULL, false
+  s.name, s.kind, s.geom, CASE s.kind WHEN 'tram' THEN 3.0 ELSE 4.0 END, s.osm_id, 'track', NULL, w.refs[1], w.refs[-1], NULL, false, NULL, NULL
 FROM (SELECT *, try_cast(replace(tags['layer'], '\u2212', '-') AS INT) AS lay,
         coalesce(try_cast(replace(tags['layer'], '\u2212', '-') AS INT),
                  CASE WHEN coalesce(tags['bridge'], 'no') <> 'no' THEN 1 WHEN coalesce(tags['tunnel'], 'no') <> 'no' THEN -1 ELSE 0 END) AS lvl

@@ -7,7 +7,8 @@ SQUARE = "ST_GeomFromText('POLYGON((18 60, 18.001 60, 18.001 60.001, 18 60.001, 
 
 
 def make_osm(path, buildings=(), edges=None, rails=(), stations=()):
-    """A minimal duckOSM db: features.buildings (id, tags, wkt-expression) and mode edge tables."""
+    """A minimal duckOSM db: features.buildings (id, tags, wkt-expression) and mode edge tables. An edge's `lanes` is per direction, as
+    in duckOSM: a two-way residential street of 1 lane each way is 6.5 m wide."""
     o = duckdb.connect(str(path))
     o.execute("INSTALL spatial; LOAD spatial; CREATE SCHEMA features; CREATE SCHEMA raw")
     o.execute("CREATE TABLE raw.nodes (osm_id BIGINT, lat DOUBLE, lon DOUBLE, tags MAP(VARCHAR, VARCHAR))")
@@ -74,7 +75,7 @@ def test_street_space_width(tmp_path):
     osm = make_osm(tmp_path / "osm.duckdb", [
         (1, {"building:levels": "3"}, box(dy(10), dy(40))),
         (2, {"building:levels": "3"}, box(-dy(40), -dy(6)))],
-        edges={"driving": [f"(1, 100, 1, 2, 'residential', 'Main St', NULL, NULL, NULL, 2, {ROAD})",
+        edges={"driving": [f"(1, 100, 1, 2, 'residential', 'Main St', NULL, NULL, NULL, 1, {ROAD})",
                            f"(2, 101, 3, 4, 'residential', 'Bridge St', NULL, 'yes', NULL, 2, {ROAD})"]})
     con = urbanstyle.build(osm, str(tmp_path / "out.duckdb"))
     w, op = con.execute("SELECT mean_width_m, open_share FROM space.container WHERE container_id = 's0-1'").fetchone()
@@ -131,7 +132,7 @@ def test_kerb_travelway_and_asymmetry(tmp_path):
     line = lambda y: f"ST_GeomFromText('LINESTRING(18.0 {59.3 + y}, 18.001 {59.3 + y})')"
     osm = make_osm(tmp_path / "osm.duckdb", [(1, {"building:levels": "3"}, (
         f"ST_GeomFromText('POLYGON((17.9995 {59.3 + dy(10)}, 18.0015 {59.3 + dy(10)}, 18.0015 {59.3 + dy(40)}, 17.9995 {59.3 + dy(40)}, 17.9995 {59.3 + dy(10)}))')"))],
-        edges={"driving": [f"(1, 100, 1, 2, 'residential', 'Main St', NULL, NULL, NULL, 2, {line(0)})"],
+        edges={"driving": [f"(1, 100, 1, 2, 'residential', 'Main St', NULL, NULL, NULL, 1, {line(0)})"],
                "walking": [f"(2, 200, 3, 4, 'footway', NULL, NULL, NULL, NULL, NULL, {line(dy(5))})",
                            f"(3, 201, 5, 6, 'footway', NULL, NULL, NULL, NULL, NULL, {line(-dy(5))})"]})
     con = urbanstyle.build(osm, str(tmp_path / "out.duckdb"))
@@ -190,7 +191,7 @@ def test_objects(tmp_path):
     """Classification order, level, container and zone of point objects; an object outside every container; an ignored node."""
     dy = lambda m: m / 111_320
     road = "ST_GeomFromText('LINESTRING(18.0 59.3, 18.001 59.3)')"
-    osm = make_osm(tmp_path / "osm.duckdb", edges={"driving": [f"(1, 100, 1, 2, 'residential', 'Main St', NULL, NULL, NULL, 2, {road})"]})
+    osm = make_osm(tmp_path / "osm.duckdb", edges={"driving": [f"(1, 100, 1, 2, 'residential', 'Main St', NULL, NULL, NULL, 1, {road})"]})
     o = duckdb.connect(osm)
     node = lambda i, dy_m, tags: (f"({i}, {59.3 + dy(dy_m)}, 18.0005, CAST(MAP {{" + ", ".join(f"'{k}': '{v}'" for k, v in tags.items())
                                   + "} AS MAP(VARCHAR, VARCHAR)))")
@@ -222,7 +223,7 @@ def test_a_path_that_only_passes_close_is_not_part_of_the_street(tmp_path):
     parallel = f"ST_GeomFromText('LINESTRING(18.0 {59.3 + dy(5)}, 18.001 {59.3 + dy(5)})')"
     leaving = f"ST_GeomFromText('LINESTRING(18.0005 {59.3 + dy(5)}, 18.0005 {59.3 + dy(200)})')"
     osm = make_osm(tmp_path / "osm.duckdb", edges={
-        "driving": [f"(1, 100, 1, 2, 'residential', 'Main St', NULL, NULL, NULL, 2, {road})"],
+        "driving": [f"(1, 100, 1, 2, 'residential', 'Main St', NULL, NULL, NULL, 1, {road})"],
         "walking": [f"(2, 200, 3, 4, 'footway', NULL, NULL, NULL, NULL, NULL, {parallel})",
                     f"(3, 300, 5, 6, 'footway', NULL, NULL, NULL, NULL, NULL, {leaving})"]})
     con = urbanstyle.build(osm, str(tmp_path / "out.duckdb"))
@@ -261,7 +262,7 @@ def test_a_disconnected_region_becomes_separate_containers(tmp_path):
     wall = (f"ST_GeomFromText('POLYGON((17.9995 {59.3 + dy(4)}, 18.0015 {59.3 + dy(4)}, 18.0015 {59.3 + dy(8)}, "
             f"17.9995 {59.3 + dy(8)}, 17.9995 {59.3 + dy(4)}))')")
     osm = make_osm(tmp_path / "osm.duckdb", [(1, {"building:levels": "3"}, wall)],
-                   edges={"driving": [f"(1, 100, 1, 2, 'residential', 'Main St', NULL, NULL, NULL, 2, {road})"],
+                   edges={"driving": [f"(1, 100, 1, 2, 'residential', 'Main St', NULL, NULL, NULL, 1, {road})"],
                           "walking": [f"(2, 200, 3, 4, 'footway', NULL, NULL, NULL, NULL, NULL, {path})"]})
     con = urbanstyle.build(osm, str(tmp_path / "out.duckdb"))
     got = con.execute("SELECT container_id, kind, street_id, ST_NumGeometries(geometry) FROM space.container WHERE level = 0 ORDER BY 1").fetchall()
@@ -390,7 +391,7 @@ def test_a_container_records_the_buildings_that_bound_it(tmp_path):
     box = lambda y0, y1: (f"ST_GeomFromText('POLYGON((17.9995 {59.3 + y0}, 18.0015 {59.3 + y0}, 18.0015 {59.3 + y1}, "
                           f"17.9995 {59.3 + y1}, 17.9995 {59.3 + y0}))')")
     osm = make_osm(tmp_path / "osm.duckdb", [(1, {"building:levels": "3"}, box(dy(10), dy(40))), (2, {"building:levels": "3"}, box(-dy(40), -dy(6)))],
-                   edges={"driving": [f"(1, 100, 1, 2, 'residential', 'Main St', NULL, NULL, NULL, 2, {ROAD})"]})
+                   edges={"driving": [f"(1, 100, 1, 2, 'residential', 'Main St', NULL, NULL, NULL, 1, {ROAD})"]})
     con = urbanstyle.build(osm, str(tmp_path / "out.duckdb"))
     got = con.execute("SELECT building_id, length_m FROM space.boundary WHERE container_id = 's0-1' ORDER BY 1").fetchall()
     assert [g[0] for g in got] == ["w1", "w2"] and all(30 <= g[1] <= 70 for g in got), got
@@ -405,7 +406,7 @@ def test_a_wide_open_space_framed_by_buildings_is_a_plaza(tmp_path):
                           f"17.9995 {59.3 + y1}, 17.9995 {59.3 + y0}))')")
     def build(gap, name):
         osm = make_osm(tmp_path / f"{name}.duckdb", [(1, {"building:levels": "3"}, box(dy(gap), dy(gap + 30))), (2, {"building:levels": "3"}, box(-dy(gap + 30), -dy(gap)))],
-                       edges={"driving": [f"(1, 100, 1, 2, 'residential', 'Main St', NULL, NULL, NULL, 2, {ROAD})"]})
+                       edges={"driving": [f"(1, 100, 1, 2, 'residential', 'Main St', NULL, NULL, NULL, 1, {ROAD})"]})
         return urbanstyle.build(osm, str(tmp_path / f"{name}-out.duckdb"))
     wide = build(16, "wide")
     plazas = wide.execute("SELECT container_id, ST_IsValid(geometry), ST_NumGeometries(geometry) FROM space.container WHERE kind = 'plaza'").fetchall()
@@ -421,7 +422,7 @@ def test_strips_fill_the_zones_completely(tmp_path):
     box = lambda y0, y1: (f"ST_GeomFromText('POLYGON((17.9995 {59.3 + y0}, 18.0015 {59.3 + y0}, 18.0015 {59.3 + y1}, "
                           f"17.9995 {59.3 + y1}, 17.9995 {59.3 + y0}))')")
     osm = make_osm(tmp_path / "osm.duckdb", [(1, {"building:levels": "3"}, box(dy(10), dy(40))), (2, {"building:levels": "3"}, box(-dy(40), -dy(10)))],
-                   edges={"driving": [f"(1, 100, 1, 2, 'residential', 'Main St', NULL, NULL, NULL, 2, {ROAD})"]})
+                   edges={"driving": [f"(1, 100, 1, 2, 'residential', 'Main St', NULL, NULL, NULL, 1, {ROAD})"]})
     con = urbanstyle.build(osm, str(tmp_path / "out.duckdb"))
     m = "ST_AsWKB(ST_Transform(geometry, 'EPSG:4326', 'EPSG:32634', always_xy := true))"
     zones = sum(shapely.from_wkb(bytes(r[0])).area for r in con.execute(f"SELECT {m} FROM space.zone WHERE container_id = 's0-1'").fetchall())

@@ -57,19 +57,22 @@ def _clean(g):
     return shapely.set_precision(shapely.make_valid(g.simplify(0.05)).buffer(0), 0.01)   # on a 1 cm grid: stays valid through lon/lat
 
 
-def _union(gs):
-    """shapely.union_all that survives GEOS precision trouble (a non-noded intersection, a free hole): as is, else on a 1 cm grid, else
-    as a coverage (pieces that do not overlap), else each piece snapped to that grid first, else one piece at a time."""
+def _cells(points, extent):
+    """The Voronoi cells of `points` over `extent`, every one valid. Points sampled every metre along two roads nearly coincide where the
+    roads meet; GEOS then returned a self-intersecting cell (Södermalm, 2026-10-09) and every union of the cells failed. The sites are
+    snapped to 1 cm (`tolerance`), and a cell still invalid is repaired."""
     import shapely
-    one_by_one = lambda: __import__("functools").reduce(lambda a, b: shapely.make_valid(a.union(b, grid_size=0.01)), gs, shapely.Polygon())
-    for f in (lambda: shapely.union_all(gs), lambda: shapely.union_all(gs, grid_size=0.01),
-              lambda: shapely.coverage_union_all(gs),      # Voronoi cells never overlap: a coverage, unioned edge by edge
-              lambda: shapely.union_all([shapely.make_valid(shapely.set_precision(g, 0.01)) for g in gs]).buffer(0), one_by_one):
-        try:
-            return f()
-        except shapely.errors.GEOSException:
-            pass
-    raise shapely.errors.GEOSException("union failed even on a 1 cm grid")
+    cells = shapely.get_parts(shapely.voronoi_polygons(shapely.MultiPoint(points), extend_to=extent, tolerance=0.01))
+    return [c if c.is_valid else shapely.make_valid(c) for c in cells]
+
+
+def _union(gs):
+    """shapely.union_all, on a 1 cm grid if GEOS trips on precision (a non-noded intersection)."""
+    import shapely
+    try:
+        return shapely.union_all(gs)
+    except shapely.errors.GEOSException:
+        return shapely.union_all(gs, grid_size=0.01)
 
 
 def _reach_in(line, own, other):
@@ -362,7 +365,7 @@ def build(con, epsg):
                 continue
             pts_a = [a[2].interpolate(t) for t in range(0, int(a[2].length) + 1)]
             pts_b = [b[2].interpolate(t) for t in range(0, int(b[2].length) + 1)]
-            cells = shapely.get_parts(shapely.voronoi_polygons(shapely.MultiPoint(pts_a + pts_b), extend_to=ov.envelope.buffer(10)))
+            cells = _cells(pts_a + pts_b, ov.envelope.buffer(10))
             mine = _union([cl for cl in cells if any(cl.contains(p) for p in pts_a)])
             a[3] = a[3].difference(ov.difference(mine))
             b[3] = b[3].difference(ov.intersection(mine))
@@ -376,7 +379,7 @@ def build(con, epsg):
             if ov.area < 0.05:
                 continue
             pa, pb = regions[ia][2], regions[ib][2]
-            cells = shapely.get_parts(shapely.voronoi_polygons(shapely.MultiPoint(pa + pb), extend_to=ov.envelope.buffer(50)))
+            cells = _cells([shapely.Point(q) for q in pa + pb], ov.envelope.buffer(50))
             mine = _union([cl for cl in cells if any(cl.contains(shapely.Point(q)) for q in pa)])
             polys[ia] = polys[ia].difference(ov.difference(mine))
             polys[ib] = polys[ib].difference(ov.intersection(mine))

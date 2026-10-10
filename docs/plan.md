@@ -35,19 +35,12 @@ In order; each item is a general rule, checked on Broadway x Granville before an
 - [x] **Sizes from the data** (built 2026-10-10): every part's width with its source and method (lanes measured from OSM's sidewalks or
       urbanstyle's chosen 3.25 m), every line's width, every object's width and height (a city's measurement, else urbanstyle's chosen size);
       3D draws only what is stored; "default / estimated / assumed" became urbanstyle's `chosen` or `derived`.
-- [ ] **Stable part ids**: `#1`, `#2`, ... are counted in build order, so the same id names another part after a rebuild. An id from what
-      a part is (its space, type, OSM way, direction, lane number).
-- [ ] **Construction sites as plots**: an OSM construction site (South Granville Station, opening 2027) is ground beside the street
-      like a car park; the street should end at its edge, and the site carry its name, what is built and when it opens.
-- [ ] **U14 cleanup.** (A) Measure U14 against the partition's own building line: 39 pieces (209 m2) are gaps under 6 m between
-      buildings, not street. (B) A small piece the fill cannot merge cleanly still goes to the neighbour with the longest shared edge,
-      closed by a few cm: 13 pieces, 292 m2.
-- [ ] **Plots, step 2** ([Plots](design/plots.md)): parcels as the street's edge; each plot's ground (garden, grass, yard, ...). Decides
-      the 9 pieces of street ground over 300 m2 (4,742 m2) in no space.
-- [ ] **New lanes that start inside a node**: West Broadway's 4 -> 6 lane joint (x 490179) leaves 85 m2 of bare roadway.
-- [ ] **Lane pieces under 1 m** at the edges of spaces (367): look at why a lane reaches a few cm to a metre past a space's edge.
-- [ ] **Slanted lanes** west of that joint: they run askew of the road on the photo.
-- [ ] **West Broadway's north kerb east of Hemlock** is still about 8 m short of the photo.
+- [ ] **Layers** ([Layers](design/space-layers.md), agreed 2026-10-10), in order: (1) the ground of the whole area (G1, G2);
+      (2) lanes as whole items, one junction area, the pedestrian realm in NACTO's zones; (3) overlays and relations (crosswalks,
+      parking, bus, tree pits, aprons, connections); (4) markings and objects with their parent; (5) stable ids and the page's hierarchy;
+      (6) plots' ground from parcels and land use, and the type mapping to OpenDRIVE, CityGML, IFC. It replaces the earlier items on
+      unassigned ground, construction sites, U14, nodes, short lane pieces and stable ids.
+- [ ] **Slanted lanes** west of West Broadway's 4 -> 6 joint; **West Broadway's north kerb east of Hemlock** still about 8 m short.
 - [ ] Then the gaps of [What the sources hold](design/source-inventory.md): crossing and kerb details, every Mapillary class, the city's
       turn rules as automatic checks, land cover and lidar; then the W 4th Ave unit; then the recipe.
 - [ ] Merge `network-first` into `main` (the docs site shows `main`).

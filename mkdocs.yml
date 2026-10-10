@@ -54,6 +54,8 @@ nav:
       - One unit in full: design/unit-dossier.md
       - What the sources hold: design/source-inventory.md
       - "Plots: where the street ends": design/plots.md
+      - "Layers: the whole area as a hierarchy": design/space-layers.md
+      - "Research: how standards layer a street": design/layers-research.md
       - Street space: design/street-space.md
       - Specification: design/street-space-spec.md
       - Sections and intersections v2: design/section-intersection-v2.md

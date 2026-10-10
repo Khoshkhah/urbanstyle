@@ -243,10 +243,11 @@ def dossier(space_db, osm_db, unit_id, out, name, city, nvdb=None, flows=None, m
                      arg_min(l.speed_limit_fwd, ST_Distance(r2.geometry, {m('l.geom')})) AS speed_limit_fwd
               FROM road r2 JOIN nv.nvdb.road_network l ON ST_DWithin(r2.geometry, {m('l.geom')}, 5) GROUP BY 1) n WHERE r.road_id = n.road_id""")
 
+    from urbanstyle.parts import RAISED
     # surfaces and lines: urbanstyle's parts and marks of the unit, each part with its source, method and the source's id (parts.PROV)
     ccase = "CASE method " + " ".join(f"WHEN '{k}' THEN {v}" for k, v in CONFIDENCE.items()) + " ELSE 0.3 END"
     con.execute(f"""CREATE TABLE surface AS SELECT part_id AS surface_id, type, direction, arm, lane, width_m, length_m,
-                    CASE WHEN type IN ('sidewalk', 'furnishing', 'open', 'bus stop') THEN 0.15 WHEN type = 'island' THEN 0.2 ELSE 0.0 END AS top_m,
+                    {"CASE type " + " ".join(f"WHEN '{t}' THEN {h}" for t, h in RAISED.items()) + " ELSE 0.0 END"} AS top_m,
                     road, road_class, speed, surface, lit, holds, rule,
                     coalesce(source, 'urbanstyle') AS source, coalesce(method, 'estimated') AS method, ref, {ccase} AS confidence,
                     {m('geometry')} AS geometry FROM sp.space.part WHERE unit_id = '{unit_id}'""")

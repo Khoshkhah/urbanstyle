@@ -45,7 +45,7 @@ a column or a table name it is written in `code`. "Built" says whether it exists
 | **capped street space** | a container with `open_share ≥ 0.5`, tinted yellow on the dashboard: its edge and width are approximate |
 | `narrow_half_m`, `wide_half_m` | mean distance from the centerline to the nearer and to the farther side |
 | `mean_width_m` | mean total width of the street space across the road's sections |
-| **kerb** | the edge of the travelway toward the sidewalk. Measured as 1 m before the nearest sidewalk line |
+| **kerb** | the edge of the travelway toward the sidewalk. Measured as 1 m before the nearest sidewalk line. As a mark (`space.mark`): where a raised part (sidewalk, furnishing, open ground, bus stop, island) meets flush ground in a space |
 | **sidewalk** | in this project a walkway or cycleway that runs along a road (within 15 m), and is not a crossing, steps, a corridor, a platform or an elevator. A geometric rule, because only 6-9% of walking ways carry `footway=sidewalk` |
 | `kerb_share` | share of a street's road sections where a sidewalk was found; where it was not, the travelway is the lane-width guess |
 | **lane width** | `lanes × 3.25 m`, else a flat width by road class (motorway 14 m … service 3.5 m) |

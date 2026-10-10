@@ -34,7 +34,9 @@ XWALK_MAX_M = 40.0              # a crossing path longer than this is not one cr
 XWALK_REACH_M = 6.0             # a crosswalk starting at most this far beyond a cut is the junction's (farther out: a mid-block crossing)
 FACADE_SLACK_M = 4.0            # >= subsections.STEP_BACK_M: a facade varies by at most that within a subsection
 PARALLEL_COS = 0.85
+ARM_FROM_M, ARM_TO_M = 10.0, 30.0   # an arm's direction is its street's bearing between these distances from the junction node
 FAR_M = 300.0
+CRACK_M = 0.05                  # a slit in a space narrower than twice this is closed
 
 
 def _reach(w):
@@ -97,17 +99,20 @@ def _unit(x, y):
     return x / h, y / h
 
 
-def _run_length(edge, from_node, roads, by_node, limit=80.0):
-    """Length of the street from `from_node` along `edge` to the next junction or dead end (through nodes where only two roads meet)."""
-    total, node, e, seen = 0.0, from_node, edge, set()
-    while e is not None and e not in seen and total < limit:
+def _run(edge, from_node, roads, by_node, limit=80.0):
+    """The street from `from_node` along `edge` to the next junction or dead end (through nodes where only two roads meet), as one
+    line leading away from `from_node`."""
+    import shapely
+    pts, node, e, seen = [], from_node, edge, set()
+    while e is not None and e not in seen and (not pts or shapely.LineString(pts).length < limit):
         seen.add(e)
         g, src, dst, _ = roads[e]
-        total += g.length
+        cs = list(g.coords) if src == node else list(g.coords)[::-1]
+        pts += cs if not pts else cs[1:]
         node = dst if src == node else src
         nxt = [x for x in by_node.get(node, ()) if x != e]
         e = nxt[0] if len(nxt) == 1 else None
-    return total
+    return shapely.LineString(pts)
 
 
 def _crossings_on(a, xings, xtree):
@@ -152,12 +157,13 @@ def _intersections(level, arms, roads, node_xy, bparts, btree, ring_edges=frozen
             g, src, dst, w = r
             if src in nodes and dst in nodes:          # a road inside the junction (a roundabout ring, a short link) is not an arm
                 continue
-            at_start = src == node
-            d = min(10.0, g.length / 2)
-            q = g.interpolate(d if at_start else g.length - d)
+            # the arm's direction: the street's own bearing ARM_FROM_M..ARM_TO_M out (not node -> a point on it: a divided road's
+            # carriageway splays out from the node, and a cut square to the splay leaves a wedge of the corner to no space)
+            run = _run(edge, node, roads, by_node)
+            q0, q1 = run.interpolate(min(ARM_FROM_M, run.length / 4)), run.interpolate(min(ARM_TO_M, run.length / 2))
             nx_, ny_ = node_xy[node]
-            ux, uy = _unit(q.x - nx_, q.y - ny_)
-            arm.append(dict(edge=edge, node=node, p=(nx_, ny_), u=(ux, uy), hw=w / 2, len=_run_length(edge, node, roads, by_node), g=g,
+            ux, uy = _unit(q1.x - q0.x, q1.y - q0.y)
+            arm.append(dict(edge=edge, node=node, p=(nx_, ny_), u=(ux, uy), hw=w / 2, len=run.length, g=g,
                             bearing=math.degrees(math.atan2(uy, ux)) % 360))
         if len(arm) < 2:
             continue
@@ -412,11 +418,13 @@ def build(con, epsg):
             held = shapely.union_all([final[i][3] for i in ids_])
             surface = shapely.union_all([g.buffer(max(w or 6, 3) / 2, cap_style="flat") for g, _, _, w in roads.values()])
             ftree = shapely.STRtree([final[i][3] for i in ids_])
-            # and the small holes the spaces enclose (a pocket between converging roads): street-like (spaces nearly all round it, at most
-            # HOLE_MAX_M2), not a block's garden or courtyard
+            # and the small holes the spaces enclose, with the buildings (a pocket between converging roads, a corner between a junction's
+            # cut, a road's space and a facade): street-like (at most HOLE_MAX_M2, spaces along at least half its edge), not a block's
+            # garden or courtyard (buildings all round it)
             heldb, given = held.buffer(0.1), shapely.Polygon()
-            holes = [h for h in (shapely.Polygon(r) for p_ in shapely.get_parts(held) for r in p_.interiors)
-                     if h.area <= HOLE_MAX_M2 and h.boundary.intersection(heldb).length >= 0.9 * h.boundary.length]
+            walls = shapely.union_all([heldb, bline])
+            holes = [h for h in (shapely.Polygon(r) for p_ in shapely.get_parts(walls) for r in p_.interiors)
+                     if h.area <= HOLE_MAX_M2 and h.boundary.intersection(heldb.buffer(0.05)).length >= 0.5 * h.boundary.length]
             for piece in [*shapely.get_parts(surface.difference(held).difference(bline)), *scraps,
                           *(x for h in holes for x in shapely.get_parts(h.difference(bline)))]:
                 piece = piece.difference(given) if not given.is_empty else piece      # ground already given to a space is not given again
@@ -463,6 +471,11 @@ def build(con, epsg):
                 for u, g in kept.items():
                     final[u][3] = g
         for uid, (kind, sec, color, gm, line) in final.items():
+            # the cracks merging leaves along old edges (zero-width slits: ground on both sides is this space's, yet a point
+            # on the slit is in none) are closed: out and back in by CRACK_M, corners kept square
+            # (and the 1 cm spikes that leaves are opened: in and back out by 1 cm; it was one piece: the largest is kept)
+            shut = gm.buffer(CRACK_M, join_style="mitre").buffer(-CRACK_M, join_style="mitre")
+            gm = _one(shapely.set_precision(shut.buffer(-0.01, join_style="mitre").buffer(0.01, join_style="mitre"), 0.01))
             rows.append((uid, kind, sec, lv, color, shapely.to_wkb(gm)))
             if line is not None:    # the subsection's road ends at its cut: inside the junction the road is the intersection's
                 inside = [x for x in shapely.get_parts(line.intersection(gm.buffer(0.01))) if x.geom_type == "LineString" and x.length > 0.1]

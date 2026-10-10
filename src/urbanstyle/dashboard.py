@@ -86,7 +86,8 @@ MARKS = [("guide line", "#e5e7eb", 0.1, [2, 3]), ("arrow", "#ffffff", 0.15, None
          ("edge line", "#ffffff", 0.12, None), ("stop line", "#ffffff", 0.4, None), ("give-way line", "#ffffff", 0.35, [1, 1]),
          ("zebra", "#ffffff", 0.5, None)]
 PANEL = """
-<style>body.u3d .rs-tip{display:none!important}#map{left:340px!important}body.us-off #map{left:0!important}body.us-off #us{display:none}
+<style>.co-lg{display:none}  /* no road legend: the panel says what is drawn */
+body.u3d .rs-tip{display:none!important}#map{left:340px!important}body.us-off #map{left:0!important}body.us-off #us{display:none}
 #usfold{position:fixed;top:6px;left:304px;z-index:6;width:28px;height:28px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;cursor:pointer;
   font:15px/1 system-ui;color:#475569;box-shadow:0 1px 3px #0002}body.us-off #usfold{left:8px}.ov-ctrl{display:none!important}  /* roadstyle's own Layers box: the panel list replaces it */
 #us{position:fixed;top:0;left:0;bottom:0;width:340px;overflow:auto;padding:8px;box-sizing:border-box;background:#fafafa;
@@ -357,7 +358,7 @@ document.addEventListener('keydown',e=>{if(e.key!=='Escape')return;
 // panel and the layer list in both views). 3D (tilt the map, roadstyle's 3D button): the u3d-* layers below, made from the same sources:
 // every space's ground on the level (the roadway flat, sidewalks and islands raised), its painted lines, the buildings to their floors,
 // the levels above as bridge decks, and one model per street object. Switching shows one set and hides the other; nothing else.
-const RAISE={sidewalk:0.15,furnishing:0.15,open:0.15,'bus stop':0.15,island:0.2};
+const RAISE=__RAISED__;   // parts.RAISED: the parts above the roadway, their top (m)
 const LEVEL_M=3.2, DECK_M=6, SLAB_M=0.6;   // a building's floor; a bridge level's height above the one viewed, its deck's thickness
 const ovSrc=lab=>(OVERLAYS.find(o=>o.label===lab)||{}).source;
 const byKey=(key,table,dflt)=>['match',['get',key],...Object.entries(table).flatMap(([k,v])=>[k,v]),dflt];
@@ -545,6 +546,7 @@ OBJ_SHAPES = {
 SNAP = ("furniture.lamp", "furniture.sign", "furniture.signal", "furniture.waste", "furniture.bench", "furniture.post_box", "furniture.vending",
         "furniture.advertising", "furniture.bike_parking", "transit.stop", "vegetation.tree")
 from urbanstyle.mapillary import CLASS_OF as _CLASS_OF
+from urbanstyle.parts import RAISED
 SEEN_CLASS = {g: c for g, c in _CLASS_OF.items() if c.startswith("furniture.")}     # the observations that are street objects
 SIGN_COLOR = {"give way": "#dc2626", "stop": "#b91c1c", "parking": "#1d4ed8", "no parking": "#2563eb"}
 KERB_BACK_M = 0.5     # a pole moved off the roadway stands this far behind the kerb
@@ -994,7 +996,7 @@ def main(db, out):
     defs = [d for d in defs if (links["type"] == d[0]).any()]
     o = lambda g, **kw: rs.Overlay(g, placement="under", **kw)
     m = rs.render_edges(
-        edges, palette="mono", basemap="voyager", name="urbanstyle",
+        edges, palette="mono", basemap="voyager", name="urbanstyle", filter_control=False,   # no road-class filter window
         street_view_key=os.environ.get("GOOGLE_MAPS_KEY"),   # Street View's linked panorama (the key is written into the page: restrict it in Google Cloud) settings={"config": {"fill_opacity": 0.35, "casing_opacity": 0.2}}, road_popup=["edge_id", "container_id", "name", "type", "highway", "level"],
         color_options={"Roads": {"color_by": "type", "colors": {"road": "#555", "walkway": "#a16207", "cycleway": "#16a34a"}}},
         overlays=[o(streets[streets.kind == k], color=c, opacity=0.8, outline=dark, width=1.2, label=lab, popup=POP, tooltip=["cid", "name"])
@@ -1094,7 +1096,7 @@ def main(db, out):
         for r in subs.assign(k=subs.subsection_id.str.split("/").str[-1].astype(int)).sort_values(["section_id", "k"]).itertuples():
             if r.subsection_id in ua:
                 newu["sec"].setdefault(r.section_id, []).append([r.subsection_id, int(ua[r.subsection_id]), float(r.length_m), r.left, r.right, r.color])
-    panel = (PANEL.replace("__PCOL__", json.dumps(PART_COLORS)).replace("__OBJPOPUP__", json.dumps(OBJ_POPUP)).replace("__BLDPOPUP__", json.dumps(BLD_POPUP)).replace("__NEWU__", json.dumps(newu)).replace("__MARKS__", json.dumps([t for t, *_ in MARKS if len(marks) and (marks["type"] == t).any()])).replace("__TREE__", json.dumps(tree_data(con, epsg)).replace("</", "<\\/"))
+    panel = (PANEL.replace("__PCOL__", json.dumps(PART_COLORS)).replace("__RAISED__", json.dumps(RAISED)).replace("__OBJPOPUP__", json.dumps(OBJ_POPUP)).replace("__BLDPOPUP__", json.dumps(BLD_POPUP)).replace("__NEWU__", json.dumps(newu)).replace("__MARKS__", json.dumps([t for t, *_ in MARKS if len(marks) and (marks["type"] == t).any()])).replace("__TREE__", json.dumps(tree_data(con, epsg)).replace("</", "<\\/"))
              .replace("__LEVELS__", json.dumps(list(range(LEVELS[0], LEVELS[1] + 1)))).replace("__LINKDEF__", json.dumps([{"t": t, "lab": n, "c": c, "d": d} for t, n, c, d in defs]))
              .replace("__KINDS__", json.dumps([{"k": k, "lab": lab, "c": c} for k, lab, c in kinds])).replace("__OBJDEF__", json.dumps([{"g": g, "c": c} for g, c in ogroups])).replace("__OBJCOLORS__", json.dumps({k: v[2] for k, v in OBJ_SHAPES.items()})).replace("__STRIPS__", json.dumps([{"t": t, "lab": lab, "c": c} for t, lab, c, _ in sdefs])).replace("__HAS__", json.dumps(has)).replace("__LEVELBTNS__", "".join(f'<button data-l="{l}">{l}</button>' for l in range(LEVELS[0], LEVELS[1] + 1))))
     open(out, "w").write(m.html.replace("</body>", panel + "</body>"))

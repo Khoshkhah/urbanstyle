@@ -17,7 +17,9 @@ belong to the junction. Ids `<section id>/<k>`.
 
 **Intersections** are cut at the block corners: the building-line vertex nearest the junction in the angle between two arms. Corners on both
 sides: the cut joins them; one corner: the cut runs through it along the street on its other side (the prolongation of that building line);
-none: square to the arm at the crossing street's half-width + 1 m. A crosswalk the cut runs through, or one starting at most 6 m beyond it,
+none: square to the arm at the crossing street's half-width + 1 m. An arm's direction is its street's bearing 10 to 30 m out (through
+points where only two roads meet), not toward the first metres: a divided road's carriageway splays out from the node, and a cut square
+to the splay left a wedge of the corner to no space (2026-10-10). A crosswalk the cut runs through, or one starting at most 6 m beyond it,
 is the junction's own and stays whole (one part, one id): the cut moves out past it to the stop line (1.5 + 2 m beyond the crossing), square across the arm (`how` =
 `crosswalk`; 2026-10-09). A cut takes at most half the street to the next junction. The intersection
 is the area its cuts enclose, minus the buildings: its core (nodes, the roads between them) and every arriving road up to its cut are its own;
@@ -32,8 +34,9 @@ than 20 m) are one intersection: apart, the one between the carriageways was a s
 **No street left to nobody.** The building line never closes a street: buildings closed by 3 m, except within 1.5 m of a road's
 line (a street narrower than 6 m between facades kept its space). A road whose ribbon is cut away keeps its road surface as its
 space; a subsection whose road the junctions took entirely is dropped and its scrap joins a neighbour. Then a final sweep: road
-surface no space holds, and small holes the spaces enclose (at most 300 m², spaces along 90 % of their edge, not a block's garden),
-join the neighbouring space they share the longest border with. Monaco: road centre line outside every space 1,095 m -> 22 m.
+surface no space holds, and small holes the spaces enclose with the buildings (at most 300 m², spaces along at least half their edge, not a
+block's garden or courtyard), join the neighbouring space they share the longest border with. Each space's outline is then closed by 5 cm
+(the zero-width cracks merging leaves along old edges: a point on one lay in no space). Monaco: road centre line outside every space 1,095 m -> 22 m.
 
 A **subsection's** space is a ribbon parallel to its road: a side with buildings reaches 4 m past the facade line and the building line is its
 edge; an open side reaches the cap (or halfway to a parallel road with no building between). Square cuts at the splits, the arm's cut at a

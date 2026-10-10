@@ -58,6 +58,9 @@ STOP_KERB_M = 5.0      # a stop pole this close to a kerb strip stands at it
 GTFS_M = 30.0          # a timetable's stop with no OSM stop of its number is added at its own position, unless an OSM stop is this close
 STOP_REACH_M = 15.0    # a lane's stop position: clear of the junction and of a crosswalk within this far back from the junction ...
 STOP_GAP_M = 1.0       # ... and this far before it (the stop line before the crosswalk; the turn arrows behind the stop line)
+# the parts standing above the roadway, and how high their top is (m): a kerb stands where they meet the flush ground (lanes, parking,
+# a parking lot, a crosswalk); the dossier's top_m and the 3D view use the same heights
+RAISED = {"sidewalk": 0.15, "furnishing": 0.15, "open": 0.15, "bus stop": 0.15, "island": 0.2}
 SHOULDER_MAX_M = 2.5   # a shoulder beside SUMO's lanes is at most a parking lane; a wider measured kerb is left to the pedestrian realm
 
 
@@ -1029,7 +1032,6 @@ def build(con, epsg):
             pedestrian(uid, level, U, C, None if sub or not names else
                        lambda piece, k: " / ".join(nm for nm, _ in sorted(names, key=lambda t: t[1].distance(piece))[:2]), kerb_near=kerb_at(level, U))
             # markings
-            mark(uid, level, "kerb", safe("intersection", C.boundary, U.buffer(-0.05)))
             paint = safe("difference", C.buffer(0.05), taken)             # not across a crosswalk
             own_secs = {sec, *((sub_of.get(uid, ("", None))[0] or "").split(","))} if sub else set()
             for x, d, inside, got_m2 in mine:
@@ -1230,7 +1232,6 @@ def build(con, epsg):
                     tx, ty = direction(a["ap"], 0.2)
                     mark(uid, level, "give-way line" if all(o[3] == "give_way" for o in ctl) else "stop line",
                          shapely.LineString([(c0.x - ty * lo, c0.y + tx * lo), (c0.x - ty * hi, c0.y + tx * hi)]), a["name"], *ordered_by(ctl))
-            mark(uid, level, "kerb", safe("intersection", C.boundary, U.buffer(-0.05)), how="measured")
 
             def corner_of(piece, k):    # a corner takes the names of the two arms it lies between
                 near_arms = sorted(arms, key=lambda a: a["ln"].distance(piece))[:2]
@@ -1273,7 +1274,6 @@ def build(con, epsg):
                 counts.setdefault(e, []).append(((nf, nb) if along_own(roads[e], ln) else (nb, nf)) + (wl,))   # lanes src -> dst, dst -> src
                 taken = safe("union", taken, shapely.union_all([x[1] for x in lanes] or [shapely.Polygon()]))
             add(uid, level, "carriageway", safe("difference", C, taken), "measured")
-            mark(uid, level, "kerb", safe("intersection", C.boundary, U.buffer(-0.05)), how="measured")
             pedestrian(uid, level, U, C)
             if line is not None and line.length > 0:     # widths across the middle
                 mid = line.interpolate(0.5, normalized=True)
@@ -1303,6 +1303,13 @@ def build(con, epsg):
         rdf = pd.DataFrame([(u, shapely.to_wkb(g)) for u, g in reshaped.items()], columns=["unit_id", "wkb"])
         con.execute(f"""UPDATE space.unit u SET geometry = ST_Transform(ST_GeomFromWKB(r.wkb::BLOB), '{epsg}', 'EPSG:4326', always_xy := true)
                         FROM rdf r WHERE u.unit_id = r.unit_id""")
+    # kerbs: in each space, where a raised part meets the flush ground; not along a parking lot or a parking aisle, paved flush
+    sides = {}
+    for p_ in parts:
+        sides.setdefault((p_[0], p_[2]), ([], []))[p_[3] in RAISED].append(shapely.from_wkb(p_[-1]))
+    for (uid, level), (flush, up) in sides.items():
+        if flush and up:
+            mark(uid, level, "kerb", safe("intersection", shapely.union_all(up).boundary, shapely.union_all(flush).buffer(0.05)), how="rule")
     pdf = pd.DataFrame(parts, columns=["unit_id", "part_id", "level", "type", "arm", "direction", "lane", "width_m", "length_m", "source", "method", "ref", "holds",
                                        "rule", "wkb"])
     mdf = pd.DataFrame([m for m in marks if m is not None], columns=["unit_id", "level", "type", "arm", "length_m", "source", "method", "ref", "wkb"])   # None: an arrow replaced

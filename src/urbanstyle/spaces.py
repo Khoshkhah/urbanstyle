@@ -36,6 +36,10 @@ FACADE_SLACK_M = 4.0            # >= subsections.STEP_BACK_M: a facade varies by
 PARALLEL_COS = 0.85
 ARM_FROM_M, ARM_TO_M = 10.0, 30.0   # an arm's direction is its street's bearing between these distances from the junction node
 FAR_M = 300.0
+SLIVER_M = 3.0                  # a subsection shorter than this (no room for a car) is no space of its own: it joins a neighbour
+# how important a road is (lower: more): a crosswalk between two junctions goes to the one whose side street ranks higher
+CLASS_RANK = {"motorway": 0, "trunk": 1, "primary": 2, "secondary": 3, "tertiary": 4, "unclassified": 5, "residential": 5,
+              "living_street": 6, "service": 7}
 CRACK_M = 0.05                  # a slit in a space narrower than twice this is closed
 
 
@@ -101,7 +105,7 @@ def _unit(x, y):
 
 def _run(edge, from_node, roads, by_node, limit=80.0):
     """The street from `from_node` along `edge` to the next junction or dead end (through nodes where only two roads meet), as one
-    line leading away from `from_node`."""
+    line leading away from `from_node`, and the node it ends at."""
     import shapely
     pts, node, e, seen = [], from_node, edge, set()
     while e is not None and e not in seen and (not pts or shapely.LineString(pts).length < limit):
@@ -112,7 +116,7 @@ def _run(edge, from_node, roads, by_node, limit=80.0):
         node = dst if src == node else src
         nxt = [x for x in by_node.get(node, ()) if x != e]
         e = nxt[0] if len(nxt) == 1 else None
-    return shapely.LineString(pts)
+    return shapely.LineString(pts), node
 
 
 def _crossings_on(a, xings, xtree):
@@ -129,7 +133,7 @@ def _crossings_on(a, xings, xtree):
     return ts
 
 
-def _intersections(level, arms, roads, node_xy, bparts, btree, ring_edges=frozenset(), xings=()):
+def _intersections(level, arms, roads, node_xy, bparts, btree, ring_edges=frozenset(), xings=(), info=None):
     """{intersection id: polygon}, {(intersection id, edge id): (point on the cut, cut direction, far normal, node xy, arm direction,
     how it was cut, the cut as a line)}."""
     import shapely
@@ -140,9 +144,15 @@ def _intersections(level, arms, roads, node_xy, bparts, btree, ring_edges=frozen
     for e, (_, src, dst, _) in roads.items():
         by_node.setdefault(src, []).append(e)
         by_node.setdefault(dst, []).append(e)
-    by_i = {}
+    by_i, node_iid = {}, {}
     for iid, node, edge in arms:
         by_i.setdefault(iid, []).append((node, edge))
+        node_iid[node] = iid
+    info = info or {}
+
+    def side(iid, name):    # the rank of a junction's side streets: its best road not of the street `name`
+        return min([CLASS_RANK.get((info.get(e) or (None, None))[1], 6) for _, e in by_i.get(iid, [])
+                    if name is None or (info.get(e) or (None, None))[0] != name] or [9])
     for iid, members in by_i.items():
         nodes = {n for n, _ in members}
         pts = [node_xy[n] for n in nodes if n in node_xy]
@@ -159,11 +169,14 @@ def _intersections(level, arms, roads, node_xy, bparts, btree, ring_edges=frozen
                 continue
             # the arm's direction: the street's own bearing ARM_FROM_M..ARM_TO_M out (not node -> a point on it: a divided road's
             # carriageway splays out from the node, and a cut square to the splay leaves a wedge of the corner to no space)
-            run = _run(edge, node, roads, by_node)
+            run, end = _run(edge, node, roads, by_node)
+            name = (info.get(edge) or (None, None))[0]
+            rival = node_iid.get(end) if node_iid.get(end) not in (None, iid) else None   # the junction at the street's other end
             q0, q1 = run.interpolate(min(ARM_FROM_M, run.length / 4)), run.interpolate(min(ARM_TO_M, run.length / 2))
             nx_, ny_ = node_xy[node]
             ux, uy = _unit(q1.x - q0.x, q1.y - q0.y)
             arm.append(dict(edge=edge, node=node, p=(nx_, ny_), u=(ux, uy), hw=w / 2, len=run.length, g=g,
+                            rank=(side(iid, name), side(rival, name)) if rival else None,
                             bearing=math.degrees(math.atan2(uy, ux)) % 360))
         if len(arm) < 2:
             continue
@@ -217,10 +230,19 @@ def _intersections(level, arms, roads, node_xy, bparts, btree, ring_edges=frozen
                 nx, ny = ux, uy
                 s = d0
             # a crosswalk the cut runs through, or just beyond it, is the junction's, whole: the cut moves out past it, to the stop line
-            far = [t + CROSSWALK_M / 2 + STOP_BACK_M for t in _crossings_on(a, xings, xtree) if 1.0 < t and t - CROSSWALK_M / 2 < s + XWALK_REACH_M]
-            far = [t for t in far if t <= min(a["len"] / 2, 35.0)]
+            # (between two junctions, a crosswalk is the one's whose side street ranks higher, CLASS_RANK: a service road's or a lane's
+            # mouth never takes a street junction's crosswalk; that junction's cut may pass halfway, and the other's ends at the same line)
+            ts = [t for t in _crossings_on(a, xings, xtree) if 1.0 < t]
+            wins, loses = (a["rank"][0] < a["rank"][1], a["rank"][0] > a["rank"][1]) if a["rank"] else (False, False)
+            reach = min(a["len"] - 1.0, 35.0) if wins else min(a["len"] / 2, 35.0)
+            given = [t for t in ts if loses and (a["len"] - t) + CROSSWALK_M / 2 + STOP_BACK_M <= min(a["len"] - 1.0, 35.0)]
+            far = [t + CROSSWALK_M / 2 + STOP_BACK_M for t in ts if t not in given and t - CROSSWALK_M / 2 < s + XWALK_REACH_M]
+            far = [t for t in far if t <= reach]
             if far and max(far) > s:
                 s, how = max(far), "crosswalk"
+                p, v, (nx, ny) = (a["p"][0] + ux * s, a["p"][1] + uy * s), (-uy, ux), (ux, uy)
+            if given and s > min(given) - CROSSWALK_M / 2 - STOP_BACK_M:     # the next junction's crosswalk: our cut ends where its cut is
+                s, how = max(1.0, min(given) - CROSSWALK_M / 2 - STOP_BACK_M), "crosswalk of the next junction"
                 p, v, (nx, ny) = (a["p"][0] + ux * s, a["p"][1] + uy * s), (-uy, ux), (ux, uy)
             # the cut runs from the arm's axis both ways to the first building line (a block corner lies on it) or to the reach
             X = shapely.Point(a["p"][0] + ux * s, a["p"][1] + uy * s)
@@ -262,7 +284,7 @@ def build(con, epsg):
     to_m = f"ST_AsWKB(ST_Transform(geometry, 'EPSG:4326', '{epsg}', always_xy := true))"
     subs = con.execute(f"""SELECT subsection_id, section_id, level, width_m, left_m, right_m, left_extra, right_extra, with_sections, color, {to_m}
                            FROM space.subsection""").fetchall()
-    road_rows = con.execute(f"""SELECT source_id, level_min, src, dst, width_m, container_id, {to_m} FROM space.element
+    road_rows = con.execute(f"""SELECT source_id, level_min, src, dst, width_m, container_id, {to_m}, name, class FROM space.element
                                 WHERE type = 'road' AND ST_Length(geometry) > 0""").fetchall()
     try:    # roundabout rings: their road edges and their nodes (a junction holding one is a roundabout, a space of its own kind)
         ring_osm = {r[0] for r in con.execute("SELECT osm_id FROM osm.raw.ways WHERE tags['junction'] IN ('roundabout', 'circular')").fetchall()}
@@ -273,6 +295,8 @@ def build(con, epsg):
                               JOIN space.junction j ON j.cluster_id = a.intersection_id AND j.node_id = a.node_id AND j.level = a.level""").fetchall()
     blds = con.execute(f"""SELECT l, {to_m} FROM space.element, generate_series(level_min, level_max) t(l) WHERE type = 'building'
                            UNION ALL SELECT level, {to_m} FROM space.lot""").fetchall()     # a car park is a plot, as a building is
+    # the street ground (the measured street space: sections and intersections), so that none of it is left to no space
+    street_rows = con.execute(f"SELECT level, {to_m} FROM space.container WHERE kind IN ('section', 'intersection')").fetchall()
     xing_rows = con.execute(f"""SELECT level_min, {to_m} FROM space.element WHERE type = 'walkway' AND subtype = 'crossing'
                                UNION ALL SELECT level, {to_m} FROM space.object WHERE class LIKE 'crossing.%'""").fetchall()
     rows, cut_rows, clipped = [], [], []
@@ -282,16 +306,18 @@ def build(con, epsg):
                                [shapely.from_wkb(bytes(r[6])) for r in road_rows if r[1] == lv])
         btree = shapely.STRtree(bparts) if bparts else None
         bline = shapely.union_all(bparts) if bparts else shapely.Polygon()
-        roads, node_xy, sec_lines = {}, {}, []
-        for eid, l, src, dst, w, cid, g in road_rows:
+        roads, node_xy, sec_lines, info = {}, {}, [], {}
+        for eid, l, src, dst, w, cid, g, nm, cl in road_rows:
             if l != lv:
                 continue
+            info[eid] = (nm, cl)
             g = shapely.from_wkb(bytes(g))
             roads[eid] = (g, src, dst, w)
             node_xy[src], node_xy[dst] = g.coords[0], g.coords[-1]
             sec_lines.append((cid, g))
         xings = [shapely.from_wkb(bytes(x[1])) for x in xing_rows if x[0] == lv]
-        regions, cuts = _intersections(lv, [(a[0], a[1], a[2]) for a in arm_rows if a[3] == lv], roads, node_xy, bparts, btree, ring_edges, xings)
+        regions, cuts = _intersections(lv, [(a[0], a[1], a[2]) for a in arm_rows if a[3] == lv], roads, node_xy, bparts, btree, ring_edges, xings,
+                                       info)
         # the cut at each junction end: found by the junction node the subsection ends on, and the arm that leaves it in its direction
         cut_at = {}
         for (iid, edge), (p, v, n, nxy, u, how, seg) in cuts.items():
@@ -407,7 +433,8 @@ def build(con, epsg):
             gm = _one(gm, line)
             if gm.is_empty:
                 continue
-            if line.intersection(gm.buffer(0.01)).length < 0.5:     # the junctions took its road: what is left is a scrap beside it
+            # the junctions took its road, or left less of it than SLIVER_M: what is left is a scrap beside them, not a space
+            if line.intersection(gm.buffer(0.01)).length < SLIVER_M:
                 scraps.append(gm)
             else:
                 final[sid] = ["subsection", sec, color, gm, line]
@@ -426,9 +453,18 @@ def build(con, epsg):
             walls = shapely.union_all([heldb, bline])
             holes = [h for h in (shapely.Polygon(r) for p_ in shapely.get_parts(walls) for r in p_.interiors)
                      if h.area <= HOLE_MAX_M2 and h.boundary.intersection(heldb.buffer(0.05)).length >= 0.5 * h.boundary.length]
+            # and the street ground no space reached (an open side, a corner between two spaces' reach), up to HOLE_MAX_M2 a piece;
+            # a larger one is reported (check U14), not given
+            street = _union([shapely.make_valid(shapely.from_wkb(bytes(w))) for l_, w in street_rows if l_ == lv] or [shapely.Polygon()])
+            try:
+                rest = street.difference(held).difference(bline)
+            except shapely.errors.GEOSException:      # on a 1 cm grid where floating point fails
+                rest = street.difference(held, grid_size=0.01).difference(bline, grid_size=0.01)
+            left = [x for x in shapely.get_parts(rest) if x.area <= HOLE_MAX_M2]
             for piece in [*shapely.get_parts(surface.difference(held).difference(bline)), *scraps,
-                          *(x for h in holes for x in shapely.get_parts(h.difference(bline)))]:
+                          *(x for h in holes for x in shapely.get_parts(h.difference(bline))), *left]:
                 piece = piece.difference(given) if not given.is_empty else piece      # ground already given to a space is not given again
+                piece = shapely.union_all([x for x in shapely.get_parts(piece) if x.geom_type == "Polygon"] or [shapely.Polygon()])  # its area
                 if piece.area < 0.5 or piece.is_empty:
                     continue
                 # the neighbour with the longest shared border that stays one polygon with it

@@ -40,7 +40,8 @@ The order of work: `docs/plan.md`.
   lane, stop and give-way lines, turn arrows), `space.width` (widths per arm / across each subsection) and `space.turn` (lane-to-lane moves
   at intersections). The roadway (lanes, junction shapes, turns) comes from SUMO: the subsections measure the lanes, `sumo.py` runs
   duckOSM's `to_sumo` with them, `from_sumo()` fills every unit; without SUMO `classic()` builds the roadway from bands. `urbanstyle check`
-  U1-U10 test them; U11-U13 report the lanes entering each junction (`space.approach`).
+  U1-U10 test them; U11-U13 report the lanes entering each junction (`space.approach`),
+  U14 the street ground in no space (`docs/design/plots.md`).
 - `src/urbanstyle/mapillary.py`: `urbanstyle mapillary DB [--osm OSM]` fetches Mapillary's features and photos into `DB.mapillary.json`
   (token: `$MAPILLARY_TOKEN` or `~/.config/mapillary/token`, never in the repo) and loads `space.observed` / `space.photo`; `build`
   loads that file when present (`docs/design/mapillary.md`). CC BY-SA: the data stays local. Mapillary is for validation only

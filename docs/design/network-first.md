@@ -21,7 +21,10 @@ none: square to the arm at the crossing street's half-width + 1 m. An arm's dire
 points where only two roads meet), not toward the first metres: a divided road's carriageway splays out from the node, and a cut square
 to the splay left a wedge of the corner to no space (2026-10-10). A crosswalk the cut runs through, or one starting at most 6 m beyond it,
 is the junction's own and stays whole (one part, one id): the cut moves out past it to the stop line (1.5 + 2 m beyond the crossing), square across the arm (`how` =
-`crosswalk`; 2026-10-09). A cut takes at most half the street to the next junction. The intersection
+`crosswalk`; 2026-10-09). A cut takes at most half the street to the next junction, except for a crosswalk between two junctions:
+it is the junction's whose side street ranks higher by road class (a service road's or a lane's mouth never takes a street junction's
+crosswalk); that cut may pass halfway, and the other junction's cut ends at the same line. A subsection shorter than 3 m is no space:
+it joins a neighbour (2026-10-10). The intersection
 is the area its cuts enclose, minus the buildings: its core (nodes, the roads between them) and every arriving road up to its cut are its own;
 of the rest it takes what the roads' spaces do not hold. A junction holding a roundabout's ring is a **roundabout**, a kind of its own.
 Which nodes form one junction is `space.junction` (`intersection_id`, `node_id`, `level`, `cluster_id`): the container step's groups of close

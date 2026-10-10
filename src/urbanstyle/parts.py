@@ -1085,6 +1085,13 @@ def build(con, epsg):
                               direction=d, lane=x["i"] + 1, width=x["w"], ref=f"w{roads[elem_of[x['edge']]]['osm']}" if x["edge"] in elem_of else None)
                 if not area(got).is_empty:
                     mine.append((x, d, longest(safe("intersection", x["ln"], U)), area(got).area))
+            if sub:     # across a node inside a road's space (where the lane count changes, an alley meets an alley) a lane goes on along
+                for x, d, _, _ in list(mine):   # SUMO's straight path through it, at its width: no bare roadway between two lanes
+                    for t_, tl_, dr_, xy_, veh_ in conns.get((x["edge"], x["i"]), []):
+                        if dr_ == "s" and len(xy_) >= 2:
+                            add(uid, level, x["typ"], safe("intersection", shapely.LineString(xy_).buffer(x["w"] / 2, cap_style="flat"), U), "sumo",
+                                direction=d, lane=x["i"] + 1, width=x["w"],
+                                ref=f"w{roads[elem_of[x['edge']]]['osm']}" if x["edge"] in elem_of else None, holds="through a node (SUMO's path)")
             for x in ([sh[k] for k in stree.query(U) if sh[k]["level"] == level] if stree is not None else []):
                 typ_, how_, held, rule_, meters = x["kind"]
                 piece = safe("intersection", x["poly"], U)

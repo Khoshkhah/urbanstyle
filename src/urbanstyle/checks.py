@@ -48,6 +48,7 @@ def part_checks(c, q, m):
         ("U9", "parts of one space overlapping by more than 0.5 m2", q("""SELECT count(*) FROM pt a JOIN pt b ON a.unit_id = b.unit_id AND a.part_id < b.part_id
                                   AND ST_Intersects(a.g, b.g) WHERE ST_Area(ST_Intersection(a.g, b.g)) > 0.5"""), True),
         ("U10", "cuts where the roadway differs by more than 0.5 m on the two sides", roadway_mismatch(c, q, m), False),
+        street_left(c, m),
     ] + approach_checks(q)
 
 
@@ -66,6 +67,28 @@ def approach_checks(q):
         ("U13", "lanes with a move for all traffic but no turn arrow (a lane piece under 4 m, another arrow in the way)", q("""SELECT count(*)
                                   FROM space.approach WHERE NOT arrow AND no_arrow_because IN ('lane piece under 4 m', 'another arrow in the way')"""), False),
     ]
+
+
+def street_left(c, m):
+    """U14: the street ground (sections and intersections of the measured street space) that no space holds and no building or car park
+    stands on, in pieces over 1 m2 (docs/design/plots.md). Reported: spaces give pieces up to 300 m2 to a neighbour; a larger one is
+    ground the spaces' reach does not cover, to look at."""
+    import shapely
+    rows = lambda sql: c.execute(sql).fetchall()
+    area = lambda x: shapely.union_all([p for p in shapely.get_parts(x) if p.geom_type == "Polygon"] or [shapely.Polygon()])   # its area only
+    g = lambda w: area(shapely.make_valid(shapely.from_wkb(bytes(w))))     # (a repair or an overlay can leave lines behind)
+    street, held, walls = {}, {}, {}
+    for lv, w in rows(f"SELECT level, ST_AsWKB({m('geometry')}) FROM space.container WHERE kind IN ('section', 'intersection')"):
+        street.setdefault(lv, []).append(g(w))
+    for lv, w in rows(f"SELECT level, ST_AsWKB({m('geometry')}) FROM space.unit"):
+        held.setdefault(lv, []).append(g(w))
+    for lv, w in rows(f"""SELECT l, ST_AsWKB({m('geometry')}) FROM space.element, generate_series(level_min, level_max) t(l) WHERE type = 'building'
+                          UNION ALL SELECT level, ST_AsWKB({m('geometry')}) FROM space.lot"""):
+        walls.setdefault(lv, []).append(g(w))
+    u = lambda gs: area(shapely.union_all(gs, grid_size=0.01)) if gs else shapely.Polygon()
+    pieces = [p for lv, gs in street.items() for p in shapely.get_parts(area(area(u(gs).difference(u(held.get(lv, [])), grid_size=0.01))
+                                                                            .difference(u(walls.get(lv, [])), grid_size=0.01))) if p.area > 1]
+    return ("U14", f"pieces of street ground in no space, over 1 m2 ({sum(p.area for p in pieces):,.0f} m2)", len(pieces), False)
 
 
 def roadway_mismatch(c, q, m):

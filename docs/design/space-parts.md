@@ -74,7 +74,8 @@ around the OSM centrelines, which left steps at the cuts and blobs at complex ju
    Hemlock: 5.5 m) (2026-10-10). In it, in this order: mapped crosswalks
    (only the pieces that run across a road), a roundabout's island (the ground its ring's line encloses, less half the ring's
    roadway, rounded), the lanes (`in` / `out` of the junction, or `forward` / `backward` along a subsection), the shoulders, and the
-   rest of the roadway as ONE part: the `junction area` of an intersection, the `ring` of a roundabout (its circulating lanes are
+   rest of the roadway as ONE part (across a node inside a road's space, where the lane count changes or an alley meets an alley, a lane
+   goes on along SUMO's straight path through it, `holds` "through a node"; new lanes that start inside a node are not filled yet): the `junction area` of an intersection, the `ring` of a roundabout (its circulating lanes are
    painted on it, not separate parts; the ring is the ring's line ± half its roadway, round whatever SUMO's pieces), the
    `carriageway` of a subsection. Then the pedestrian realm out to the buildings as before. Parts from SUMO have `source` = `sumo`.
    The dashboard draws parts without outlines: the asphalt is one surface, and the lines on it are the marks.

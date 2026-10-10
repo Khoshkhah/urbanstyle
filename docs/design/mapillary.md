@@ -1,5 +1,10 @@
 # Street-level observations from Mapillary
 
+> **Since 2026-10-10: validation only.** Mapillary's positions are too rough to place things (street lights a median 6 m from the
+> city's surveyed poles at Broadway × Granville, 20 % more than 11 m): a detection confirms an object of a source with a real
+> position, builds no object, parking or stop line, and what it alone sees becomes a `check` row (`unit.CONFIRM_ONLY`). What
+> follows describes the earlier use.
+
 <p class="lead">What Mapillary's photos saw (signs, signals, street lights, parking) fills in what OpenStreetMap does not map, above all parking.</p>
 
 Status (2026-10-08): agreed with Kaveh, built on Monaco. Code: `src/urbanstyle/mapillary.py`, used in `parts.py`.

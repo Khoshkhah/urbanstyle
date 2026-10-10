@@ -18,8 +18,10 @@ def test_one_lamp_from_three_sources_and_two_lamps_apart():
         con.execute("INSERT INTO object VALUES (?, ?, ?, ?, ?, ST_Point(?, ?))", [oid, cls, src, h, c, x, y])
     d = datetime.datetime
     seen = {"mly-old": (d(2015, 9, 10), d(2021, 1, 22)), "mly-new": (d(2021, 1, 22), d(2024, 9, 28)), "mly-b": (d(2016, 1, 1), d(2024, 1, 1))}
-    match(con, seen)
+    alone = match(con, seen)
     got = {mid: set(refs.split(", ")) for mid, refs in con.execute("SELECT match_id, refs FROM match").fetchall()}
-    assert sorted(map(sorted, got.values())) == [["mly-b"], ["mly-new", "mly-old", "pole-1"], ["sig"]]
+    assert sorted(map(sorted, got.values())) == [["mly-new", "mly-old", "pole-1"], ["sig"]]
+    # a lamp only Mapillary sees is no object (its position is too rough): it comes back to be checked
+    assert [[m[0] for m in ms] for cls, ms in alone] == [["mly-b"]]
     # the matched lamp stands where the city's survey puts it
     assert con.execute("SELECT ST_X(geometry), sources FROM match WHERE refs LIKE '%pole-1%'").fetchone() == (0.0, "vancouver, mapillary")

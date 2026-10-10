@@ -16,6 +16,9 @@ the source's own id where there is one (the OSM way of a crosswalk or of the roa
 `surface`, `lit`, `road_lanes`, `oneway`, from the road's OSM way; where OSM says nothing, a stated default (50 km/h in built-up areas,
 asphalt), labelled as such.
 
+Every part has a `width_m` and a `length_m`: a lane's or a kerb strip's measured width, else those of the rectangle with the part's
+area and perimeter (exact for a rectangle; for a long strip, a sidewalk or a crosswalk, its mean width and length even where it bends).
+
 | type | what | where it comes from |
 |---|---|---|
 | `junction area` | the shared turning area of an intersection, where the arms' carriageways meet | the carriageway minus every arm's own lanes |
@@ -24,8 +27,10 @@ asphalt), labelled as such.
 | `cycle crossing` / `cycle lane` | a cycle track over / along the carriageway, 2 m wide | mapped cycleways |
 | `island` | a refuge in the carriageway; a roundabout's central island | island tags (rare); the ring's line |
 | `ring` | a roundabout's circulating roadway, one part | the ring's line ± half its roadway, with SUMO's roadway |
-| `parking`, `no parking`, `shoulder` | the kerb strip beside the outer lane, out to the measured kerb: parking, no parking, or of unknown use (`shoulder`). `holds` names the evidence, `rule` the rules that apply ("pay $2.00/h 9am-6pm (2 Hr), ...; no parking rush hours 7:00am to 10:00am") | measured kerb minus SUMO's lanes; what it is from the evidence, strongest first: a parking meter within 3 m (pay parking, the meter's own rules; a city's meters carry rates, limits, rush-hour bans), the way's `parking:<side>` / `parking:both` tag (`no`, `separate` or a no-parking restriction: no parking), a mapped bay on it (OSM street or motorcycle parking, a city's accessible bay), the nearest parking / no-parking sign within 8 m (Mapillary, every variant of the sign) |
+| `parking`, `no parking`, `shoulder` | the kerb strip beside the outer lane, out to the measured kerb: parking, no parking, or of unknown use (`shoulder`). `holds` names the evidence, `rule` the rules that apply ("pay $2.00/h 9am-6pm (2 Hr), ...; no parking rush hours 7:00am to 10:00am") | measured kerb minus SUMO's lanes; what it is from the evidence, strongest first: a parking meter within 3 m (pay parking, the meter's own rules; a city's meters carry rates, limits, rush-hour bans), the way's `parking:<side>` / `parking:both` tag (`no`, `separate` or a no-parking restriction: no parking), a mapped bay on it (OSM street or motorcycle parking, a city's accessible bay) (Mapillary's signs do not decide it: their positions are too rough; they are checks) |
 | `furnishing` | the strip by the kerb where street furniture stands (trees, lamps, signs, signals, benches, bike racks, hydrants, parking meters, map stands, transit stops, ...); only where some stands. `holds` says what stands in it ("2 tree, 1 lamp"), `ref` which objects (each real object once, its ids in all sources), `source` whose | the street furniture of OSM, Mapillary and a city's survey, one per real object (`unit.group_objects`, the dossier's rule): out from the kerb to the furniture (80 % of it) + 0.6 m, 0.8 to 4 m wide, 6 m along the kerb either side of each object |
+| `bus stop` | a bus stop's waiting area: the sidewalk by the kerb, 8 m either side of its pole and 3 m deep. `holds` what it has (shelter, bench, bin, lit, wheelchair, kerb: OSM's tags on the stop), `rule` its timetable (routes, departures on a weekday, the busiest hour: GTFS) | OSM's stops, each tied to the timetable's stop of its number (OSM `ref` = GTFS `stop_code`); a timetable stop OSM lacks (none within 30 m) at its own position |
+| `bus zone` | the kerb strip where a bus stops: 20 m behind the pole (an articulated bus) and 2 m past it; no parking | cut out of the kerb strip before the parking rule decides the rest |
 | `sidewalk` | the rest of the pedestrian realm, from the kerb to the buildings | the space minus the roadway and the furnishing strip |
 | `open` | pedestrian ground farther than 6 m from both the kerb and the buildings (a square, a forecourt) | the same remainder, far from both |
 

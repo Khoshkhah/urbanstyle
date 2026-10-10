@@ -26,6 +26,7 @@ def main(argv=None):
     u.add_argument("--city", default="")
     u.add_argument("--no-mapillary", action="store_true")
     u.add_argument("--vancouver", action="store_true", help="add the City of Vancouver's open data (trees, lamps, meters, ...)")
+    u.add_argument("--gtfs", help="a GTFS feed's URL (public transport timetable, e.g. TransLink's): each stop's routes and buses per hour")
     a = p.parse_args(argv)
 
     if a.cmd == "build":
@@ -45,7 +46,7 @@ def main(argv=None):
             run(x)
     elif a.cmd == "unit":
         from .unit import main as unit
-        unit(a.name, a.at[0], a.at[1], a.osm, a.nvdb, a.flows, a.city, not a.no_mapillary, a.vancouver)
+        unit(a.name, a.at[0], a.at[1], a.osm, a.nvdb, a.flows, a.city, not a.no_mapillary, a.vancouver, a.gtfs)
     elif a.cmd == "mapillary":
         from .mapillary import main as mly
         mly(a.db, a.osm)

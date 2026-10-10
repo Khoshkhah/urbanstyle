@@ -1,4 +1,7 @@
+import shapely
+
 from urbanstyle.mapillary import group
+from urbanstyle.parts import strip_size
 from urbanstyle.unit import van_meter_rule
 
 
@@ -11,3 +14,11 @@ def test_meter_rule_and_sign_groups():
     assert group("regulatory--no-parking--g9") == group("regulatory--no-stopping--g1") == "no parking"
     assert group("information--parking--g3") == "parking"
     assert group("object--parking-meter") == "parking meter"
+
+
+def test_strip_size():
+    w, length = strip_size(shapely.box(0, 0, 40, 2.5))           # a sidewalk strip 40 m by 2.5 m
+    assert round(w, 6) == 2.5 and round(length, 6) == 40
+    bend = shapely.LineString([(0, 0), (30, 0), (30, 30)]).buffer(1.5, cap_style="flat", join_style="mitre")   # bending round a corner
+    assert abs(strip_size(bend)[0] - 3.0) < 0.05
+    assert round(strip_size(shapely.box(0, 0, 5, 5))[0], 6) == 5        # a square

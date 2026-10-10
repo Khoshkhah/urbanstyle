@@ -8,7 +8,8 @@ side of it and secondary on the other), crossing at a signalised junction with s
 area on disk.
 
 ```bash
-urbanstyle unit broadway-granville --at -123.138546 49.263611 --osm ../duckOSM/data/db/vancouver_city.duckdb --city Vancouver --vancouver
+urbanstyle unit broadway-granville --at -123.138546 49.263611 --osm ../duckOSM/data/db/vancouver_city.duckdb --city Vancouver --vancouver \
+    --gtfs https://gtfs-static.translink.ca/gtfs/google_transit.zip
 ```
 
 ## Source inventory

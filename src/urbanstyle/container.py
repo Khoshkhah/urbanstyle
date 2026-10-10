@@ -741,7 +741,8 @@ def street_owner(con):
 # container's zone; outside every container it keeps NULLs and, within OBJECT_NEAR_M, the distance to the nearest one.
 OBJECT_NEAR_M = 60
 OBJECT_ATTRS = ("height", "material", "direction", "angle", "capacity", "lit", "covered", "surface", "ref", "level", "tactile_paving", "kerb",
-                "crossing", "colour", "traffic_sign", "bin", "shelter", "bench", "amenity", "highway", "entrance", "barrier", "natural", "operator")
+                "crossing", "colour", "traffic_sign", "bin", "shelter", "bench", "amenity", "highway", "entrance", "barrier", "natural", "operator",
+                "name", "wheelchair", "route_ref", "trolleybus", "public_transport")
 OBJECTS = """
 CREATE OR REPLACE TABLE space.object AS
 WITH c AS (

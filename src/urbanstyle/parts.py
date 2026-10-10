@@ -14,6 +14,7 @@ Right-hand traffic: lanes coming into a junction lie on the left of the arm seen
 right of its road.
 """
 import collections
+import json
 import math
 import os
 
@@ -50,7 +51,13 @@ ROADWAY_GAP_M = 1.2    # a gap narrower than this between two roadways is roadwa
 OFF_GROUND_M = 1.5     # a tunnel's or a bridge's space reaches this far past its roadway (a narrow walkway), not out to open ground
 METER_M = 3.0          # a parking meter this close to a kerb strip makes it pay parking (a meter stands on the sidewalk by its bays)
 BAY_M = 3.0            # a mapped parking bay (accessible, motorcycle) this close to a kerb strip makes it parking
-SIGN_M = 8.0           # a Mapillary parking / no-parking sign this close to a shoulder says what it is (its position is ~1-5 m off)
+BUS_ZONE_M = 20.0      # the kerb a bus stops at, behind its stop pole: an articulated bus (18 m) and a little; no parking there
+STOP_AREA_M = 8.0      # a bus stop's waiting area: this far along the kerb either side of its pole ...
+STOP_WAIT_M = 3.0      # ... and this deep from the kerb
+STOP_KERB_M = 5.0      # a stop pole this close to a kerb strip stands at it
+GTFS_M = 30.0          # a timetable's stop with no OSM stop of its number is added at its own position, unless an OSM stop is this close
+STOP_REACH_M = 15.0    # a lane's stop position: clear of the junction and of a crosswalk within this far back from the junction ...
+STOP_GAP_M = 1.0       # ... and this far before it (the stop line before the crosswalk; the turn arrows behind the stop line)
 SHOULDER_MAX_M = 2.5   # a shoulder beside SUMO's lanes is at most a parking lane; a wider measured kerb is left to the pedestrian realm
 
 
@@ -88,6 +95,15 @@ def lane_overrides(con):
         else:
             out[r["osm_id"]] = int(r.get("lanes_forward") or 0) + (0 if ow else int(r.get("lanes_backward") or 0))
     return out
+
+
+def strip_size(p):
+    """(width, length) of a part as the rectangle of its area and perimeter: exact for a rectangle, the mean width and the length of a
+    long strip (a sidewalk, a kerb strip, a crosswalk) even where it bends; a compact shape with no such rectangle is a square."""
+    a, per = p.area, p.length
+    d = per * per / 4 - 4 * a
+    w = (per / 2 - math.sqrt(d)) / 2 if d >= 0 else math.sqrt(a)
+    return w, (a / w if w > 0 else 0.0)
 
 
 def build(con, epsg):
@@ -174,21 +190,8 @@ def build(con, epsg):
                  THEN json_extract_string(attrs, '$.highway') END, {tr()}
             FROM space.object WHERE class LIKE 'crossing.%' OR class IN {FURNITURE}
                OR json_extract_string(attrs, '$.highway') IN ('stop', 'give_way')""").fetchall()]
-    # street-level observations (mapillary.py, where fetched): signs, signals and street furniture join the objects (stop / give-way
-    # lines, the furnishing strip); on the level of the nearest road. Parking signs also decide which shoulders are parking.
-    seen = []
-    try:
-        seen = [(fid, grp, g(w)) for fid, grp, w in con.execute(f"SELECT feature_id, grp, {tr()} FROM space.observed").fetchall()]
-    except Exception:       # not fetched for this area
-        pass
-    from urbanstyle.mapillary import CLASS_OF
-    control = {"traffic light": "signal", "give way": "give_way", "stop": "stop"}
-    as_object = {g: (c, control.get(g)) for g, c in CLASS_OF.items() if c.startswith("furniture.")}
-    for fid, grp, p in seen:
-        if grp in as_object and rtree is not None:
-            objs.append((f"mly{fid}", as_object[grp][0], roads[rtree_ids[rtree.nearest(p)]]["level"], as_object[grp][1], p))
-    signs = [(grp, p) for _, grp, p in seen if grp in ("parking", "no parking")]
-    sgtree = shapely.STRtree([p for _, p in signs]) if signs else None
+    # Mapillary's detections (space.observed) build nothing here: their positions are too rough (unit.CONFIRM_ONLY); they confirm the
+    # objects of other sources in the dossier and the dashboard, and what they alone see is a check
     # parking mapped in OSM: areas (along the kerb: parking=lane / street_side; else a lot; not underground or multi-storey) and
     # motorcycle parking points
     lots, moto = [], []
@@ -204,8 +207,8 @@ def build(con, epsg):
     def parking_of(strip, de=None, right=True):
         """What a kerb strip beside a road is, by the evidence, strongest first (docs/design/source-inventory.md, parking): a parking
         meter by it (pay parking, the meter's own rules); the way's parking tag for that side (parking:<side>, parking:both); a mapped
-        bay on it (OSM street parking or motorcycle parking, a city's accessible bay); the nearest parking / no-parking sign within
-        SIGN_M; else a shoulder of unknown use. Returns (type, (source, method), holds, rule, meters [(ids, point)]); `holds` names the
+        bay on it (OSM street parking or motorcycle parking, a city's accessible bay); else a shoulder of unknown use (Mapillary's
+        signs only check it: unit.CONFIRM_ONLY). Returns (type, (source, method), holds, rule, meters [(ids, point)]); `holds` names the
         evidence, and what disagrees with the choice."""
         osm, rev = way_of.get(de, (None, False))
         side = ("left" if rev else "right") if right else ("right" if rev else "left")    # the way's side the strip is on
@@ -232,9 +235,6 @@ def build(con, epsg):
         if here:
             return "parking", (", ".join(dict.fromkeys(b[0].split()[0] for b in here)), "derived"), "; ".join(b[0] for b in here), \
                 "; ".join(b[2] for b in here if b[2]) or None, []
-        near = sorted(((signs[k][1].distance(strip), signs[k][0]) for k in sgtree.query(strip.buffer(SIGN_M))), key=lambda t_: t_[0]) if sgtree is not None else []
-        if near:
-            return ("parking" if near[0][1] == "parking" else "no parking"), ("mapillary", "observed"), f"Mapillary {near[0][1]} sign", None, []
         return "shoulder", ("osm", "measured"), None, None, []
 
     otree = shapely.STRtree([o[4] for o in objs]) if objs else None
@@ -242,12 +242,13 @@ def build(con, epsg):
     # fetched next to this database), grouped as the dossier groups them (unit.group_objects): [(ids, class, level, point, sources)]
     from urbanstyle.unit import RANK, VAN_OBJECT, group_objects, van_meter_rule
     meter_rule, bays = {}, []      # a city's parking meters' rules, by id; mapped parking bays: (what, point, rule)
-    rows = [(o[0], o[1], "mapillary" if o[0].startswith("mly") else "osm", None, None, o[4]) for o in objs if o[1] in FURNITURE]
+    rows = [(o[0], o[1], "mapillary" if o[0].startswith("mly") else "osm", None, None, o[4]) for o in objs
+            if o[1] in FURNITURE and o[1] != "transit.stop"]        # (a stop has its own part, below)
+    (path,) = con.execute("SELECT path FROM duckdb_databases() WHERE database_name = current_database()").fetchone()
+    stem = path[:-len(".space.duckdb")] if path and path.endswith(".space.duckdb") else None    # the unit's other files sit next to it
     try:
-        (path,) = con.execute("SELECT path FROM duckdb_databases() WHERE database_name = current_database()").fetchone()
-        city = path[:-len(".space.duckdb")] + ".vancouver.json" if path and path.endswith(".space.duckdb") else None
+        city = stem + ".vancouver.json" if stem else None
         if city and os.path.exists(city) and rtree is not None:
-            import json
             import pyproj
             fwd = pyproj.Transformer.from_crs("EPSG:4326", epsg, always_xy=True).transform
             for ds, fc in json.load(open(city)).items():
@@ -269,6 +270,32 @@ def build(con, epsg):
     furniture = [(", ".join(m[0] for m in ms), cls, lv_of.get(ms[0][0], roads[rtree_ids[rtree.nearest(ms[0][2])]]["level"] if rtree is not None else 0),
                   ms[0][2], ", ".join(dict.fromkeys(m[1] for m in ms))) for cls, ms in group_objects(rows, seen_at)]
     ftree = shapely.STRtree([f[3] for f in furniture]) if furniture else None
+    # public transport stops: OSM's (with its tags: name, number, shelter, bench, bin, lit, wheelchair, kerb), each tied to the
+    # timetable's stop of its number (GTFS stop_code = OSM ref; gtfs.py), and the timetable's stops OSM lacks.
+    # [id, point, level, tags, timetable or None, source]
+    from urbanstyle import gtfs as gt
+    stops = [[oid, g(w), lv_of.get(oid, 0), json.loads(a or "{}"), None, "osm"] for oid, w, a in
+             con.execute(f"SELECT object_id, {tr()}, attrs::VARCHAR FROM space.object WHERE class = 'transit.stop'").fetchall()]
+    tt = json.load(open(stem + ".gtfs.json")) if stem and os.path.exists(stem + ".gtfs.json") else {}
+    if tt:
+        import pyproj
+        fwd = pyproj.Transformer.from_crs("EPSG:4326", epsg, always_xy=True).transform
+        by_ref = {st[3].get("ref"): st for st in stops if st[3].get("ref")}
+        for code, t in tt.items():
+            st, pt = by_ref.get(t.get("stop_code") or code), shapely.Point(fwd(t["lon"], t["lat"]))
+            if st is not None:
+                st[4], st[5] = t, "osm, gtfs"
+            elif not any(o[1].distance(pt) <= GTFS_M for o in stops) and rtree is not None:
+                stops.append([f"gtfs{t['stop_id']}", pt, roads[rtree_ids[rtree.nearest(pt)]]["level"],
+                              {"name": t["name"], "ref": t.get("stop_code"), "wheelchair": t.get("wheelchair")}, t, "gtfs"])
+
+    def stop_text(st):
+        """(holds, rule) of a stop: what it has, in OSM's words, and its timetable."""
+        a = st[3]
+        has = [k for k in ("shelter", "bench", "bin") if a.get(k) == "yes"]
+        bits = [", ".join(has) if has else "no shelter, bench or bin mapped"] + [f"{k} {a[k]}" for k in ("lit", "wheelchair", "kerb") if a.get(k)]
+        name = a.get("name") or (st[4] or {}).get("name") or "bus stop"
+        return f"{name}" + (f" ({a['ref']})" if a.get("ref") else "") + ": " + "; ".join(bits), gt.describe(st[4])
     blds = [(lv, g(w)) for lv, w in con.execute(f"SELECT l, {tr()} FROM space.element, generate_series(level_min, level_max) t(l) WHERE type = 'building'").fetchall()]
     btree = shapely.STRtree([b[1] for b in blds]) if blds else None
     cuts = {}
@@ -350,7 +377,8 @@ def build(con, epsg):
             claimed[uid] = precise("union", claimed[uid], new) if uid in claimed else area(new)
         for p in got:
             n = count[uid] = count.get(uid, 0) + 1
-            parts.append((uid, f"{uid}#{n}", level, typ, arm, direction, lane, round(width, 2) if width else None,
+            w_, len_ = strip_size(p)        # a width measured on the way (a lane's, a kerb strip's) wins over the shape's
+            parts.append((uid, f"{uid}#{n}", level, typ, arm, direction, lane, round(width or w_, 2), round(len_ if not width else p.area / width, 1),
                           *(how if isinstance(how, tuple) else PROV.get(how, (how, None))), ref, holds, rule, shapely.to_wkb(p)))
         return shapely.union_all(got) if got else shapely.Polygon()
 
@@ -369,11 +397,9 @@ def build(con, epsg):
         return f"w{roads[e]['osm']}" if e in roads else None
 
     def ordered_by(ctl):
-        """(how, ref) of a stop or give-way line: the signs and signals that order it (OSM's objects, Mapillary's detections), or a rule."""
+        """(how, ref) of a stop or give-way line: the signs and signals that order it (OSM's objects), or a rule."""
         ids = [str(o[0]) for o in ctl if o[0]]
-        if not ids:
-            return "rule", None
-        return ("mapillary" if all(i.startswith("mly") for i in ids) else "osm"), ", ".join(ids)
+        return ("osm", ", ".join(ids)) if ids else ("rule", None)
 
     def zebra(uid, level, poly, walk, how, ref):
         """The white bars of a crosswalk: parallel to the road (square to the walking direction), ZEBRA_BAR_M wide, ZEBRA_GAP_M apart."""
@@ -474,14 +500,25 @@ def build(con, epsg):
         arrow_tips.setdefault((level, cx, cy), []).append([tip[0], tip[1], kind, idx])
         return True
 
+    xw = {}     # level -> every crosswalk as drawn (filled by from_sumo): no arrow is painted on one
+
     def arrow(uid, level, ln, off, t_tip, sgn, arm=None, how="sumo", ref=None):
-        """A direction arrow in a lane (straight on): its tip at `t_tip` along `ln`, `off` m to the left of it, pointing along `ln`
-        (sgn = 1) or back (sgn = -1)."""
+        """A direction arrow in a lane (straight on): its tip at `t_tip` along `ln` or, where the arrow would touch a crosswalk, at the
+        nearest spot along the lane clear of it; `off` m to the left of it, pointing along `ln` (sgn = 1) or back (sgn = -1)."""
         if ln.length < ARROW_M + 1:
             return
-        c = ln.interpolate(t_tip)
-        tx, ty = direction(ln, t_tip)
-        paint_arrow(uid, level, (c.x - ty * off, c.y + tx * off), (tx * sgn, ty * sgn), {"straight"}, arm, how=how, ref=ref)
+        block = xw.get(level)
+        for dt in (0, 2, -2, 4, -4, 6, -6, 8, -8, 10, -10):
+            t = t_tip + dt
+            a, b = (t - ARROW_M, t) if sgn > 0 else (t, t + ARROW_M)        # the arrow's body along the lane
+            if a < 0 or b > ln.length:
+                continue
+            if block is not None and substring(ln, a, b).buffer(1.0).intersects(block):
+                continue
+            c = ln.interpolate(t)
+            tx, ty = direction(ln, t)
+            paint_arrow(uid, level, (c.x - ty * off, c.y + tx * off), (tx * sgn, ty * sgn), {"straight"}, arm, how=how, ref=ref)
+            return
 
     def turn_arrow(uid, level, ap, off, ways, arm=None, ref=None):
         """A turn arrow in a lane coming into a junction, its tip 1 m before the stop position (`ap` runs out from it), `off` m to the
@@ -589,6 +626,10 @@ def build(con, epsg):
         furn = [f for f in ([furniture[k] for k in ftree.query(P)] if ftree is not None else []) if f[2] == level and f[3].within(P)]
         for k, piece in enumerate(polys(P), start=1):
             grp = corner_of(piece, k) if corner_of else None
+            for st in ([] if kerb.is_empty else [st for st in stops if st[2] == level and st[1].distance(piece) <= 1.0]):
+                held, tt_ = stop_text(st)     # a bus stop's waiting area, by the kerb at its pole
+                add(uid, level, "bus stop", safe("intersection", piece, safe("intersection", kerb.buffer(STOP_WAIT_M), st[1].buffer(STOP_AREA_M))),
+                    (st[5], "derived"), arm=grp, ref=st[0], holds=held, rule=tt_)
             here = [f for f in furn if f[3].within(piece)]
             if here and not kerb.is_empty:
                 d = min(max(sorted(f[3].distance(kerb) for f in here)[int(0.8 * (len(here) - 1))] + 0.6, 0.8), 4.0)
@@ -785,7 +826,18 @@ def build(con, epsg):
                     continue
                 base = substring(base, KERB_RADIUS_M, base.length - KERB_RADIUS_M)
                 poly = base.buffer(sgn * w_, single_sided=True, cap_style="flat")
-                sh.append(dict(edge=edge, w=w_, level=x["level"], poly=poly, base=base, kind=parking_of(poly, edge, sgn < 0)))
+                zones = []      # where a bus stops at this kerb: behind its stop pole (the lane runs in the travel direction)
+                for st in stops:
+                    if st[2] == x["level"] and st[1].distance(poly) <= STOP_KERB_M:
+                        t = base.project(st[1])
+                        z = substring(base, max(t - BUS_ZONE_M, 0), min(t + 2.0, base.length)).buffer(sgn * w_, single_sided=True, cap_style="flat")
+                        held, tt_ = stop_text(st)
+                        zones.append(z)
+                        sh.append(dict(edge=edge, w=w_, level=x["level"], poly=z, base=base,
+                                       kind=("bus zone", (st[5], "derived"), held, "no parking: buses stop here" + (f"; {tt_}" if tt_ else ""), [])))
+                rest = safe("difference", poly, shapely.union_all(zones)) if zones else poly
+                for r in (polys(rest) if zones else [poly]):
+                    sh.append(dict(edge=edge, w=w_, level=x["level"], poly=r, base=base, kind=parking_of(r, edge, sgn < 0)))
         votes = {}      # a junction is on the level of the roads that meet there
         for edge, ends in net["ends"].items():
             for j in ends:
@@ -884,6 +936,34 @@ def build(con, epsg):
         def longest(geom):
             return max((x for x in shapely.get_parts(shapely.line_merge(geom) if geom.geom_type == "MultiLineString" else geom)
                         if x.geom_type == "LineString" and not x.is_empty), key=lambda x: x.length, default=None)
+
+        # every crosswalk of a level as drawn (a mapped crossing path, 3 m wide; a crossing point, a band across its road): a lane's
+        # stop position is before it, whichever space it lies in
+        bands, xpaths = {}, {}
+        for typ, sub_, lv, ln in paths:
+            if sub_ == "crossing":
+                xpaths.setdefault(lv, []).append(ln)
+                if typ == "walkway":
+                    bands.setdefault(lv, []).append(ln.buffer(CROSSWALK_M / 2, cap_style="flat"))
+        for oid, cls, lv, ctl, p in objs:       # a crossing point: only where no crossing is mapped as a path (as crossings() draws it)
+            if cls.startswith("crossing.") and rtree is not None and not any(p.distance(m) < SAME_CROSSING_M for m in xpaths.get(lv, [])):
+                r = roads[rtree_ids[rtree.nearest(p)]]["g"]
+                tx, ty = direction(r, r.project(p))
+                bands.setdefault(lv, []).append(shapely.LineString([(p.x - ty * 15, p.y + tx * 15), (p.x + ty * 15, p.y - tx * 15)])
+                                                .buffer(CROSSWALK_M / 2, cap_style="flat"))
+        xw.update({lv: shapely.union_all(v) for lv, v in bands.items()})
+
+        def stop_at(back, level, jpolys):
+            """How far back along a lane (`back` runs from the junction) its stop line stands: STOP_GAP_M before the crosswalk it crosses
+            within STOP_REACH_M; with none, where it leaves the junction (SUMO's junction shape, which can reach far back where a road's
+            last piece is short: it is the reference only when there is no crosswalk)."""
+            near = substring(back, 0, min(STOP_REACH_M, back.length))
+            far = lambda blocked: max((back.project(shapely.Point(q)) for seg in shapely.get_parts(safe("intersection", near, blocked))
+                                       if seg.geom_type == "LineString" for q in seg.coords), default=None)
+            at = far(xw[level]) if level in xw else None
+            if at is not None:
+                return min(at + STOP_GAP_M, back.length)
+            return min((far(shapely.union_all(jpolys)) or 0.0) + 0.3, back.length)
 
         for uid, kind, sec, level, U in units:
             rb, sub = kind == "roundabout", kind == "subsection"
@@ -984,20 +1064,22 @@ def build(con, epsg):
                         turn_rows.append((uid, level, elem_of[x["edge"]], x["i"] + 1, elem_of.get(t, t), tl + 1, w_, "sumo", veh,
                                           cond.get((str(x["edge"]), str(t))), shapely.to_wkb(g_)))
                 back = lane_back(x)                                           # from the junction back along the lane
+                s_stop = stop_at(back, level, [j["poly"] for j in jq if j["id"] in jhere])
+                ap = substring(back, s_stop, back.length)                     # the lane behind its stop line: the arrows' place
                 ways_all = {m[2] for m in moves if m[4] is None}              # the arrow shows the ways open to all traffic (not a bus-only turn)
-                painted = bool(ways_all and back.length >= ARROW_M + 1 and not rb and
-                               turn_arrow(unit_at(back.interpolate(1.0), level, uid), level, back, 0.0, ways_all, arm, ref=wref(x["edge"])))
+                painted = bool(ways_all and ap.length >= ARROW_M + 1 and not rb and
+                               turn_arrow(unit_at(ap.interpolate(1.0), level, uid), level, ap, 0.0, ways_all, arm, ref=wref(x["edge"])))
                 why = (None if painted else "no move" if not moves else "roundabout" if rb else "for some vehicles only" if not ways_all
-                       else "lane piece under 4 m" if back.length < ARROW_M + 1 else "another arrow in the way")
+                       else "lane piece under 4 m" if ap.length < ARROW_M + 1 else "another arrow in the way")
                 approach_rows.append((uid, level, elem_of[x["edge"]], x["i"] + 1, len(moves), ",".join(sorted(ways_all)), painted, why))
                 end = shapely.Point(x["ln"].coords[-1])
                 near = [objs[k] for k in otree.query(end.buffer(CONTROL_M))] if otree is not None else []
                 ctl = [o for o in near if o[3] and o[2] == level and o[4].distance(x["ln"]) <= x["w"] + 6]
                 if rb:
                     ctl = [(None, None, level, "give_way", None)]      # at a roundabout every entry gives way to the ring
-                if ctl:
-                    t0 = max(x["ln"].length - 0.3, 0)
-                    c, (tx, ty), h = x["ln"].interpolate(t0), direction(x["ln"], t0), x["w"] / 2
+                if ctl:         # at the stop position: before the crosswalk, out of the junction
+                    c, (bx, by), h = back.interpolate(s_stop), direction(back, s_stop), x["w"] / 2
+                    tx, ty = -bx, -by
                     mark(unit_at(c, level, uid), level, "give-way line" if all(o[3] == "give_way" for o in ctl) else "stop line",
                          shapely.LineString([(c.x - ty * h, c.y + tx * h), (c.x + ty * h, c.y - tx * h)]), arm, *ordered_by(ctl))
             # widths: at each arm's cut, or across the middle of a subsection
@@ -1221,7 +1303,7 @@ def build(con, epsg):
         rdf = pd.DataFrame([(u, shapely.to_wkb(g)) for u, g in reshaped.items()], columns=["unit_id", "wkb"])
         con.execute(f"""UPDATE space.unit u SET geometry = ST_Transform(ST_GeomFromWKB(r.wkb::BLOB), '{epsg}', 'EPSG:4326', always_xy := true)
                         FROM rdf r WHERE u.unit_id = r.unit_id""")
-    pdf = pd.DataFrame(parts, columns=["unit_id", "part_id", "level", "type", "arm", "direction", "lane", "width_m", "source", "method", "ref", "holds",
+    pdf = pd.DataFrame(parts, columns=["unit_id", "part_id", "level", "type", "arm", "direction", "lane", "width_m", "length_m", "source", "method", "ref", "holds",
                                        "rule", "wkb"])
     mdf = pd.DataFrame([m for m in marks if m is not None], columns=["unit_id", "level", "type", "arm", "length_m", "source", "method", "ref", "wkb"])   # None: an arrow replaced
     wdf = pd.DataFrame(widths, columns=["unit_id", "level", "edge", "arm", "total_m", "carriageway_m", "left_m", "right_m", "lanes_in", "lanes_out",
@@ -1231,7 +1313,7 @@ def build(con, epsg):
     # lighting, the road's lane count. Where OSM says nothing, a stated default: 50 km/h, the limit in built-up areas in Canada, Sweden
     # and Monaco (not on a motorway), and asphalt; each value says where it comes from
     con.execute(f"""CREATE OR REPLACE TABLE space.part AS SELECT p.unit_id, p.part_id, p.level::INT AS level, p.type, p.arm, p.direction,
-                    p.lane::INT AS lane, p.width_m::DOUBLE AS width_m, p.source, p.method, p.ref::VARCHAR AS ref,
+                    p.lane::INT AS lane, p.width_m::DOUBLE AS width_m, p.length_m::DOUBLE AS length_m, p.source, p.method, p.ref::VARCHAR AS ref,
                     e.name AS road, e.class AS road_class,
                     CASE WHEN e.osm_id IS NULL THEN NULL WHEN w.tags['maxspeed'] IS NOT NULL THEN w.tags['maxspeed'] || ' (OSM)'
                          WHEN e.class LIKE 'motorway%' THEN NULL ELSE '50 km/h (default in built-up areas; not in OSM)' END AS speed,

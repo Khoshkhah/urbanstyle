@@ -39,7 +39,9 @@ The order of work: `docs/plan.md`.
   U1-U10 test them; U11-U13 report the lanes entering each junction (`space.approach`).
 - `src/urbanstyle/mapillary.py`: `urbanstyle mapillary DB [--osm OSM]` fetches Mapillary's features and photos into `DB.mapillary.json`
   (token: `$MAPILLARY_TOKEN` or `~/.config/mapillary/token`, never in the repo) and loads `space.observed` / `space.photo`; `build`
-  loads that file when present (`docs/design/mapillary.md`). CC BY-SA: the data stays local.
+  loads that file when present (`docs/design/mapillary.md`). CC BY-SA: the data stays local. Mapillary is for validation only
+  (`unit.CONFIRM_ONLY`, 2026-10-10): it builds no object, part or line; it confirms the objects of sources with real positions, and what
+  it alone sees is a `check` row; on the page it is hidden until "Mapillary detections (validation)" is ticked.
 - `src/urbanstyle/cli.py`: the `urbanstyle build | check | quality | dashboard | mapillary` command.
 - `docs/`: the MkDocs site (`mkdocs.yml`); `docs/design/` the design notes. `docs/img/sodermalm.jpg` and `section.jpg` are screenshots of the dashboard
   (`viz/sodermalm-rs0.18.1.html` and `#c=s0-1277220079715399641`, 1600 × 1000): pictures in the docs come from the
@@ -94,7 +96,9 @@ mkdocs build --strict                                  # needs pip install ".[do
   height (`space.element.floors`, `height_m`: before levels are clamped to -2..2), bridge decks 6 m a level, one model per street
   object (`matched_objects`: OSM, Mapillary and a city's survey matched by `unit.match`; `furniture_3d`). In 3D a hover lights a lane,
   kerb, building or object and names its type; a click selects it and opens its popup (the same fields as in 2D: OBJ_POPUP,
-  BLD_POPUP, the Parts popup); Esc, a second click or closing the popup deselects. 2D overlays' wanted visibility is roadstyle's
+  BLD_POPUP, the Parts popup); Esc, a second click or closing the popup deselects. A hover lights a thing only once the mouse rests on it
+  300 ms (HOVER_MS; in 2D roadstyle's `hover_delay_ms`). Street View in 3D: every click moves an open window to the nearest road (svHere),
+  because 3D hides the road lines roadstyle's Street View follows. 2D overlays' wanted visibility is roadstyle's
   `ov.visible`; a 3D layer is never drawn in 2D. Terrain only when "rough terrain" is ticked: the public AWS Terrain Tiles (~30 m) are
   too coarse for Monaco and broke the map; needs a 1-5 m terrain.
 - Heavy imports (shapely, pandas, geopandas, roadstyle) stay inside functions so the CLI starts fast.

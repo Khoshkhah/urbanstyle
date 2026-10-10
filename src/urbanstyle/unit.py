@@ -41,6 +41,9 @@ VAN_OTHER = ("traffic-signals", "disability-parking", "right-of-way-widths", "bi
 
 MATCH_M = 10.0      # objects of one class from two sources this close are one real object (Mapillary's positions are 1-5 m off, often more)
 RANK = {"vancouver": 0, "nvdb": 1, "osm": 2, "mapillary": 3}   # whose position a matched object takes: a city's survey, a map, photos
+# sources whose positions are too rough to make an object (Mapillary's street lights lie a median 6 m from the city's surveyed poles,
+# 20 % more than 11 m, at Broadway x Granville): they only confirm an object of another source; one they alone see is a check
+CONFIRM_ONLY = {"mapillary"}
 
 
 # how good a city record's position is, in the city's own words (each dataset's "Data accuracy" note, read 2026-10-09): surveyed
@@ -110,11 +113,14 @@ def match(con, seen):
     """`match`: one row per real object, the objects of all sources that stand for it (`object.match_id`). Objects of one class within
     MATCH_M of a member join it, nearest first, at most one per source; except that two Mapillary features seen in periods that do not
     overlap (`seen`: id -> (first, last)) are one object detected again from newer photos. Position and height from the best source
-    (RANK); confidence: any one of its sources right (1 - product of 1 - confidence)."""
+    (RANK); confidence: any one of its sources right (1 - product of 1 - confidence). A group only CONFIRM_ONLY sources see is no
+    object: returned, [(class, [members])], for the caller's checks."""
     import shapely
     rows = [(oid, cls, src, h, conf, shapely.from_wkb(bytes(wkb))) for oid, cls, src, h, conf, wkb in
             con.execute("SELECT object_id, class, source, height_m, confidence::DOUBLE, ST_AsWKB(geometry) FROM object").fetchall()]
     groups = group_objects(rows, seen)
+    alone = [g for g in groups if all(m[1] in CONFIRM_ONLY for m in g[1])]
+    groups = [g for g in groups if not all(m[1] in CONFIRM_ONLY for m in g[1])]
     con.execute("ALTER TABLE object ADD COLUMN match_id VARCHAR")
     con.execute("""CREATE TABLE match (match_id VARCHAR, class VARCHAR, n_sources INT, sources VARCHAR, refs VARCHAR, height_m DOUBLE,
                    confidence DOUBLE, geometry GEOMETRY)""")
@@ -129,6 +135,7 @@ def match(con, seen):
         links += [(mid, m[0]) for m in ms]
     con.executemany("INSERT INTO match VALUES (?, ?, ?, ?, ?, ?, ?, ST_GeomFromWKB(?))", out)
     con.executemany("UPDATE object SET match_id = ? WHERE object_id = ?", links)
+    return alone
 
 
 def clip(src, out, lon, lat, radius=CLIP_M):
@@ -183,7 +190,7 @@ def opendata_vancouver(lon, lat, out, radius=CLIP_M):
     return out
 
 
-def dossier(space_db, osm_db, unit_id, out, name, city, nvdb=None, flows=None, mapillary_json=None, vancouver_json=None):
+def dossier(space_db, osm_db, unit_id, out, name, city, nvdb=None, flows=None, mapillary_json=None, vancouver_json=None, gtfs=None):
     """The unit's dossier from a built neighbourhood (`space_db`, urbanstyle's tables) and the other sources."""
     import duckdb
     if os.path.exists(out):
@@ -212,6 +219,8 @@ def dossier(space_db, osm_db, unit_id, out, name, city, nvdb=None, flows=None, m
         sources.append(("mapillary", "Mapillary map features and photos", "https://www.mapillary.com", "CC BY-SA 4.0", "observed"))
     if flows:
         sources.append(("flows", "Hourly flows per edge (sensor-matching: Trafikverket, Stockholm tube counts)", flows, "per source", "surveyed"))
+    if gtfs:
+        sources.append(("gtfs", "Public transport timetable (GTFS)", gtfs, "the operator's open data terms", "recorded"))
     if vancouver_json:
         sources.append(("vancouver", "City of Vancouver open data: " + ", ".join((*VAN_OBJECT, *VAN_OTHER)), VAN_API,
                         "Open Government Licence - Vancouver", "per dataset (VAN_METHOD)"))
@@ -235,8 +244,8 @@ def dossier(space_db, osm_db, unit_id, out, name, city, nvdb=None, flows=None, m
 
     # surfaces and lines: urbanstyle's parts and marks of the unit, each part with its source, method and the source's id (parts.PROV)
     ccase = "CASE method " + " ".join(f"WHEN '{k}' THEN {v}" for k, v in CONFIDENCE.items()) + " ELSE 0.3 END"
-    con.execute(f"""CREATE TABLE surface AS SELECT part_id AS surface_id, type, direction, arm, lane, width_m,
-                    CASE WHEN type IN ('sidewalk', 'furnishing', 'open') THEN 0.15 WHEN type = 'island' THEN 0.2 ELSE 0.0 END AS top_m,
+    con.execute(f"""CREATE TABLE surface AS SELECT part_id AS surface_id, type, direction, arm, lane, width_m, length_m,
+                    CASE WHEN type IN ('sidewalk', 'furnishing', 'open', 'bus stop') THEN 0.15 WHEN type = 'island' THEN 0.2 ELSE 0.0 END AS top_m,
                     road, road_class, speed, surface, lit, holds, rule,
                     coalesce(source, 'urbanstyle') AS source, coalesce(method, 'estimated') AS method, ref, {ccase} AS confidence,
                     {m('geometry')} AS geometry FROM sp.space.part WHERE unit_id = '{unit_id}'""")
@@ -336,15 +345,20 @@ def dossier(space_db, osm_db, unit_id, out, name, city, nvdb=None, flows=None, m
         seen = {k: (a, b) for k, a, b in con.execute("SELECT 'mly' || feature_id, first_seen, last_seen FROM sp.space.observed").fetchall()}
     except duckdb.CatalogException:
         seen = {}
-    match(con, seen)
+    alone = match(con, seen)
     con.execute("""CREATE TABLE "check" (item_table VARCHAR, item_id VARCHAR, how VARCHAR, result VARCHAR, note VARCHAR, by_whom VARCHAR, on_date VARCHAR)""")
+    # validation: what Mapillary's photos show that no source with a real position has (a missing object, or a detection far off)
+    con.executemany("""INSERT INTO "check" VALUES ('object', ?, ?, 'not confirmed', ?, 'urbanstyle', ?)""",
+                    [(", ".join(m[0] for m in ms), f"Mapillary detections ({len(ms)}) with no surveyed or mapped {cls} within {MATCH_M:.0f} m",
+                      "seen " + ", ".join("..".join(f"{d:%Y-%m-%d}" if d else "?" for d in seen.get(m[0], (None, None))) for m in ms), today)
+                     for cls, ms in alone])
     from urbanstyle.inventory import inventory
     inventory(con, mapillary_json if mapillary_json and os.path.exists(mapillary_json) else None,
               vancouver_json if vancouver_json and os.path.exists(vancouver_json) else None)   # what each source holds, what reaches us
     return con
 
 
-def main(name, lon, lat, osm, nvdb=None, flows=None, city="", mapillary=True, vancouver=False):
+def main(name, lon, lat, osm, nvdb=None, flows=None, city="", mapillary=True, vancouver=False, gtfs=None):
     """Clip, build and write the dossier of the unit holding the junction nearest (lon, lat)."""
     from urbanstyle.container import build, with_features
     os.makedirs("data/units", exist_ok=True)
@@ -353,6 +367,10 @@ def main(name, lon, lat, osm, nvdb=None, flows=None, city="", mapillary=True, va
     clip(osm, base + ".osm.duckdb", lon, lat)
     if vancouver:
         opendata_vancouver(lon, lat, base + ".vancouver.json")
+    if gtfs:            # the stops' routes and buses per hour, read by parts.py next to the space database
+        from urllib.parse import urlparse
+        from urbanstyle import gtfs as gt
+        gt.stops_near(gt.fetch(gtfs, f"data/gtfs/{urlparse(gtfs).netloc}.zip"), lon, lat, CLIP_M * 1.5, base + ".gtfs.json")
     if mapillary:
         from urbanstyle import mapillary as mly
         r = CLIP_M / 111320
@@ -363,7 +381,7 @@ def main(name, lon, lat, osm, nvdb=None, flows=None, city="", mapillary=True, va
                           [lon, lat]).fetchone()[0]
     con.close()
     d = dossier(base + ".space.duckdb", base + ".osm.duckdb", unit_id, base + ".duckdb", name, city, nvdb, flows,
-                base + ".space.duckdb.mapillary.json" if mapillary else None, base + ".vancouver.json" if vancouver else None)
+                base + ".space.duckdb.mapillary.json" if mapillary else None, base + ".vancouver.json" if vancouver else None, gtfs)
     counts = {t: d.execute(f'SELECT count(*) FROM "{t}"').fetchone()[0] for t in
               ("unit", "source", "road", "surface", "line", "object", "match", "lane", "movement", "rule", "observation", "check")}
     print(f"{name}: unit {unit_id} -> {base}.duckdb")

@@ -54,34 +54,31 @@ def poi_use(t):
     return None
 
 
-def city_stores(path, fwd):
-    """A city's storefronts of its latest inventory year: [(use, name, what, point)]."""
-    import shapely
+def city_stores(path):
+    """A city's storefronts of its latest inventory year: [(use, name, what, (lon, lat))]."""
     fc = json.load(open(path)).get("storefronts-inventory", {}).get("features", [])
     year = max((f["properties"].get("year_recorded") or "" for f in fc), default=None)
     return [(CITY.get(p.get("general_business_category"), "retail"), p.get("business_name"),
              f"{p.get('business_name')} ({p.get('general_business_category')}, {year})",
-             shapely.Point(fwd(*f["geometry"]["coordinates"][:2])))
+             tuple(f["geometry"]["coordinates"][:2]))
             for f in fc if f["geometry"] and (p := f["properties"]).get("year_recorded") == year]
 
 
 def build(con, epsg):
     """Add use, use_source, use_method, ground_use, ground_source, ground_method and uses to the buildings of space.element."""
     import duckdb
-    import pyproj
     import shapely
-    from shapely.ops import transform
-    fwd = pyproj.Transformer.from_crs("EPSG:4326", epsg, always_xy=True).transform
-    bld = con.execute("""SELECT source_id, ST_AsWKB(geometry), b.tags FROM space.element e
+    m = lambda g: f"ST_AsWKB(ST_Transform({g}, 'EPSG:4326', '{epsg}', always_xy := true))"     # lon/lat -> metres
+    bld = con.execute(f"""SELECT source_id, {m('geometry')}, b.tags FROM space.element e
                          LEFT JOIN osm.features.buildings b ON e.source_id = left(b.osm_type, 1) || b.osm_id
                          WHERE e.type = 'building'""").fetchall()
     ids = [r[0] for r in bld]
-    geoms = [transform(fwd, shapely.from_wkb(r[1])) for r in bld]
+    geoms = [shapely.from_wkb(r[1]) for r in bld]
     tags = [dict(r[2] or {}) for r in bld]
     tree = shapely.STRtree(geoms)
     found = [[] for _ in bld]       # per building: (use, source, method, what, ground floor?, OSM name)
     try:
-        pois = con.execute("SELECT tags, ST_AsWKB(geom) FROM osm.features.pois").fetchall()
+        pois = con.execute(f"SELECT tags, {m('geom')} FROM osm.features.pois").fetchall()
     except duckdb.CatalogException:     # a database without duckOSM's points of interest
         pois = []
     for t, w in pois:
@@ -89,14 +86,18 @@ def build(con, epsg):
         u = poi_use(t)
         if u is None:
             continue
-        p = transform(fwd, shapely.from_wkb(w))
+        p = shapely.from_wkb(w)
         for k in tree.query(p, predicate="within"):
             ground = (t.get("level") or "0").split(";")[0].strip() in ("0", "")
             found[k].append((u, "osm", "mapped", f"{t.get('name') or u} (OSM)", ground, (t.get("name") or "").lower()))
     (path,) = con.execute("SELECT path FROM duckdb_databases() WHERE database_name = current_database()").fetchone()
     city = path[:-len(".space.duckdb")] + ".vancouver.json" if path and path.endswith(".space.duckdb") else None
     if city and os.path.exists(city):
-        for u, name, what, p in city_stores(city, fwd):
+        stores = city_stores(city)
+        pts = con.execute(f"SELECT {m('ST_Point(x, y)')} FROM (SELECT unnest(?::DOUBLE[]) AS x, unnest(?::DOUBLE[]) AS y)",
+                          [[st[3][0] for st in stores], [st[3][1] for st in stores]]).fetchall() if stores else []
+        for (u, name, what, _), (w,) in zip(stores, pts):
+            p = shapely.from_wkb(w)
             k = tree.query_nearest(p, max_distance=STORE_M)
             if not len(k):
                 continue

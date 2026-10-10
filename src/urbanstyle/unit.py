@@ -329,6 +329,9 @@ def dossier(space_db, osm_db, unit_id, out, name, city, nvdb=None, flows=None, m
         seen = {}
     match(con, seen)
     con.execute("""CREATE TABLE "check" (item_table VARCHAR, item_id VARCHAR, how VARCHAR, result VARCHAR, note VARCHAR, by_whom VARCHAR, on_date VARCHAR)""")
+    from urbanstyle.inventory import inventory
+    inventory(con, mapillary_json if mapillary_json and os.path.exists(mapillary_json) else None,
+              vancouver_json if vancouver_json and os.path.exists(vancouver_json) else None)   # what each source holds, what reaches us
     return con
 
 

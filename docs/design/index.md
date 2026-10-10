@@ -4,6 +4,8 @@
 
 - [One unit in full (proposal)](unit-dossier.md): the new direction: one intersection or street section with every source, in a
   structure with provenance; three units in Stockholm and Vancouver.
+- [What the sources hold (proposal)](source-inventory.md): every source around a unit counted against what reaches our
+  tables (the dossier's `inventory`), the gaps by topic (parking, bus stops, building use, ...) and a general rule for each.
 - [Street space](street-space.md): **read first.** Definitions, sources, the cross-section algorithm, levels,
   containers, zones, rail and stations, links between levels, parameters and results.
 - [Street space specification](street-space-spec.md): sections and intersections as a formal partition, its

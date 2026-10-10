@@ -12,17 +12,18 @@ W 4th Ave (Vancouver).
 
 | step | state |
 |---|---|
-| 1. Source inventory per unit | Skanstull, Broadway x Granville done ([units](units/skanstull.md)); W 4th Ave not started |
+| 1. Source inventory per unit | Skanstull, Broadway x Granville done ([units](units/skanstull.md)); W 4th Ave not started. Now counted by the dossier itself (`inventory`: what each source holds, what reaches us); the gaps it found and the rules proposed for them: [What the sources hold](design/source-inventory.md) |
 | 2. The dossier: every layer a source covers, with source, method, ref, confidence | Broadway x Granville and Skanstull built (`urbanstyle unit`). Matching of objects across sources (OSM, Mapillary, a city's survey), the city's own accuracy as the method, turn rules with exceptions, conditions, vehicle classes and via ways (duckOSM), lanes with their road's information. Not loaded yet: storefronts, Vancouver's 2009 building heights, the turning counts behind VanMap; Stockholm's city data and orthophoto need a key and a login |
-| 3. Judged against reality: each difference a row in `check` | not started |
+| 3. Judged against reality: each difference a row in `check` | begun on Broadway x Granville against the city's aerial photo, Mapillary and its traffic cameras: a false median (fixed: divided roads centred on their lines), a fresh map (2026-10-09) exposing crosswalk nodes and a bridge deck at junctions (fixed); the city's turn-rule register disagrees with OSM on the southbound left (to become an automatic check) |
 | 4. The recipe: each step, by machine or by hand, and what a whole city would take | not started |
 
 Built for it on the way: the dashboard as two views of the same data (2D a map, 3D the street at real size, every item selectable
 with its sources), real road widths (two-way roads had half) and building heights, whole crosswalks in their junction, the checks
 U11-U13 on the lanes entering a junction.
 
-**Next, in order:** compare Broadway x Granville with reality (Mapillary photos, the city's turning counts) and fill `check`; the
-W 4th Ave unit (a street section: parking, trees, furniture); then the recipe.
+**Next, in order:** the gaps of [What the sources hold](design/source-inventory.md), once agreed: parking, bus stops, building
+use, crossing and kerb details, every Mapillary class, the city's turn rules as automatic checks, land cover and lidar; then the
+W 4th Ave unit; then the recipe.
 
 ## Where it stood (2026-10-08, the city-wide work, paused)
 

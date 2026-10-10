@@ -65,7 +65,8 @@ def _get(endpoint, bbox, fields, tok):
 
 
 def fetch(bbox, path):
-    """Fetch the kept map features and all photo positions in bbox (w, s, e, n) into the json file `path`."""
+    """Fetch every map feature (all classes: the unit's source inventory counts them; `load` keeps ours) and all photo positions in
+    bbox (w, s, e, n) into the json file `path`."""
     tok, feats, photos = token(), {}, {}
     w, s, e, n = bbox
     y = s
@@ -74,8 +75,7 @@ def fetch(bbox, path):
         while x < e:
             b = (x, y, min(x + STEP, e), min(y + STEP, n))
             for r in _get("map_features", b, "id,object_value,geometry,first_seen_at,last_seen_at", tok):
-                if group(r["object_value"]):
-                    feats[r["id"]] = r
+                feats[r["id"]] = r
             for r in _get("images", b, "id,captured_at,geometry,compass_angle,is_pano,sequence", tok):
                 photos[r["id"]] = r
             x += STEP
@@ -96,10 +96,11 @@ def load(con, path):
                        for p in d["photos"]], columns=["photo_id", "captured", "compass", "is_pano", "sequence", "lon", "lat"])
     con.execute("CREATE SCHEMA IF NOT EXISTS space")
     con.execute("""CREATE OR REPLACE TABLE space.observed AS SELECT feature_id::VARCHAR AS feature_id, class, grp, left(first_seen, 19)::TIMESTAMP AS first_seen,
-                   left(last_seen, 19)::TIMESTAMP AS last_seen, 'mapillary' AS source, ST_Point(lon, lat) AS geometry FROM obs""")
+                   left(last_seen, 19)::TIMESTAMP AS last_seen, 'mapillary' AS source, ST_Point(lon, lat) AS geometry FROM obs
+                   WHERE grp IS NOT NULL""")     # the classes we use (GROUPS)
     con.execute("""CREATE OR REPLACE TABLE space.photo AS SELECT photo_id::VARCHAR AS photo_id, make_timestamp(captured::BIGINT * 1000) AS captured,
                    compass, is_pano, sequence, ST_Point(lon, lat) AS geometry FROM ph""")
-    return len(obs), len(ph)
+    return int(obs.grp.notna().sum()), len(ph)
 
 
 def main(db, osm=None):

@@ -52,6 +52,7 @@ nav:
   - Design notes:
       - design/index.md
       - One unit in full (proposal): design/unit-dossier.md
+      - What the sources hold (proposal): design/source-inventory.md
       - Street space: design/street-space.md
       - Specification: design/street-space-spec.md
       - Sections and intersections v2: design/section-intersection-v2.md

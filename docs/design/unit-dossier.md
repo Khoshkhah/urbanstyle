@@ -29,6 +29,9 @@ only. Vancouver becomes a pilot area for this purpose (a roadmap step, `docs/pla
 For each unit, every source is checked and recorded: **what it gives here, how precise, how recent, its licence, and whether it
 can be fetched automatically.** The table is a result in itself: it shows what is knowable about one piece of street.
 
+Built (2026-10-09): the dossier's `inventory` table counts, for every source, what it holds around the unit and how much of it
+reaches our tables; the gaps it found and the rules proposed for them are in [What the sources hold](source-inventory.md).
+
 | source | Stockholm | Vancouver | gives (to check per unit) |
 |---|---|---|---|
 | OpenStreetMap (duckOSM) | ✓ | ✓ | roads, tags (lanes, width, sidewalks), crossings, some objects |

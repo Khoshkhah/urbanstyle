@@ -13,6 +13,7 @@ from pathlib import Path
 
 def keys_read():
     """The OSM keys our code reads: tags['key'] in urbanstyle's and duckOSM's source, the object attrs kept (OBJECT_ATTRS)."""
+    from urbanstyle.buildings import KEYS
     from urbanstyle.container import OBJECT_ATTRS
     files = list(Path(__file__).parent.glob("*.py"))
     try:
@@ -22,7 +23,7 @@ def keys_read():
         pass
     pat = re.compile(r"""tags\[\s*['"]([\w:]+)['"]\s*\]|tags->>\s*'([\w:]+)'|\$\.([\w:]+)""")
     found = {g for f in files for m in pat.finditer(f.read_text(errors="ignore")) for g in m.groups() if g}
-    return found | set(OBJECT_ATTRS)
+    return found | set(OBJECT_ATTRS) | set(KEYS)
 
 
 def top(counter, k=3):

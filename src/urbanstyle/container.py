@@ -903,8 +903,9 @@ def build(osm, out):
     con.execute(STATIONS)
     con.execute(LINKS.format(name_m=ENTRANCE_NAME_M, near_m=ENTRANCE_NEAR_M))
     con.execute(OBJECTS.format(lo=LEVELS[0], hi=LEVELS[1], epsg=epsg, near_m=OBJECT_NEAR_M, attrs=list(OBJECT_ATTRS)))
-    from . import parts, spaces, strips, subsections  # lazy: shapely
+    from . import buildings, parts, spaces, strips, subsections  # lazy: shapely
     strips.build(con, epsg)
+    buildings.build(con, epsg)     # what each building is used for, its ground floor too
     subsections.build(con, epsg)   # the network-first partition (preview): roads divided into subsections, then one space each
     spaces.build(con, epsg)
     if os.path.exists(out + ".mapillary.json"):     # street-level observations fetched earlier (`urbanstyle mapillary`)

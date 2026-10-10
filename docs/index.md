@@ -16,6 +16,8 @@ pip install "urbanstyle[dashboard] @ git+https://github.com/Khoshkhah/urbanstyle
 urbanstyle build monaco.duckdb data/monaco.duckdb        # duckOSM in, space schema out
 urbanstyle check data/monaco.duckdb                      # invariants: PASS / FAIL
 urbanstyle dashboard data/monaco.duckdb viz/monaco.html  # offline map + tree
+urbanstyle unit broadway-granville --at -123.138546 49.263611 --osm vancouver_city.duckdb --vancouver \
+    --gtfs https://gtfs-static.translink.ca/gtfs/google_transit.zip           # one unit in full: data/units/<name>.duckdb
 ```
 
 urbanstyle is the newest member of a family of tools on the same data. [duckOSM](https://github.com/Khoshkhah/duckOSM)
@@ -71,6 +73,16 @@ between the buildings: what a street is made of, where one ends and the next beg
 Click a section in the dashboard: the panel lists its strips with their areas and the objects inside it, and the
 map shows the buildings that bound it. Every square metre of open ground at a level belongs to exactly one
 container. The words are in the [glossary](design/glossary.md).
+
+## Now: one unit in full
+
+Since 2026-10-09 the city-wide partition is paused, and one unit is built with everything every source knows: W Broadway ×
+Granville St in Vancouver ([the unit](units/broadway-granville.md)). `urbanstyle unit` clips the neighbourhood, builds it and
+writes the unit's dossier, every item with its source, method and confidence ([One unit in full](design/unit-dossier.md)):
+lanes and turns from SUMO, kerbs and markings, parking with its meters' rules, bus stops with their timetable, street objects
+matched across OSM, the city's survey and Mapillary, and each building's use and ground-floor use (OSM's tag, the shops inside,
+the city's storefronts). The dashboard shows it in 2D (a map) and in 3D (the street at real size, every item selectable).
+What each source holds, and the rule each gap became: [What the sources hold](design/source-inventory.md).
 
 ## Where next
 

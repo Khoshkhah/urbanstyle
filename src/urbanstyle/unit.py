@@ -37,7 +37,8 @@ VAN_OBJECT = {"public-trees": "vegetation.tree", "street-lighting-poles": "furni
               "wayfinding-map-stands": "furniture.map_stand", "sewer-manholes": "utility.manhole", "sewer-catch-basins": "utility.catch_basin",
               "street-lighting-junction-boxes": "utility.junction_box"}
 VAN_OTHER = ("traffic-signals", "disability-parking", "right-of-way-widths", "bikeways", "sidewalk-condition-rating", "pavement-condition-rating",
-             "pavement-condition-rating-major-road-network-2023", "intersection-traffic-movement-counts", "directional-traffic-count-locations")
+             "pavement-condition-rating-major-road-network-2023", "intersection-traffic-movement-counts", "directional-traffic-count-locations",
+             "storefronts-inventory")
 
 MATCH_M = 10.0      # objects of one class from two sources this close are one real object (Mapillary's positions are 1-5 m off, often more)
 RANK = {"vancouver": 0, "nvdb": 1, "osm": 2, "mapillary": 3}   # whose position a matched object takes: a city's survey, a map, photos

@@ -41,6 +41,8 @@ duckosm build --pbf monaco-latest.osm.pbf -o monaco.duckdb -m driving -m walking
 urbanstyle build monaco.duckdb data/monaco.duckdb         # ~1 min for Monaco
 urbanstyle check data/monaco.duckdb                       # the partition invariants: PASS / FAIL
 urbanstyle dashboard data/monaco.duckdb viz/monaco.html   # an offline map with the hierarchy tree
+urbanstyle unit broadway-granville --at -123.138546 49.263611 --osm vancouver_city.duckdb --vancouver \
+    --gtfs https://gtfs-static.translink.ca/gtfs/google_transit.zip           # one unit in full: data/units/<name>.duckdb
 ```
 
 ## What you get
@@ -49,6 +51,8 @@ urbanstyle dashboard data/monaco.duckdb viz/monaco.html   # an offline map with 
 - **A clean partition.** Sections, intersections, path spaces, rail spaces and plazas: no overlaps, no gaps, one connected polygon each, checked on every build.
 - **Levels −2 … 2.** Bridges over, tunnels and metro stations under, and the ramps, stairs, lifts and entrances that link them.
 - **Strips and objects.** Every container filled with typed bands (travel, cycle, sidewalk, furnishing, frontage) and the trees, lamps, benches and crossings that stand in it.
+- **One unit in full.** One junction or street section with everything every source knows: lanes and turns (SUMO on duckOSM), kerbs, markings, parking with its rules, bus stops with their timetable, street objects matched across OSM, a city's survey and Mapillary, and each building's use and ground-floor use. Every item carries its source, method and confidence.
+- **2D and 3D.** One page, two views of the same data: a map, and the street at real size where every lane, kerb, building and object can be selected.
 - **Stable ids.** `s0-<edge>` for a section, `i0-<node>` for an intersection: the same after every rebuild.
 
 <p align="center">
@@ -70,9 +74,10 @@ urbanstyle works on the same data as its siblings:
 
 ## Status
 
-Alpha. Monaco and Södermalm (Stockholm) are the two pilots and pass the hard checks. Boundaries (walls, fences), the
-axis with `(s, t)` positions and a cross-section detail view are next: see the
-[roadmap](https://khoshkhah.github.io/urbanstyle/plan/).
+Alpha. Since 2026-10-09 the work is **one unit in full**: W Broadway × Granville St in Vancouver, built from OSM, SUMO, the
+City of Vancouver's open data, TransLink's timetable and Mapillary (for validation only), then compared with reality. Built so
+far: parking, bus stops and building use; next are crossing and kerb details. The city-wide partition (Monaco and Södermalm, which
+pass the hard checks) is paused. See the [roadmap](https://khoshkhah.github.io/urbanstyle/plan/).
 
 ## For AI agents
 

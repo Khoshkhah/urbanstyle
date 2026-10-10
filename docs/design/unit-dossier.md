@@ -4,7 +4,7 @@
 one street section), gather everything that can be known about it, from every source, in as much detail as exists, and give it
 a clean structure. Then generalize the recipe to the rest of the city.</p>
 
-Status (2026-10-09): **proposal, to agree with Kaveh before coding.** It replaces the city-wide approach of the network-first
+**Status:** agreed 2026-10-09, being built (see the [roadmap](../plan.md)). It replaces the city-wide approach of the network-first
 preview (the partition into spaces stays, as the way a unit's outline is found; the SUMO and Mapillary work stays, as sources).
 
 ## Why

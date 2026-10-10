@@ -21,6 +21,8 @@ The order of work: `docs/plan.md`.
   `p<level>-<way>`, `r<level>-<way>`, `i<level>-<node>`. A street is a group of sections plus the intersections it
   arrives at (`space.street`, `space.arm`, id `k<level>-<way>`). `street_owner()` (python) decides which street each
   element belongs to.
+- `src/urbanstyle/buildings.py` (called in `build`): each building's `use` and `ground_use` with their source and method, from OSM's
+  `building` tag, the shops OSM maps inside it and a city's storefronts (`<unit>.vancouver.json`); `uses` lists the evidence.
 - `src/urbanstyle/strips.py` (called at the end of `build`) fills every container with typed bands in `space.strip`
   (`docs/design/street-strips-v1.md`; check C2). `space.object` holds the point objects (taxonomy in
   `docs/design/street-objects-step1.md`).
@@ -51,7 +53,7 @@ The order of work: `docs/plan.md`.
 
 ```bash
 P=/home/kaveh/projects/duckOSM/.venv/bin/python        # duckdb + spatial + duckOSM; has no recent roadstyle
-$P -m pytest -q                                        # 27 tests, offline (the turns test needs netconvert) (pythonpath=src from pyproject), ~10 s
+$P -m pytest -q                                        # 30 tests, offline (the turns test needs netconvert) (pythonpath=src from pyproject), ~10 s
 $P -m pytest -q tests/test_levels.py::test_street_space_width      # one test
 
 # build a container (Monaco ~1 min; Södermalm ~18 min and ~7 GB: check free memory first). Södermalm has no

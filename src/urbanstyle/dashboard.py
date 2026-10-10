@@ -553,7 +553,7 @@ FACADE_SNAP_M = 3.0   # a point this far inside a building is at its facade (map
 
 # an object's popup and tooltip, the same in 2D and in 3D: the tooltip names its type, the popup says what it is and who knows it
 DOT_COLORS = {"furniture": "#4f46e5", "vegetation": "#16a34a", "utility": "#6b7280", "transit": "#0891b2", "access": "#db2777", "barrier": "#78350f"}
-BLD_POPUP = ["type", "name", "class", "floors", "height_m", "level_src", "id"]     # a building's popup, the same in 2D and 3D
+BLD_POPUP = ["type", "name", "use", "ground_floor", "evidence", "class", "floors", "height_m", "level_src", "id"]     # a building's popup, the same in 2D and 3D
 OBJ_POPUP, OBJ_TIP = ["type", "height_m", "details", "sources", "method", "refs", "space"], ["type"]
 TYPE_NAME = {"crossing.zebra": "zebra crossing", "crossing.signalised": "signalised crossing", "crossing.other": "crossing", "kerb.node": "kerb",
              "transit.stop": "transit stop", "access.entrance": "entrance", "access.parking_entrance": "parking entrance", "barrier.other": "barrier",
@@ -863,8 +863,10 @@ def main(db, out):
     buildings = frame(con, """SELECT ST_AsWKB(geometry) AS geometry, source_id AS id, name, class, level_min, level_max, level_src,
         CASE WHEN coalesce(class, 'yes') = 'yes' THEN 'building' ELSE 'building (' || class || ')' END AS type,
         -- its real size (space.element floors, height_m: before levels are clamped to -2..2), else one floor
-        coalesce(floors, greatest(level_max, 0) + 1) AS floors, coalesce(height_m, round((greatest(level_max, 0) + 1) * 3.2, 1)) AS height_m
-        FROM space.element WHERE type = 'building'""")
+        coalesce(floors, greatest(level_max, 0) + 1) AS floors, coalesce(height_m, round((greatest(level_max, 0) + 1) * 3.2, 1)) AS height_m,
+        -- what it is used for, its ground floor, each with its source and method (buildings.py), and the evidence
+        "use" || ' (' || use_source || ', ' || use_method || ')' AS "use", ground_use || ' (' || ground_source || ', ' || ground_method || ')' AS ground_floor,
+        uses AS evidence FROM space.element WHERE type = 'building'""")
     zones = frame(con, """SELECT ST_AsWKB(z.geometry) AS geometry, z.level, z.zone, z.container_id AS cid, c.name
         FROM space.zone z JOIN space.container c USING (container_id)""")
     streets = frame(con, """SELECT ST_AsWKB(geometry) AS geometry, container_id AS cid, name, level, round(mean_width_m, 1) AS width_m,

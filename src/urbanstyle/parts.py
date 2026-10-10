@@ -368,6 +368,7 @@ def build(con, epsg):
     # in one lane (less than ARROW_GAP_M apart across it) keep ARROW_M + ARROW_GAP_M between their tips along it, so they never overlap;
     # this also keeps two roads mapped on top of each other from painting two arrows in one spot. A turn arrow (at a junction) says more
     # than a plain direction arrow: it takes the place of one in its way.
+    approach_rows = []      # (unit, level, road, lane, moves, ways open to all, arrow painted, why not): space.approach
     arrow_tips = {}         # (level, cell) -> [arrow record]; a record: [x, y, kind, indices of its pieces in `marks`]
     ARROW_CELL = ARROW_M + ARROW_GAP_M
 
@@ -377,7 +378,7 @@ def build(con, epsg):
         clash = [a for i in (-1, 0, 1) for j in (-1, 0, 1) for a in arrow_tips.get((level, cx + i, cy + j), [])
                  if abs((tip[0] - a[0]) * hx + (tip[1] - a[1]) * hy) < ARROW_CELL and abs((tip[0] - a[0]) * -hy + (tip[1] - a[1]) * hx) < ARROW_GAP_M]
         if clash and (kind != "turn" or any(a[2] == "turn" for a in clash)):
-            return
+            return False
         for a in clash:                 # a turn arrow replaces the direction arrows in its way
             for k in a[3]:
                 marks[k] = None
@@ -403,6 +404,7 @@ def build(con, epsg):
             idx.append(len(marks))
             marks.append((uid, level, "arrow", arm, round(piece.length, 1), *PROV.get(how, (how, None)), ref, shapely.to_wkb(piece)))
         arrow_tips.setdefault((level, cx, cy), []).append([tip[0], tip[1], kind, idx])
+        return True
 
     def arrow(uid, level, ln, off, t_tip, sgn, arm=None, how="sumo", ref=None):
         """A direction arrow in a lane (straight on): its tip at `t_tip` along `ln`, `off` m to the left of it, pointing along `ln`
@@ -417,10 +419,10 @@ def build(con, epsg):
         """A turn arrow in a lane coming into a junction, its tip 1 m before the stop position (`ap` runs out from it), `off` m to the
         left of `ap`; a head for each way the lane may go: straight on, left, right."""
         if ap.length < ARROW_M + 1:      # its tip 1 m before the stop position: SUMO's last piece of a lane may be short (lanes split)
-            return
+            return False
         c = ap.interpolate(1.0)
         tx, ty = direction(ap, 1.0)
-        paint_arrow(uid, level, (c.x - ty * off, c.y + tx * off), (-tx, -ty), ways, arm, kind="turn", how="sumo", ref=ref)
+        return paint_arrow(uid, level, (c.x - ty * off, c.y + tx * off), (-tx, -ty), ways, arm, kind="turn", how="sumo", ref=ref)
 
     def curve(pa, ha, pb, hb):  # a quadratic curve from pa (heading ha) to pb (heading hb), its control where the two headings meet
         cr = ha[0] * hb[1] - ha[1] * hb[0]
@@ -852,8 +854,11 @@ def build(con, epsg):
                                           cond.get((str(x["edge"]), str(t))), shapely.to_wkb(g_)))
                 back = shapely.LineString(x["ln"].coords[::-1])               # from the junction back along the lane
                 ways_all = {m[2] for m in moves if m[4] is None}              # the arrow shows the ways open to all traffic (not a bus-only turn)
-                if ways_all and back.length >= ARROW_M + 1 and not rb:
-                    turn_arrow(unit_at(back.interpolate(1.0), level, uid), level, back, 0.0, ways_all, arm, ref=wref(x["edge"]))
+                painted = bool(ways_all and back.length >= ARROW_M + 1 and not rb and
+                               turn_arrow(unit_at(back.interpolate(1.0), level, uid), level, back, 0.0, ways_all, arm, ref=wref(x["edge"])))
+                why = (None if painted else "no move" if not moves else "roundabout" if rb else "for some vehicles only" if not ways_all
+                       else "lane piece under 4 m" if back.length < ARROW_M + 1 else "another arrow in the way")
+                approach_rows.append((uid, level, elem_of[x["edge"]], x["i"] + 1, len(moves), ",".join(sorted(ways_all)), painted, why))
                 end = shapely.Point(x["ln"].coords[-1])
                 near = [objs[k] for k in otree.query(end.buffer(CONTROL_M))] if otree is not None else []
                 ctl = [o for o in near if o[3] and o[2] == level and o[4].distance(x["ln"]) <= x["w"] + 6]
@@ -1073,7 +1078,7 @@ def build(con, epsg):
             classic(*u)
     net = sumo_roadway()
     if net:
-        for acc in (parts, marks, widths, count, claimed, arrow_tips):     # the measuring pass's arrows too: else they block SUMO's
+        for acc in (parts, marks, widths, count, claimed, arrow_tips, approach_rows):     # the measuring pass's arrows too: else they block SUMO's
             acc.clear()
         from_sumo(net)
     else:
@@ -1110,6 +1115,10 @@ def build(con, epsg):
     con.execute(f"""CREATE OR REPLACE TABLE space.mark AS SELECT unit_id, level::INT AS level, type, arm, length_m, source, method, ref::VARCHAR AS ref,
                     {to_ll} AS geometry FROM mdf""")
     con.execute("CREATE OR REPLACE TABLE space.width AS SELECT * FROM wdf")
+    adf = pd.DataFrame(approach_rows, columns=["unit_id", "level", "from_edge", "lane", "moves", "ways", "arrow", "no_arrow_because"])
+    con.execute("""CREATE OR REPLACE TABLE space.approach AS SELECT unit_id::VARCHAR AS unit_id, level::INT AS level, from_edge::VARCHAR AS from_edge,
+                   lane::INT AS lane, moves::INT AS moves, ways::VARCHAR AS ways, arrow::BOOLEAN AS arrow, no_arrow_because::VARCHAR AS no_arrow_because
+                   FROM adf""")
     tdf = pd.DataFrame(turn_rows, columns=["unit_id", "level", "from_edge", "from_lane", "to_edge", "to_lane", "turn", "source", "vehicles", "condition", "wkb"])
     con.execute(f"""CREATE OR REPLACE TABLE space.turn AS SELECT unit_id::VARCHAR AS unit_id, level::INT AS level, from_edge::VARCHAR AS from_edge,
                     from_lane::INT AS from_lane, to_edge::VARCHAR AS to_edge, to_lane::INT AS to_lane, turn::VARCHAR AS turn, source::VARCHAR AS source,

@@ -87,6 +87,13 @@ Without SUMO (no `pip install "duckosm[sumo]"`, or no `osm` database attached) e
 1,181 turns (625 straight, 310 right, 246 left), 27 islands, lanes 2.5-3.75 m (median 3.25), 922 shoulders (median 1.7 m); checks
 U1-U9 pass, U10 (roadway steps at cuts) 508 (583 before).
 
+**The lanes entering each junction** (`space.approach`, 2026-10-10): one row per lane coming into a junction, with its number of moves,
+the ways it may go for all traffic, whether it has a turn arrow and, if not, why (`no move`, `roundabout`, `for some vehicles only`,
+`lane piece under 4 m`, `another arrow in the way`). Reported by `urbanstyle check`, not failed (a missing move may be the law):
+U11 lanes with no move at all, U12 approaches with no straight move for all traffic at junctions of 4 or more approaches (at a T the
+stem cannot go straight), U13 lanes with a move for all traffic but no arrow. Broadway x Granville neighbourhood: 573 lanes, 541 with
+an arrow; U11 6, U12 32, U13 26 (all lane pieces under 4 m).
+
 ## Edges and widths
 
 Per intersection arm: total width at the cut, carriageway width at the cut, lanes in / out, sidewalk width on each side. Per subsection:

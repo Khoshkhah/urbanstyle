@@ -1,9 +1,30 @@
 # Roadmap
 
-<p class="lead">Where urbanstyle stands (2026-10-08), what is open, and the order of work. Each step ends with something
+<p class="lead">Where urbanstyle stands (2026-10-10), what is open, and the order of work. Each step ends with something
 you can check: a test, a <code>urbanstyle check</code> line, or a page to look at.</p>
 
-## Where it stands
+## Now: one unit in full (since 2026-10-09)
+
+The city-wide work (Phases 0-4 below) is paused: it filled every space the same thin way. Instead one unit (a junction or a street
+section) is built with everything every source knows, with provenance on every item, then judged against reality, and the recipe
+generalised ([One unit in full](design/unit-dossier.md)). Three units: Skanstull (Stockholm), W Broadway x Granville St and a block of
+W 4th Ave (Vancouver).
+
+| step | state |
+|---|---|
+| 1. Source inventory per unit | Skanstull, Broadway x Granville done ([units](units/skanstull.md)); W 4th Ave not started |
+| 2. The dossier: every layer a source covers, with source, method, ref, confidence | Broadway x Granville and Skanstull built (`urbanstyle unit`). Matching of objects across sources (OSM, Mapillary, a city's survey), the city's own accuracy as the method, turn rules with exceptions, conditions, vehicle classes and via ways (duckOSM), lanes with their road's information. Not loaded yet: storefronts, Vancouver's 2009 building heights, the turning counts behind VanMap; Stockholm's city data and orthophoto need a key and a login |
+| 3. Judged against reality: each difference a row in `check` | not started |
+| 4. The recipe: each step, by machine or by hand, and what a whole city would take | not started |
+
+Built for it on the way: the dashboard as two views of the same data (2D a map, 3D the street at real size, every item selectable
+with its sources), real road widths (two-way roads had half) and building heights, whole crosswalks in their junction, the checks
+U11-U13 on the lanes entering a junction.
+
+**Next, in order:** compare Broadway x Granville with reality (Mapillary photos, the city's turning counts) and fill `check`; the
+W 4th Ave unit (a street section: parking, trees, furniture); then the recipe.
+
+## Where it stood (2026-10-08, the city-wide work, paused)
 
 | | built | checked by |
 |---|---|---|

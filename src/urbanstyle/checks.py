@@ -37,7 +37,7 @@ def unit_checks(c, q, epsg):
 
 
 def part_checks(c, q, m):
-    """U8-U9: the parts of a space (space.part, docs/design/space-parts.md) cover it exactly."""
+    """U8-U10: the parts of a space (space.part, docs/design/space-parts.md) cover it exactly."""
     if not q("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'space' AND table_name = 'part'"):
         return []
     c.execute(f"CREATE TEMP TABLE pt AS SELECT unit_id, part_id, ST_MakeValid(ST_Buffer({m('geometry')}, -0.01)) AS g, ST_Area({m('geometry')}) AS a FROM space.part")
@@ -48,6 +48,23 @@ def part_checks(c, q, m):
         ("U9", "parts of one space overlapping by more than 0.5 m2", q("""SELECT count(*) FROM pt a JOIN pt b ON a.unit_id = b.unit_id AND a.part_id < b.part_id
                                   AND ST_Intersects(a.g, b.g) WHERE ST_Area(ST_Intersection(a.g, b.g)) > 0.5"""), True),
         ("U10", "cuts where the roadway differs by more than 0.5 m on the two sides", roadway_mismatch(c, q, m), False),
+    ] + approach_checks(q)
+
+
+def approach_checks(q):
+    """U11-U13: the lanes coming into each junction (space.approach, written by parts.py) and what they may do. Reported, not failed: a
+    missing move may be the law (a turn restriction, a T junction); the number says where to look."""
+    if not q("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'space' AND table_name = 'approach'"):
+        return []
+    return [
+        ("U11", "lanes entering a junction with no move at all", q("SELECT count(*) FROM space.approach WHERE moves = 0"), False),
+        # at a junction of 4 or more approaches each one usually goes straight on (at a T the stem cannot): the others are worth a look
+        ("U12", "approaches with no straight move for all traffic, at junctions of 4+ approaches", q("""WITH ap AS (
+                                  SELECT a.unit_id, a.from_edge, bool_or(a.ways LIKE '%straight%') AS straight FROM space.approach a
+                                  JOIN space.unit u USING (unit_id) WHERE u.kind = 'intersection' AND a.moves > 0 GROUP BY ALL)
+                                  SELECT count(*) FROM ap WHERE NOT straight AND unit_id IN (SELECT unit_id FROM ap GROUP BY 1 HAVING count(*) >= 4)"""), False),
+        ("U13", "lanes with a move for all traffic but no turn arrow (a lane piece under 4 m, another arrow in the way)", q("""SELECT count(*)
+                                  FROM space.approach WHERE NOT arrow AND no_arrow_because IN ('lane piece under 4 m', 'another arrow in the way')"""), False),
     ]
 
 

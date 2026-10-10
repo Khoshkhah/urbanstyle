@@ -49,7 +49,12 @@ around the OSM centrelines, which left steps at the cuts and blobs at complex ju
 2. duckOSM writes its driving network for SUMO (`duckosm.sumo.to_sumo`: SUMO edge id = duckOSM `edge_id`, the legal turns from its
    `edge_graph`) with those lanes: the median count and width per direction; a tagged bus lane is one more lane at the right
    (`bus lane`), a tagged cycle lane SUMO's bike lane (1.5 m). A road no subsection measured (a roundabout's ring, a junction's own
-   link) gets the estimate. One-way roads are centred on their line; a two-way road's directions lie either side of it. `netconvert` joins close junctions into one and rounds the kerb
+   link) gets the estimate. One-way roads are centred on their line; a two-way road's directions lie either side of it. The two halves of
+   a **divided road** (two one-way ways running opposite ways, closer than the roadway is wide) are each centred on their own line too,
+   as OSM draws a carriageway along its middle; where the lines run closer than the two halves' half widths, each half is moved out by
+   half the overlap and the two meet, as where only paint parts the directions (2026-10-09: before, each half lay right of its line,
+   which left a false 5 m island on West Broadway). Whether ground that stays between two halves is a raised median or roadway cannot be
+   told from the lines; it needs a height source (LiDAR) and is labelled as before. `netconvert` joins close junctions into one and rounds the kerb
    corners (`src/urbanstyle/sumo.py`, in our UTM zone).
 3. Every unit is then filled from SUMO's shapes: the roadway is SUMO's lanes (each at its width, numbered from the right) and junction
    shapes, closed over the slivers between lanes, plus the **shoulders**: where the measured kerb lies beyond SUMO's outer lane, a
@@ -65,6 +70,11 @@ around the OSM centrelines, which left steps at the cuts and blobs at complex ju
    nodes. Where a road only continues (its OSM way is split there, no junction of ours), SUMO's junction shape is replaced by a
    clean join of the lane ends.
    Where a road only continues, each lane is also stitched into the same lane of the next piece, so lanes and their lines run on.
+   Since duckOSM cuts a road wherever any way touches it (a crosswalk too, 2026-09-30), such nodes sit a few metres from most
+   junctions: they are not junctions of a space; a lane is `in` or `out` by the junction it reaches on through them, its arrow is painted
+   along the whole run back from the junction, and a lane SUMO's junction shape nearly covers (a piece shorter than the shape) is kept
+   for its moves. A divided road's crossing forces a junction node on the other half only where that half's way does not reach the
+   junction node itself (`container.py`).
    A gap narrower than 1.2 m between two roadways, and a pocket under 30 m² the roadway nearly surrounds (85 % of its edge), are
    roadway: no kerb in the middle of the road (unless a refuge island is mapped: `crossing:island=yes`). Sidewalk, furnishing and
    open ground are judged from the kerb of the level's whole roadway, so two neighbouring spaces agree at their border.

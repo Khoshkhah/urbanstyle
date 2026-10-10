@@ -572,11 +572,10 @@ def build(con, epsg):
             sumo.log.warning(f"no SUMO roadway: no duckOSM driving network ({type(e).__name__})")
             return None
         own = {(r["osm"], min(r["src"], r["dst"]), max(r["src"], r["dst"])): e for e, r in roads.items()}
-        # the two halves of a divided road mapped as two one-way ways close together: each lies right of its own line (side by side,
-        # as a two-way road's directions do), not centred on it, or they overlap where the lines run closer than the roadway is wide
+        # the two halves of a divided road: two one-way ways in opposite directions closer than the roadway is wide
         ones = [e for e, r in roads.items() if r["oneway"]]
         otr = shapely.STRtree([roads[e]["g"] for e in ones]) if ones else None
-        halves = set()
+        halves = {}     # a half -> [(the other half, distance between their lines)]
         for e in ones:
             g_, w_ = roads[e]["g"], sum(estimate(roads[e]))
             for t in (0.25, 0.5, 0.75):
@@ -588,14 +587,16 @@ def build(con, epsg):
                     if f != e and roads[f]["level"] == roads[e]["level"] and gf.distance(m) < w_:
                         fx, fy = direction(gf, gf.project(m))
                         if tx * fx + ty * fy < -0.8:
-                            halves.add(e)
-        attrs = {}
+                            halves.setdefault(e, []).append((f, gf.distance(m)))
+                            halves.setdefault(f, []).append((e, gf.distance(m)))     # the narrower half too
+        attrs, room, ends_of = {}, {}, {}
         for de, s_, t_, osm, rev in dir_edges:
             directed[(osm, s_, t_)] = de
             e = own.get((osm, min(s_, t_), max(s_, t_)))
             if e is None:
                 continue
             elem_of[de] = e
+            ends_of[de] = (s_, t_)
             if not counts.get(e):       # no subsection measured it (a roundabout's ring, a junction's own link): estimated
                 k = max(1, round(sum(estimate(roads[e])) / EST_LANE_M))
                 counts[e] = [(k, 0, EST_LANE_M) if roads[e]["oneway"] else (max(1, k // 2), max(1, k // 2), EST_LANE_M)]
@@ -612,18 +613,41 @@ def build(con, epsg):
                     elif extra == "cycle lane":
                         attrs[de]["bikeLaneWidth"] = CYCLE_M
                     ms = measured.get(e)
-                    if ms:      # the measured kerbs beyond the lanes: a shoulder (parking, a hard strip). Two-way: each direction right of
-                        hl = sorted(m[0] for m in ms)[len(ms) // 2]      # the line, out to its own kerb; one-way: centred on it
+                    if ms:      # the kerbs measured either side of the line
+                        hl = sorted(m[0] for m in ms)[len(ms) // 2]
                         hr = sorted(m[1] for m in ms)[len(ms) // 2]
                         if (s_, t_) != (roads[e]["src"], roads[e]["dst"]):
                             hl, hr = hr, hl
-                        L = attrs[de]["numLanes"] * attrs[de]["width"] + attrs[de].get("bikeLaneWidth", 0)
-                        sr, sl = (hr - L, 0.0) if (c[0] and c[1]) or e in halves else (hr - L / 2, hl - L / 2)
-                        if max(sr, sl) > 0.3:
-                            shoulders[de] = tuple(min(x, SHOULDER_MAX_M) if x > 0.3 else 0.0 for x in (sr, sl))
-        for de, e in elem_of.items():
-            if e in halves:
-                attrs.setdefault(de, {})["spreadType"] = "right"
+                        room[de] = (hl, hr, bool(c[0] and c[1]))
+        # each half of a divided road is centred on its own line (OSM draws a carriageway along its middle). Where the lines run closer
+        # than the two roadways' half widths, the halves are pushed apart, each by half the overlap, and meet: no ground between them,
+        # as where only paint parts the directions
+        wide = lambda de: attrs[de]["numLanes"] * attrs[de]["width"] + attrs[de].get("bikeLaneWidth", 0)
+        de_of = {e: de for de, e in elem_of.items()}
+        shift = {}
+        for e, near in halves.items():
+            de = de_of.get(e)
+            over = sorted((wide(de) + wide(de_of[f])) / 2 - gap for f, gap in near if de in attrs and de_of.get(f) in attrs)
+            if over and over[len(over) // 2] > 0.1:
+                shift[de] = over[len(over) // 2] / 2
+        for de, s in shift.items():
+            r = roads[elem_of[de]]
+            ahead = ends_of[de] == (r["src"], r["dst"])
+            moved = shapely.offset_curve(r["g"] if ahead else r["g"].reverse(), -s)       # to the right of the way it runs
+            if moved.geom_type == "LineString":
+                (wkt,) = con.execute(f"SELECT ST_AsText(ST_Transform(ST_GeomFromText(?), '{epsg}', 'EPSG:4326', always_xy := true))",
+                                     [moved.wkt]).fetchone()
+                attrs[de]["shape"] = " ".join(f"{x:.7f},{y:.7f}" for x, y in shapely.from_wkt(wkt).coords)
+        for de, (hl, hr, two_way) in room.items():   # the measured kerbs beyond the lanes: a shoulder. Two-way: each direction right of
+            L = wide(de)                              # its line, out to its own kerb; one-way: centred on it (a half: only its right)
+            if two_way:
+                sr, sl = hr - L, 0.0
+            elif elem_of[de] in halves:
+                sr, sl = hr - L / 2 - shift.get(de, 0.0), 0.0
+            else:
+                sr, sl = hr - L / 2, hl - L / 2
+            if max(sr, sl) > 0.3:
+                shoulders[de] = tuple(min(x, SHOULDER_MAX_M) if x > 0.3 else 0.0 for x in (sr, sl))
         return sumo.network(con, attrs, epsg)
 
     refuges = []        # mapped refuge islands: crossings tagged crossing:island=yes (ways and nodes)
@@ -670,7 +694,7 @@ def build(con, epsg):
         for edge, i, n, w, kind_, xy in stitched:
             e = elem_of.get(edge)
             ln = shapely.LineString(xy) if len(xy) >= 2 else None
-            if e is None or ln is None or ln.length < 0.2:
+            if e is None or ln is None or ln.length == 0:     # a lane SUMO's junction shape nearly covers still carries its moves
                 continue
             x = dict(edge=edge, i=i, n=n, w=w, ln=ln, poly=ln.buffer(w / 2, cap_style="flat"), level=roads[e]["level"],
                      typ="bus lane" if kind_ == "driving" and i == 0 and edge in bus_edges else lane_type[kind_])
@@ -741,6 +765,30 @@ def build(con, epsg):
         into = {}       # junction -> the lanes that end there
         for x in lanes:
             into.setdefault(net["ends"][x["edge"]][1], []).append(x)
+
+        def onward(edge, k):
+            """The junction a lane reaches going on (k=1) or back (k=0): on through the nodes where its road only continues."""
+            for _ in range(20):
+                f0, t0 = net["ends"][edge]
+                j = t0 if k else f0
+                nxt = [b for b in (out_j if k else into_j).get(j, []) if net["ends"][b][k] != (f0 if k else t0)] if is_join(j) else []
+                if len(nxt) != 1:
+                    return j
+                edge = nxt[0]
+            return j
+
+        def lane_back(x):
+            """A lane from its end back along its road, on through the nodes where the road only continues, as one line."""
+            cs, edge = list(x["ln"].coords[::-1]), x["edge"]
+            for _ in range(20):
+                f0, t0 = net["ends"][edge]
+                prev = [b for b in into_j.get(f0, []) if net["ends"][b][0] != t0] if is_join(f0) else []
+                p_ = [y for y in by_edge.get(prev[0], []) if y["i"] == x["i"]] if len(prev) == 1 else []
+                if not p_:
+                    break
+                cs += list(p_[0]["ln"].coords[::-1])
+                edge = prev[0]
+            return shapely.LineString(cs)
         utree = shapely.STRtree([u[4] for u in units])
 
         def unit_at(pt, level, default):     # the unit a point lies in
@@ -792,11 +840,12 @@ def build(con, epsg):
                 taken = safe("union", taken, island)
                 C = area(safe("difference", C, island))
             jq = [juncs[k] for k in jtree.query(U) if juncs[k]["level"] == level] if jtree is not None else []
-            jhere = {j["id"] for j in jq if U.buffer(0.5).contains(j["poly"].representative_point())}
+            # its junctions: not a node where a road only continues (a crosswalk splits the way there), whose road runs on through
+            jhere = {j["id"] for j in jq if not is_join(j["id"]) and U.buffer(0.5).contains(j["poly"].representative_point())}
             line = sub_of.get(uid, (None, None))[1]
             mine = []       # (lane, direction, its line inside the unit)
             for x in ([lanes[k] for k in ltree.query(U) if lanes[k]["level"] == level] if ltree is not None else []):
-                fj, tj = net["ends"][x["edge"]]
+                fj, tj = onward(x["edge"], 0), onward(x["edge"], 1)
                 if sub:
                     d = "forward" if line is None or line.project(shapely.Point(x["ln"].coords[-1])) >= line.project(shapely.Point(x["ln"].coords[0])) else "backward"
                 else:
@@ -840,7 +889,9 @@ def build(con, epsg):
             # the lanes coming into this junction (SUMO's, wherever its junction shape ends: maybe beyond the cut, in a subsection):
             # the ways each may go (space.turn, a guide line, a turn arrow) and a stop / give-way line where it enters the junction.
             # An arrow or a line belongs to the unit it lies in.
-            for x in ([] if sub else [x for j in jhere for x in into.get(j, []) if x["level"] == level]):
+            # every road ending at the junction is an approach, whatever its level: roads that share a node meet there (a bridge whose
+            # deck ends at the junction, as on West Broadway at Granville), a road passing over a junction never shares its node
+            for x in ([] if sub else [x for j in jhere for x in into.get(j, [])]):
                 if x["typ"] == "cycle lane" or net["ends"][x["edge"]][0] in jhere:
                     continue
                 arm = roads[elem_of[x["edge"]]]["name"]
@@ -852,7 +903,7 @@ def build(con, epsg):
                             mark(uid, level, "guide line", safe("intersection", g_, U), arm, ref=wref(x["edge"]))
                         turn_rows.append((uid, level, elem_of[x["edge"]], x["i"] + 1, elem_of.get(t, t), tl + 1, w_, "sumo", veh,
                                           cond.get((str(x["edge"]), str(t))), shapely.to_wkb(g_)))
-                back = shapely.LineString(x["ln"].coords[::-1])               # from the junction back along the lane
+                back = lane_back(x)                                           # from the junction back along the lane
                 ways_all = {m[2] for m in moves if m[4] is None}              # the arrow shows the ways open to all traffic (not a bus-only turn)
                 painted = bool(ways_all and back.length >= ARROW_M + 1 and not rb and
                                turn_arrow(unit_at(back.interpolate(1.0), level, uid), level, back, 0.0, ways_all, arm, ref=wref(x["edge"])))

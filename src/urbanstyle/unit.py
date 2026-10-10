@@ -136,8 +136,9 @@ def clip(src, out, lon, lat, radius=CLIP_M):
             try:
                 con.execute(f"""CREATE TABLE {mode}.{t} AS SELECT * FROM s.{mode}.{t}
                                 WHERE from_edge IN (SELECT edge_id FROM {mode}.edges) AND to_edge IN (SELECT edge_id FROM {mode}.edges)""")
-            except duckdb.CatalogException:
-                pass
+            except duckdb.CatalogException:     # without them every turn some vehicles may not take would be open to all
+                if mode == "driving":           # (only driving has turn restrictions, so only it has via-way paths)
+                    raise SystemExit(f"{src} has no {mode}.{t}: it was built by an older duckOSM; rebuild it (duckosm build)")
     con.execute("""CREATE TABLE raw.ways AS SELECT * FROM s.raw.ways WHERE osm_id IN
                    (SELECT osm_id FROM driving.edges UNION SELECT osm_id FROM walking.edges UNION SELECT osm_id FROM cycling.edges)""")
     con.execute(f"CREATE TABLE raw.nodes AS SELECT * FROM s.raw.nodes WHERE ST_Intersects(ST_Point(lon, lat), {box})")

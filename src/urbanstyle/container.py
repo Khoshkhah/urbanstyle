@@ -591,7 +591,8 @@ def street_owner(con):
       1. pairs: two ONE-WAY road edges of one level and one name, in OPPOSITE directions (chord bearings at least DUAL_ANTIPARALLEL_DEG
          apart), within DUAL_CARRIAGEWAY_M of each other, with DUAL_ALONGSIDE of one lying within that distance of the other;
       2. a junction node of one half and the nearest end node of its partner within DUAL_CARRIAGEWAY_M are ONE junction (the cross street
-         meets both halves), and that partner node becomes a junction node, so a side street on one half cuts both halves there;
+         meets both halves), and that partner node becomes a junction node, so a side street on one half cuts both halves there
+         (not when the partner's way ends at that junction node itself: the halves meet there, and a crosswalk node near by stays one);
       3. the section chains of the two halves that end at the same intersections are one section (merging every paired edge would
          chain through the whole stretch).
     A walkway or cycleway joins the section of its nearest road piece (see `near`); one with no road along it joins a path space, a
@@ -657,13 +658,17 @@ def street_owner(con):
 
     # 3. the junctions of the two halves are one junction; a junction on one half forces a junction on the other
     forced, node_pairs = set(), []
+    ends_of_way = collections.defaultdict(set)      # (level, OSM way) -> the nodes its road edges end at
+    for eid, level, typ, osm_id, name, src, dst, sid in rows:
+        if typ == "road":
+            ends_of_way[(level, osm_id)].update(n for n in (src, dst) if n is not None)
     for e, f in pairs:
         lv = by_eid[e][1]
         for a_edge, b_edge in ((e, f), (f, e)):
             b_ends = [n for n in (by_eid[b_edge][5], by_eid[b_edge][6]) if n is not None]
             for u in (by_eid[a_edge][5], by_eid[a_edge][6]):
-                if u is None or degree[(lv, u)] < 3 or not b_ends:
-                    continue
+                if u is None or degree[(lv, u)] < 3 or not b_ends or u in ends_of_way.get((lv, by_eid[b_edge][3]), ()):
+                    continue        # (the partner's way reaches this junction node itself: nothing to force)
                 v = min(b_ends, key=lambda n: math.dist(node_xy[(lv, u)], node_xy[(lv, n)]))
                 if math.dist(node_xy[(lv, u)], node_xy[(lv, v)]) <= DUAL_CARRIAGEWAY_M:
                     node_pairs.append((lv, u, v))

@@ -34,7 +34,7 @@ def _segment(typ, direction, side, extra, width=0.0):
         return ("sidewalk-tree", "big") if "tree" in extra else ("sidewalk-lamp", f"{'right' if side == 'left' else 'left'}|modern")
     if typ == "open":
         return "sidewalk", "empty"
-    if typ in ("carriageway", "crosswalk", "junction box"):
+    if typ in ("carriageway", "crosswalk", "junction area"):
         return "drive-lane", f"{way}|car"
     return "sidewalk", "normal"
 

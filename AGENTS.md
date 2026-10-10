@@ -32,7 +32,7 @@ The order of work: `docs/plan.md`.
 - `src/urbanstyle/subsections.py`, `spaces.py` and `parts.py` (called at the end of `build`): the network-first partition, a preview
   (`docs/design/network-first.md`, `docs/design/space-parts.md`): `space.subsection` (roads divided where cross-section or frontage
   changes), `space.unit` (one space per subsection and per intersection, cut at the block corners, `space.cut`), and inside each space
-  `space.part` (lanes in/out or forward/backward, junction box, crosswalks, cycle lanes, sidewalk bands), `space.mark` (kerb, centre,
+  `space.part` (lanes in/out or forward/backward, junction area, crosswalks, cycle lanes, sidewalk bands), `space.mark` (kerb, centre,
   lane, stop and give-way lines, turn arrows), `space.width` (widths per arm / across each subsection) and `space.turn` (lane-to-lane moves
   at intersections). The roadway (lanes, junction shapes, turns) comes from SUMO: the subsections measure the lanes, `sumo.py` runs
   duckOSM's `to_sumo` with them, `from_sumo()` fills every unit; without SUMO `classic()` builds the roadway from bands. `urbanstyle check`
@@ -87,11 +87,14 @@ mkdocs build --strict                                  # needs pip install ".[do
 - roadstyle ids are not `edge_id`s (ids past 2**53); query with `rsQuery`, never pass `edge_id` to `rsSelect`.
 - The dashboard's panel script shares the page's global scope with roadstyle's: a top-level name roadstyle already uses (`srcOf`,
   `map`, `OVERLAYS`, ...) throws and silently kills the WHOLE panel. Check new globals in a headless load (page errors) before shipping.
-- Tilting the map (roadstyle's 3D button) extrudes the focused space (`draw3d` in dashboard.py: raised sidewalks and islands,
-  buildings by floors x 3.2 m, street furniture as objects (`furniture_3d`: lamp with arm, signal, sign plate, tree, bench, bin; OSM's and
-  Mapillary's, placed off the roadway and out of facades by `placer`, also in 2D); the levels above the one viewed as bridge decks, 6 m a
-  level; tunnel portals at level 0: wall, roof over the first 25 m, the tunnel's road under it; terrain only when "rough terrain" is
-  ticked: the public AWS Terrain Tiles (~30 m) are too coarse for Monaco and broke the map; needs a 1-5 m terrain). "every space in detail" (on by default) shows every space's parts with nothing focused.
+- Tilting the map (roadstyle's 3D button) shows only what exists, at real size (`draw3d` and `tilt2d` in dashboard.py): every space's
+  ground on the level (the roadway flat with its painted lines, sidewalks and islands raised), buildings by floors x 3.2 m, the levels above
+  as bridge decks 6 m a level, and one 3D object per real thing (`matched_objects`: OSM, Mapillary and a city's survey matched by
+  `unit.match`; `furniture_3d`: lamp, signal, sign, tree at its surveyed height, bench, bin, meter, manhole, drain, ...; placed off the
+  roadway by `placer`, except covers in the ground). The 2D symbols (centre lines, dots, icons, guide lines, the kerb line, cuts,
+  footprints) are hidden while tilted and come back when flat; a hover shows only an object's type, a click its popup. Terrain only when
+  "rough terrain" is ticked: the public AWS Terrain Tiles (~30 m) are too coarse for Monaco and broke the map; needs a 1-5 m terrain.
+  "every space in detail" (on by default) shows every space's parts with nothing focused.
 - Heavy imports (shapely, pandas, geopandas, roadstyle) stay inside functions so the CLI starts fast.
 
 ## Rules

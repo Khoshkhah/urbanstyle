@@ -22,7 +22,8 @@ import os
 
 CLIP_M = 400.0      # the neighbourhood built around a unit: enough for its arms, its neighbours and their cuts
 FLOW_M = 60.0       # traffic counted on a road this close to the unit belongs to it
-CONFIDENCE = {"surveyed": 0.9, "mapped": 0.7, "measured": 0.6, "observed": 0.5, "derived": 0.5, "estimated": 0.3, "checked": 1.0}
+CONFIDENCE = {"surveyed": 0.9, "recorded": 0.7, "mapped": 0.7, "measured": 0.6, "observed": 0.5, "derived": 0.5, "approximate": 0.4,
+              "estimated": 0.3, "checked": 1.0}
 HEIGHT = {"furniture.lamp": 7.6, "furniture.signal": 3.3, "furniture.sign": 2.6, "furniture.bench": 0.9, "furniture.waste": 1.0,
           "furniture.bollard": 0.9, "vegetation.tree": 7.5, "transit.stop": 2.7, "furniture.post_box": 1.2, "furniture.parking_meter": 1.5,
           "furniture.hydrant": 0.8, "furniture.water": 1.0, "furniture.map_stand": 2.4, "utility.manhole": 0.0, "utility.catch_basin": 0.0,
@@ -31,15 +32,33 @@ HEIGHT = {"furniture.lamp": 7.6, "furniture.signal": 3.3, "furniture.sign": 2.6,
 # City of Vancouver open data (Opendatasoft Explore API v2.1, no key; Open Government Licence - Vancouver): the city's surveyed
 # layers, fetched by `opendata_vancouver` and loaded by `dossier`. Dataset -> object class; the other datasets give rules and observations.
 VAN_API = "https://opendata.vancouver.ca/api/explore/v2.1/catalog/datasets"
-VAN_OBJECT = {"public-trees": "vegetation.tree", "street-lighting-poles": "furniture.lamp", "traffic-signals": "furniture.signal",
+VAN_OBJECT = {"public-trees": "vegetation.tree", "street-lighting-poles": "furniture.lamp",
               "parking-meters": "furniture.parking_meter", "water-hydrants": "furniture.hydrant", "drinking-fountains": "furniture.water",
               "wayfinding-map-stands": "furniture.map_stand", "sewer-manholes": "utility.manhole", "sewer-catch-basins": "utility.catch_basin",
               "street-lighting-junction-boxes": "utility.junction_box"}
-VAN_OTHER = ("disability-parking", "right-of-way-widths", "bikeways", "sidewalk-condition-rating", "pavement-condition-rating",
+VAN_OTHER = ("traffic-signals", "disability-parking", "right-of-way-widths", "bikeways", "sidewalk-condition-rating", "pavement-condition-rating",
              "pavement-condition-rating-major-road-network-2023", "intersection-traffic-movement-counts", "directional-traffic-count-locations")
 
 MATCH_M = 10.0      # objects of one class from two sources this close are one real object (Mapillary's positions are 1-5 m off, often more)
 RANK = {"vancouver": 0, "nvdb": 1, "osm": 2, "mapillary": 3}   # whose position a matched object takes: a city's survey, a map, photos
+
+
+# how good a city record's position is, in the city's own words (each dataset's "Data accuracy" note, read 2026-10-09): surveyed
+# ("survey accuracy"), approximate ("approximate locations", "shown for entire block faces", "the approximate centre of the
+# intersection", "follow street centrelines") or recorded (a register, accuracy not stated). A record that calls itself approximate
+# (a catch basin's label "Catch Basin (location approximate)") is approximate whatever its dataset says.
+VAN_METHOD = {"street-lighting-poles": "surveyed", "sewer-manholes": "surveyed", "sewer-catch-basins": "surveyed",
+              "street-lighting-junction-boxes": "surveyed", "traffic-signals": "approximate", "parking-meters": "approximate",
+              "drinking-fountains": "approximate", "wayfinding-map-stands": "approximate", "disability-parking": "approximate",
+              "right-of-way-widths": "approximate", "bikeways": "approximate", "intersection-traffic-movement-counts": "approximate",
+              "directional-traffic-count-locations": "approximate", "public-trees": "recorded", "water-hydrants": "recorded"}
+
+
+def van_method(ds, props):
+    """The method of a city record (VAN_METHOD), approximate where the record says so itself."""
+    if any(isinstance(v, str) and "approximate" in v.lower() for v in (props or {}).values()):
+        return "approximate"
+    return VAN_METHOD.get(ds, "recorded")
 
 
 def match(con, seen):
@@ -175,10 +194,12 @@ def dossier(space_db, osm_db, unit_id, out, name, city, nvdb=None, flows=None, m
         sources.append(("flows", "Hourly flows per edge (sensor-matching: Trafikverket, Stockholm tube counts)", flows, "per source", "surveyed"))
     if vancouver_json:
         sources.append(("vancouver", "City of Vancouver open data: " + ", ".join((*VAN_OBJECT, *VAN_OTHER)), VAN_API,
-                        "Open Government Licence - Vancouver", "surveyed"))
+                        "Open Government Licence - Vancouver", "per dataset (VAN_METHOD)"))
     con.execute("CREATE TABLE source (source_id VARCHAR, name VARCHAR, origin VARCHAR, licence VARCHAR, method VARCHAR, fetched VARCHAR)")
     con.executemany("INSERT INTO source VALUES (?, ?, ?, ?, ?, ?)", [s_ + (today,) for s_ in sources])
     prov = lambda src, method, observed="NULL::VARCHAR": f"'{src}' AS source, '{method}' AS method, {observed} AS observed, {CONFIDENCE[method]} AS confidence"
+    mconf = "CASE meth " + " ".join(f"WHEN '{k}' THEN {v}" for k, v in CONFIDENCE.items()) + " END"
+    vprov = f"'vancouver' AS source, meth AS method, NULL::VARCHAR AS observed, {mconf} AS confidence"    # a city record: its own method
 
     # roads: the road pieces in or touching the unit, with what OSM and NVDB say of them
     con.execute(f"""CREATE TABLE road AS SELECT e.edge_id::VARCHAR AS road_id, e.osm_id, e.name, e.highway AS class, e.oneway, e.lanes AS lanes_per_direction,
@@ -222,11 +243,11 @@ def dossier(space_db, osm_db, unit_id, out, name, city, nvdb=None, flows=None, m
         import json
         with open(vancouver_json) as f:
             van = json.load(f)
-        con.execute("CREATE TEMP TABLE van (ds VARCHAR, p JSON, geometry GEOMETRY)")
-        con.executemany("INSERT INTO van VALUES (?, ?, ST_GeomFromGeoJSON(?))", [(ds, json.dumps(ft["properties"]), json.dumps(ft["geometry"]))
-                        for ds, fc in van.items() for ft in fc["features"] if ft["geometry"]])
-        con.execute(f"""INSERT INTO object SELECT ds || '-' || row_number() OVER (PARTITION BY ds), class, NULL,
-                        coalesce(try_cast(p->>'height_m' AS DOUBLE), {hcase}), p::VARCHAR, {prov('vancouver', 'surveyed')}, {m('geometry')}
+        con.execute("CREATE TEMP TABLE van (ds VARCHAR, i INT, p JSON, meth VARCHAR, geometry GEOMETRY)")   # i: its place in the fetched file
+        con.executemany("INSERT INTO van VALUES (?, ?, ?, ?, ST_GeomFromGeoJSON(?))", [(ds, i, json.dumps(ft["properties"]), van_method(ds, ft["properties"]),
+                        json.dumps(ft["geometry"])) for ds, fc in van.items() for i, ft in enumerate(fc["features"]) if ft["geometry"]])
+        con.execute(f"""INSERT INTO object SELECT ds || '-' || i, class, NULL,
+                        coalesce(try_cast(p->>'height_m' AS DOUBLE), {hcase}), p::VARCHAR, {vprov}, {m('geometry')}
                         FROM van JOIN (VALUES {", ".join(f"('{d}', '{c}')" for d, c in VAN_OBJECT.items())}) c(ds, class) USING (ds)
                         WHERE {near('geometry', 3)}""")
         # what the city says of each road piece, from its item nearest the piece (within 15 m): legal width, pavement, bikeway
@@ -262,13 +283,15 @@ def dossier(space_db, osm_db, unit_id, out, name, city, nvdb=None, flows=None, m
             SELECT 'parking meter', concat_ws('; ', p->>'rate_9am_6pm' || ' ' || (p->>'time_limit_9am_6pm') || ' 9-18',
                    p->>'rate_6pm_10pm' || ' ' || (p->>'time_limit_6pm_10pm') || ' 18-22',
                    nullif(p->>'prohibition_1_zone', 'None') || ' ' || (p->>'prohibition_1_days') || ' ' || (p->>'prohibition_1_time')),
-                   p->>'meter_id', {prov('vancouver', 'surveyed')}, {m('geometry')} FROM van WHERE ds = 'parking-meters' AND {near('geometry', 3)}
-            UNION ALL SELECT 'disability parking', p->>'description', p->>'location', {prov('vancouver', 'surveyed')}, {m('geometry')}
+                   p->>'meter_id', {vprov}, {m('geometry')} FROM van WHERE ds = 'parking-meters' AND {near('geometry', 3)}
+            UNION ALL SELECT 'disability parking', p->>'description', p->>'location', {vprov}, {m('geometry')}
                 FROM van WHERE ds = 'disability-parking' AND {near('geometry', 3)}
-            UNION ALL SELECT 'right-of-way width', (p->>'width') || ' (ft or m: not stated)', NULL, {prov('vancouver', 'surveyed')}, {m('geometry')}
+            UNION ALL SELECT 'right-of-way width', (p->>'width') || ' (ft or m: not stated)', NULL, {vprov}, {m('geometry')}
                 FROM van WHERE ds = 'right-of-way-widths' AND {near('geometry', FLOW_M)}
             UNION ALL SELECT 'bikeway', concat_ws(' ', p->>'bikeway_type', p->>'subtype', p->>'bikeway_direction'), p->>'street_name',
-                {prov('vancouver', 'surveyed')}, {m('geometry')} FROM van WHERE ds = 'bikeways' AND {near('geometry', FLOW_M)}""")
+                {vprov}, {m('geometry')} FROM van WHERE ds = 'bikeways' AND {near('geometry', FLOW_M)}
+            UNION ALL SELECT 'signalised junction', coalesce(p->>'type', 'traffic signals'), NULL, {vprov}, {m('geometry')}
+                FROM van WHERE ds = 'traffic-signals' AND {near('geometry', FLOW_M)}""")
 
     # observations: hourly traffic on the unit's roads; the photos taken in it
     con.execute("CREATE TABLE observation (kind VARCHAR, subject VARCHAR, t VARCHAR, value DOUBLE, unit_of_value VARCHAR, source VARCHAR, method VARCHAR, observed VARCHAR, confidence DOUBLE, geometry GEOMETRY)")
@@ -284,11 +307,11 @@ def dossier(space_db, osm_db, unit_id, out, name, city, nvdb=None, flows=None, m
     if vancouver_json:  # condition ratings (the rating in `subject`), the city's traffic counts (where; the data behind a link)
         con.execute(f"""INSERT INTO observation
             SELECT CASE ds WHEN 'sidewalk-condition-rating' THEN 'sidewalk condition' ELSE 'pavement condition' END,
-                   coalesce(p->>'sidewalk_condition_index_rating', p->>'pci_rating'), NULL, NULL, 'rating', 'vancouver', 'surveyed', NULL,
-                   {CONFIDENCE['surveyed']}, {m('geometry')}
+                   coalesce(p->>'sidewalk_condition_index_rating', p->>'pci_rating'), NULL, NULL, 'rating', 'vancouver', meth, NULL,
+                   {mconf}, {m('geometry')}
                 FROM van WHERE ds LIKE '%condition-rating%' AND {near('geometry', 3)}
             UNION ALL SELECT CASE ds WHEN 'intersection-traffic-movement-counts' THEN 'turning counts' ELSE 'directional counts' END,
-                   coalesce(p->>'url', p->>'location'), NULL, NULL, NULL, 'vancouver', 'surveyed', NULL, {CONFIDENCE['surveyed']}, {m('geometry')}
+                   coalesce(p->>'url', p->>'location'), NULL, NULL, NULL, 'vancouver', meth, NULL, {mconf}, {m('geometry')}
                 FROM van WHERE ds LIKE '%traffic-%count%' AND {near('geometry', FLOW_M)}""")
     try:
         seen = {k: (a, b) for k, a, b in con.execute("SELECT 'mly' || feature_id, first_seen, last_seen FROM sp.space.observed").fetchall()}

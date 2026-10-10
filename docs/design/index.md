@@ -12,7 +12,7 @@
   offset corridors and straight arm cuts.
 - [Network first (preview)](network-first.md): divide the roads into subsections, then one space per subsection, intersection and
   roundabout, cut at the block corners.
-- [The inside of a space](space-parts.md): lanes, junction box, crosswalks, sidewalks, markings and widths, with their sources.
+- [The inside of a space](space-parts.md): lanes, junction area, crosswalks, sidewalks, markings and widths, with their sources.
 - [Mapillary observations](mapillary.md): street-level signs, signals, street lights and parking from Mapillary's photos.
 - [Street objects](street-objects.md): what goes inside a street space: axis and `(s, t)`, strips, objects,
   boundaries, and the order of work.

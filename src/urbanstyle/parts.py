@@ -1,6 +1,6 @@
 """The inside of every new space (space.unit): its parts, its marks and the widths of its edges (docs/design/space-parts.md).
 
-space.part   the parts that cover a unit exactly: junction box, lane (in / out of a junction, forward / backward along a subsection),
+space.part   the parts that cover a unit exactly: junction area, lane (in / out of a junction, forward / backward along a subsection),
              bus lane, cycle lane, crosswalk, cycle crossing, carriageway (roadway no lane took), sidewalk, furnishing, open
 space.mark   lines on it, at real size: kerb, centre line, lane line, stop line, give-way line, zebra (one bar of a crosswalk)
 space.width  per intersection arm (at its cut) and per subsection (across its middle): total, roadway and sidewalk widths, lanes, lane width
@@ -801,7 +801,7 @@ def build(con, epsg):
                 got = add(uid, level, x["kind"][0], safe("intersection", x["poly"], U), x["kind"][1], width=x["w"])
                 if not got.is_empty and x["kind"][0] != "shoulder":     # the line between the lane and the parking strip
                     mark(uid, level, "edge line", safe("intersection", x["base"], U), ref=wref(x["edge"]))
-            add(uid, level, "carriageway" if sub else "ring" if rb else "junction box", C, "sumo")   # the rest of the roadway, one part
+            add(uid, level, "carriageway" if sub else "ring" if rb else "junction area", C, "sumo")   # the rest of the roadway, one part
             for street, lot in ([lots[k] for k in lot_tree.query(U)] if lot_tree is not None and level == 0 else []):
                 add(uid, level, "parking" if street else "parking lot", safe("difference", safe("intersection", lot, U), C), "osm")
             names = [(roads[e]["name"], roads[e]["g"]) for e, _ in cuts.get(uid, []) if e in roads]
@@ -974,8 +974,8 @@ def build(con, epsg):
                                                     half=(a["hl"], a["hr"], a["src"]), arrows="ends")
                 arm_lanes[a["eid"]] = (lanes, wl, src)
                 taken = safe("union", taken, shapely.union_all([x[1] for x in lanes] or [shapely.Polygon()]))
-            box = add(uid, level, "junction box", safe("difference", C, taken), "measured")
-            # guide lines through the junction box (a dashed line on the map): from every lane coming in to every lane out on another arm
+            box = add(uid, level, "junction area", safe("difference", C, taken), "measured")
+            # guide lines through the junction area (a dashed line on the map): from every lane coming in to every lane out on another arm
             # (which lane may go where is known only from SUMO)
             def lane_ends(a, ways):     # an arm's lanes one way, each with its middle at the stop position
                 c0 = a["ap"].interpolate(0)

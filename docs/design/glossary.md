@@ -107,6 +107,7 @@ Not built yet (step 3 of `street-objects.md`).
 |---|---|
 | **unit dossier** | everything known about one unit (an intersection or a street section) from every source, in `data/units/<name>.duckdb`, every row with its `source`, `method` and `confidence` (`docs/design/unit-dossier.md`) |
 | **match** | one real object that several sources describe: the city's surveyed pole, OSM's node and Mapillary's detections of one street light are one `match` row (`match_id` `m<k>`, `sources`, `refs`: every source's own id); `object.match_id` links each source's object to it |
+| **junction area** | the roadway inside an intersection where the arms' carriageways meet and the turning corners between them (`space.part` type `junction area`, called "junction box" before 2026-10-09): an area of our model, nothing painted on the road; not the city's street-lighting junction box (type "electrical box", a lid in the pavement) |
 | **ref** | an object's id in its own source (OSM node, Mapillary feature, a city's asset), kept so every drawn object leads back to where it came from |
 | **source / method** | on every part, object and dossier row: where its data comes from (`osm`, `sumo`, `mapillary`, `vancouver`, `urbanstyle`) and how it was obtained (`surveyed`, `mapped`, `measured`, `derived`, `observed`, `estimated`, `checked`) |
 

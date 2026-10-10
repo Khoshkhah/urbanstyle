@@ -52,9 +52,9 @@ def part_checks(c, q, m):
 
 
 def roadway_mismatch(c, q, m):
-    """Along each cut line, the roadway (lanes, shoulders, bus / cycle lanes, crosswalks, junction box) on the intersection side and on the
+    """Along each cut line, the roadway (lanes, shoulders, bus / cycle lanes, crosswalks, junction area) on the intersection side and on the
     road side should be the same width: the arm and the road meet there."""
-    road = "('lane', 'shoulder', 'bus lane', 'cycle lane', 'cycle crossing', 'island', 'crosswalk', 'junction box', 'carriageway')"
+    road = "('lane', 'shoulder', 'bus lane', 'cycle lane', 'cycle crossing', 'island', 'crosswalk', 'junction area', 'carriageway')"
     return q(f"""WITH cut AS (SELECT intersection_id, edge_id, {m('geometry')} AS g FROM space.cut),
       rw AS (SELECT unit_id, ST_MakeValid(ST_Union_Agg(ST_MakeValid(ST_Buffer({m('geometry')}, 0.01)))) AS g FROM space.part WHERE type IN {road} GROUP BY unit_id),
       side AS (SELECT cut.intersection_id, cut.edge_id, ST_Length(ST_Intersection(cut.g, ST_Buffer(i.g, 0.3))) AS iw,

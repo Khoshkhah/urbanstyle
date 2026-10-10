@@ -73,7 +73,7 @@ def tree_data(con, epsg):
 
 
 # the parts of a space (parts.py): a colour per type, lanes by direction
-PART_COLORS = {"lane circulating": "#4b5260", "ring": "#4b5260", "junction box": "#4b5260", "lane in": "#4b5260", "lane out": "#454c59", "lane forward": "#4b5260", "lane backward": "#454c59",
+PART_COLORS = {"lane circulating": "#4b5260", "ring": "#4b5260", "junction area": "#4b5260", "lane in": "#4b5260", "lane out": "#454c59", "lane forward": "#4b5260", "lane backward": "#454c59",
                "lane both": "#4b5260", "lane": "#4b5260", "shoulder": "#5c6370", "parking": "#64748b", "no parking": "#4b5260",
                "parking lot": "#94a3b8", "carriageway": "#4b5260", "bus lane": "#9b2c2c",
                "cycle lane": "#2f855a", "cycle crossing": "#38a169", "crosswalk": "#4b5260", "island": "#8fbf6f",
@@ -86,7 +86,7 @@ MARKS = [("guide line", "#e5e7eb", 0.1, [2, 3]), ("arrow", "#ffffff", 0.15, None
          ("edge line", "#ffffff", 0.12, None), ("stop line", "#ffffff", 0.4, None), ("give-way line", "#ffffff", 0.35, [1, 1]),
          ("zebra", "#ffffff", 0.5, None)]
 PANEL = """
-<style>#map{left:340px!important}body.us-off #map{left:0!important}body.us-off #us{display:none}
+<style>body.u3d .rs-tip{display:none!important}#map{left:340px!important}body.us-off #map{left:0!important}body.us-off #us{display:none}
 #usfold{position:fixed;top:6px;left:304px;z-index:6;width:28px;height:28px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;cursor:pointer;
   font:15px/1 system-ui;color:#475569;box-shadow:0 1px 3px #0002}body.us-off #usfold{left:8px}.ov-ctrl{display:none!important}  /* roadstyle's own Layers box: the panel list replaces it */
 #us{position:fixed;top:0;left:0;bottom:0;width:340px;overflow:auto;padding:8px;box-sizing:border-box;background:#fafafa;
@@ -100,7 +100,7 @@ PANEL = """
 <div id=us><b>urbanstyle</b> &middot; street space by level
 <div id=lv>level: __LEVELBTNS__</div>
 <label title="3D view only: the ground follows the hill (public 30 m terrain: rough, roads and buildings do not sit right on it)"><input type=checkbox id=terrain3d> rough terrain</label>
-<label id=allbox title="With nothing selected, show every space of this level with its parts and markings (in 3D: standing up)"><input type=checkbox id=allparts checked> every space in detail</label>
+<label id=allbox title="2D is a map: roads as lines, objects as dots. Tick to draw the real-size road surface in 2D too (lanes, crosswalks, sidewalks, markings), as 3D always does"><input type=checkbox id=allparts> road surface in 2D</label>
 <div id=jump></div>
 <div id=focus></div>
 <div id=chips></div>
@@ -122,7 +122,7 @@ const GROUPS=[
   ['Objects (shown in focus)',OB.map(o=>['o:'+o.g,o.g,o.c,'ci',({furniture:'lamps, signs, benches, bins, bollards, bike parking, vending, post boxes',vegetation:'trees',transit:'bus stops and platforms',crossing:'zebra, signalised and other crossings',kerb:'kerb points',access:'building and car-park entrances',barrier:'other barrier points'})[o.g]||''])],
   ['Network',[['r:road','Road centerline','#555','ln','click one for Street View'],['r:walkway','Walkway centerline','#a16207','ln','footway, steps, crossing'],['r:cycleway','Cycleway centerline','#16a34a','ln',''],
     ['rail','Rail line','#c026d3','ln',''],['stations','Station','#0d9488','ci','']].concat(LK.map(k=>['k:'+k.t,'Link: '+k.lab,k.c,'ci',k.d]))]];
-const show={}; GROUPS.forEach(g=>g[1].forEach(r=>show[r[0]]=(r[0].startsWith('c:')&&!HAS.includes('Spaces'))||r[0]==='buildings'));   // with the new spaces (space.unit) the old containers start hidden
+const show={}; GROUPS.forEach(g=>g[1].forEach(r=>show[r[0]]=(r[0].startsWith('c:')&&!HAS.includes('Spaces'))||r[0]==='buildings'||r[0].startsWith('r:')));   // roads start drawn (2D is a map); with the new spaces (space.unit) the old containers start hidden
 const row=r=>`<label><input type=checkbox data-k="${r[0]}" ${show[r[0]]?'checked':''}><span class="sw ${r[3]}" style="background:${r[2]}"></span>${r[1]}${r[4]?` <i>${r[4]}</i>`:''}</label>`;
 document.getElementById('chips').innerHTML=GROUPS[0][1].concat(GROUPS[2][1]).map(r=>`<label title="${r[4]}"><input type=checkbox data-k="${r[0]}" checked><span class="sw" style="background:${r[2]}"></span>${r[1]}</label>`).join('');
 document.getElementById('lg').innerHTML=GROUPS.slice(1).map((g,i)=>`<div class=gh><label><input type=checkbox data-g="${i+1}"><b>${g[0]}</b></label></div>`+g[1].map(row).join('')).join('')+
@@ -138,13 +138,12 @@ let sel={t:'root',l:0};
 function apply(){
   const {t,l,cid,zone}=sel, cs=sel.cids, showB=['root','bld','bldL','ctr','ctrL','stn'].includes(t), showZ=t!=='bld'&&t!=='bldL';
   const focused=t==='street'||t==='zone';
-  // nothing focused and "every space in detail" ticked: every space of the level with its parts and markings
-  const ALL=!focused&&HAS.includes('Parts')&&document.getElementById('allparts').checked;
+  // 2D is a map (roads as lines, objects as dots); "road surface in 2D" ticked: every space's real-size ground and markings too
+  const ALL=HAS.includes('Parts')&&document.getElementById('allparts').checked;
   // an intersection with a new space in focus: exactly that space (its area, cuts, road pieces, bounding buildings, what stands inside)
   const IX=focused&&!sel.gid&&NEWU.inter[cid]?cid:null;
-  // centerlines: hidden in the overview (Street View needs one clicked: focus a street space, or tick them); in focus, the container's own
-  // (an intersection shows its own road pieces instead: the Junction roads layer, clipped to it)
-  rsFilter(rsQuery(p=>!IX&&p.level===l&&(focused?cs.has(p.container_id):show['r:'+p.type]===true)));
+  // the roads as lines, every one of the level, focused or not (a focus only highlights); a road type unticked in the tree stays out
+  rsFilter(rsQuery(p=>p.level===l&&show['r:'+p.type]===true));
   setMask(focused); setLabels(focused?cs:null); renderFocus();
   // buildings: all of them in the overview; in focus only the ones that bound the focused containers
   const bb=new Set(); if(IX)(NEWU.inter[IX].bb||[]).forEach(b=>bb.add(b[0])); else if(focused)[...cs].forEach(id=>(info(id).bb||[]).forEach(b=>bb.add(b)));
@@ -184,9 +183,9 @@ function apply(){
   const flat=map.getPitch()<=5, inL=lab=>rsQuery(p=>p.level===l||(flat&&p.level===l+1),lab);
   // tilted: the ground of every space of the level (its roadway, lane lines and arrows), not only the focused one's: the buildings around
   // must not stand on empty ground
-  const wide=ALL||(!flat&&HAS.includes('Parts')), PF=wide?null:PU;
-  if(HAS.includes('Parts')){setOv('Parts',!!PF||wide); if(PF){rsFilter(rsQuery(p=>PF.has(p.unit_id),'Parts'),'Parts'); setOv('Spaces',false)}
-    else if(wide){rsFilter(inL('Parts'),'Parts'); if(!flat)setOv('Spaces',false)}}
+  // the real-size ground and markings in 2D only when "road surface in 2D" is ticked (3D draws its own, always)
+  const wide=ALL, PF=null;
+  if(HAS.includes('Parts')){setOv('Parts',wide); if(wide){rsFilter(inL('Parts'),'Parts'); setOv('Spaces',false)}}
   MK.forEach(t=>{const lab='Mark: '+t; setOv(lab,!!PF||wide); if(PF)rsFilter(rsQuery(p=>PF.has(p.unit_id),lab),lab); else if(wide)rsFilter(inL(lab),lab)});
   if(HAS.includes('Mapillary')){setOv('Mapillary',!!PU||ALL); if(PU)rsFilter(rsQuery(p=>PU.has(p.unit),'Mapillary'),'Mapillary'); else if(ALL)rsFilter(inL('Mapillary'),'Mapillary')}
   // the base map shows the streets at ground level: on another level it fades, so that level's own spaces stand out
@@ -346,15 +345,18 @@ function partsTable(...uids){const t={}; uids.forEach(u=>Object.entries((NEWU.pa
 document.getElementById('focus').onchange=e=>{const k=e.target.dataset.cls; if(!k)return; sel.hide=sel.hide||new Set(); e.target.checked?sel.hide.delete(k):sel.hide.add(k); apply()};
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&(sel.t==='street'||sel.t==='zone'))focusOff()});
 // clicking a street space (or one of its zones) on the map focuses it
-// 2.5D: tilt the map (roadstyle's 3D button) and the focused space stands up: raised sidewalks and islands, buildings to their
-// floors, trees, lamps, signs and benches at their real height (OSM objects, and Mapillary's points as small posts). No terrain: the
-// ground is flat. Heights in metres.
+// Two views of the same data, each its own set of layers. 2D: roadstyle's overlays (their wanted visibility is ov.visible, kept by the
+// panel and the layer list in both views). 3D (tilt the map, roadstyle's 3D button): the u3d-* layers below, made from the same sources:
+// every space's ground on the level (the roadway flat, sidewalks and islands raised), its painted lines, the buildings to their floors,
+// the levels above as bridge decks, and one model per street object. Switching shows one set and hides the other; nothing else.
 const RAISE={sidewalk:0.15,furnishing:0.15,open:0.15,island:0.2};
 const LEVEL_M=3.2, DECK_M=6, SLAB_M=0.6;   // a building's floor; a bridge level's height above the one viewed, its deck's thickness
 const ovSrc=lab=>(OVERLAYS.find(o=>o.label===lab)||{}).source;
 const byKey=(key,table,dflt)=>['match',['get',key],...Object.entries(table).flatMap(([k,v])=>[k,v]),dflt];
-let pu3d=null, lv3d=0, all3d=false;
-function up3d(PU,l,all){pu3d=PU; lv3d=l; all3d=!!all&&!PU; draw3d()}
+const NOT_IN_3D=['Mark: guide line','Mark: kerb'];   // a guide line is no paint, and the raised sidewalk's edge is the kerb
+let lv3d=0, in3d=false, roads2d={};
+const U3D=[];
+function up3d(PU,l,all){lv3d=l; if(in3d)draw3d()}
 // terrain in 3D, only when ticked (off by default): public terrain tiles on AWS (Terrarium, about 30 m detail) are too coarse for Monaco's
 // terraces and stacked streets - roads sink into the hill, buildings float. A fine terrain (1-5 m) is needed before it can be on by default.
 const DEM_TILES='https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
@@ -362,31 +364,58 @@ function terrain(on){if(!map.setTerrain)return;
   if(on&&!map.getSource('u3d-dem'))map.addSource('u3d-dem',{type:'raster-dem',tiles:[DEM_TILES],tileSize:256,encoding:'terrarium',maxzoom:15,
     attribution:'Terrain: <a href="https://registry.opendata.aws/terrain-tiles/" target="_blank">AWS Terrain Tiles</a>'});
   const now=!!map.getTerrain&&!!map.getTerrain(); if(on!==now)map.setTerrain(on?{source:'u3d-dem',exaggeration:1}:null)}
-function draw3d(){const on=map.getPitch()>5&&(!!pu3d||all3d), ids=pu3d?[...pu3d]:[];
-  terrain(map.getPitch()>5&&document.getElementById('terrain3d').checked);
-  const mine=key=>all3d?['==',['get','level'],lv3d]:['in',['get',key],['literal',ids]];   // every space of the level, or the focused ones
-  const add=(id,src,paint,filter,show=on)=>{if(!src)return; if(!map.getLayer(id))map.addLayer({id,type:'fill-extrusion',source:src,paint});
-    map.setFilter(id,filter); map.setLayoutProperty(id,'visibility',show?'visible':'none')};
-  add('u3d-bld',ovSrc('Buildings'),{'fill-extrusion-color':'#e7e2d8','fill-extrusion-opacity':0.92,
-      'fill-extrusion-height':['*',['+',['get','level_max'],1],LEVEL_M],'fill-extrusion-base':['*',['max',['get','level_min'],0],LEVEL_M]},
+function draw3d(){
+  terrain(in3d&&document.getElementById('terrain3d').checked);
+  const add=(spec,filter)=>{if(!spec.source)return; if(!map.getLayer(spec.id)){map.addLayer(spec); U3D.push(spec.id)}
+    map.setFilter(spec.id,filter); map.setLayoutProperty(spec.id,'visibility',in3d?'visible':'none')};
+  const lvl=['==',['get','level'],lv3d];
+  add({id:'u3d-ground',type:'fill',source:ovSrc('Parts'),paint:{'fill-color':['get','color'],'fill-opacity':1}},
+      ['all',lvl,['!',['in',['get','type'],['literal',Object.keys(RAISE)]]]]);
+  OVERLAYS.filter(o=>o.label.startsWith('Mark: ')&&!NOT_IN_3D.includes(o.label)).forEach(o=>{   // the paint, as in 2D, on the 3D ground
+    const l2=map.getStyle().layers.find(x=>x.id===o.layers[0]); if(!l2)return;
+    add({id:'u3d-'+o.layers[0],type:l2.type,source:o.source,paint:l2.paint||{},layout:Object.assign({},l2.layout||{},{visibility:'none'})},lvl)});
+  add({id:'u3d-raised',type:'fill-extrusion',source:ovSrc('Parts'),paint:{'fill-extrusion-color':['get','color'],'fill-extrusion-opacity':1,
+      'fill-extrusion-height':byKey('type',RAISE,0)}},['all',lvl,['in',['get','type'],['literal',Object.keys(RAISE)]]]);
+  add({id:'u3d-bld',type:'fill-extrusion',source:ovSrc('Buildings'),paint:{'fill-extrusion-color':'#e7e2d8','fill-extrusion-opacity':0.92,
+      'fill-extrusion-height':['*',['+',['get','level_max'],1],LEVEL_M],'fill-extrusion-base':['*',['max',['get','level_min'],0],LEVEL_M]}},
       ['>=',['get','level_max'],0]);
-  // every space of the level, focused or not: sidewalks and islands raised. The roadway stays flat (the Parts layer, apply()), so its lane
-  // lines, arrows and zebras (flat line layers) stay on top of it; an extruded roadway would cover them
-  add('u3d-parts',ovSrc('Parts'),{'fill-extrusion-color':['get','color'],'fill-extrusion-opacity':1,'fill-extrusion-height':byKey('type',RAISE,0)},
-      ['all',['in',['get','type'],['literal',Object.keys(RAISE)]],['==',['get','level'],lv3d]],map.getPitch()>5);
-  // tunnel entrances, seen from ground level: portal walls, a roof over the first metres and the tunnel's road under it
-  add('u3d-portal',ovSrc('Tunnel portals'),{'fill-extrusion-color':['get','color'],'fill-extrusion-opacity':1,
-      'fill-extrusion-base':['get','base'],'fill-extrusion-height':['get','height']},lv3d===0?true:['==',1,0]);
-  // bridges: the spaces of the levels above the one viewed, as decks in the air (their parts in their colours, raised ones a little higher)
-  const up=['*',['-',['get','level'],lv3d],DECK_M];
-  add('u3d-deck',ovSrc('Parts'),{'fill-extrusion-color':['get','color'],'fill-extrusion-opacity':1,
-      'fill-extrusion-base':['-',up,SLAB_M],'fill-extrusion-height':['+',up,byKey('type',RAISE,0)]},['>',['get','level'],lv3d]);
-  // street furniture as objects: lamps, signals, signs, trees, benches, bins (OSM's and Mapillary's), where they stand, turned to the road
-  add('u3d-furn',ovSrc('Street furniture 3D'),{'fill-extrusion-color':['get','color'],'fill-extrusion-opacity':1,
-      'fill-extrusion-base':['get','base'],'fill-extrusion-height':['get','height']},
-      ['all',['==',['get','level'],lv3d],all3d?true:['in',['get','unit'],['literal',ids]]]);
+  const up=['*',['-',['get','level'],lv3d],DECK_M];   // bridges: the levels above, as decks in the air
+  add({id:'u3d-deck',type:'fill-extrusion',source:ovSrc('Parts'),paint:{'fill-extrusion-color':['get','color'],'fill-extrusion-opacity':1,
+      'fill-extrusion-base':['-',up,SLAB_M],'fill-extrusion-height':['+',up,byKey('type',RAISE,0)]}},['>',['get','level'],lv3d]);
+  add({id:'u3d-furn',type:'fill-extrusion',source:ovSrc('Street objects 3D'),paint:{'fill-extrusion-color':['get','color'],'fill-extrusion-opacity':1,
+      'fill-extrusion-base':['get','base'],'fill-extrusion-height':['get','height']}},lvl);
+  bind3d();
 }
-map.on('pitchend',()=>{draw3d(); apply()});   // tilting: bridges become decks, every space's ground is drawn (and back)
+function setView(){const t=map.getPitch()>5; document.body.classList.toggle('u3d',t);
+  if(t!==in3d){in3d=t;
+    if(t){map.getStyle().layers.forEach(x=>{if(/^roads-/.test(x.id)){roads2d[x.id]=map.getLayoutProperty(x.id,'visibility')||'visible';
+            map.setLayoutProperty(x.id,'visibility','none')}});
+          OVERLAYS.forEach(o=>(o.layers||[]).forEach(id=>{if(map.getLayer(id))map.setLayoutProperty(id,'visibility','none')}))}
+    else{U3D.forEach(id=>{if(map.getLayer(id))map.setLayoutProperty(id,'visibility','none')}); tip3d.remove();
+         Object.entries(roads2d).forEach(([id,v])=>{if(map.getLayer(id))map.setLayoutProperty(id,'visibility',v)});
+         OVERLAYS.forEach(o=>(o.layers||[]).forEach(id=>{if(map.getLayer(id))map.setLayoutProperty(id,'visibility',o.visible?'visible':'none')}))}}
+  if(in3d)draw3d()}
+// in 3D a 2D overlay switched on (by the panel or the layer list) is only remembered (ov.visible), not drawn
+document.addEventListener('rs:overlaychange',e=>{if(!in3d)return; const o=OVERLAYS.find(o=>o.label===e.detail.overlay);
+  ((o&&o.layers)||[]).forEach(id=>{if(map.getLayer(id))map.setLayoutProperty(id,'visibility','none')})});
+// in 3D: the mouse over a street object lights it up and names its type (a small tooltip, nothing more); a click on an object or on the
+// ground opens its popup, the same fields as in 2D
+let bound3d=false, hov3d=null;
+const tip3d=new maplibregl.Popup({closeButton:false,closeOnClick:false,offset:12,className:'u3d-tip'}), OBJ_POPUP=__OBJPOPUP__;
+const pop3d=(e,p,fields)=>setTimeout(()=>{document.querySelectorAll('.maplibregl-popup:not(.u3d-tip)').forEach(x=>x.remove());
+  new maplibregl.Popup({closeButton:true,maxWidth:'320px'}).setLngLat(e.lngLat).setHTML('<table>'+
+    fields.filter(k=>p[k]!==undefined&&p[k]!==null&&p[k]!=='').map(k=>`<tr><td><b>${k}</b></td><td>${p[k]}</td></tr>`).join('')+'</table>').addTo(map)},0);
+function bind3d(){if(bound3d||!map.getLayer('u3d-furn'))return; bound3d=true;
+  const paint=r=>map.setPaintProperty('u3d-furn','fill-extrusion-color',r?['case',['==',['get','refs'],r],'#facc15',['get','color']]:['get','color']);
+  map.on('mousemove','u3d-furn',e=>{const f=e.features&&e.features[0]; if(!f)return; map.getCanvas().style.cursor='pointer';
+    if(hov3d!==f.properties.refs){hov3d=f.properties.refs; paint(hov3d)}
+    tip3d.setLngLat(e.lngLat).setText(f.properties.type).addTo(map)});
+  map.on('mouseleave','u3d-furn',()=>{hov3d=null; map.getCanvas().style.cursor=''; paint(null); tip3d.remove()});
+  let onObj=0;
+  map.on('click','u3d-furn',e=>{onObj=Date.now(); pop3d(e,e.features[0].properties,OBJ_POPUP)});
+  const groundPop=(OVERLAYS.find(o=>o.label==='Parts')||{}).popup||[];
+  ['u3d-ground','u3d-raised'].forEach(id=>map.on('click',id,e=>{if(Date.now()-onObj>50)pop3d(e,e.features[0].properties,groundPop)}))}
+map.on('pitchend',()=>{setView(); apply()});   // the view follows the tilt: 3D's own layers, or 2D's
 // Street View: roadstyle's window follows clicks on a road's centre line only; in a space most clicks land on its parts, lines or
 // Mapillary points (overlays). While the window is open such a click moves it too: to the road nearest the spot, looking along it.
 let downAt=null; map.on('mousedown',e=>downAt=e.lngLat); map.on('touchstart',e=>downAt=e.lngLat);
@@ -446,7 +475,8 @@ function paintObjects(){const ov=(window.RS_OVERLAYS||[]).find(x=>x.label==='Obj
     if(Array.isArray(e)&&e[0]==='case'&&!Array.isArray(e[e.length-1])){const c=e.slice(); c[c.length-1]=base; map.setPaintProperty(id,'fill-color',c)}})}
 map.on('idle',paintObjects);   // the basemap scales its last real tile level; our layers stay sharp
 let tries=0;   // overlay data loads after the map's own load event: wait until it can be queried
-(function start(){ if(rsQuery(()=>true,'Buildings').length===0&&tries++<100){setTimeout(start,200);return} apply(); fromHash() })();
+// start once the data is in: the buildings and the roads (filtering the roads before they are loaded would hide them all)
+(function start(){ if((rsQuery(()=>true,'Buildings').length===0||rsQuery(()=>true).length===0)&&tries++<100){setTimeout(start,200);return} apply(); fromHash() })();
 // direct link: viz/<area>.html?c=<container id> (or #c=<container id>) focuses that container; ?c= survives link openers that drop the #
 function fromHash(){const m=location.hash.match(/^#c=(.+)$/)||location.search.match(/[?&]c=([^&]+)/); if(m)focusOn(decodeURIComponent(m[1]))}
 window.addEventListener('hashchange',fromHash);
@@ -478,62 +508,6 @@ OBJ_SHAPES = {
     "crossing.zebra": ("stripes", 0, "#ffffff"), "crossing.signalised": ("stripes", 0, "#ffffff"), "crossing.other": ("stripes", 0, "#f3f4f6")}
 
 
-PORTAL_CLEAR_M, PORTAL_TOP_M, MOUTH_M = 4.6, 9.0, 25.0   # a tunnel portal: the opening's height, the wall's top, the roofed length shown
-STRIPE_M = 0.8      # the hazard stripes over a tunnel's opening
-
-
-def tunnel_portals(con, epsg):
-    """The 3D view's tunnel entrances, where a road below ground (level -1) meets one at ground level: a portal wall across it (its
-    opening as wide as the tunnel's roadway, PORTAL_CLEAR_M high), a roof over the first MOUTH_M m and the tunnel's own road under it
-    (the ground is flat: the tunnel cannot go down). Polygons in lon/lat with base, height and colour."""
-    import shapely
-    from shapely.ops import transform
-    import pyproj
-    to_m = f"ST_AsWKB(ST_Transform(geometry, 'EPSG:4326', '{epsg}', always_xy := true))"
-    ground = {n for (n,) in con.execute("SELECT src FROM space.element WHERE type = 'road' AND level_min = 0 UNION SELECT dst FROM space.element WHERE type = 'road' AND level_min = 0").fetchall()}
-    tunnels = [(s_, d, shapely.from_wkb(bytes(w))) for s_, d, w in con.execute(f"SELECT src, dst, {to_m} FROM space.element WHERE type = 'road' AND level_min = -1").fetchall()]
-    road = [shapely.from_wkb(bytes(w)) for (w,) in con.execute(f"""SELECT {to_m} FROM space.part WHERE level = -1
-            AND type IN ('lane', 'bus lane', 'cycle lane', 'carriageway', 'junction box', 'shoulder', 'parking', 'no parking', 'ring')""").fetchall()]
-    tube = [shapely.from_wkb(bytes(w)) for (w,) in con.execute(f"SELECT {to_m} FROM space.unit WHERE level = -1").fetchall()]
-    rtree, ttree = (shapely.STRtree(x) if x else None for x in (road, tube))
-    out = []
-    for s_, d, g in tunnels:
-        for node, at_start in ((s_, True), (d, False)):
-            if node not in ground or g.length < 2:
-                continue
-            p = shapely.Point(g.coords[0] if at_start else g.coords[-1])
-            q = g.interpolate(min(5.0, g.length) if at_start else max(g.length - 5.0, 0))
-            dx, dy = q.x - p.x, q.y - p.y
-            h = (dx * dx + dy * dy) ** 0.5 or 1.0
-            dx, dy = dx / h, dy / h                        # into the tunnel
-            nx, ny = -dy, dx
-            inside = shapely.Polygon([(p.x + nx * 40, p.y + ny * 40), (p.x - nx * 40, p.y - ny * 40),
-                                      (p.x - nx * 40 + dx * MOUTH_M, p.y - ny * 40 + dy * MOUTH_M), (p.x + nx * 40 + dx * MOUTH_M, p.y + ny * 40 + dy * MOUTH_M)])
-            floor = shapely.union_all([road[k].intersection(inside) for k in rtree.query(inside)] or [shapely.Polygon()]) if rtree else shapely.Polygon()
-            roof = shapely.union_all([tube[k].intersection(inside) for k in ttree.query(inside)] or [shapely.Polygon()]) if ttree else shapely.Polygon()
-            if floor.is_empty:
-                continue
-            # the opening: as wide as the tunnel's roadway at its mouth
-            across = [((x - p.x) * nx + (y - p.y) * ny) for x, y in shapely.get_coordinates(floor.intersection(p.buffer(4)))]
-            lo, hi = (min(across) - 0.3, max(across) + 0.3) if across else (-3.5, 3.5)
-            box = lambda a, b, t0, t1: shapely.Polygon([(p.x + nx * a + dx * t0, p.y + ny * a + dy * t0), (p.x + nx * b + dx * t0, p.y + ny * b + dy * t0),
-                                                        (p.x + nx * b + dx * t1, p.y + ny * b + dy * t1), (p.x + nx * a + dx * t1, p.y + ny * a + dy * t1)])
-            out += [(floor, 0.0, 0.05, "#2b2f36", "mouth"), (roof, PORTAL_CLEAR_M + 0.4, PORTAL_CLEAR_M + 1.2, "#a8a29e", "roof"),
-                    (box(lo - 6, lo, -0.4, 1.0), 0.0, PORTAL_TOP_M, "#bdb8b0", "wall"), (box(hi, hi + 6, -0.4, 1.0), 0.0, PORTAL_TOP_M, "#bdb8b0", "wall"),
-                    (box(lo, hi, -0.4, 1.0), PORTAL_CLEAR_M, PORTAL_TOP_M, "#bdb8b0", "wall")]
-            # what marks it as a tunnel entrance: yellow and black hazard stripes along the top of the opening, a blue tunnel sign above
-            k, a = 0, lo
-            while a < hi:
-                out.append((box(a, min(a + STRIPE_M, hi), -0.9, -0.5), PORTAL_CLEAR_M - 0.1, PORTAL_CLEAR_M + 0.9, "#facc15" if k % 2 == 0 else "#111827", "hazard stripes"))
-                a += STRIPE_M
-                k += 1
-            c = (lo + hi) / 2
-            out.append((box(c - 1.6, c + 1.6, -0.8, -0.5), PORTAL_CLEAR_M + 1.4, PORTAL_CLEAR_M + 3.1, "#1d4ed8", "tunnel sign"))
-    back = pyproj.Transformer.from_crs(epsg, "EPSG:4326", always_xy=True).transform
-    rows = [(kind, base, top, col, transform(back, geom)) for geom, base, top, col, kind in out if not geom.is_empty and geom.area > 0.2]
-    return gpd.GeoDataFrame([r[:4] for r in rows], columns=["part", "base", "height", "color"], geometry=[r[4] for r in rows], crs=4326)
-
-
 # street furniture that stands on the pavement: a point of it on the roadway or inside a building is moved out (Mapillary's are 1-5 m off)
 SNAP = ("furniture.lamp", "furniture.sign", "furniture.signal", "furniture.waste", "furniture.bench", "furniture.post_box", "furniture.vending",
         "furniture.advertising", "furniture.bike_parking", "transit.stop", "vegetation.tree")
@@ -542,6 +516,19 @@ SEEN_CLASS = {"street light": "furniture.lamp", "traffic light": "furniture.sign
 SIGN_COLOR = {"give way": "#dc2626", "stop": "#b91c1c", "parking": "#1d4ed8", "no parking": "#2563eb"}
 KERB_BACK_M = 0.5     # a pole moved off the roadway stands this far behind the kerb
 FACADE_SNAP_M = 3.0   # a point this far inside a building is at its facade (mapped a little off); deeper is indoors
+
+
+# an object's popup and tooltip, the same in 2D and in 3D: the tooltip names its type, the popup says what it is and who knows it
+DOT_COLORS = {"furniture": "#4f46e5", "vegetation": "#16a34a", "utility": "#6b7280", "transit": "#0891b2", "access": "#db2777", "barrier": "#78350f"}
+OBJ_POPUP, OBJ_TIP = ["type", "height_m", "details", "sources", "method", "refs", "space"], ["type"]
+TYPE_NAME = {"crossing.zebra": "zebra crossing", "crossing.signalised": "signalised crossing", "crossing.other": "crossing", "kerb.node": "kerb",
+             "transit.stop": "transit stop", "access.entrance": "entrance", "access.parking_entrance": "parking entrance", "barrier.other": "barrier",
+             "utility.junction_box": "electrical box"}     # a street-lighting junction box: a lid in the pavement, not the junction area
+
+
+def type_of(cls):
+    """A class as people say it: furniture.lamp -> lamp, utility.catch_basin -> catch basin, crossing.zebra -> zebra crossing."""
+    return TYPE_NAME.get(cls, str(cls).split(".")[-1].replace("_", " "))
 
 
 def placer(con, epsg):
@@ -588,48 +575,82 @@ def placer(con, epsg):
     return place
 
 
+NOT_OBJECTS = ("crossing.", "kerb.")   # points of the network, drawn as ground and paint (crosswalks, kerbs), not as objects
+
+
+def _fields(attrs):
+    """A source's own fields of an object, as "key: value; ...", without the empty ones and positions."""
+    try:
+        d = json.loads(attrs) if isinstance(attrs, str) else (attrs or {})
+    except ValueError:
+        return str(attrs or "")
+    return "; ".join(f"{k}: {v}" for k, v in d.items() if v not in (None, "", "None") and k not in ("geo_point_2d", "geom")) if isinstance(d, dict) else str(d)
+
+
 def matched_objects(con, epsg, db):
     """The area's street objects, one per real object (unit.match): OSM's objects, Mapillary's points and, where a unit's dossier lies
-    next to `db`, its city objects. [(id, class, level, grp, point in metres, refs, sources)]: the id, position and level of its best
-    source, every source's id. Each class is matched within its level."""
+    next to `db`, its city objects. [(id, class, level, grp, point in metres, refs, sources, height or None, details)]: the id,
+    position and level of its best source, every source's id, a measured height where a source has one, what each source says of it
+    ("vancouver: common_name: CHERRY; height_m: 7.6 | osm: natural: tree") and how each got it, in the order of refs ("vancouver:
+    approximate; mapillary: observed": OSM mapped, Mapillary observed, a city by its own accuracy note, unit.VAN_METHOD). Each class is matched within its level. Crossing and
+    kerb points are left out (NOT_OBJECTS): they are drawn as the crosswalk and the kerb."""
     import shapely
     from urbanstyle.unit import CONFIDENCE, match
     to_m = lambda col="geometry", crs="EPSG:4326": f"ST_AsWKB(ST_Transform({col}, '{crs}', '{epsg}', always_xy := true))"
-    items = [(oid, cls, lv, None, "osm", shapely.from_wkb(bytes(w))) for oid, cls, lv, w in con.execute(f"SELECT object_id, class, level, {to_m()} FROM space.object").fetchall()]
+    info = {}                                       # id -> what its source says of it (tags, a city's fields, when photos saw it)
+    items = []
+    for oid, cls, lv, w, attrs in con.execute(f"SELECT object_id, class, level, {to_m()}, attrs::VARCHAR FROM space.object").fetchall():
+        if not cls.startswith(NOT_OBJECTS):
+            items.append((oid, cls, lv, None, "osm", shapely.from_wkb(bytes(w)), None, "mapped"))
+            info[str(oid)] = _fields(attrs)
     seen = {}
     try:
         for fid, grp, a, b, w in con.execute(f"SELECT feature_id, grp, first_seen, last_seen, {to_m()} FROM space.observed").fetchall():
             if grp in SEEN_CLASS:
-                items.append((fid, SEEN_CLASS[grp], 0, grp, "mapillary", shapely.from_wkb(bytes(w))))
+                items.append((fid, SEEN_CLASS[grp], 0, grp, "mapillary", shapely.from_wkb(bytes(w)), None, "observed"))
                 seen[fid] = (a, b)
+                info[str(fid)] = f"seen {a:%Y-%m-%d} .. {b:%Y-%m-%d}" if a and b else ""
     except duckdb.CatalogException:
         pass
-    dos = db.replace(".space.duckdb", ".duckdb")
-    if dos != db and os.path.exists(dos):
+    dos, city = db.replace(".space.duckdb", ".duckdb"), db.replace(".space.duckdb", ".vancouver.json")
+    if city != db and os.path.exists(city):         # a city's surveyed objects around the unit, all of them (the dossier holds the unit's)
+        import pyproj
+        from urbanstyle.unit import VAN_OBJECT, van_method
+        fwd = pyproj.Transformer.from_crs("EPSG:4326", epsg, always_xy=True).transform
+        for ds, fc in json.load(open(city)).items():
+            for i, ft in enumerate(fc["features"]):
+                if ds in VAN_OBJECT and ft["geometry"] and ft["geometry"]["type"] == "Point":
+                    h = (ft["properties"] or {}).get("height_m")
+                    items.append((f"{ds}-{i}", VAN_OBJECT[ds], 0, None, "vancouver", shapely.Point(fwd(*ft["geometry"]["coordinates"][:2])),
+                                  float(h) if isinstance(h, (int, float)) else None, van_method(ds, ft["properties"])))
+                    info[f"{ds}-{i}"] = _fields(ft["properties"])
+    elif dos != db and os.path.exists(dos):
         con.execute(f"ATTACH IF NOT EXISTS '{dos}' AS dos (READ_ONLY)")
         crs = con.execute("SELECT crs FROM dos.unit").fetchone()[0]
-        items += [(oid, cls, 0, None, src, shapely.from_wkb(bytes(w))) for oid, cls, src, w in con.execute(
-            f"SELECT object_id, class, source, {to_m(crs=crs)} FROM dos.object WHERE source NOT IN ('osm', 'mapillary')").fetchall()]
+        items += [(oid, cls, 0, None, src, shapely.from_wkb(bytes(w)), h, meth) for oid, cls, src, w, h, meth in con.execute(
+            f"SELECT object_id, class, source, {to_m(crs=crs)}, height_m, method FROM dos.object WHERE source NOT IN ('osm', 'mapillary')").fetchall()]
     m = duckdb.connect()
     m.execute("LOAD spatial")
     m.execute("CREATE TABLE object (object_id VARCHAR, class VARCHAR, source VARCHAR, height_m DOUBLE, confidence DOUBLE, geometry GEOMETRY)")
-    conf = {"osm": CONFIDENCE["mapped"], "mapillary": CONFIDENCE["observed"]}
-    m.executemany("INSERT INTO object VALUES (?, ?, ?, NULL, ?, ST_GeomFromWKB(?))",
-                  [(str(oid), f"{cls}@{lv}", src, conf.get(src, CONFIDENCE["surveyed"]), shapely.to_wkb(p)) for oid, cls, lv, _, src, p in items])
+    m.executemany("INSERT INTO object VALUES (?, ?, ?, NULL, ?, ST_GeomFromWKB(?))",       # confidence: by how the source got it (method)
+                  [(str(oid), f"{cls}@{lv}", src, CONFIDENCE.get(meth, 0.5), shapely.to_wkb(p)) for oid, cls, lv, _, src, p, _h, meth in items])
     match(m, {str(k): v for k, v in seen.items()})
     by_id = {str(i[0]): i for i in items}
     out = []
     for refs, sources in m.execute("SELECT refs, sources FROM match").fetchall():
-        oid, cls, lv, grp, _, p = by_id[refs.split(", ")[0]]      # the best source's
-        out.append((oid, cls, lv, grp, p, refs, sources))
+        oid, cls, lv, grp, _, p, _h, _m = by_id[refs.split(", ")[0]]      # the best source's
+        h = next((by_id[r][6] for r in refs.split(", ") if by_id[r][6]), None)   # a measured height (a city's tree), from any source
+        details = " | ".join(f"{by_id[r][4]}: {info[r]}" for r in refs.split(", ") if info.get(r))
+        methods = "; ".join(f"{by_id[r][4]}: {by_id[r][7]}" for r in refs.split(", "))      # in the order of refs
+        out.append((oid, cls, lv, grp, p, refs, sources, h, details, methods))
     return out
 
 
 def furniture_3d(con, epsg, place, objs):
     """The 3D view's street furniture, each a few stacked blocks turned to its road: a street light (pole, arm over the road, lamp), a
     traffic light (pole, signal head), a sign (pole, plate in its colour), a tree (trunk, crown), a bench (seat, back), a bin, a bollard.
-    one per real object (`objs`: matched_objects), where it stands (place). Polygons in lon/lat: base, height, colour, level, unit, and
-    the object they draw (`ref`: every source's id, `source`: the sources), so every block of one object leads back to all of them."""
+    one per real object (`objs`: matched_objects), where it stands (place). Polygons in lon/lat: base, height, colour, level, and the
+    object they draw in OBJ_POPUP's fields (type, sources, refs: every source's id, space), the same as in 2D."""
     import math
     import shapely
     from shapely.ops import transform
@@ -642,8 +663,9 @@ def furniture_3d(con, epsg, place, objs):
     ug = [shapely.from_wkb(bytes(u[2])) for u in units]
     utree = shapely.STRtree(ug)
     out = []
-    for oid, cls, lv, grp, p, refs, sources in objs:
-        p = place(p, lv, cls)
+    for oid, cls, lv, grp, p, refs, sources, measured, details, methods in objs:
+        if not cls.startswith("utility."):       # a manhole, a drain, a lid lies in the ground where it is mapped (a roadway too)
+            p = place(p, lv, cls)
         cand = [k for k in rtree.query(p.buffer(25)) if roads[k][0] == lv]
         ux, uy = 0.0, 1.0           # towards the road
         if cand:
@@ -656,7 +678,7 @@ def furniture_3d(con, epsg, place, objs):
         def blk(off, L, W, b, t, col):     # a block centred `off` m towards the road, L along it, W across
             cx, cy = p.x + ux * off, p.y + uy * off
             pts = [(cx + ax * a * L / 2 + ux * c * W / 2, cy + ay * a * L / 2 + uy * c * W / 2) for a, c in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
-            out.append((shapely.Polygon(pts), b, t, col, cls, lv, refs, sources))
+            out.append((shapely.Polygon(pts), b, t, col, cls, lv, refs, sources, None, details, methods))
         if cls == "furniture.lamp":
             blk(0, 0.22, 0.22, 0, 7.6, "#52525b"); blk(0.8, 0.12, 1.6, 7.35, 7.5, "#52525b"); blk(1.6, 0.35, 0.6, 7.05, 7.35, "#fde68a")
         elif cls == "furniture.signal":
@@ -669,9 +691,28 @@ def furniture_3d(con, epsg, place, objs):
             blk(0, 1.8, 0.45, 0.4, 0.48, "#92400e"); blk(-0.2, 1.8, 0.07, 0.48, 0.9, "#92400e"); blk(0, 0.08, 0.4, 0, 0.4, "#44403c")
         elif cls == "furniture.bollard":
             blk(0, 0.18, 0.18, 0, 0.9, "#374151")
-        elif cls == "vegetation.tree":
-            blk(0, 0.35, 0.35, 0, 2.6, "#78350f")
-            out.append((p.buffer(2.0, quad_segs=4), 2.6, 7.5, "#4d9a52", cls, lv, refs, sources))
+        elif cls == "vegetation.tree":         # at its measured height where a source has one (a city's tree survey), else 7.5 m
+            top = measured or 7.5
+            blk(0, 0.35, 0.35, 0, top * 0.35, "#78350f")
+            out.append((p.buffer(max(1.2, top * 0.27), quad_segs=4), top * 0.35, top, "#4d9a52", cls, lv, refs, sources, top, details, methods))
+        elif cls == "utility.manhole":          # in the ground: a cast-iron cover, 0.6 m across
+            out.append((p.buffer(0.3, quad_segs=6), 0, 0.04, "#3f3f46", cls, lv, refs, sources, 0, details, methods))
+        elif cls == "utility.catch_basin":      # a drain grate at the kerb, 0.6 m along the road, 0.4 m across
+            blk(0, 0.6, 0.4, 0, 0.04, "#27272a")
+        elif cls == "utility.junction_box":     # a lid in the pavement
+            blk(0, 0.45, 0.3, 0, 0.04, "#71717a")
+        elif cls == "furniture.parking_meter":
+            blk(0, 0.08, 0.08, 0, 1.15, "#6b7280"); blk(0, 0.22, 0.16, 1.15, 1.5, "#1f2937")
+        elif cls == "furniture.map_stand":      # a wayfinding stand: a panel 1 m wide, 2.4 m high
+            blk(0, 1.0, 0.15, 0, 2.4, "#1e3a8a")
+        elif cls == "furniture.bike_parking":   # a row of stands, 2 m along the kerb
+            blk(0, 2.0, 0.6, 0, 0.8, "#94a3b8")
+        elif cls == "access.entrance":          # a door in the facade
+            blk(0, 1.2, 0.2, 0, 2.2, "#78350f")
+        elif cls == "access.parking_entrance":  # a garage door
+            blk(0, 3.0, 0.2, 0, 2.4, "#52525b")
+        elif cls == "barrier.other":            # a short piece of wall or fence
+            blk(0, 1.5, 0.25, 0, 1.0, "#6b7280")
         elif cls == "transit.stop":
             blk(0, 0.1, 0.1, 0, 2.4, "#9ca3af"); blk(0.05, 0.45, 0.05, 2.0, 2.7, "#1d4ed8")
         elif cls == "furniture.shelter":
@@ -682,11 +723,15 @@ def furniture_3d(con, epsg, place, objs):
             blk(0, size[0], size[1], 0, size[2], size[3])
     back = pyproj.Transformer.from_crs(epsg, "EPSG:4326", always_xy=True).transform
     rows = []
-    for g, b, t, col, cls, lv, refs, sources in out:
+    tops = {}                                   # an object's height: the top of its highest block
+    for g, b, t, *_, refs, sources, top, details, methods in out:
+        tops[refs] = max(tops.get(refs, 0), t)
+    for g, b, t, col, cls, lv, refs, sources, top, details, methods in out:
+        top = tops[refs]
         hits = [units[k][0] for k in utree.query(g.centroid) if units[k][1] == lv and ug[k].distance(g.centroid) < 0.5]
-        rows.append((cls, b, t, col, lv, hits[0] if hits else "", refs, sources, transform(back, g)))
-    return gpd.GeoDataFrame([r[:8] for r in rows], columns=["class", "base", "height", "color", "level", "unit", "ref", "source"],
-                            geometry=[r[8] for r in rows], crs=4326)
+        rows.append((cls, type_of(cls), b, t, col, lv, hits[0] if hits else "", refs, sources, methods, round(top, 1), details, transform(back, g)))
+    return gpd.GeoDataFrame([r[:12] for r in rows], columns=["class", "type", "base", "height", "color", "level", "space", "refs", "sources",
+                                                             "method", "height_m", "details"], geometry=[r[12] for r in rows], crs=4326)
 
 
 def object_shapes(con, epsg, place=None):
@@ -758,6 +803,7 @@ def dossier_layers(con, db):
     try:
         matches = frame(con, f"SELECT match_id, class, n_sources, sources, refs, height_m, confidence, {ll} FROM dos.match")
         matches["color"] = matches["n_sources"].map({1: "#9ca3af", 2: "#2563eb"}).fillna("#16a34a")   # more sources agree: bluer, greener
+        matches["type"], matches["space"] = matches["class"].map(type_of), ""
     except duckdb.CatalogException:     # a dossier from before the matching
         matches = empty
 
@@ -804,24 +850,25 @@ def main(db, out):
     try:
         mobjs = matched_objects(con, epsg_of(con), db)
         furn = furniture_3d(con, epsg_of(con), place, mobjs)
+        # 2D: one dot per real object, where its model stands (its smallest block: the pole, the trunk, the cover), coloured by kind
+        dots = furn.assign(a=furn.to_crs(epsg_of(con)).area).sort_values("a").drop_duplicates("refs").drop(columns=["a"])
+        dots = dots.set_geometry(dots.to_crs(epsg_of(con)).centroid.to_crs(4326))
+        dots["color"] = dots["class"].str.split(".").str[0].map(DOT_COLORS).fillna("#6b7280")
     except Exception as e:      # the 3D view goes without street furniture rather than the page failing
         print("no 3D street furniture:", e)
         furn, mobjs = gpd.GeoDataFrame({"class": []}, geometry=[], crs=4326), []
+        dots = furn
     # every object's popup says where it comes from and which real object it is: all the sources that know it and their ids
-    real = {r: (refs, sources) for *_, refs, sources in mobjs for r in refs.split(", ")}
-    def provenance(df, key, source):
-        df["source"] = source
+    real = {r: (o[5], o[6]) for o in mobjs for r in o[5].split(", ")}
+    def provenance(df, key, source, types, space="unit"):     # OBJ_POPUP's fields: type, the real object's sources and ids, its space
+        df["type"] = list(types)
         df["sources"] = [real.get(str(k), ("", source))[1] for k in df[key]]
         df["refs"] = [real.get(str(k), (str(k), ""))[0] for k in df[key]]
-    provenance(objects, "object_id", "osm")
-    provenance(shapes, "object_id", "osm")
-    try:
-        portals = tunnel_portals(con, epsg_of(con))
-    except duckdb.CatalogException:
-        portals = gpd.GeoDataFrame({"part": []}, geometry=[], crs=4326)
+        df["space"] = df[space].fillna("") if space in df else ""
+    provenance(objects, "object_id", "osm", map(type_of, objects["class"]))
+    provenance(shapes, "object_id", "osm", map(type_of, shapes["class"]))
 
-    ogroups = [(g, c) for g, c in (("furniture", "#4f46e5"), ("vegetation", "#65a30d"), ("transit", "#0891b2"), ("crossing", "#eab308"),
-                                   ("kerb", "#6b7280"), ("access", "#db2777"), ("barrier", "#78350f")) if (objects.grp == g).any()]
+    ogroups = []        # objects are one layer now ("Street objects", every source matched), not a layer per OSM group
     lon = con.execute("SELECT avg(ST_X(ST_Centroid(geometry))) FROM space.container").fetchone()[0]
     epsg = f"EPSG:{32600 + int((lon + 180) // 6) + 1}"   # the metric zone, as in urbanstyle.build
     track = zones[zones.zone == "track"]
@@ -867,10 +914,10 @@ def main(db, out):
             LEFT JOIN space.unit u ON ST_Intersects(u.geometry, ST_Buffer(o.geometry, 0.00003)) GROUP BY o.feature_id""")
         # one point per real object (matched_objects): a detection is drawn only where Mapillary is the best source of its object; one that
         # a city survey or OSM also knows is drawn as that object, one that a newer detection replaced is not drawn again
-        gone = {r for *_, refs, sources in mobjs for r in refs.split(", ")[1:]}
+        gone = {r for o in mobjs for r in o[5].split(", ")[1:]}
         seen = seen[~seen["feature_id"].astype(str).isin(gone)]
         seen["color"] = seen["grp"].map(SEEN_COLORS).fillna("#f59e0b")
-        provenance(seen, "feature_id", "mapillary")
+        provenance(seen, "feature_id", "mapillary", [type_of(SEEN_CLASS.get(g, g)) for g in seen["grp"]])
         import pyproj
         fwd, back = (pyproj.Transformer.from_crs(a, b, always_xy=True).transform for a, b in (("EPSG:4326", epsg_of(con)), (epsg_of(con), "EPSG:4326")))
         from shapely.ops import transform as _tf
@@ -885,8 +932,8 @@ def main(db, out):
     droads, dobjs, dmatch = dossier_layers(con, db)
     shapes["unit"] = shapes["object_id"].map(unit_of)
     objects["unit"] = objects["object_id"].map(unit_of)
-    has = [lab for lab, df in (("Track", track), ("Rail", rails), ("Station", stations), ("Objects", shapes), ("Spaces", units), ("Parts", pts_), ("Cuts", cuts), ("Junction roads", jroads), ("Subsections", subs),
-                               ("Subsection breaks", brk), ("Mapillary", seen), ("Tunnel portals", portals), ("Street furniture 3D", furn)) if len(df)]   # overlays present in this area
+    has = [lab for lab, df in (("Track", track), ("Rail", rails), ("Station", stations), ("Spaces", units), ("Parts", pts_), ("Cuts", cuts), ("Junction roads", jroads), ("Subsections", subs),
+                               ("Subsection breaks", brk), ("Street objects", dots)) if len(df)]   # overlays present in this area
     links = frame(con, "SELECT ST_AsWKB(geometry) AS geometry, node_id, level_a, level_b, type, assumed, station_id, match, round(dist_m) AS dist_m FROM space.link")
     # type, name shown, colour, what it is. Colours differ from every other layer's on purpose.
     defs = [("ramp", "Ramp", "#f59e0b", "a bridge or tunnel is involved"), ("stairs", "Stairs", "#0f172a", "steps join two levels"),
@@ -912,12 +959,8 @@ def main(db, out):
                       tooltip=["cid", "type"]) for t, lab, c, dark in sdefs]
                  + [rs.Overlay(rails, kind="line", placement="over", color="#c026d3", width=3, label="Rail", popup=["id", "name", "class", "level"],
                                tooltip=["id", "name"])] * (len(rails) > 0)
-                 + [o(shapes, color="#888888", opacity=0.92, outline="#374151", width=0.4, label="Objects", popup=["object_id", "class", "source", "sources", "refs", "cid", "level"], tooltip=["class", "object_id"])] * (len(shapes) > 0)
                  + [rs.Overlay(stations, kind="circle", placement="over", color="#0d9488", radius=9, label="Station",
                                popup=["id", "name", "kind", "level"], tooltip=["id", "name"])] * (len(stations) > 0)
-                 + [rs.Overlay(objects[objects.grp == g], kind="circle", placement="over", color=c, radius=4, label=f"Objects: {g}",
-                               popup=["object_id", "class", "source", "sources", "refs", "cid", "zone", "level", "name", "attrs", "near_m"], tooltip=["class", "object_id"])
-                    for g, c in ogroups]
                  + [rs.Overlay(links[links["type"] == t], kind="circle", placement="over", color=c, radius=6, label=f"Link: {name}",
                                popup=["node_id", "type", "level_a", "level_b", "assumed", "station_id", "match", "dist_m"], tooltip=["node_id", "type"]) for t, name, c, _ in defs]
                  + [o(units, color="#a78bfa", color_col="color", opacity=0.45, outline="#1f2937", width=1.2, label="Spaces",
@@ -926,12 +969,12 @@ def main(db, out):
                       popup=["part_id", "type", "arm", "direction", "lane", "width_m", "area_m2", "source", "method", "ref"], tooltip=["type", "direction", "arm"])] * (len(pts_) > 0)
                  + [rs.Overlay(marks[marks["type"] == t], kind="line", placement="over", color=c, width_m=w, dash=dash, label=f"Mark: {t}", visible=False,
                                popup=["unit_id", "type", "arm", "length_m", "source", "method", "ref"], tooltip=["type", "arm"]) for t, c, w, dash in MARKS if (marks["type"] == t).any()]
-                 + [o(portals, color="#bdb8b0", color_col="color", opacity=0, width=0, label="Tunnel portals", visible=False,
-                      popup=["part"], tooltip=["part"])] * (len(portals) > 0)      # drawn only by the 3D view (draw3d)
-                 + [o(furn, color="#71717a", color_col="color", opacity=0, width=0, label="Street furniture 3D", visible=False,
-                      popup=["class", "ref", "source", "unit"], tooltip=["class", "ref"])] * (len(furn) > 0)      # drawn only by the 3D view (draw3d)
-                 + [rs.Overlay(seen, kind="circle", placement="over", color="#f59e0b", color_col="color", radius=5, label="Mapillary", visible=False,
-                               popup=["feature_id", "grp", "class", "last_seen", "source", "sources", "refs", "unit"], tooltip=["grp", "class"])] * (len(seen) > 0)
+                 # the street objects, one per real object, from the same data in both views: in 2D a dot where it stands, coloured by kind;
+                 # in 3D (draw3d) its model, from the blocks below (never drawn in 2D)
+                 + [rs.Overlay(dots, kind="circle", placement="over", color="#4f46e5", color_col="color", radius=4, label="Street objects",
+                               popup=OBJ_POPUP, tooltip=OBJ_TIP)] * (len(dots) > 0)
+                 + [o(furn, color="#71717a", color_col="color", opacity=0, width=0, label="Street objects 3D", visible=False,
+                      popup=OBJ_POPUP, tooltip=OBJ_TIP)] * (len(furn) > 0)
                  + [rs.Overlay(jroads, kind="line", placement="over", color="#374151", width=7, label="Junction roads", visible=False,
                                popup=["unit_id", "name", "class"], tooltip=["name", "class"])] * (len(jroads) > 0)
                  + [rs.Overlay(cuts, kind="line", placement="over", color="#6b7280", color_col="color", width=4, label="Cuts",
@@ -947,9 +990,7 @@ def main(db, out):
                                label=f"Dossier objects: {s}", visible=len(dmatch) == 0,
                                popup=["object_id", "class", "source", "method", "confidence", "height_m", "sign", "observed", "match_id", "info"],
                                tooltip=["class", "source"]) for s in sorted(set(dobjs.source))]
-                 + [rs.Overlay(dmatch, kind="circle", placement="over", color="#2563eb", color_col="color", radius=7, label="Dossier: matched objects",
-                               popup=["match_id", "class", "n_sources", "sources", "refs", "height_m", "confidence"],
-                               tooltip=["class", "sources"])] * (len(dmatch) > 0))
+)
     newu = {"inter": {}, "sec": {}, "photos": photos}
     if len(units):
         ua = dict(zip(units.unit_id, units.area_m2))
@@ -996,7 +1037,7 @@ def main(db, out):
         for r in subs.assign(k=subs.subsection_id.str.split("/").str[-1].astype(int)).sort_values(["section_id", "k"]).itertuples():
             if r.subsection_id in ua:
                 newu["sec"].setdefault(r.section_id, []).append([r.subsection_id, int(ua[r.subsection_id]), float(r.length_m), r.left, r.right, r.color])
-    panel = (PANEL.replace("__PCOL__", json.dumps(PART_COLORS)).replace("__NEWU__", json.dumps(newu)).replace("__MARKS__", json.dumps([t for t, *_ in MARKS if len(marks) and (marks["type"] == t).any()])).replace("__TREE__", json.dumps(tree_data(con, epsg)).replace("</", "<\\/"))
+    panel = (PANEL.replace("__PCOL__", json.dumps(PART_COLORS)).replace("__OBJPOPUP__", json.dumps(OBJ_POPUP)).replace("__NEWU__", json.dumps(newu)).replace("__MARKS__", json.dumps([t for t, *_ in MARKS if len(marks) and (marks["type"] == t).any()])).replace("__TREE__", json.dumps(tree_data(con, epsg)).replace("</", "<\\/"))
              .replace("__LEVELS__", json.dumps(list(range(LEVELS[0], LEVELS[1] + 1)))).replace("__LINKDEF__", json.dumps([{"t": t, "lab": n, "c": c, "d": d} for t, n, c, d in defs]))
              .replace("__KINDS__", json.dumps([{"k": k, "lab": lab, "c": c} for k, lab, c in kinds])).replace("__OBJDEF__", json.dumps([{"g": g, "c": c} for g, c in ogroups])).replace("__OBJCOLORS__", json.dumps({k: v[2] for k, v in OBJ_SHAPES.items()})).replace("__STRIPS__", json.dumps([{"t": t, "lab": lab, "c": c} for t, lab, c, _ in sdefs])).replace("__HAS__", json.dumps(has)).replace("__LEVELBTNS__", "".join(f'<button data-l="{l}">{l}</button>' for l in range(LEVELS[0], LEVELS[1] + 1))))
     open(out, "w").write(m.html.replace("</body>", panel + "</body>"))

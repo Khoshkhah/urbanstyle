@@ -16,7 +16,7 @@ the source's own id where there is one (the OSM way of a crosswalk or of the roa
 
 | type | what | where it comes from |
 |---|---|---|
-| `junction box` | the shared turning area of an intersection, where the arms' carriageways meet | the carriageway minus every arm's own lanes |
+| `junction area` | the shared turning area of an intersection, where the arms' carriageways meet | the carriageway minus every arm's own lanes |
 | `lane` | one traffic lane, `in` or `out` (intersection), `forward` / `backward` (subsection) | lanes tag, else carriageway width / 3.25 m; two-way roads split either side of the centreline, right-hand traffic |
 | `crosswalk` | a pedestrian crossing over the carriageway, 3 m wide | a mapped crossing path; else a crossing point, square across its road |
 | `cycle crossing` / `cycle lane` | a cycle track over / along the carriageway, 2 m wide | mapped cycleways |
@@ -29,7 +29,7 @@ the source's own id where there is one (the OSM way of a crosswalk or of the roa
 The **carriageway** is the measured travelway (`space.zone`, measured to the kerb where a sidewalk was found, else lanes × lane width).
 
 At an **intersection**, each arm's lanes are the part of the carriageway that only that arm's road covers (its centreline ± half its
-carriageway width); where two arms' carriageways meet, and the turning corners between them, is the junction box. Crosswalks are cut
+carriageway width); where two arms' carriageways meet, and the turning corners between them, is the junction area. Crosswalks are cut
 out of lanes and box. The pedestrian realm falls apart into one **corner** per block corner.
 
 ## Marks (`space.mark`)
@@ -54,7 +54,7 @@ around the OSM centrelines, which left steps at the cuts and blobs at complex ju
    `shoulder` (parking, a hard strip; at most 2.5 m, stopping 3 m short of a junction). In it, in this order: mapped crosswalks
    (only the pieces that run across a road), a roundabout's island (the ground its ring's line encloses, less half the ring's
    roadway, rounded), the lanes (`in` / `out` of the junction, or `forward` / `backward` along a subsection), the shoulders, and the
-   rest of the roadway as ONE part: the `junction box` of an intersection, the `ring` of a roundabout (its circulating lanes are
+   rest of the roadway as ONE part: the `junction area` of an intersection, the `ring` of a roundabout (its circulating lanes are
    painted on it, not separate parts; the ring is the ring's line ± half its roadway, round whatever SUMO's pieces), the
    `carriageway` of a subsection. Then the pedestrian realm out to the buildings as before. Parts from SUMO have `source` = `sumo`.
    The dashboard draws parts without outlines: the asphalt is one surface, and the lines on it are the marks.

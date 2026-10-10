@@ -19,7 +19,7 @@ STEP = 0.001        # degrees: a box of 0.005 came back incomplete and different
 
 # Mapillary's class -> our group; only these are kept
 GROUPS = {"information--parking--g1": "parking", "information--parking--g5": "parking", "object--traffic-sign--information-parking": "parking",
-          "object--parking-meter": "parking", "regulatory--no-parking--g1": "no parking", "regulatory--no-stopping--g1": "no parking",
+          "object--parking-meter": "parking meter", "regulatory--no-parking--g1": "no parking", "regulatory--no-stopping--g1": "no parking",
           "regulatory--yield--g1": "give way", "regulatory--stop--g1": "stop", "object--street-light": "street light",
           "object--trash-can": "bin", "object--bench": "bench", "marking--discrete--crosswalk-zebra": "zebra"}
 for _v in ("object--traffic-light--general-upright", "object--traffic-light--general-upright-front", "object--traffic-light--general-horizontal",
@@ -27,10 +27,20 @@ for _v in ("object--traffic-light--general-upright", "object--traffic-light--gen
     GROUPS[_v] = "traffic light"
 
 
+# our group -> our object class: the one table every reader of space.observed uses (parts, the dossier, the dashboard)
+CLASS_OF = {"street light": "furniture.lamp", "traffic light": "furniture.signal", "give way": "furniture.sign", "stop": "furniture.sign",
+            "parking": "furniture.sign", "no parking": "furniture.sign", "parking meter": "furniture.parking_meter", "bin": "furniture.waste",
+            "bench": "furniture.bench", "zebra": "marking.zebra", "lane arrow": "marking.arrow"}
+
+
 def group(value):
-    """Our group of a Mapillary class, or None."""
+    """Our group of a Mapillary class, or None. A sign's variants (--g1, --g9, ...) are one group."""
     if value.startswith("marking--discrete--arrow--"):
         return "lane arrow"
+    if value.startswith(("regulatory--no-parking--", "regulatory--no-stopping--")):
+        return "no parking"
+    if value.startswith("information--parking--"):
+        return "parking"
     return GROUPS.get(value)
 
 

@@ -61,6 +61,17 @@ def van_method(ds, props):
     return VAN_METHOD.get(ds, "recorded")
 
 
+def van_meter_rule(p):
+    """A Vancouver parking meter's rule in words, from its record: "pay $4.50/h 9am-6pm (2 Hr), $1.50/h 6pm-10pm (4 Hr); no parking ..."."""
+    pay = [f"{r}/h {when}" + (f" ({lim})" if lim else "") for r, lim, when in
+           ((p.get("rate_9am_6pm"), p.get("time_limit_9am_6pm"), "9am-6pm"), (p.get("rate_6pm_10pm"), p.get("time_limit_6pm_10pm"), "6pm-10pm")) if r]
+    pay += [f"flat {p['flat_rate']}"] if p.get("flat_rate") else []
+    no = [f"rush hours {p[k]}" for k in ("am_rush_hours", "pm_rush_hours") if p.get(k)]
+    no += [" ".join(str(p[f"prohibition_{i}_{x}"]) for x in ("days", "time") if p.get(f"prohibition_{i}_{x}")) for i in (1, 2) if p.get(f"prohibition_{i}_time")]
+    who = "" if p.get("vehicle_type") in (None, "Any Vehicle") else f" ({p['vehicle_type']})"
+    return "pay " + ", ".join(pay or ["(rates not given)"]) + who + ("; no parking " + ", ".join(no) if no else "")
+
+
 def group_objects(rows, seen):
     """The real objects among `rows` [(object_id, class, source, height_m, confidence, point in metres)] of several sources:
     [[class, [(object_id, source, point, height_m, confidence)]]], each group's members best source first (RANK). The rules of `match`."""
@@ -226,7 +237,7 @@ def dossier(space_db, osm_db, unit_id, out, name, city, nvdb=None, flows=None, m
     ccase = "CASE method " + " ".join(f"WHEN '{k}' THEN {v}" for k, v in CONFIDENCE.items()) + " ELSE 0.3 END"
     con.execute(f"""CREATE TABLE surface AS SELECT part_id AS surface_id, type, direction, arm, lane, width_m,
                     CASE WHEN type IN ('sidewalk', 'furnishing', 'open') THEN 0.15 WHEN type = 'island' THEN 0.2 ELSE 0.0 END AS top_m,
-                    road, road_class, speed, surface, lit, holds,
+                    road, road_class, speed, surface, lit, holds, rule,
                     coalesce(source, 'urbanstyle') AS source, coalesce(method, 'estimated') AS method, ref, {ccase} AS confidence,
                     {m('geometry')} AS geometry FROM sp.space.part WHERE unit_id = '{unit_id}'""")
     con.execute(f"""CREATE TABLE line AS SELECT row_number() OVER () AS line_id, type, arm, length_m,
@@ -238,10 +249,8 @@ def dossier(space_db, osm_db, unit_id, out, name, city, nvdb=None, flows=None, m
     hcase = "CASE class " + " ".join(f"WHEN '{k}' THEN {v}" for k, v in HEIGHT.items()) + " ELSE 1.0 END"
     con.execute(f"""CREATE TABLE object AS SELECT object_id, class, NULL::VARCHAR AS sign, {hcase} AS height_m, attrs::VARCHAR AS attrs,
                     {prov('osm', 'mapped')}, {m('geometry')} AS geometry FROM sp.space.object WHERE {near('geometry', 3)}""")
-    grp_class = {"street light": "furniture.lamp", "traffic light": "furniture.signal", "give way": "furniture.sign", "stop": "furniture.sign",
-                 "parking": "furniture.sign", "no parking": "furniture.sign", "bin": "furniture.waste", "bench": "furniture.bench",
-                 "zebra": "marking.zebra", "lane arrow": "marking.arrow"}
-    ccase = "CASE grp " + " ".join(f"WHEN '{g}' THEN '{c}'" for g, c in grp_class.items()) + " ELSE grp END"
+    from urbanstyle.mapillary import CLASS_OF
+    ccase = "CASE grp " + " ".join(f"WHEN '{g}' THEN '{c}'" for g, c in CLASS_OF.items()) + " ELSE grp END"
     try:
         con.execute(f"""INSERT INTO object SELECT 'mly' || feature_id, {ccase},
                         CASE WHEN grp IN ('give way', 'stop', 'parking', 'no parking') THEN grp END,

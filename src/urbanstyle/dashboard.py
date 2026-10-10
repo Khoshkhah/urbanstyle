@@ -536,8 +536,8 @@ OBJ_SHAPES = {
 # street furniture that stands on the pavement: a point of it on the roadway or inside a building is moved out (Mapillary's are 1-5 m off)
 SNAP = ("furniture.lamp", "furniture.sign", "furniture.signal", "furniture.waste", "furniture.bench", "furniture.post_box", "furniture.vending",
         "furniture.advertising", "furniture.bike_parking", "transit.stop", "vegetation.tree")
-SEEN_CLASS = {"street light": "furniture.lamp", "traffic light": "furniture.signal", "give way": "furniture.sign", "stop": "furniture.sign",
-              "parking": "furniture.sign", "no parking": "furniture.sign", "bin": "furniture.waste", "bench": "furniture.bench"}
+from urbanstyle.mapillary import CLASS_OF as _CLASS_OF
+SEEN_CLASS = {g: c for g, c in _CLASS_OF.items() if c.startswith("furniture.")}     # the observations that are street objects
 SIGN_COLOR = {"give way": "#dc2626", "stop": "#b91c1c", "parking": "#1d4ed8", "no parking": "#2563eb"}
 KERB_BACK_M = 0.5     # a pole moved off the roadway stands this far behind the kerb
 FACADE_SNAP_M = 3.0   # a point this far inside a building is at its facade (mapped a little off); deeper is indoors
@@ -916,8 +916,8 @@ def main(db, out):
             WHERE e.type = 'road'""")
         jroads = jroads[~jroads.geometry.is_empty]
         try:    # the inside of each space (parts.py): parts, marks, widths
-            holds = "holds" if con.execute("""SELECT count(*) FROM information_schema.columns WHERE table_schema = 'space' AND table_name = 'part'
-                                               AND column_name = 'holds'""").fetchone()[0] else "NULL AS holds"     # (a build before 2026-10-09)
+            pcols = {r[0] for r in con.execute("SELECT column_name FROM information_schema.columns WHERE table_schema = 'space' AND table_name = 'part'").fetchall()}
+            holds = ", ".join(c if c in pcols else f"NULL AS {c}" for c in ("holds", "rule"))     # (columns of 2026-10-09 on)
             pts_ = frame(con, f"""SELECT ST_AsWKB(geometry) AS geometry, unit_id, part_id, level, type, coalesce(arm, '') AS arm,
                 coalesce(direction, '') AS direction, lane, width_m, source, method, ref, road, road_class, speed, surface, lit, road_lanes, oneway,
                 {holds}, round(ST_Area(ST_Transform(geometry, 'EPSG:4326', '{ep}', always_xy := true)), 1) AS area_m2 FROM space.part ORDER BY level""")   # upper levels drawn last
@@ -1002,7 +1002,7 @@ def main(db, out):
                  + [o(units, color="#a78bfa", color_col="color", opacity=0.45, outline="#1f2937", width=1.2, label="Spaces",
                       popup=["unit_id", "kind", "section_id", "level"], tooltip=["unit_id", "kind"])] * (len(units) > 0)
                  + [o(pts_, color="#999999", color_col="color", opacity=0.95, outline="#475569", width=0, label="Parts", visible=False,
-                      popup=["part_id", "type", "holds", "road", "road_class", "direction", "lane", "width_m", "speed", "surface", "lit", "road_lanes", "oneway",
+                      popup=["part_id", "type", "holds", "rule", "road", "road_class", "direction", "lane", "width_m", "speed", "surface", "lit", "road_lanes", "oneway",
                               "area_m2", "source", "method", "ref"], tooltip=["type", "direction", "arm"])] * (len(pts_) > 0)
                  + [rs.Overlay(marks[marks["type"] == t], kind="line", placement="over", color=c, width_m=w, dash=dash, label=f"Mark: {t}", visible=False,
                                popup=["unit_id", "type", "arm", "length_m", "source", "method", "ref"], tooltip=["type", "arm"]) for t, c, w, dash in MARKS if (marks["type"] == t).any()]

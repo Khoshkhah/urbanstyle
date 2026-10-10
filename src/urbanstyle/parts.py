@@ -48,6 +48,8 @@ ARROW_GAP_M = 1.5      # no two arrows closer than about this
 POCKET_MAX_M2 = 30.0   # a pocket of ground smaller than this, the roadway nearly all round it, is roadway (unless a refuge is mapped)
 ROADWAY_GAP_M = 1.2    # a gap narrower than this between two roadways is roadway too (a real island or median is wider)
 OFF_GROUND_M = 1.5     # a tunnel's or a bridge's space reaches this far past its roadway (a narrow walkway), not out to open ground
+METER_M = 3.0          # a parking meter this close to a kerb strip makes it pay parking (a meter stands on the sidewalk by its bays)
+BAY_M = 3.0            # a mapped parking bay (accessible, motorcycle) this close to a kerb strip makes it parking
 SIGN_M = 8.0           # a Mapillary parking / no-parking sign this close to a shoulder says what it is (its position is ~1-5 m off)
 SHOULDER_MAX_M = 2.5   # a shoulder beside SUMO's lanes is at most a parking lane; a wider measured kerb is left to the pedestrian realm
 
@@ -143,6 +145,14 @@ def build(con, epsg):
                 sides[osm] = (edge_kind.get(cl), edge_kind.get(cr), list(refs or []))
     except Exception:       # no OSM database attached (a rebuild of the parts alone): counts from the widths, no cycle / bus lanes
         pass
+    park_tags = {}      # OSM way -> its parking:* tags (street parking, per side)
+    try:
+        for osm, kv in con.execute("""SELECT osm_id, map_from_entries(list_filter(map_entries(tags), e -> e.key LIKE 'parking:%'))
+                                      FROM osm.raw.ways WHERE tags['highway'] IS NOT NULL AND list_has_any(map_keys(tags),
+                                      ['parking:left', 'parking:right', 'parking:both', 'parking:lane:left', 'parking:lane:right', 'parking:lane:both'])""").fetchall():
+            park_tags[osm] = dict(kv)
+    except Exception:
+        pass
     for osm, n in lane_overrides(con).items():      # lane counts duckOSM's OSM fixes correct
         tags[osm] = (float(n), tags.get(osm, (None, None))[1])
     try:
@@ -171,9 +181,9 @@ def build(con, epsg):
         seen = [(fid, grp, g(w)) for fid, grp, w in con.execute(f"SELECT feature_id, grp, {tr()} FROM space.observed").fetchall()]
     except Exception:       # not fetched for this area
         pass
-    as_object = {"street light": ("furniture.lamp", None), "bin": ("furniture.waste", None), "bench": ("furniture.bench", None),
-                 "traffic light": ("furniture.signal", "signal"), "give way": ("furniture.sign", "give_way"), "stop": ("furniture.sign", "stop"),
-                 "parking": ("furniture.sign", None), "no parking": ("furniture.sign", None)}
+    from urbanstyle.mapillary import CLASS_OF
+    control = {"traffic light": "signal", "give way": "give_way", "stop": "stop"}
+    as_object = {g: (c, control.get(g)) for g, c in CLASS_OF.items() if c.startswith("furniture.")}
     for fid, grp, p in seen:
         if grp in as_object and rtree is not None:
             objs.append((f"mly{fid}", as_object[grp][0], roads[rtree_ids[rtree.nearest(p)]]["level"], as_object[grp][1], p))
@@ -191,22 +201,47 @@ def build(con, epsg):
     lot_tree = shapely.STRtree([x for _, x in lots]) if lots else None
     moto_tree = shapely.STRtree(moto) if moto else None
 
-    def parking_of(strip):
-        """(part type, source) of a shoulder strip: parking where OSM maps street parking or motorcycle parking on it, else as the
-        nearest Mapillary parking / no-parking sign within SIGN_M says; else a shoulder of unknown use."""
+    def parking_of(strip, de=None, right=True):
+        """What a kerb strip beside a road is, by the evidence, strongest first (docs/design/source-inventory.md, parking): a parking
+        meter by it (pay parking, the meter's own rules); the way's parking tag for that side (parking:<side>, parking:both); a mapped
+        bay on it (OSM street parking or motorcycle parking, a city's accessible bay); the nearest parking / no-parking sign within
+        SIGN_M; else a shoulder of unknown use. Returns (type, (source, method), holds, rule, meters [(ids, point)]); `holds` names the
+        evidence, and what disagrees with the choice."""
+        osm, rev = way_of.get(de, (None, False))
+        side = ("left" if rev else "right") if right else ("right" if rev else "left")    # the way's side the strip is on
+        t = park_tags.get(osm, {})
+        val = t.get(f"parking:{side}") or t.get("parking:both") or t.get(f"parking:lane:{side}") or t.get("parking:lane:both")
+        restr = t.get(f"parking:{side}:restriction") or t.get("parking:both:restriction")
+        tagged = None if val is None else "no parking" if val in ("no", "separate") or restr in ("no_parking", "no_stopping", "no_standing") \
+            else "parking"
+        tag_txt = f"OSM parking:{side}={val}" if val is not None else None
+        meters = [f for f in ([furniture[k] for k in ftree.query(strip.buffer(METER_M))] if ftree is not None else [])
+                  if f[1] == "furniture.parking_meter" and f[3].distance(strip) <= METER_M]
+        if meters:
+            rules = list(dict.fromkeys(meter_rule[x] for f in meters for x in f[0].split(", ") if x in meter_rule))
+            srcs = ", ".join(sorted({x for f in meters for x in f[4].split(", ")}, key=lambda x: RANK.get(x, 9)))
+            held = f"but {tag_txt}" if tagged == "no parking" else None
+            return "parking", (srcs, "derived"), held, " | ".join(rules) or "pay parking (meter; its rules not given)", [(f[0], f[3]) for f in meters]
+        if tagged:
+            return tagged, ("osm", "mapped"), tag_txt, None, []
+        here = [b for b in bays if b[1].distance(strip) <= BAY_M]
         if lot_tree is not None and any(lots[k][0] for k in lot_tree.query(strip.buffer(1.0), predicate="intersects")):
-            return "parking", "osm"
-        if moto_tree is not None and len(moto_tree.query(strip.buffer(3.0), predicate="intersects")):
-            return "parking", "osm"
-        near = sorted(((signs[k][1].distance(strip), signs[k][0]) for k in sgtree.query(strip.buffer(SIGN_M))), key=lambda t: t[0]) if sgtree is not None else []
+            here.append(("osm street parking", None, None))
+        if moto_tree is not None and len(moto_tree.query(strip.buffer(BAY_M), predicate="intersects")):
+            here.append(("osm motorcycle parking", None, None))
+        if here:
+            return "parking", (", ".join(dict.fromkeys(b[0].split()[0] for b in here)), "derived"), "; ".join(b[0] for b in here), \
+                "; ".join(b[2] for b in here if b[2]) or None, []
+        near = sorted(((signs[k][1].distance(strip), signs[k][0]) for k in sgtree.query(strip.buffer(SIGN_M))), key=lambda t_: t_[0]) if sgtree is not None else []
         if near:
-            return ("parking" if near[0][1] == "parking" else "no parking"), "mapillary"
-        return "shoulder", "measured"
+            return ("parking" if near[0][1] == "parking" else "no parking"), ("mapillary", "observed"), f"Mapillary {near[0][1]} sign", None, []
+        return "shoulder", ("osm", "measured"), None, None, []
 
     otree = shapely.STRtree([o[4] for o in objs]) if objs else None
     # the street furniture once per real thing, for the furnishing strip: OSM's, Mapillary's and a city's survey (the file the unit
     # fetched next to this database), grouped as the dossier groups them (unit.group_objects): [(ids, class, level, point, sources)]
-    from urbanstyle.unit import RANK, VAN_OBJECT, group_objects
+    from urbanstyle.unit import RANK, VAN_OBJECT, group_objects, van_meter_rule
+    meter_rule, bays = {}, []      # a city's parking meters' rules, by id; mapped parking bays: (what, point, rule)
     rows = [(o[0], o[1], "mapillary" if o[0].startswith("mly") else "osm", None, None, o[4]) for o in objs if o[1] in FURNITURE]
     try:
         (path,) = con.execute("SELECT path FROM duckdb_databases() WHERE database_name = current_database()").fetchone()
@@ -217,8 +252,16 @@ def build(con, epsg):
             fwd = pyproj.Transformer.from_crs("EPSG:4326", epsg, always_xy=True).transform
             for ds, fc in json.load(open(city)).items():
                 for i, ft in enumerate(fc["features"]):
-                    if VAN_OBJECT.get(ds) in FURNITURE and (ft["geometry"] or {}).get("type") == "Point":
-                        rows.append((f"{ds}-{i}", VAN_OBJECT[ds], "vancouver", None, None, shapely.Point(fwd(*ft["geometry"]["coordinates"][:2]))))
+                    if (ft["geometry"] or {}).get("type") != "Point":
+                        continue
+                    pt, pr = shapely.Point(fwd(*ft["geometry"]["coordinates"][:2])), ft["properties"] or {}
+                    if VAN_OBJECT.get(ds) in FURNITURE:
+                        rows.append((f"{ds}-{i}", VAN_OBJECT[ds], "vancouver", None, None, pt))
+                    if ds == "parking-meters":
+                        meter_rule[f"{ds}-{i}"] = van_meter_rule(pr)
+                    elif ds == "disability-parking":
+                        bays.append((f"vancouver accessible bay {ds}-{i}", pt, f"{pr.get('description') or 'accessible parking'}"
+                                     + (f", {pr['spaces']} space(s)" if pr.get("spaces") else "")))
         seen_at = {f"mly{f}": (a, b) for f, a, b in con.execute("SELECT feature_id, first_seen, last_seen FROM space.observed").fetchall()}
     except Exception:       # no Mapillary for this area
         seen_at = {}
@@ -292,7 +335,7 @@ def build(con, epsg):
 
     parts, marks, widths, count, claimed = [], [], [], {}, {}
 
-    def add(uid, level, typ, geom, how, arm=None, direction=None, lane=None, width=None, ref=None, holds=None):
+    def add(uid, level, typ, geom, how, arm=None, direction=None, lane=None, width=None, ref=None, holds=None, rule=None):
         # a part takes only ground no earlier part of this unit took: no overlaps by construction (priority = the order of the calls)
         def precise(op, a, b):     # on a 1 cm grid: exact enough, robust where floating point is not (else the plain overlay)
             try:
@@ -308,7 +351,7 @@ def build(con, epsg):
         for p in got:
             n = count[uid] = count.get(uid, 0) + 1
             parts.append((uid, f"{uid}#{n}", level, typ, arm, direction, lane, round(width, 2) if width else None,
-                          *(how if isinstance(how, tuple) else PROV.get(how, (how, None))), ref, holds, shapely.to_wkb(p)))
+                          *(how if isinstance(how, tuple) else PROV.get(how, (how, None))), ref, holds, rule, shapely.to_wkb(p)))
         return shapely.union_all(got) if got else shapely.Polygon()
 
     def mark(uid, level, typ, geom, arm=None, how="sumo", ref=None):
@@ -590,7 +633,7 @@ def build(con, epsg):
         g0, g1, l0, l1 = r["g"].coords[0], r["g"].coords[-1], ln.coords[0], ln.coords[-1]
         return (g1[0] - g0[0]) * (l1[0] - l0[0]) + (g1[1] - g0[1]) * (l1[1] - l0[1]) >= 0
 
-    directed, elem_of, bus_edges, shoulders = {}, {}, set(), {}     # shoulders: directed edge -> (right, left) m beyond its lanes   # (osm way, from node, to node) -> directed duckOSM edge; directed edge -> road element
+    directed, elem_of, bus_edges, shoulders, way_of = {}, {}, set(), {}, {}     # shoulders: directed edge -> (right, left) m beyond its lanes   # (osm way, from node, to node) -> directed duckOSM edge; directed edge -> road element
 
     def sumo_roadway():
         """SUMO's roadway (sumo.network) on duckOSM's driving network, each direction of a road with the lanes measured in its
@@ -622,6 +665,7 @@ def build(con, epsg):
         attrs, room, ends_of = {}, {}, {}
         for de, s_, t_, osm, rev in dir_edges:
             directed[(osm, s_, t_)] = de
+            way_of[de] = (osm, rev)
             e = own.get((osm, min(s_, t_), max(s_, t_)))
             if e is None:
                 continue
@@ -741,7 +785,7 @@ def build(con, epsg):
                     continue
                 base = substring(base, KERB_RADIUS_M, base.length - KERB_RADIUS_M)
                 poly = base.buffer(sgn * w_, single_sided=True, cap_style="flat")
-                sh.append(dict(edge=edge, w=w_, level=x["level"], poly=poly, base=base, kind=parking_of(poly)))
+                sh.append(dict(edge=edge, w=w_, level=x["level"], poly=poly, base=base, kind=parking_of(poly, edge, sgn < 0)))
         votes = {}      # a junction is on the level of the roads that meet there
         for edge, ends in net["ends"].items():
             for j in ends:
@@ -889,7 +933,13 @@ def build(con, epsg):
                 if not area(got).is_empty:
                     mine.append((x, d, longest(safe("intersection", x["ln"], U)), area(got).area))
             for x in ([sh[k] for k in stree.query(U) if sh[k]["level"] == level] if stree is not None else []):
-                got = add(uid, level, x["kind"][0], safe("intersection", x["poly"], U), x["kind"][1], width=x["w"], ref=wref(x["edge"]))
+                typ_, how_, held, rule_, meters = x["kind"]
+                piece = safe("intersection", x["poly"], U)
+                if meters:      # the strip runs the whole block face: each piece names the meters beside it, else all of the kerb's
+                    by = [i for i, pt in meters if pt.distance(piece) <= METER_M]
+                    held = "; ".join(filter(None, [f"{len(by)} parking meter ({'; '.join(by)})" if by else
+                                                   f"pay parking along this kerb ({len(meters)} meter(s) on it)", held]))
+                got = add(uid, level, typ_, piece, how_, width=x["w"], ref=wref(x["edge"]), holds=held, rule=rule_)
                 if not got.is_empty and x["kind"][0] != "shoulder":     # the line between the lane and the parking strip
                     mark(uid, level, "edge line", safe("intersection", x["base"], U), ref=wref(x["edge"]))
             add(uid, level, "carriageway" if sub else "ring" if rb else "junction area", C, "sumo")   # the rest of the roadway, one part
@@ -1172,7 +1222,7 @@ def build(con, epsg):
         con.execute(f"""UPDATE space.unit u SET geometry = ST_Transform(ST_GeomFromWKB(r.wkb::BLOB), '{epsg}', 'EPSG:4326', always_xy := true)
                         FROM rdf r WHERE u.unit_id = r.unit_id""")
     pdf = pd.DataFrame(parts, columns=["unit_id", "part_id", "level", "type", "arm", "direction", "lane", "width_m", "source", "method", "ref", "holds",
-                                       "wkb"])
+                                       "rule", "wkb"])
     mdf = pd.DataFrame([m for m in marks if m is not None], columns=["unit_id", "level", "type", "arm", "length_m", "source", "method", "ref", "wkb"])   # None: an arrow replaced
     wdf = pd.DataFrame(widths, columns=["unit_id", "level", "edge", "arm", "total_m", "carriageway_m", "left_m", "right_m", "lanes_in", "lanes_out",
                                         "lane_m", "source"])
@@ -1189,7 +1239,7 @@ def build(con, epsg):
                          ELSE 'asphalt (assumed; not in OSM)' END AS surface,
                     CASE WHEN e.osm_id IS NOT NULL THEN coalesce(w.tags['lit'], 'not in OSM') END AS lit,
                     w.tags['lanes'] AS road_lanes, CASE WHEN e.osm_id IS NOT NULL THEN coalesce(w.tags['oneway'], 'no') END AS oneway,
-                    p.holds::VARCHAR AS holds, ST_CollectionExtract(ST_MakeValid({to_ll}), 3) AS geometry
+                    p.holds::VARCHAR AS holds, p.rule::VARCHAR AS rule, ST_CollectionExtract(ST_MakeValid({to_ll}), 3) AS geometry
                     FROM pdf p
                     LEFT JOIN (SELECT osm_id, any_value(name) AS name, any_value(class) AS class FROM space.element WHERE type = 'road' GROUP BY osm_id) e
                       ON p.ref = 'w' || e.osm_id

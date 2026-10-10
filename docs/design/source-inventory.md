@@ -1,6 +1,6 @@
 # What the sources hold, and what reaches us
 
-Status (2026-10-09): proposal, to agree before the rules below are built. The inventory step itself is built.
+Status (2026-10-09): agreed. Built: the inventory step; parking (below).
 
 Every source we can reach holds much more than urbanstyle uses. Looking at one junction (W Broadway × Granville St) showed it:
 parking, bus stops and what a building is used for were missing although the sources have them. Patching those one by one
@@ -44,7 +44,7 @@ classes, 3,516 detections, of which we keep 11 classes, 623 detections.
 
 | topic | what the sources hold (Broadway × Granville) | what we have | proposed rule |
 |---|---|---|---|
-| **parking** | OSM `parking:left/both` on 20 ways, 27 lots, 29 garage entrances; city 37 meters (rates, hours), disability bays, permit zones (VanMap), car-share bays, motorcycle parking, parking tickets per block; Mapillary 25 parking signs, 18 meters, 14 no-parking signs | a shoulder is parking only by an OSM parking area or a Mapillary sign | a kerb lane is parking where OSM's `parking:*` says so, or a meter stands beside it (pay parking, the meter's rates and hours), or a sign says so; disability / car-share / motorcycle bays as parts of it; no parking where a no-parking sign or a bus stop is |
+| **parking** (built 2026-10-09: Broadway × Granville 86 parking parts → 215, 165 with their meters' rules, 0 → 40 no parking, unknown kerb strips 672 → 504; still to add: VanMap permit zones and car-share bays, no parking in front of a bus stop) | OSM `parking:left/both` on 20 ways, 27 lots, 29 garage entrances; city 37 meters (rates, hours), disability bays, permit zones (VanMap), car-share bays, motorcycle parking, parking tickets per block; Mapillary 25 parking signs, 18 meters, 14 no-parking signs | a shoulder is parking only by an OSM parking area or a Mapillary sign | a kerb lane is parking where OSM's `parking:*` says so, or a meter stands beside it (pay parking, the meter's rates and hours), or a sign says so; disability / car-share / motorcycle bays as parts of it; no parking where a no-parking sign or a bus stop is |
 | **bus stops** | OSM 17 stops (stop number, shelter, bench, bin, lit, kerb height, wheelchair, trolleybus); TransLink GTFS routes and frequency | points without details, not drawn on the unit page | a `bus stop` part on the sidewalk (the waiting area, its shelter / bench / bin), the kerb lane in front of it no parking, routes and buses per hour from GTFS |
 | **building use** | OSM `building` (apartments 191, retail 61, commercial 44, office 18, `yes` 54); ~380 shops and services inside; city storefronts (1,008 near), business licences, heritage, schools, libraries, non-market housing, zoning, property tax report (land use per parcel); Metro Vancouver office inventory | the raw `building` value, shown as "class" | a building `use` (residential, retail, office, mixed, civic, ...) and its ground-floor use, each with its source: the OSM tag where specific, else the shops inside it, the city's storefronts and licences, zoning |
 | **crossings, accessibility** | OSM crossing markings, signals, push buttons (59), sound (50) and vibration aids, tactile paving (235), `wheelchair` | crossing / zebra / signalised | carried on the crosswalk part: markings, signal, button, sound, tactile paving |

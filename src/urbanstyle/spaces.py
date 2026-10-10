@@ -271,7 +271,8 @@ def build(con, epsg):
     ring_edges = {r[0] for r in con.execute("SELECT source_id, osm_id FROM space.element WHERE type = 'road'").fetchall() if r[1] in ring_osm}
     arm_rows = con.execute("""SELECT DISTINCT j.intersection_id, a.node_id, a.edge_id, a.level FROM space.arm a
                               JOIN space.junction j ON j.cluster_id = a.intersection_id AND j.node_id = a.node_id AND j.level = a.level""").fetchall()
-    blds = con.execute(f"SELECT l, {to_m} FROM space.element, generate_series(level_min, level_max) t(l) WHERE type = 'building'").fetchall()
+    blds = con.execute(f"""SELECT l, {to_m} FROM space.element, generate_series(level_min, level_max) t(l) WHERE type = 'building'
+                           UNION ALL SELECT level, {to_m} FROM space.lot""").fetchall()     # a car park is a plot, as a building is
     xing_rows = con.execute(f"""SELECT level_min, {to_m} FROM space.element WHERE type = 'walkway' AND subtype = 'crossing'
                                UNION ALL SELECT level, {to_m} FROM space.object WHERE class LIKE 'crossing.%'""").fetchall()
     rows, cut_rows, clipped = [], [], []

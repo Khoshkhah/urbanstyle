@@ -378,6 +378,7 @@ function draw3d(){
   const add=(spec,filter)=>{if(!spec.source)return; if(!map.getLayer(spec.id)){map.addLayer(spec); U3D.push(spec.id)}
     map.setFilter(spec.id,filter); map.setLayoutProperty(spec.id,'visibility',in3d?'visible':'none')};
   const lvl=['==',['get','level'],lv3d];
+  add({id:'u3d-lot',type:'fill',source:ovSrc('Parking lots'),paint:{'fill-color':'#a8b0ba','fill-opacity':1}},lvl);   // a car park: paved, flush
   add({id:'u3d-ground',type:'fill',source:ovSrc('Parts'),paint:{'fill-color':['get','color'],'fill-opacity':1}},
       ['all',lvl,['!',['in',['get','type'],['literal',Object.keys(RAISE)]]]]);
   OVERLAYS.filter(o=>o.label.startsWith('Mark: ')&&!NOT_IN_3D.includes(o.label)).forEach(o=>{   // the paint, as in 2D, on the 3D ground
@@ -427,6 +428,7 @@ function deselect3d(){if(sel3d===null)return false; sel3d=null; paint3d();
 // layer -> [its colour property, the key of a feature, its own colour, its popup fields]
 const L3D={'u3d-furn':['fill-extrusion-color','refs',['get','color'],OBJ_POPUP],
   'u3d-bld':['fill-extrusion-color','id','#e7e2d8',__BLDPOPUP__],
+  'u3d-lot':['fill-color','id','#a8b0ba',__LOTPOPUP__],
   'u3d-kerb':['fill-extrusion-color','kerb_id','#8f8b86',['type','unit_id','arm','length_m','source','method','ref']],
   'u3d-ground':['fill-color','part_id',['get','color'],null],'u3d-raised':['fill-extrusion-color','part_id',['get','color'],null]};
 function paint3d(){Object.entries(L3D).forEach(([id,[prop,key,base]])=>{if(!map.getLayer(id))return;
@@ -555,6 +557,7 @@ FACADE_SNAP_M = 3.0   # a point this far inside a building is at its facade (map
 
 # an object's popup and tooltip, the same in 2D and in 3D: the tooltip names its type, the popup says what it is and who knows it
 DOT_COLORS = {"furniture": "#4f46e5", "vegetation": "#16a34a", "utility": "#6b7280", "transit": "#0891b2", "access": "#db2777", "barrier": "#78350f"}
+LOT_POPUP = ["type", "name", "operator", "parking", "access", "fee", "id"]     # an off-street car park (space.lot), 2D and 3D
 BLD_POPUP = ["type", "name", "use", "ground_floor", "evidence", "class", "floors", "height_m", "level_src", "id"]     # a building's popup, the same in 2D and 3D
 OBJ_POPUP, OBJ_TIP = ["type", "height_m", "details", "sources", "method", "refs", "space"], ["type"]
 TYPE_NAME = {"crossing.zebra": "zebra crossing", "crossing.signalised": "signalised crossing", "crossing.other": "crossing", "kerb.node": "kerb",
@@ -869,6 +872,10 @@ def main(db, out):
         -- what it is used for, its ground floor, each with its source and method (buildings.py), and the evidence
         "use" || ' (' || use_source || ', ' || use_method || ')' AS "use", ground_use || ' (' || ground_source || ', ' || ground_method || ')' AS ground_floor,
         uses AS evidence FROM space.element WHERE type = 'building'""")
+    try:    # off-street car parks: beside the street, not in it
+        lots = frame(con, """SELECT ST_AsWKB(geometry) AS geometry, lot_id AS id, type, name, operator, parking, access, fee, level FROM space.lot""")
+    except duckdb.CatalogException:     # built before car parks were lots
+        lots = buildings.iloc[:0]
     zones = frame(con, """SELECT ST_AsWKB(z.geometry) AS geometry, z.level, z.zone, z.container_id AS cid, c.name
         FROM space.zone z JOIN space.container c USING (container_id)""")
     streets = frame(con, """SELECT ST_AsWKB(geometry) AS geometry, container_id AS cid, name, level, round(mean_width_m, 1) AS width_m,
@@ -1007,6 +1014,7 @@ def main(db, out):
                     popup=["cid", "name", "level", "zone"], tooltip=["cid", "zone"]),
                   o(buildings, color="#3b82f6", opacity=0.85, outline="#334", label="Buildings",
                     popup=BLD_POPUP, tooltip=["type"])]
+                 + [o(lots, color="#a8b0ba", opacity=0.9, outline="#64748b", label="Parking lots", popup=LOT_POPUP, tooltip=["type"])] * (len(lots) > 0)
                  + [o(track, color="#f0abfc", opacity=0.7, outline="#c026d3", label="Track", popup=["cid", "name", "level", "zone"],
                       tooltip=["cid", "zone"])] * (len(track) > 0)
                  + [o(strips[strips["type"] == t], color=c, opacity=0.97, outline=dark, width=0.4, label=f"Strip: {t}", popup=["cid", "type", "side", "width_m", "source", "level"],
@@ -1096,7 +1104,7 @@ def main(db, out):
         for r in subs.assign(k=subs.subsection_id.str.split("/").str[-1].astype(int)).sort_values(["section_id", "k"]).itertuples():
             if r.subsection_id in ua:
                 newu["sec"].setdefault(r.section_id, []).append([r.subsection_id, int(ua[r.subsection_id]), float(r.length_m), r.left, r.right, r.color])
-    panel = (PANEL.replace("__PCOL__", json.dumps(PART_COLORS)).replace("__RAISED__", json.dumps(RAISED)).replace("__OBJPOPUP__", json.dumps(OBJ_POPUP)).replace("__BLDPOPUP__", json.dumps(BLD_POPUP)).replace("__NEWU__", json.dumps(newu)).replace("__MARKS__", json.dumps([t for t, *_ in MARKS if len(marks) and (marks["type"] == t).any()])).replace("__TREE__", json.dumps(tree_data(con, epsg)).replace("</", "<\\/"))
+    panel = (PANEL.replace("__PCOL__", json.dumps(PART_COLORS)).replace("__RAISED__", json.dumps(RAISED)).replace("__OBJPOPUP__", json.dumps(OBJ_POPUP)).replace("__BLDPOPUP__", json.dumps(BLD_POPUP)).replace("__LOTPOPUP__", json.dumps(LOT_POPUP)).replace("__NEWU__", json.dumps(newu)).replace("__MARKS__", json.dumps([t for t, *_ in MARKS if len(marks) and (marks["type"] == t).any()])).replace("__TREE__", json.dumps(tree_data(con, epsg)).replace("</", "<\\/"))
              .replace("__LEVELS__", json.dumps(list(range(LEVELS[0], LEVELS[1] + 1)))).replace("__LINKDEF__", json.dumps([{"t": t, "lab": n, "c": c, "d": d} for t, n, c, d in defs]))
              .replace("__KINDS__", json.dumps([{"k": k, "lab": lab, "c": c} for k, lab, c in kinds])).replace("__OBJDEF__", json.dumps([{"g": g, "c": c} for g, c in ogroups])).replace("__OBJCOLORS__", json.dumps({k: v[2] for k, v in OBJ_SHAPES.items()})).replace("__STRIPS__", json.dumps([{"t": t, "lab": lab, "c": c} for t, lab, c, _ in sdefs])).replace("__HAS__", json.dumps(has)).replace("__LEVELBTNS__", "".join(f'<button data-l="{l}">{l}</button>' for l in range(LEVELS[0], LEVELS[1] + 1))))
     open(out, "w").write(m.html.replace("</body>", panel + "</body>"))

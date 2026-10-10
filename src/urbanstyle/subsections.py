@@ -257,7 +257,8 @@ def build(con, epsg):
         roads = [r for r in roads if r[6] not in ring_osm]
     except Exception:
         pass
-    blds = con.execute(f"SELECT l, {to_m} FROM space.element, generate_series(level_min, level_max) t(l) WHERE type = 'building'").fetchall()
+    blds = con.execute(f"""SELECT l, {to_m} FROM space.element, generate_series(level_min, level_max) t(l) WHERE type = 'building'
+                           UNION ALL SELECT level, {to_m} FROM space.lot""").fetchall()     # a car park is a plot, as a building is
     blines = {}
     for lv in {r[1] for r in roads}:
         parts = building_line([shapely.from_wkb(bytes(b[1])) for b in blds if b[0] == lv], [shapely.from_wkb(bytes(r[5])) for r in roads if r[1] == lv])

@@ -62,7 +62,20 @@ FROM (
     UNION ALL BY NAME SELECT 'walkway' t, * FROM osm.walking.edges WHERE osm_id NOT IN (SELECT osm_id FROM osm.driving.edges)
     UNION ALL BY NAME SELECT 'cycleway' t, * FROM osm.cycling.edges
       WHERE osm_id NOT IN (SELECT osm_id FROM osm.driving.edges UNION SELECT osm_id FROM osm.walking.edges))) e
-LEFT JOIN osm.raw.ways rw ON rw.osm_id = e.osm_id;
+LEFT JOIN osm.raw.ways rw ON rw.osm_id = e.osm_id
+WHERE coalesce(rw.tags['service'], '') <> 'parking_aisle';    -- an aisle is inside a car park (space.lot), not a street
+"""
+
+# Off-street car parks (OSM amenity=parking on the ground, not along the kerb): private ground beside the street, like a building's
+# plot. The street space stops at their edge (subsections.py and spaces.py read them with the buildings); each is one lot, whole.
+STREET_PARKING = ("lane", "street_side", "on_kerb", "half_on_kerb", "shoulder", "layby")
+LOTS = f"""
+CREATE OR REPLACE TABLE space.lot AS
+SELECT left(osm_type, 1) || osm_id AS lot_id, 'parking lot' AS type, name, coalesce(tags['parking'], 'surface') AS parking,
+  tags['access'] AS access, tags['fee'] AS fee, coalesce(tags['operator'], tags['brand']) AS operator, 0 AS level, geom AS geometry
+FROM osm.features.sites
+WHERE kind = 'parking' AND coalesce(tags['parking'], 'surface') NOT IN {STREET_PARKING + ("underground", "multi-storey", "rooftop")}
+  AND ST_GeometryType(geom) IN ('POLYGON', 'MULTIPOLYGON');
 """
 
 CLAMP = f"""
@@ -889,6 +902,10 @@ def build(osm, out):
     con.execute(BUILD)
     con.execute(ROADS)
     con.execute(RAIL)
+    try:
+        con.execute(LOTS)
+    except duckdb.CatalogException:     # a database without duckOSM's features: no car parks known
+        con.execute("CREATE OR REPLACE TABLE space.lot (lot_id VARCHAR, type VARCHAR, name VARCHAR, parking VARCHAR, access VARCHAR, fee VARCHAR, operator VARCHAR, level INT, geometry GEOMETRY)")
     con.execute(CLAMP)
     lon = con.execute("SELECT avg(ST_X(ST_Centroid(geometry))) FROM space.element").fetchone()[0]
     epsg = f"EPSG:{32600 + int((lon + 180) // 6) + 1}"  # northern-hemisphere UTM, metres

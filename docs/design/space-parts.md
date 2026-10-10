@@ -43,8 +43,7 @@ out of lanes and box. The pedestrian realm falls apart into one **corner** per b
 ## Marks (`space.mark`)
 
 Lines painted or built on the street: `kerb` (in each space, where a raised part, `parts.RAISED`: sidewalk, furnishing, open ground, bus
-stop, island, meets the flush ground: lanes, parking, a parking lot, a crosswalk; none between a parking aisle and its stalls, paved
-flush; 2026-10-10), `stop line` / `give-way line` (across an arm's
+stop, island, meets the flush ground: lanes, parking, a crosswalk; 2026-10-10), `stop line` / `give-way line` (across an arm's
 `in` lanes at the junction side of its approach, where a stop or give-way sign or a traffic signal stands on that arm), `lane line`
 (between two lanes of one direction), `centre line` (between the two directions).
 

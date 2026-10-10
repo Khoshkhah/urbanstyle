@@ -21,6 +21,8 @@ The order of work: `docs/plan.md`.
   `p<level>-<way>`, `r<level>-<way>`, `i<level>-<node>`. A street is a group of sections plus the intersections it
   arrives at (`space.street`, `space.arm`, id `k<level>-<way>`). `street_owner()` (python) decides which street each
   element belongs to.
+- `space.lot` (`LOTS` in container.py): off-street car parks, plots beside the street like buildings; the partition reads both as the
+  building line; parking aisles are left out of the roads.
 - `src/urbanstyle/buildings.py` (called in `build`): each building's `use` and `ground_use` with their source and method, from OSM's
   `building` tag, the shops OSM maps inside it and a city's storefronts (`<unit>.vancouver.json`); `uses` lists the evidence.
 - `src/urbanstyle/strips.py` (called at the end of `build`) fills every container with typed bands in `space.strip`

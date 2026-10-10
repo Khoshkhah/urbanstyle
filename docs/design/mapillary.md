@@ -45,7 +45,7 @@ What it is, first rule that holds:
 4. else `shoulder`: its use is not known.
 
 A parking or no-parking strip has an edge line along the lane. OSM parking areas inside a space and off the roadway become parts too:
-`parking` (along the kerb) or `parking lot`; underground, multi-storey and rooftop ones are left out.
+`parking` (along the kerb); an off-street car park is no part but a lot beside the street (`space.lot`, 2026-10-10).
 
 Monaco: 157 parking strips (111 from signs, 46 from OSM), 165 no-parking strips, 585 shoulders of unknown use, 34 parking lots. With
 the signs and signals, stop lines went from 44 to 78 and give-way lines from 150 to 171; furnishing strips from 419 to 845.

@@ -199,8 +199,9 @@ def build(con, epsg):
     # motorcycle parking points
     lots, moto = [], []
     try:
-        lots = [(kind_ in ("lane", "street_side"), g(w)) for kind_, w in con.execute(f"""SELECT tags['parking'], {tr('geom')} FROM osm.features.sites
-                WHERE kind = 'parking' AND coalesce(tags['parking'], '') NOT IN ('underground', 'multi-storey', 'rooftop')""").fetchall()]
+        from urbanstyle.container import STREET_PARKING     # a car park off the street is no part: it is a lot (space.lot)
+        lots = [(True, g(w)) for (w,) in con.execute(f"""SELECT {tr('geom')} FROM osm.features.sites
+                WHERE kind = 'parking' AND tags['parking'] IN {STREET_PARKING}""").fetchall()]
         moto = [g(w) for (w,) in con.execute(f"SELECT {tr('geom')} FROM osm.features.pois WHERE kind = 'motorcycle_parking'").fetchall()]
     except Exception:
         pass
@@ -1027,7 +1028,7 @@ def build(con, epsg):
                     mark(uid, level, "edge line", safe("intersection", x["base"], U), ref=wref(x["edge"]))
             add(uid, level, "carriageway" if sub else "ring" if rb else "junction area", C, "sumo")   # the rest of the roadway, one part
             for street, lot in ([lots[k] for k in lot_tree.query(U)] if lot_tree is not None and level == 0 else []):
-                add(uid, level, "parking" if street else "parking lot", safe("difference", safe("intersection", lot, U), C), "osm")
+                add(uid, level, "parking", safe("difference", safe("intersection", lot, U), C), "osm")
             names = [(roads[e]["name"], roads[e]["g"]) for e, _ in cuts.get(uid, []) if e in roads]
             pedestrian(uid, level, U, C, None if sub or not names else
                        lambda piece, k: " / ".join(nm for nm, _ in sorted(names, key=lambda t: t[1].distance(piece))[:2]), kerb_near=kerb_at(level, U))

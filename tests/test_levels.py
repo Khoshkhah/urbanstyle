@@ -488,6 +488,7 @@ def test_mapillary_features_load_into_groups(tmp_path):
 
 def test_lane_overrides_from_duckosm_fixes(tmp_path, monkeypatch):
     """duckOSM's OSM fixes file corrects lane counts: `lanes` is per direction (doubled on a two-way way)."""
+    pytest.importorskip("yaml")     # without PyYAML the fixes file is not read (lane_overrides returns {})
     from urbanstyle import parts
     osm = make_osm(tmp_path / "osm.duckdb")
     o = duckdb.connect(osm)

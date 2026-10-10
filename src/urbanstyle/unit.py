@@ -45,7 +45,7 @@ VAN_OBJECT = {"public-trees": "vegetation.tree", "street-lighting-poles": "furni
               "street-lighting-junction-boxes": "utility.junction_box"}
 VAN_OTHER = ("traffic-signals", "disability-parking", "right-of-way-widths", "bikeways", "sidewalk-condition-rating", "pavement-condition-rating",
              "pavement-condition-rating-major-road-network-2023", "intersection-traffic-movement-counts", "directional-traffic-count-locations",
-             "storefronts-inventory", "building-footprints-2015", "building-footprints-2009")
+             "storefronts-inventory", "building-footprints-2015", "building-footprints-2009", "property-parcel-polygons")
 
 MATCH_M = 10.0      # objects of one class from two sources this close are one real object (Mapillary's positions are 1-5 m off, often more)
 RANK = {"vancouver": 0, "nvdb": 1, "osm": 2, "mapillary": 3}   # whose position a matched object takes: a city's survey, a map, photos
@@ -191,7 +191,7 @@ def opendata_vancouver(lon, lat, out, radius=CLIP_M):
     where = f"within_distance(geom, geom'POINT({lon} {lat})', {radius:.0f}m)"
     data = {}
     for ds in (*VAN_OBJECT, *VAN_OTHER):
-        w = where.replace(f"{radius:.0f}m", f"{radius * 1.5:.0f}m") if ds.startswith("building-footprints") else where   # the clip's corners too
+        w = where.replace(f"{radius:.0f}m", f"{radius * 1.5:.0f}m") if ds.startswith(("building-footprints", "property-parcel")) else where   # the clip's corners too
         with urllib.request.urlopen(f"{VAN_API}/{ds}/exports/geojson?" + urllib.parse.urlencode({"where": w}), timeout=120) as r:
             data[ds] = json.load(r)
     with open(out, "w") as f:

@@ -382,6 +382,7 @@ function draw3d(){
   const add=(spec,filter)=>{if(!spec.source)return; if(!map.getLayer(spec.id)){map.addLayer(spec); U3D.push(spec.id)}
     map.setFilter(spec.id,filter); map.setLayoutProperty(spec.id,'visibility',in3d?'visible':'none')};
   const lvl=['==',['get','level'],lv3d];
+  add({id:'u3d-gnd',type:'fill',source:ovSrc('Ground'),paint:{'fill-color':['get','color'],'fill-opacity':1}},['all',lvl,['!=',['get','type'],'street']]);   // the ground beside the street
   add({id:'u3d-lot',type:'fill',source:ovSrc('Parking lots'),paint:{'fill-color':'#a8b0ba','fill-opacity':1}},lvl);   // a car park: paved, flush
   add({id:'u3d-ground',type:'fill',source:ovSrc('Parts'),paint:{'fill-color':['get','color'],'fill-opacity':1}},
       ['all',lvl,['!',['in',['get','type'],['literal',Object.keys(RAISE)]]]]);
@@ -433,6 +434,7 @@ function deselect3d(){if(sel3d===null)return false; sel3d=null; paint3d();
 const L3D={'u3d-furn':['fill-extrusion-color','refs',['get','color'],OBJ_POPUP],
   'u3d-bld':['fill-extrusion-color','id','#e7e2d8',__BLDPOPUP__],
   'u3d-lot':['fill-color','id','#a8b0ba',__LOTPOPUP__],
+  'u3d-gnd':['fill-color','ground_id',['get','color'],__GROUNDPOPUP__],
   'u3d-kerb':['fill-extrusion-color','kerb_id','#8f8b86',['type','unit_id','arm','length_m','source','method','ref']],
   'u3d-ground':['fill-color','part_id',['get','color'],null],'u3d-raised':['fill-extrusion-color','part_id',['get','color'],null]};
 function paint3d(){Object.entries(L3D).forEach(([id,[prop,key,base]])=>{if(!map.getLayer(id))return;
@@ -560,6 +562,10 @@ FACADE_SNAP_M = 3.0   # a point this far inside a building is at its facade (map
 
 # an object's popup and tooltip, the same in 2D and in 3D: the tooltip names its type, the popup says what it is and who knows it
 DOT_COLORS = {"furniture": "#4f46e5", "vegetation": "#16a34a", "utility": "#6b7280", "transit": "#0891b2", "access": "#db2777", "barrier": "#78350f"}
+# layer 0, the ground (space.ground): its kinds' colours; unknown in red, to be found
+GROUND_COLORS = {"street": "#e5e7eb", "square": "#fcd34d", "rail": "#d8b4fe", "plot": "#fde68a", "green": "#86efac", "water": "#93c5fd",
+                 "unknown": "#ef4444"}
+GROUND_POPUP = ["ground_id", "type", "name", "source", "method", "ref", "area_m2"]
 LOT_POPUP = ["type", "name", "operator", "parking", "access", "fee", "id"]     # an off-street car park (space.lot), 2D and 3D
 BLD_POPUP = ["type", "name", "use", "ground_floor", "evidence", "class", "floors", "height_m", "level_src", "source", "id"]     # a building's popup, the same in 2D and 3D
 OBJ_POPUP, OBJ_TIP = ["type", "width_m", "height_m", "size_from", "details", "sources", "method", "refs", "space"], ["type"]
@@ -895,6 +901,12 @@ def main(db, out):
         -- what it is used for, its ground floor, each with its source and method (buildings.py), and the evidence
         "use" || ' (' || use_source || ', ' || use_method || ')' AS "use", ground_use || ' (' || ground_source || ', ' || ground_method || ')' AS ground_floor,
         uses AS evidence FROM space.element WHERE type = 'building'""")
+    try:    # layer 0: every piece of the area, by kind
+        ground = frame(con, f"""SELECT ST_AsWKB(geometry) AS geometry, ground_id, type, name, source, method, ref, level,
+            round(ST_Area(ST_Transform(geometry, 'EPSG:4326', '{epsg_of(con)}', always_xy := true)), 1) AS area_m2 FROM space.ground""")
+        ground["color"] = ground["type"].map(GROUND_COLORS).fillna("#9ca3af")
+    except duckdb.CatalogException:     # built before the ground layer
+        ground = None
     try:    # off-street car parks: beside the street, not in it
         lots = frame(con, """SELECT ST_AsWKB(geometry) AS geometry, lot_id AS id, type, name, operator, parking, access, fee, level FROM space.lot""")
     except duckdb.CatalogException:     # built before car parks were lots
@@ -1030,7 +1042,9 @@ def main(db, out):
         street_view_key=os.environ.get("GOOGLE_MAPS_KEY"),
         settings={"config": {"fill_opacity": 0.35, "casing_opacity": 0.2}}, road_popup=["edge_id", "container_id", "name", "type", "highway", "level", "width_m", "width_src"],   # Street View's linked panorama (the key is written into the page: restrict it in Google Cloud)
         color_options={"Roads": {"color_by": "type", "colors": {"road": "#555", "walkway": "#a16207", "cycleway": "#16a34a"}}},
-        overlays=[o(streets[streets.kind == k], color=c, opacity=0.8, outline=dark, width=1.2, label=lab, popup=POP, tooltip=["cid", "name"])
+        overlays=([o(ground, color="#e5e7eb", color_col="color", opacity=0.55, outline="#94a3b8", width=0.5, label="Ground", popup=GROUND_POPUP,
+                     tooltip=["type", "name"])] if ground is not None and len(ground) else []) +
+                 [o(streets[streets.kind == k], color=c, opacity=0.8, outline=dark, width=1.2, label=lab, popup=POP, tooltip=["cid", "name"])
                   for k, lab, c, dark in KINDS if (streets.kind == k).any()] + [
                   o(zones[zones.zone == "pedestrian_realm"], color="#f8c4b4", opacity=0.9, outline="#e8a898", label="Pedestrian realm",
                     popup=["cid", "name", "level", "zone"], tooltip=["cid", "zone"]),
@@ -1128,7 +1142,7 @@ def main(db, out):
         for r in subs.assign(k=subs.subsection_id.str.split("/").str[-1].astype(int)).sort_values(["section_id", "k"]).itertuples():
             if r.subsection_id in ua:
                 newu["sec"].setdefault(r.section_id, []).append([r.subsection_id, int(ua[r.subsection_id]), float(r.length_m), r.left, r.right, r.color])
-    panel = (PANEL.replace("__PCOL__", json.dumps(PART_COLORS)).replace("__RAISED__", json.dumps(RAISED)).replace("__KERBTOP__", json.dumps(KERB_TOP_M)).replace("__OBJPOPUP__", json.dumps(OBJ_POPUP)).replace("__BLDPOPUP__", json.dumps(BLD_POPUP)).replace("__LOTPOPUP__", json.dumps(LOT_POPUP)).replace("__NEWU__", json.dumps(newu)).replace("__MARKS__", json.dumps([t for t, *_ in MARKS if len(marks) and (marks["type"] == t).any()])).replace("__TREE__", json.dumps(tree_data(con, epsg)).replace("</", "<\\/"))
+    panel = (PANEL.replace("__PCOL__", json.dumps(PART_COLORS)).replace("__RAISED__", json.dumps(RAISED)).replace("__KERBTOP__", json.dumps(KERB_TOP_M)).replace("__OBJPOPUP__", json.dumps(OBJ_POPUP)).replace("__BLDPOPUP__", json.dumps(BLD_POPUP)).replace("__LOTPOPUP__", json.dumps(LOT_POPUP)).replace("__GROUNDPOPUP__", json.dumps(GROUND_POPUP)).replace("__NEWU__", json.dumps(newu)).replace("__MARKS__", json.dumps([t for t, *_ in MARKS if len(marks) and (marks["type"] == t).any()])).replace("__TREE__", json.dumps(tree_data(con, epsg)).replace("</", "<\\/"))
              .replace("__LEVELS__", json.dumps(list(range(LEVELS[0], LEVELS[1] + 1)))).replace("__LINKDEF__", json.dumps([{"t": t, "lab": n, "c": c, "d": d} for t, n, c, d in defs]))
              .replace("__KINDS__", json.dumps([{"k": k, "lab": lab, "c": c} for k, lab, c in kinds])).replace("__OBJDEF__", json.dumps([{"g": g, "c": c} for g, c in ogroups])).replace("__OBJCOLORS__", json.dumps({k: v[2] for k, v in OBJ_SHAPES.items()})).replace("__STRIPS__", json.dumps([{"t": t, "lab": lab, "c": c} for t, lab, c, _ in sdefs])).replace("__HAS__", json.dumps(has)).replace("__LEVELBTNS__", "".join(f'<button data-l="{l}">{l}</button>' for l in range(LEVELS[0], LEVELS[1] + 1))))
     open(out, "w").write(m.html.replace("</body>", panel + "</body>"))

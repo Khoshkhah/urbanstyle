@@ -1,6 +1,8 @@
 # Layers: the whole area, and the inside of a street, as a hierarchy
 
-Status: agreed 2026-10-10; being built in the order below. Basis: [How standards layer a street](layers-research.md).
+Status: agreed 2026-10-10; being built in the order below. Step 1 built (`ground.py`): Broadway × Granville's neighbourhood, 640,106 m²
+at level 0: street 53.3 %, plot 44.7 %, green 1.3 %, rail 0.3 %, unknown 0.4 % (8 pieces, 2,517 m²; the largest, 1,515 m², West Broadway's
+north side before the station site, right-of-way no street space reaches); no overlaps (G2). Basis: [How standards layer a street](layers-research.md).
 
 ## Why
 
@@ -47,7 +49,8 @@ Built per level over the unit's neighbourhood (the clip's box), in this order, e
 5. `plot`: a city's parcels where it has them (Vancouver `property-parcel-polygons`, [Plots](plots.md)); else buildings, car parks
    (`space.lot`), construction sites and OSM `landuse` areas (residential, retail, commercial ...) with what lies between them, block by
    block.
-6. `green`: OSM `leisure=park`, `landuse=grass`, `natural=wood` ...
+6. `green`: the rest of the green, OSM `landuse=grass`, gardens, allotments. Public green (parks, playgrounds, pitches, recreation grounds,
+   woods) comes before `plot`: a city park is a parcel too, and would otherwise be a plot.
 7. `unknown`: what is left. Reported (check G1), each piece with its area and its neighbours, so it can be traced to a missing rule.
 
 A street's ground is fixed by the street's own rules (cuts, the building line); a plot's by its parcel, or by its buildings and land use;

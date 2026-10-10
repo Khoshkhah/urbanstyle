@@ -23,6 +23,8 @@ The order of work: `docs/plan.md`.
   element belongs to.
 - `space.lot` (`LOTS` in container.py): off-street car parks, plots beside the street like buildings; the partition reads both as the
   building line; parking aisles are left out of the roads.
+- `src/urbanstyle/ground.py` (called at the end of `build`): layer 0 of `docs/design/space-layers.md`, `space.ground`: every piece of the
+  area at level 0 is water, rail, street, square, green, plot or unknown (checks G1, G2).
 - `src/urbanstyle/buildings.py` (called in `build`): each building's `use` and `ground_use` with their source and method, from OSM's
   `building` tag, the shops OSM maps inside it and a city's storefronts (`<unit>.vancouver.json`); `uses` lists the evidence.
 - `src/urbanstyle/strips.py` (called at the end of `build`) fills every container with typed bands in `space.strip`
@@ -41,7 +43,7 @@ The order of work: `docs/plan.md`.
   at intersections). The roadway (lanes, junction shapes, turns) comes from SUMO: the subsections measure the lanes, `sumo.py` runs
   duckOSM's `to_sumo` with them, `from_sumo()` fills every unit; without SUMO `classic()` builds the roadway from bands. `urbanstyle check`
   U1-U10 test them; U11-U13 report the lanes entering each junction (`space.approach`),
-  U14 the street ground in no space (`docs/design/plots.md`).
+  G1-G2 the ground (`space.ground`).
 - `src/urbanstyle/mapillary.py`: `urbanstyle mapillary DB [--osm OSM]` fetches Mapillary's features and photos into `DB.mapillary.json`
   (token: `$MAPILLARY_TOKEN` or `~/.config/mapillary/token`, never in the repo) and loads `space.observed` / `space.photo`; `build`
   loads that file when present (`docs/design/mapillary.md`). CC BY-SA: the data stays local. Mapillary is for validation only

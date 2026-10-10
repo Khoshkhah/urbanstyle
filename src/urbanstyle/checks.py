@@ -48,8 +48,7 @@ def part_checks(c, q, m):
         ("U9", "parts of one space overlapping by more than 0.5 m2", q("""SELECT count(*) FROM pt a JOIN pt b ON a.unit_id = b.unit_id AND a.part_id < b.part_id
                                   AND ST_Intersects(a.g, b.g) WHERE ST_Area(ST_Intersection(a.g, b.g)) > 0.5"""), True),
         ("U10", "cuts where the roadway differs by more than 0.5 m on the two sides", roadway_mismatch(c, q, m), False),
-        street_left(c, m),
-    ] + approach_checks(q)
+    ] + approach_checks(q) + ground_checks(c, q, m)
 
 
 def approach_checks(q):
@@ -69,26 +68,17 @@ def approach_checks(q):
     ]
 
 
-def street_left(c, m):
-    """U14: the street ground (sections and intersections of the measured street space) that no space holds and no building or car park
-    stands on, in pieces over 1 m2 (docs/design/plots.md). Reported: spaces give pieces up to 300 m2 to a neighbour; a larger one is
-    ground the spaces' reach does not cover, to look at."""
-    import shapely
-    rows = lambda sql: c.execute(sql).fetchall()
-    area = lambda x: shapely.union_all([p for p in shapely.get_parts(x) if p.geom_type == "Polygon"] or [shapely.Polygon()])   # its area only
-    g = lambda w: area(shapely.make_valid(shapely.from_wkb(bytes(w))))     # (a repair or an overlay can leave lines behind)
-    street, held, walls = {}, {}, {}
-    for lv, w in rows(f"SELECT level, ST_AsWKB({m('geometry')}) FROM space.container WHERE kind IN ('section', 'intersection')"):
-        street.setdefault(lv, []).append(g(w))
-    for lv, w in rows(f"SELECT level, ST_AsWKB({m('geometry')}) FROM space.unit"):
-        held.setdefault(lv, []).append(g(w))
-    for lv, w in rows(f"""SELECT l, ST_AsWKB({m('geometry')}) FROM space.element, generate_series(level_min, level_max) t(l) WHERE type = 'building'
-                          UNION ALL SELECT level, ST_AsWKB({m('geometry')}) FROM space.lot"""):
-        walls.setdefault(lv, []).append(g(w))
-    u = lambda gs: area(shapely.union_all(gs, grid_size=0.01)) if gs else shapely.Polygon()
-    pieces = [p for lv, gs in street.items() for p in shapely.get_parts(area(area(u(gs).difference(u(held.get(lv, [])), grid_size=0.01))
-                                                                            .difference(u(walls.get(lv, [])), grid_size=0.01))) if p.area > 1]
-    return ("U14", f"pieces of street ground in no space, over 1 m2 ({sum(p.area for p in pieces):,.0f} m2)", len(pieces), False)
+def ground_checks(c, q, m):
+    """G1-G2: layer 0, the ground (space.ground, docs/design/space-layers.md): every piece of the area at level 0 is one ground item."""
+    if not q("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'space' AND table_name = 'ground'"):
+        return []
+    unknown = c.execute(f"SELECT count(*), coalesce(sum(ST_Area({m('geometry')})), 0) FROM space.ground WHERE type = 'unknown'").fetchone()
+    c.execute(f"CREATE TEMP TABLE gr AS SELECT ground_id, level, ST_MakeValid(ST_Buffer({m('geometry')}, -0.01)) AS g FROM space.ground")
+    return [
+        ("G1", f"pieces of ground of no known kind ({unknown[1]:,.0f} m2)", unknown[0], False),
+        ("G2", "ground items overlapping by more than 0.5 m2", q("""SELECT count(*) FROM gr a JOIN gr b ON a.level = b.level
+                                  AND a.ground_id < b.ground_id AND ST_Intersects(a.g, b.g) WHERE ST_Area(ST_Intersection(a.g, b.g)) > 0.5"""), True),
+    ]
 
 
 def roadway_mismatch(c, q, m):

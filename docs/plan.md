@@ -21,9 +21,31 @@ Built for it on the way: the dashboard as two views of the same data (2D a map, 
 with its sources), real road widths (two-way roads had half) and building heights, whole crosswalks in their junction, the checks
 U11-U13 on the lanes entering a junction.
 
-**Next, in order:** the gaps of [What the sources hold](design/source-inventory.md), once agreed: parking, bus stops and building
-use (built), crossing and kerb details, every Mapillary class, the city's turn rules as automatic checks, land cover and lidar; then the
-W 4th Ave unit; then the recipe.
+Also built on 2026-10-10 (judging Broadway x Granville against the city's 2018 aerial photo): car parks as lots beside the street,
+parking aisles and driveways no street, kerbs from the evidence (two-way roads centred between measured kerbs), street parking as
+roadway, tree pits, one stop line per approach, a crosswalk to its street's junction, no sliver spaces, lanes through SUMO's nodes, and
+check U14 with the rule that gives street ground left to no space to a neighbour.
+
+## To do (2026-10-10)
+
+In order; each item is a general rule, checked on Broadway x Granville before and after.
+
+- [ ] **City building footprints where OSM has none.** A city footprint (Vancouver `building-footprints-2015`) overlapping no OSM
+      building becomes a building (source the city); the 2009 record gives every building its measured height. Example: the row
+      between West Broadway and the alley south of the Impark lot (1400 block) is not in OSM, so the street there has no edge and
+      Broadway's north sidewalk is in no space.
+- [ ] **U14 cleanup.** (A) Measure U14 against the partition's own building line: 39 pieces (209 m2) are gaps under 6 m between
+      buildings, not street. (B) A small piece the fill cannot merge cleanly still goes to the neighbour with the longest shared edge,
+      closed by a few cm: 13 pieces, 292 m2.
+- [ ] **Plots, step 2** ([Plots](design/plots.md)): parcels as the street's edge; each plot's ground (garden, grass, yard, ...). Decides
+      the 9 pieces of street ground over 300 m2 (4,742 m2) in no space.
+- [ ] **New lanes that start inside a node**: West Broadway's 4 -> 6 lane joint (x 490179) leaves 85 m2 of bare roadway.
+- [ ] **Lane pieces under 1 m** at the edges of spaces (367): look at why a lane reaches a few cm to a metre past a space's edge.
+- [ ] **Slanted lanes** west of that joint: they run askew of the road on the photo.
+- [ ] **West Broadway's north kerb east of Hemlock** is still about 8 m short of the photo.
+- [ ] Then the gaps of [What the sources hold](design/source-inventory.md): crossing and kerb details, every Mapillary class, the city's
+      turn rules as automatic checks, land cover and lidar; then the W 4th Ave unit; then the recipe.
+- [ ] Merge `network-first` into `main` (the docs site shows `main`).
 
 ## Where it stood (2026-10-08, the city-wide work, paused)
 

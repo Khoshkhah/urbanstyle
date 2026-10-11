@@ -205,10 +205,41 @@ crumbs: a strip under 5 m² joins its neighbour.
     (the rest to the block, if at least 0.75 m).
 - **An intersection**: at each block corner, the pedestrian corner is the ground beyond both arms' kerbs (on that block's side); the
   rest is **one junction area**; the kerb's corner is rounded by 4 m.
-- **Marks**: kerbs, lane lines, centre lines, a stop line 1 m before the end of each section at an intersection across the lanes
-  going toward it, and zebra bars where OSM maps a crossing over the roadway (they lie on the lanes and the junction area, cutting
-  nothing). SUMO's lane-to-lane turns are kept, moved to the new intersection holding each; its lane arrows and guide lines are not
-  redrawn yet.
+- **Marks** (2026-10-11), each stored as its middle line and drawn at its width (`parts.LINE`):
+  - kerbs; lane lines (dashed) between lanes in one direction, centre lines between the two directions, and a solid **edge line**
+    between the travel lanes and a parking or bike lane;
+  - a **stop line** 1 m before the end of each section at an intersection, across the lanes going toward it;
+  - **crosswalks**: for each marked OSM crossing (a crossing way, else a crossing point with no way within 6 m), a band 3 m wide
+    over the roadway and its zebra bars across it (0.5 m wide, 0.5 m apart). They lie on the lanes and the junction area and cut
+    nothing. An unmarked crossing (`crossing=unmarked`, `crossing:markings=no`) gets no bars;
+  - **arrows**: a turn arrow before the stop line of each lane that comes into a junction (its heads from SUMO, below); a straight
+    arrow in the middle of each lane of a subsection that is 20 m or longer. No arrow touches a crosswalk.
+- **Lanes across the joints.** Every edge in a subsection (kerbs, medians, the line between two carriageways, lanes) has a value at each
+  of its two ends and runs straight between them. Two subsections share the values at their joint. One OSM way in one section gets one
+  fit, made from the median width over its subsections. A median that meets the line between two carriageways closes onto it; a median
+  on one side only closes at the joint (a carriageway joins). Check R1 counts the joints where the roadway edges differ by more than
+  0.1 m: 17 before, 0 after.
+- **A two-way street one lane wide** (a yield street) has one lane for both directions (`direction = both`), and no arrow.
+- **Bus zones.** Where an OSM bus stop (joined to the GTFS timetable by its number, `ref` = `stop_code`) or a GTFS stop that OSM does not
+  have stands within 5 m of a parking lane, the parking lane is a `bus zone` from 20 m behind the stop pole to 2 m past it, in the
+  travel direction. Its `rule` gives the routes and the departures.
+- **Driveways.** Where a road inside a block crosses the pedestrian realm of a subsection (an alley; OSM's driveways and parking aisles
+  from duckOSM's driving network, which `space.element` leaves out), or at an OSM parking entrance within 15 m of a car park, the realm
+  there is a `driveway` and the kerb is open. On the ground (layer 0), an OSM driveway inside a block is a drivable strip of kind
+  `alley` (OSM's `width`, else 3.5 m), after the buildings and the car parks.
+- **SUMO on our lanes.** After the lanes are fitted, duckOSM's driving network goes to SUMO (`sumo.network`) with our lane count and
+  width for each direction of each OSM way, where its edge runs. SUMO decides which lane goes on to which. Each connection is a
+  `guide line` (`source sumo`) from our in-lane, at its stop line, to our out-lane where it leaves the junction, a curve between the two
+  directions; `space.turn` holds it (the road piece and the lane from the right, as `parts.py` wrote them). The heads of each turn arrow
+  are its lane's moves (`osm+sumo`, `mapped`, where OSM has `turn:lanes`). `space.approach` lists every lane that comes into a junction
+  (checks U11-U13). Broadway × Granville: 489 guide lines; of the 238 lanes that come into a junction, 215 have a move.
+- **Where each part comes from.** Every part has `source`, `method` and `ref` for what it is, `width_source` and `width_method` for its
+  width, and `position_source`, `position_method` and `position_ref` for what set its edge (the kerb, the block's edge). For example: a
+  lane is `osm / mapped` (`w… lanes=2`) where the width holds OSM's count, `urbanstyle / derived` where the width holds another count,
+  `urbanstyle / chosen` where OSM has no `lanes` tag; a parking lane is `vancouver / mapped` (the meters' ids) or `osm / mapped` (the
+  tag), else `urbanstyle / derived` (the width holds it); a kerb is `measured`, with the OSM sidewalk ways and the city's catch basins,
+  poles, trees and meters it came from. Broadway × Granville: 807 parts from OSM, 239 from the city, 9 from GTFS, 668 urbanstyle's own
+  (mostly the gutters, the pedestrian corners and lanes where OSM has no lane count).
 - **A deck at level 1 that crosses nothing at ground level** (Broadway over the subway works) is the street at ground level, as for the
   blocks; its old level-1 spaces are dropped.
 

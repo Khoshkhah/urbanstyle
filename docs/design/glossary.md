@@ -154,6 +154,9 @@ Not built yet (step 3 of `street-objects.md`).
 | **junction area** | the roadway inside an intersection where the arms' carriageways meet and the turning corners between them (`space.part` type `junction area`, called "junction box" before 2026-10-09): an area of our model, nothing painted on the road; not the city's street-lighting junction box (type "electrical box", a lid in the pavement) |
 | **ref** | an object's id in its own source (OSM node, Mapillary feature, a city's asset), kept so every drawn object leads back to where it came from |
 | **source / method** ([Sources and methods](provenance.md)) | on every part, object and dossier row: where its data comes from (`osm`, `sumo`, `mapillary`, `vancouver`, `urbanstyle`) and how it was obtained (`surveyed`, `mapped`, `measured`, `derived`, `observed`, `chosen`, `checked`). A value no source gives is urbanstyle's own: `derived` (calculated from other data) or `chosen` (one value for a type); never a "default" |
+| **position_source, position_method, position_ref** | `space.part`: what set a part's edge (the kerb's evidence, the block's edge): e.g. `osm+vancouver`, `measured`, the OSM sidewalk ways and the city's catch basins |
+| **guide line** (mark) | a SUMO connection drawn through a junction, from an in-lane at its stop line to an out-lane; `space.turn` holds the same move |
+| **R1** (check) | joints between two subsections where the roadway's edges differ by more than 0.1 m |
 | **width_source, width_method; size_from** | where a part's or a mark's width comes from (`space.part`, `space.mark`, the dossier's `surface`, `line`, `lane`); an object's width and height and their sources (`size_from` on the page; the dossier's `object`: `width_source`, `height_source`, ...) |
 
 ## Dashboard

@@ -1007,7 +1007,8 @@ def main(db, out):
         jroads = jroads[~jroads.geometry.is_empty]
         try:    # the inside of each space (parts.py): parts, marks, widths
             pcols = {r[0] for r in con.execute("SELECT column_name FROM information_schema.columns WHERE table_schema = 'space' AND table_name = 'part'").fetchall()}
-            holds = ", ".join(c if c in pcols else f"NULL AS {c}" for c in ("holds", "rule"))     # (columns of 2026-10-09 on)
+            holds = ", ".join(c if c in pcols else f"NULL AS {c}" for c in ("holds", "rule", "width_source", "width_method", "position_source",
+                                                                            "position_method", "position_ref"))     # (newer columns)
             length = "length_m" if "length_m" in pcols else "NULL AS length_m"
             pts_ = frame(con, f"""SELECT ST_AsWKB(geometry) AS geometry, unit_id, part_id, level, type, coalesce(arm, '') AS arm,
                 coalesce(direction, '') AS direction, lane, width_m, {length}, source, method, ref, road, road_class, speed, surface, lit, road_lanes, oneway,
@@ -1103,7 +1104,8 @@ def main(db, out):
                       popup=["unit_id", "kind", "section_id", "level"], tooltip=["unit_id", "kind"])] * (len(units) > 0)
                  + [o(pts_, color="#999999", color_col="color", opacity=0.95, outline="#475569", width=0, label="Parts", visible=False,
                       popup=["part_id", "type", "holds", "rule", "road", "road_class", "direction", "lane", "width_m", "length_m", "speed", "surface", "lit", "road_lanes", "oneway",
-                              "area_m2", "source", "method", "ref"], tooltip=["type", "direction", "arm"])] * (len(pts_) > 0)
+                              "area_m2", "source", "method", "ref", "width_source", "width_method", "position_source", "position_method", "position_ref"],
+                      tooltip=["type", "direction", "arm"])] * (len(pts_) > 0)
                  + [rs.Overlay(marks[marks["type"] == t], kind="line", placement="over", color=c, width_m=w, dash=dash, label=f"Mark: {t}", visible=False,
                                popup=["unit_id", "type", "arm", "length_m", "width_m", "width_source", "width_method", "source", "method", "ref"], tooltip=["type", "arm"]) for t, c, w, dash in MARKS if (marks["type"] == t).any()]
                  # the street objects, one per real object, from the same data in both views: in 2D a dot where it stands, coloured by kind;
@@ -1361,7 +1363,8 @@ def layers(db, out):
         LEFT JOIN space.element e ON e.type = 'building' AND e.source_id = g.ref""")
     surf["color"] = surf["type"].map(LAYER_COLORS[1]).fillna("#9ca3af")
     parts_ = frame(con, f"""SELECT ST_AsWKB(p.geometry) AS geometry, p.part_id, p.type, p.type AS node, 'street' AS p0, u.kind AS p1,
-        p.unit_id, p.direction, p.lane, p.width_m, p.width_method, p.road, p.road_class, {a('p.geometry')} AS area_m2
+        p.unit_id, p.direction, p.lane, p.road, p.road_class, p.source, p.method, p.ref, p.width_m, p.width_source, p.width_method,
+        p.position_source, p.position_method, p.position_ref, p.rule, {a('p.geometry')} AS area_m2
         FROM space.part p JOIN space.unit u USING (unit_id) WHERE p.level = 0""")
     from .ground import STREET_SURFACE
     parts_["p2"] = ["street:" + STREET_SURFACE.get(t, "roadway") for t in parts_["type"]]

@@ -13,10 +13,10 @@ GRADE = 0.05        # the deck rises 5 m in 100 m from where its roads meet a gr
 TOP_M = 27.0        # the deck at most this high above the ground at its ends
 DECK_M = 1.8        # deck and girders, thick
 RAIL_M = 1.1        # parapet height
-PIER_M = 50.0       # a pier every, along the longest axis
+PIER_M = 80.0       # a pier every this along each axis (chosen; 50 m was too many)
 PIER_MIN_M = 3.0    # no pier under a deck lower than this
 PIER_W = 1.5        # a pier's thickness along the axis
-PIER_GAP_M = 15.0   # no pier this near another one (two axes side by side)
+PIER_GAP_M = 30.0   # no pier this near another one (two axes side by side; chosen)
 PATH_W = {"cycleway": 3.0, "footway": 2.0, "path": 2.0, "pedestrian": 3.0}
 STEP_M = 10.0       # the vertical profile is sampled this often (then collinear points are dropped)
 ON_DECK = 0.6       # a road way is on the deck when this share of it lies within 5 m of the outline
@@ -169,12 +169,49 @@ def _profile(g, tr, name, epsg, deck, outline, on, lines, pts, ground, osm_db, g
     # curves away from it (w538616396, 6 bands on 2 axes)
     free = [{"way": f"w{w}", "type": "cycleway" if lines[w][2]["highway"] == "cycleway" else "footway", "name": lines[w][2].get("name"),
              "line": [[round(x, 2), round(y, 2)] for x, y in lines[w][0].coords], "width": _val(PATH_W[lines[w][2]["highway"]], "urbanstyle", "chosen"),
-             "source": f"osm w{w}", "method": "mapped"} for w in paths]
+             "source": f"osm w{w}", "method": "mapped", "footway": lines[w][2].get("footway"), "crossing": lines[w][2].get("crossing"),
+             "markings": lines[w][2].get("crossing:markings")} for w in paths]
     return {"format": FORMAT, "name": name, "crs": f"EPSG:{epsg}",
             "z_datum": _val("ground at the ends", "urbanstyle", "chosen"),
             "made": {"by": "urbanstyle bridge profile", "date": datetime.date.today().isoformat(), "inputs": [osm_db, gmns_db]},
             "deck": {"outline": outline, "thickness": _val(DECK_M, "urbanstyle", "chosen"), "parapet": _val(RAIL_M, "urbanstyle", "chosen")},
             "axes": axes, "connectors": connectors, "paths": free, "piers": piers}
+
+
+def height(vertical, s):
+    """The height of a vertical profile at s, as road design draws it: straight grades between its points, each point inside it rounded
+    by a parabolic vertical curve of its length (vertical["curves"], one per point; 0 or absent: a corner)."""
+    pts = vertical["points"]
+    z = _z(pts, s)
+    for i, L in enumerate(vertical.get("curves") or []):
+        if not L or i == 0 or i >= len(pts) - 1:
+            continue
+        (s0, z0), (s1, z1), (s2, z2) = pts[i - 1], pts[i], pts[i + 1]
+        g1, g2 = (z1 - z0) / ((s1 - s0) or 1), (z2 - z1) / ((s2 - s1) or 1)
+        x = s - (s1 - L / 2)
+        if 0 <= x <= L:
+            z = z1 - g1 * L / 2 + g1 * x + (g2 - g1) * x * x / (2 * L)
+    return z
+
+
+def fit_alignment(samples, tol=0.25, curve_max=80.0):
+    """The standard form of a vertical profile from samples [(s, z)]: the fewest grade points that keep every sample within `tol` (the
+    first and last kept: where an arm meets another or lands), each inside point with a vertical curve of up to `curve_max`, at most 0.9
+    of the shorter grade beside it. Returns (points, curves, rms, max error)."""
+    def dp(a, b):
+        (sa, za), (sb, zb) = samples[a], samples[b]
+        worst, k = 0.0, None
+        for i in range(a + 1, b):
+            e = abs(za + (zb - za) * (samples[i][0] - sa) / ((sb - sa) or 1) - samples[i][1])
+            if e > worst:
+                worst, k = e, i
+        return [a] + (dp(a, k)[:-1] + dp(k, b) if worst > tol else []) + ([b] if worst <= tol else [])
+    keep = sorted(set(dp(0, len(samples) - 1)))
+    pts = [list(samples[i]) for i in keep]
+    curves = [0.0] + [round(min(curve_max, 0.9 * min(pts[i][0] - pts[i - 1][0], pts[i + 1][0] - pts[i][0])), 1)
+                      for i in range(1, len(pts) - 1)] + ([0.0] if len(pts) > 1 else [])
+    errs = [abs(height({"points": pts, "curves": curves}, s_) - z_) for s_, z_ in samples]
+    return pts, curves, (sum(e * e for e in errs) / len(errs)) ** .5, max(errs)
 
 
 def place_piers(axes):
@@ -188,7 +225,7 @@ def place_piers(axes):
         s = PIER_M / 2
         while s < ln.length:
             p = ln.interpolate(s)
-            if _z(vert, s) - DECK_M >= PIER_MIN_M and all(p.distance(q) >= PIER_GAP_M for q in placed):
+            if height(a["vertical"], s) - DECK_M >= PIER_MIN_M and all(p.distance(q) >= PIER_GAP_M for q in placed):
                 placed.append(p)
                 out.append({"axis": a["id"], "s": round(s, 2), "width": PIER_W, "source": "urbanstyle", "method": "chosen",
                             "rule": f"every {PIER_M:.0f} m along each axis, where the deck is {PIER_MIN_M:.0f} m or more above the ground "

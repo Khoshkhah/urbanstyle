@@ -253,8 +253,12 @@ def measure(profile, tiles, survey="City of Vancouver LiDAR 2022", osm_db=None):
                     if d < LAND_TAPER_M:
                         q[1] = round(max(q[1] - r * 0.5 * (1 + math.cos(math.pi * d / LAND_TAPER_M)), 0.0), 2)
         m_ = sum(st["method"] == "measured" for st in stations)
-        a["vertical"] = {"points": pts, "source": survey if m_ else a["vertical"]["source"], "method": "measured" if m_ else "chosen",
-                         "rule": f"the deck top (the {DECK_Q:.0%} quantile of the returns in the lane bands, {2 * HALF_M:.0f} m along) above the "
+        # the standard form: grades and vertical curves fitted to the samples (the samples stay as the measurement)
+        from .bridge_profile import fit_alignment
+        fpts, fcur, rms, mx = fit_alignment([tuple(q) for q in pts])
+        a["vertical"] = {"points": fpts, "curves": fcur, "samples": pts, "fit": {"rms_m": round(rms, 3), "max_m": round(mx, 3)},
+                         "source": survey if m_ else a["vertical"]["source"], "method": "derived" if m_ else "chosen",
+                         "rule": f"grades and parabolic vertical curves fitted (within 0.25 m) to the deck top (the {DECK_Q:.0%} quantile of the returns in the lane bands, {2 * HALF_M:.0f} m along) above the "
                                  f"bridge's reference ground (the ground and water returns within {GROUND_R_M:.0f} m of every station, weighted over "
                                  f"{REF_SIGMA_M:.0f} m, pinned to the deck at each landing), every {STEP_M:.0f} m; {m_} of {len(stations)} stations "
                                  f"measured, the others keep the chosen value",

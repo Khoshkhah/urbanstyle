@@ -14,22 +14,25 @@
 Coordinates: metres east and north of the model's origin (the middle of its outline's bounds), and up.
 """
 import json
+import math
 
 STEP_M = 4.0        # the outline and the bands are sampled this often, so their heights follow the profile
 BLEND_M = 40.0      # the heights of two axes are blended where the second nearest is this near
 MEET_M = 1.5        # ... and only where their heights differ by less than this (they meet at a fork)
+FADE_M = 2.0        # an arm's weight fades to 0 over this to the edge of its lanes
+END_FADE_M = 10.0   # ... and over this to its end
 LIFT = {True: 0.05, False: 0.10}   # above the deck: a lane (True), a path (False); clear of each other, no flicker
 LINE_LIFT_M = 0.15  # a painted line above both
-COLUMN_M = 1.5      # a pier's column, square (chosen)
+COLUMN_M = 2.5      # a pier's column, square (chosen; 1.5 m was too narrow)
 COLUMN_GAP_M = 2.0  # two columns at least this far apart, else one (chosen)
 BARRIER_M = (0.8, 0.3)      # the guard: a concrete barrier this high and wide along each side of the deck (chosen)
 RAILING_M = (1.1, 2.5)      # ... a metal railing on it, its top this high, a post every this far (chosen)
 TOUCH_M = 0.5       # two lanes this close share one painted line
 
 
-def _z(points, s):
-    from .bridge_profile import _z
-    return _z(points, s)
+def _h(vertical, s):
+    from .bridge_profile import height
+    return height(vertical, s)
 
 
 def model(path, parts=None, marks=None):
@@ -65,15 +68,36 @@ def model(path, parts=None, marks=None):
     deck = max(shapely.get_parts(deck), key=lambda p: p.area) if deck.geom_type != "Polygon" else deck
     by_id = {a["id"]: (ln, a) for ln, a in axes}
 
+    def reach(a, s):
+        """The extent across axis a at s that its lanes cover (right edge, left edge), a metre more each side."""
+        sec = next((sc for sc in a["sections"] if sc["s0"] - 0.01 <= s <= sc["s1"] + 0.01), None)
+        bs = sec["bands"] if sec else []
+        return (min((b["t"] - b["width"]["value"] / 2 for b in bs), default=-3.0) - 1.0,
+                max((b["t"] + b["width"]["value"] / 2 for b in bs), default=3.0) + 1.0)
+
     def z(x, y):
-        """The deck's top at (x, y): the nearest axis's vertical profile, blended with the second nearest (each weighted by the other's
-        distance) only where the two meet (their heights within MEET_M: a fork); two roads side by side at other heights keep their own."""
+        """The deck's top at (x, y): the heights of the arms whose lanes cover the point, each weighted by how far inside its lanes the point
+        is (fading over FADE_M to their edge, and over END_FADE_M to the arm's end) and by its nearness, among the arms that meet there
+        (heights within MEET_M of the strongest's); where no arm's lanes reach, the nearest arm's height. No step and no kink at a fork."""
         p = shapely.Point(x, y)
-        near = sorted(((ln.distance(p), _z(a["vertical"]["points"], ln.project(p))) for ln, a in axes), key=lambda dz: dz[0])[:2]
-        if len(near) < 2 or near[1][0] > BLEND_M or abs(near[0][1] - near[1][1]) > MEET_M:
-            return near[0][1]
-        (d1, z1), (d2, z2) = near
-        return (z1 * d2 + z2 * d1) / ((d1 + d2) or 1)
+        cand, near = [], []
+        for ln, a in axes:
+            sv = ln.project(p)
+            d = ln.distance(p)
+            hz = _h(a["vertical"], sv)
+            near.append((d, hz))
+            if d < BLEND_M:
+                q_, a_, b_ = ln.interpolate(sv), ln.interpolate(max(sv - 1, 0)), ln.interpolate(min(sv + 1, ln.length))
+                t = ((b_.x - a_.x) * (y - q_.y) - (b_.y - a_.y) * (x - q_.x)) / (math.hypot(b_.x - a_.x, b_.y - a_.y) or 1)
+                lo, hi = reach(a, sv)
+                w = min(1.0, min(t - lo, hi - t) / FADE_M) * min(1.0, sv / END_FADE_M, (ln.length - sv) / END_FADE_M)
+                if w > 0:
+                    cand.append((w / (d + 1.0), hz))
+        if not cand:
+            return min(near)[1]
+        top = max(cand)[1]
+        use = [(w, hz) for w, hz in cand if abs(hz - top) <= MEET_M]
+        return sum(w * hz for w, hz in use) / sum(w for w, _ in use)
 
     # the deck's top: the outline densified, triangulated inside it
     dense = deck.segmentize(STEP_M)
@@ -158,14 +182,22 @@ def model(path, parts=None, marks=None):
                     paint.append(("edge line", right))
             if t_ - f_ >= 0.5:
                 lines += [{"kind": k, "ref": a["id"], "pts": along(ln, a, f_, t_, t, LINE_LIFT_M)} for k, t in paint]
-    for f in P.get("paths", []):            # a path on the deck that is no band of an axis, along its own line
+    crossings = []      # (a path's piece over the roadway, marked or not, its fields): drawn as a crosswalk, not as the path
+    road_ = shapely.union_all([shapely.Polygon([p[:2] for p in l["l"]] + [p[:2] for p in l["r"]][::-1]).buffer(0) for l in lanes]) if lanes else shapely.Polygon()
+    for f in P.get("paths", []):            # each path on the deck, along its own line
         fl = shapely.LineString(rel(f["line"]))
         if fl.length < 0.5:
             continue
-        l_, r_ = ribbon(fl, f["width"]["value"], LIFT[False])
-        lanes.append({"props": {"type": f["type"], "name": f.get("name") or P["name"], "osm": f["way"], "width_m": f["width"]["value"],
-                                "width_source": f["width"]["source"], "width_method": f["width"]["method"], "source": f["source"],
-                                "method": f["method"]}, "l": l_, "r": r_})
+        props = {"type": f["type"], "name": f.get("name") or P["name"], "osm": f["way"], "width_m": f["width"]["value"],
+                 "width_source": f["width"]["source"], "width_method": f["width"]["method"], "source": f["source"], "method": f["method"]}
+        marked = not (f.get("crossing") == "unmarked" or f.get("markings") == "no")
+        for pc in shapely.get_parts(fl.intersection(road_)):         # where it crosses lanes: a crosswalk
+            if pc.geom_type == "LineString" and pc.length > 1.0:
+                crossings.append((pc, marked, {**props, "type": "crosswalk", "marked": marked}))
+        for pc in shapely.get_parts(fl.difference(road_.buffer(0.3))):
+            if pc.geom_type == "LineString" and pc.length > 0.5:
+                l_, r_ = ribbon(pc, f["width"]["value"], LIFT[False])
+                lanes.append({"props": props, "l": l_, "r": r_})
     for c in P.get("connectors", []):       # SUMO's path from lane to lane through a junction on the deck
         cl = shapely.LineString(rel(c["line"]))
         if cl.length < 0.5:
@@ -184,7 +216,7 @@ def model(path, parts=None, marks=None):
         lo = min((b["t"] - b["width"]["value"] / 2 for b in bs), default=-4.0) + 0.5
         hi = max((b["t"] + b["width"]["value"] / 2 for b in bs), default=4.0) - 0.5
         cut = shapely.LineString([(x + nx * lo, y + ny * lo), (x + nx * hi, y + ny * hi)]).intersection(deck.buffer(0.5))
-        h = _z(a["vertical"]["points"], q["s"]) - DECK_M
+        h = _h(a["vertical"], q["s"]) - DECK_M
         for seg in shapely.get_parts(cut):
             if seg.geom_type == "LineString" and seg.length > COLUMN_M:
                 # two columns, one under each edge of the road, with free space between them (one under a road too narrow for two)
@@ -192,9 +224,9 @@ def model(path, parts=None, marks=None):
                 for d in ends:
                     d0 = min(max(d - COLUMN_M / 2, 0.0), seg.length - COLUMN_M)
                     (ax, ay), (bx, by) = seg.interpolate(d0).coords[0], seg.interpolate(d0 + COLUMN_M).coords[0]
-                    piers.append({"a": [round(ax, 2), round(ay, 2)], "b": [round(bx, 2), round(by, 2)], "t": q["width"], "h": round(h, 2)})
+                    piers.append({"a": [round(ax, 2), round(ay, 2)], "b": [round(bx, 2), round(by, 2)], "t": COLUMN_M, "h": round(h, 2)})
     # the surface the page draws: every item as a mesh on the deck, in the street's types (its colours, raised sidewalks, kerbs, lines)
-    from .parts import KERB_TOP_M, LINE, RAISED
+    from .parts import CROSSWALK_M, KERB_TOP_M, LINE, RAISED, ZEBRA_BAR_M, ZEBRA_GAP_M
     surf = []
 
     def mesh(poly, key, lift, props=None, raise_=0.0):
@@ -250,6 +282,19 @@ def model(path, parts=None, marks=None):
                 strip(g, 0.25, "mark kerb", 0.03, None, KERB_TOP_M)
             elif ty in LINE and ty not in ("arrow", "zebra"):
                 strip(g, LINE[ty], f"mark {ty}", 0.06, (3.0, 6.0) if ty == "lane line" else None)
+    for pc, marked, props in crossings:     # a crosswalk, as on the street: zebra bars along the road, none if unmarked
+        if not covered.is_empty and pc.intersection(covered).length > 0.5 * pc.length:
+            continue
+        if marked:
+            d_ = ZEBRA_BAR_M / 2
+            while d_ < pc.length:
+                c_ = pc.interpolate(d_)
+                a_, b_ = pc.interpolate(max(d_ - 0.25, 0)), pc.interpolate(min(d_ + 0.25, pc.length))
+                h_ = math.hypot(b_.x - a_.x, b_.y - a_.y) or 1
+                tx, ty = (b_.x - a_.x) / h_, (b_.y - a_.y) / h_
+                bar = shapely.LineString([(c_.x - ty * CROSSWALK_M / 2, c_.y + tx * CROSSWALK_M / 2), (c_.x + ty * CROSSWALK_M / 2, c_.y - tx * CROSSWALK_M / 2)])
+                mesh(bar.buffer(ZEBRA_BAR_M / 2, cap_style="flat"), "mark zebra", LINE_LIFT_M, props)
+                d_ += ZEBRA_BAR_M + ZEBRA_GAP_M
     # the model's own items where the street has no part: lanes, connectors and paths in the street's types, its lines as paint
     for l in lanes:
         pg = shapely.Polygon([p[:2] for p in l["l"]] + [p[:2] for p in l["r"]][::-1]).buffer(0)

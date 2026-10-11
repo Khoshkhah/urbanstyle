@@ -20,6 +20,10 @@ BLEND_M = 40.0      # the heights of two axes are blended where the second neare
 MEET_M = 1.5        # ... and only where their heights differ by less than this (they meet at a fork)
 LIFT = {True: 0.05, False: 0.10}   # above the deck: a lane (True), a path (False); clear of each other, no flicker
 LINE_LIFT_M = 0.15  # a painted line above both
+COLUMN_M = 1.5      # a pier's column, square (chosen)
+COLUMN_GAP_M = 2.0  # two columns at least this far apart, else one (chosen)
+BARRIER_M = (0.8, 0.3)      # the guard: a concrete barrier this high and wide along each side of the deck (chosen)
+RAILING_M = (1.1, 2.5)      # ... a metal railing on it, its top this high, a post every this far (chosen)
 TOUCH_M = 0.5       # two lanes this close share one painted line
 
 
@@ -177,14 +181,18 @@ def model(path, parts=None, marks=None):
         # across its own road only (its bands at s), inside the deck
         sec = next((sc for sc in a["sections"] if sc["s0"] - 0.01 <= q["s"] <= sc["s1"] + 0.01), None)
         bs = sec["bands"] if sec else []
-        lo = min((b["t"] - b["width"]["value"] / 2 for b in bs), default=-4.0) + 1.0
-        hi = max((b["t"] + b["width"]["value"] / 2 for b in bs), default=4.0) - 1.0
+        lo = min((b["t"] - b["width"]["value"] / 2 for b in bs), default=-4.0) + 0.5
+        hi = max((b["t"] + b["width"]["value"] / 2 for b in bs), default=4.0) - 0.5
         cut = shapely.LineString([(x + nx * lo, y + ny * lo), (x + nx * hi, y + ny * hi)]).intersection(deck.buffer(0.5))
         h = _z(a["vertical"]["points"], q["s"]) - DECK_M
         for seg in shapely.get_parts(cut):
-            if seg.geom_type == "LineString" and seg.length > 2:
-                (ax, ay), (bx, by) = seg.coords[0], seg.coords[-1]
-                piers.append({"a": [round(ax, 2), round(ay, 2)], "b": [round(bx, 2), round(by, 2)], "t": q["width"], "h": round(h, 2)})
+            if seg.geom_type == "LineString" and seg.length > COLUMN_M:
+                # two columns, one under each edge of the road, with free space between them (one under a road too narrow for two)
+                ends = [0.0, seg.length] if seg.length >= 2 * COLUMN_M + COLUMN_GAP_M else [seg.length / 2]
+                for d in ends:
+                    d0 = min(max(d - COLUMN_M / 2, 0.0), seg.length - COLUMN_M)
+                    (ax, ay), (bx, by) = seg.interpolate(d0).coords[0], seg.interpolate(d0 + COLUMN_M).coords[0]
+                    piers.append({"a": [round(ax, 2), round(ay, 2)], "b": [round(bx, 2), round(by, 2)], "t": q["width"], "h": round(h, 2)})
     # the surface the page draws: every item as a mesh on the deck, in the street's types (its colours, raised sidewalks, kerbs, lines)
     from .parts import KERB_TOP_M, LINE, RAISED
     surf = []
@@ -256,6 +264,24 @@ def model(path, parts=None, marks=None):
         if g.length < 0.5 or (not covered.is_empty and g.intersection(covered).length > 0.5 * g.length):
             continue
         strip(g, LINE.get(ln_["kind"], 0.12), f"mark {ln_['kind']}", 0.06, (3.0, 6.0) if ln_["kind"] == "lane line" else None)
+    # the guards on both sides of the deck: a concrete barrier and a metal railing on posts; none across a road where it leaves the bridge
+    ends_ = []
+    for l in lanes:
+        for k in (0, -1):
+            a_, b_ = l["l"][k][:2], l["r"][k][:2]
+            ends_.append(shapely.LineString([a_, b_]).buffer(1.0, cap_style="flat").buffer(0.5))
+    gaps = shapely.union_all(ends_) if ends_ else shapely.Polygon()
+    rim = lambda d0, d1: shapely.make_valid(deck.buffer(-d0).difference(deck.buffer(-d1))).difference(gaps)
+    mesh(rim(0.0, BARRIER_M[1]), "barrier", 0.0, None, BARRIER_M[0])
+    mesh(rim(0.1, 0.2), "railing", RAILING_M[0] - 0.08, None, 0.08)
+    mid = shapely.make_valid(deck.buffer(-BARRIER_M[1] / 2)).boundary.difference(gaps)
+    for ring in shapely.get_parts(mid):
+        if ring.geom_type != "LineString":
+            continue
+        for k in range(int(ring.length // RAILING_M[1]) + 1):
+            p_ = ring.interpolate(k * RAILING_M[1])
+            mesh(p_.buffer(0.05, cap_style="square"), "railing", BARRIER_M[0], None, RAILING_M[0] - BARRIER_M[0])
+    rails = []        # (the guards above replace the plain parapet)
     v = lambda d: f"{d['source']}, {d['method']}"
     return {"name": P["name"], "origin": list(to_ll(x0, y0)), "outline": [list(to_ll(x, y)) for x, y in ol], "verts": verts,
             "deck": top + bottom, "sides": sides, "rails": rails, "lines": lines, "lanes": lanes, "piers": piers, "surf": surf,

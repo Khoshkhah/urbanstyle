@@ -1277,7 +1277,7 @@ def main(db, out, bridges=None):
             ms.append(model(P_, parts_, marks_))
         under = sorted(under)
         col = {"deck": PART_COLORS["lane"], "girder": "#8f8b86", "rail": "#cfc8bd",      # the deck's top is roadway; its sides concrete
-               "parts": {**PART_COLORS, **{f"mark {t}": c for t, c, *_ in MARKS}, "mark kerb": "#8f8b86"}}
+               "parts": {**PART_COLORS, **{f"mark {t}": c for t, c, *_ in MARKS}, "mark kerb": "#8f8b86", "barrier": "#cfc8bd", "railing": "#6b7280"}}
         page_ms = [{k: v for k, v in mm.items() if k not in ("lanes", "lines")} for mm in ms]     # (the page draws `surf`)
         panel += (BRIDGE_JS.replace("__BRIDGES__", json.dumps(page_ms, separators=(",", ":"))).replace("__BRNAMES__", ", ".join(mm["name"] for mm in ms))
                   .replace("__BRCOL__", json.dumps(col)).replace("__BRUNITS__", json.dumps(under)))

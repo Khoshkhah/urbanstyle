@@ -1251,17 +1251,17 @@ def main(db, out, bridges=None):
     panel = (PANEL.replace("__PCOL__", json.dumps(PART_COLORS)).replace("__RAISED__", json.dumps(RAISED)).replace("__KERBTOP__", json.dumps(KERB_TOP_M)).replace("__OBJPOPUP__", json.dumps(OBJ_POPUP)).replace("__BLDPOPUP__", json.dumps(BLD_POPUP)).replace("__LOTPOPUP__", json.dumps(LOT_POPUP)).replace("__GROUNDPOPUP__", json.dumps(GROUND_POPUP)).replace("__NEWU__", json.dumps(newu)).replace("__MARKS__", json.dumps([t for t, *_ in MARKS if len(marks) and (marks["type"] == t).any()])).replace("__TREE__", json.dumps(tree_data(con, epsg)).replace("</", "<\\/"))
              .replace("__LEVELS__", json.dumps(list(range(LEVELS[0], LEVELS[1] + 1)))).replace("__LINKDEF__", json.dumps([{"t": t, "lab": n, "c": c, "d": d} for t, n, c, d in defs]))
              .replace("__KINDS__", json.dumps([{"k": k, "lab": lab, "c": c} for k, lab, c in kinds])).replace("__OBJDEF__", json.dumps([{"g": g, "c": c} for g, c in ogroups])).replace("__OBJCOLORS__", json.dumps({k: v[2] for k, v in OBJ_SHAPES.items()})).replace("__STRIPS__", json.dumps([{"t": t, "lab": lab, "c": c} for t, lab, c, _ in sdefs])).replace("__HAS__", json.dumps(has)).replace("__LEVELBTNS__", "".join(f'<button data-l="{l}">{l}</button>' for l in range(LEVELS[0], LEVELS[1] + 1))))
-    if bridges:     # [(OSM database, bridge name)]: each as a 3D model (bridge3d.py)
+    if bridges:     # [bridge profile]: each as a 3D model (bridge3d.py)
         import shapely
         from .bridge3d import model
-        ms = [model(o, n) for o, n in bridges]
+        ms = [model(b) for b in bridges]
         # the old level-1 spaces under a model: their deck is not drawn in 3D (the model replaces it)
         under = sorted({u for mm in ms for (u,) in con.execute("""SELECT unit_id FROM space.unit WHERE level > 0 AND ST_Intersects(geometry,
                             ST_MakeValid(ST_GeomFromText(?)))""", [shapely.Polygon(mm["outline"]).wkt]).fetchall()})
         col = {"deck": PART_COLORS["sidewalk"], "girder": "#8f8b86", "rail": "#cfc8bd", "lane": PART_COLORS["lane"],
                "lane forward": PART_COLORS["lane forward"], "lane backward": PART_COLORS["lane backward"], "cycleway": PART_COLORS["cycle lane"],
                "footway": PART_COLORS["sidewalk"], "lane line": "#ffffff", "edge line": "#ffffff", "centre line": "#facc15"}
-        panel += (BRIDGE_JS.replace("__BRIDGES__", json.dumps(ms, separators=(",", ":"))).replace("__BRNAMES__", ", ".join(n for _, n in bridges))
+        panel += (BRIDGE_JS.replace("__BRIDGES__", json.dumps(ms, separators=(",", ":"))).replace("__BRNAMES__", ", ".join(mm["name"] for mm in ms))
                   .replace("__BRCOL__", json.dumps(col)).replace("__BRUNITS__", json.dumps(under)))
     open(out, "w").write(m.html.replace("</body>", panel + "</body>"))
 

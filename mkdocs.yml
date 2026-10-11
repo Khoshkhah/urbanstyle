@@ -57,6 +57,7 @@ nav:
       - "Layers: the whole area as a hierarchy": design/space-layers.md
       - "Blocks first: blocks, sections, intersections": design/blocks.md
       - "Bridges in 3D": design/bridges-3d.md
+      - "Bridge profile": design/bridge-profile.md
       - "Research: how standards layer a street": design/layers-research.md
       - Street space: design/street-space.md
       - Specification: design/street-space-spec.md

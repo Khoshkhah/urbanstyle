@@ -14,8 +14,8 @@ def main(argv=None):
     d = sub.add_parser("dashboard", help="an offline HTML map with the hierarchy tree (needs roadstyle)")
     d.add_argument("db")
     d.add_argument("out")
-    d.add_argument("--bridge", nargs=2, action="append", metavar=("OSM_DB", "NAME"),
-                   help="draw a bridge as a 3D model: a duckOSM database holding all of it and its OSM name (man_made=bridge)")
+    d.add_argument("--bridge", action="append", metavar="PROFILE",
+                   help="draw a bridge as a 3D model from its profile (<name>.bridge.json, `urbanstyle bridge`)")
     ly = sub.add_parser("layers", help="an offline HTML page of the layers: 0 the ground, 1 the surfaces (needs roadstyle)")
     ly.add_argument("db")
     ly.add_argument("out")
@@ -32,6 +32,11 @@ def main(argv=None):
     u.add_argument("--no-mapillary", action="store_true")
     u.add_argument("--vancouver", action="store_true", help="add the City of Vancouver's open data (trees, lamps, meters, ...)")
     u.add_argument("--gtfs", help="a GTFS feed's URL (public transport timetable, e.g. TransLink's): each stop's routes and buses per hour")
+    br = sub.add_parser("bridge", help="write bridge profiles (docs/design/bridge-profile.md)")
+    br.add_argument("osm", help="duckOSM .duckdb that holds all of the bridge")
+    br.add_argument("gmns", help="its GMNS export (`duckosm gmns OSM --out GMNS -m driving`): the lanes")
+    br.add_argument("out_dir")
+    br.add_argument("--name", help="the bridge's OSM name (man_made=bridge); without it, every road bridge")
     a = p.parse_args(argv)
 
     if a.cmd == "build":
@@ -55,6 +60,9 @@ def main(argv=None):
     elif a.cmd == "layers":
         from .dashboard import layers
         print(layers(a.db, a.out))
+    elif a.cmd == "bridge":
+        from .bridge_profile import write
+        print("\n".join(write(a.osm, a.gmns, a.name, a.out_dir)))
     elif a.cmd == "mapillary":
         from .mapillary import main as mly
         mly(a.db, a.osm)

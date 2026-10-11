@@ -53,6 +53,10 @@ In order; each item is a general rule, checked on Broadway x Granville before an
       buses with their own tags; not yet: tree pits, bus lanes).
       `check` before and after each.
       A city's block outlines only cross-check ours. Test: `scripts/blocks_test.py`.
+- [x] **Bridge profiles** ([Bridge profile](design/bridge-profile.md), agreed and built 2026-10-11): one file per bridge (axes,
+      vertical profile, sections, bands, piers), each value with its source and method; the lanes from duckOSM's GMNS export (from SUMO);
+      `urbanstyle bridge` writes them (Vancouver: 81 bridges), the dashboard draws the 3D model from them only.
+- [ ] **Measured bridges:** the deck's height and the piers from LiDAR, the lane widths from the aerial photo, into the profile.
 - [ ] **Slanted lanes** west of West Broadway's 4 -> 6 joint; **West Broadway's north kerb east of Hemlock** still about 8 m short.
 - [ ] Then the gaps of [What the sources hold](design/source-inventory.md): crossing and kerb details, every Mapillary class, the city's
       turn rules as automatic checks, land cover and lidar; then the W 4th Ave unit; then the recipe.

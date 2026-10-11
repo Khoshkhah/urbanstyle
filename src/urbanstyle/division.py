@@ -62,7 +62,7 @@ COLORS = {"subsection": "#94a3b8", "intersection": "#fbbf24"}
 V, D, I, G_ = "VARCHAR", "DOUBLE", "INTEGER", "GEOMETRY"
 SCHEMA = {
     "unit": dict(unit_id=V, kind=V, section_id=V, level=I, color=V, geometry=G_),
-    "part": dict(unit_id=V, part_id=V, level=I, type=V, arm=V, direction=V, lane=I, width_m=D, width_source=V, width_method=V, length_m=D,
+    "part": dict(unit_id=V, part_id=V, level=I, type=V, arm=V, direction=V, lane=I, lane_id=V, width_m=D, width_source=V, width_method=V, length_m=D,
                  source=V, method=V, ref=V, position_source=V, position_method=V, position_ref=V, road=V, road_class=V, speed=V, surface=V, lit=V, road_lanes=V, oneway=V, holds=V, rule=V, geometry=G_),
     "mark": dict(unit_id=V, level=I, type=V, arm=V, length_m=D, width_m=D, width_source=V, width_method=V, source=V, method=V, ref=V, geometry=G_),
     "width": dict(unit_id=V, level="BIGINT", edge=V, arm=V, total_m=D, carriageway_m=D, left_m=D, right_m=D, lanes_in="BIGINT", lanes_out="BIGINT",
@@ -1121,6 +1121,25 @@ def build(con, epsg):
             c0 = (pb.x - pa.x) * -uy + (pb.y - pa.y) * ux       # B's axis, left of A's
             join_lanes(lay[A_], lay[B_], ea, eb, sgn, c0)
 
+    # duckOSM's directed edges of each OSM way, for each lane's GMNS id (`<edge_id>_<lane_num>`, duckOSM's gmns_driving.lane.lane_id)
+    edges_of = {}
+    for eid, oid, w in rows(f"SELECT edge_id::VARCHAR, osm_id, {m()} FROM osm.driving.edges"):
+        edges_of.setdefault(oid, []).append((eid, g(w)))
+
+    def gmns_lane(way, ax, mid_t, sgn, num):
+        """The GMNS id of a lane of OSM way `way`: the directed edge that runs the lane's way (sgn: +1 along the axis) nearest the lane's
+        middle, and `num` (1 = the leftmost lane in the direction of travel); None if the way is not in duckOSM's driving network."""
+        sv = ax.length / 2
+        p = ax.interpolate(sv)
+        ux, uy = tangent(ax, sv)
+        q = shapely.Point(p.x - uy * mid_t, p.y + ux * mid_t)
+        best = None
+        for eid, ln in edges_of.get(way, []):
+            ex, ey = tangent(ln, ln.project(q))
+            if (ex * ux + ey * uy) * sgn > 0.3 and (best is None or ln.distance(q) < best[0]):
+                best = (ln.distance(q), eid)
+        return f"{best[1]}_{num}" if best else None
+
     # pass 3: the inside of each subsection
     lane_rec = []       # every travel lane: key (subsection, OSM way, direction along the way, lane from the right), its axis and middle
     arrow_req = []      # (subsection, axis, lane middle (start, end), +1 along the axis / -1, turn heads or None, OSM says, ref)
@@ -1214,7 +1233,11 @@ def build(con, epsg):
                         first_t = t
                     elif k_lane:
                         mark(sub, "centre line" if k_lane == n_al else "lane line", line2(ax, t, Q), *lane_pv)
-                    add(sub, "lane", band2(ax, t, t_, Q), width_m=round(w_m, 2), width_method="derived",
+                    # its GMNS id: lanes numbered from the left of their direction of travel (a lane both ways: each direction's id)
+                    mt = float(mean(t + t_) / 2)
+                    gid = ";".join(x for x in (gmns_lane(rd[0], ax, mt, 1, 1), gmns_lane(rd[0], ax, mt, -1, 1)) if x) if shared else \
+                        gmns_lane(rd[0], ax, mt, 1 if along_ else -1, n_al - k_lane if along_ else k_lane - n_al + 1)
+                    add(sub, "lane", band2(ax, t, t_, Q), width_m=round(w_m, 2), width_method="derived", lane_id=gid or None,
                         direction="both" if shared else al_dir if along_ else ag_dir, lane=(k_lane + 1) if along_ else (n - k_lane),
                         **common, rule=rule_, **PV(*lane_pv), **POS(k_both))
                     lane_ws.append(w_m)
@@ -1844,10 +1867,10 @@ def build(con, epsg):
         con.executemany(f"""INSERT INTO space.subsection (subsection_id, section_id, level, class, width_m, oneway, length_m, "left", "right",
                             starts_at, color, geometry) VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?, ?, '#e6194b', {to_ll})""", srow)
     if parts:
-        con.executemany(f"""INSERT INTO space.part (unit_id, part_id, level, type, arm, direction, lane, width_m, width_source, width_method,
+        con.executemany(f"""INSERT INTO space.part (unit_id, part_id, level, type, arm, direction, lane, lane_id, width_m, width_source, width_method,
                             length_m, source, method, ref, position_source, position_method, position_ref, road, road_class, road_lanes, oneway, rule,
-                            geometry) VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, {to_ll})""",
-                        [(p["unit_id"], p["part_id"], p["type"], p.get("arm"), p.get("direction"), p.get("lane"), p.get("width_m"),
+                            geometry) VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, {to_ll})""",
+                        [(p["unit_id"], p["part_id"], p["type"], p.get("arm"), p.get("direction"), p.get("lane"), p.get("lane_id"), p.get("width_m"),
                           p.get("width_source") or "urbanstyle", p.get("width_method"), round(p["geom"].length / 2, 1), p.get("source") or "urbanstyle",
                           p.get("method") or "derived", p.get("ref"), p.get("position_source"), p.get("position_method"), p.get("position_ref"),
                           p.get("road"), p.get("road_class"), p.get("road_lanes"), p.get("oneway"), p.get("rule"), shapely.to_wkb(p["geom"])) for p in parts])

@@ -124,24 +124,34 @@ def measure(profile, tiles, survey="City of Vancouver LiDAR 2022", osm_db=None):
             out = ax.coords[-1] if e else ax.coords[0]
             back = ax.interpolate(ax.length - 5.0 if e else 5.0)
             ox, oy = out[0] - back.x, out[1] - back.y
-            best = None
-            for wid, refs in osm.execute("SELECT osm_id, refs FROM raw.ways WHERE tags['highway'] IS NOT NULL AND list_contains(refs, ?)",
-                                         [node]).fetchall():
-                if f"w{wid}" in a["ways"]:
-                    continue
-                ll = dict(((i, (x, y)) for i, y, x in osm.execute("SELECT osm_id, lat, lon FROM raw.nodes WHERE osm_id IN (SELECT unnest(?::BIGINT[]))",
-                                                                   [refs]).fetchall()))
-                pts = [to_l(*from_ll(*ll[r])) for r in refs if r in ll]
-                k = refs.index(node)
-                pts = pts[k:] if k < len(pts) - 1 else pts[:k + 1][::-1]      # away from the node
-                if len(pts) < 2:
-                    continue
-                cos = ((pts[1][0] - pts[0][0]) * ox + (pts[1][1] - pts[0][1]) * oy) / (math.dist(pts[0], pts[1]) * math.hypot(ox, oy) or 1)
-                if cos > 0.7 and (best is None or cos > best[0]):
-                    best = (cos, wid, shapely.LineString(pts))
-            if best is None:
+            # the OSM roads that continue it, way after way (a landing can lie past the end of the first), up to EXT_MAX_M
+            chain, wids, starts, nd, dx_, dy_ = [], [], [], node, ox, oy      # starts: where each way begins along the chain
+            while sum(math.dist(p_, q_) for p_, q_ in zip(chain, chain[1:])) < EXT_MAX_M:
+                best = None
+                for wid, refs in osm.execute("SELECT osm_id, refs FROM raw.ways WHERE tags['highway'] IS NOT NULL AND list_contains(refs, ?)",
+                                             [nd]).fetchall():
+                    if f"w{wid}" in a["ways"] or wid in wids:
+                        continue
+                    ll = dict(((i, (x, y)) for i, y, x in osm.execute("SELECT osm_id, lat, lon FROM raw.nodes WHERE osm_id IN (SELECT unnest(?::BIGINT[]))",
+                                                                       [refs]).fetchall()))
+                    k = refs.index(nd)
+                    rs = refs[k:] if k < len(refs) - 1 else refs[:k + 1][::-1]      # away from the node
+                    pts = [to_l(*from_ll(*ll[r])) for r in rs if r in ll]
+                    if len(pts) < 2:
+                        continue
+                    cos = ((pts[1][0] - pts[0][0]) * dx_ + (pts[1][1] - pts[0][1]) * dy_) / (math.dist(pts[0], pts[1]) * math.hypot(dx_, dy_) or 1)
+                    if cos > 0.7 and (best is None or cos > best[0]):
+                        best = (cos, wid, pts, rs[-1])
+                if best is None:
+                    break
+                _, wid, pts, nd = best
+                wids.append(wid)
+                starts.append(sum(math.dist(p_, q_) for p_, q_ in zip(chain, chain[1:])))
+                chain = chain + (pts if not chain else pts[1:])
+                dx_, dy_ = chain[-1][0] - chain[-2][0], chain[-1][1] - chain[-2][1]
+            if len(chain) < 2:
                 continue
-            _, wid, road = best
+            road = shapely.LineString(chain)
             lo, hi = _bands_at(a, ax.length if e else 0.0)
             reach = 0.0
             d_ = EXT_STEP_M
@@ -156,10 +166,20 @@ def measure(profile, tiles, survey="City of Vancouver LiDAR 2022", osm_db=None):
                 d_ += EXT_STEP_M
             if reach < EXT_STEP_M:
                 continue
+            wid = "+w".join(str(w_) for w_, s_ in zip(wids, starts) if s_ < reach)      # the ways the landing reaches
             piece = shapely.ops.substring(road, 0, reach)
             ext = [to_back for to_back in piece.coords][1:]
             back_ll = pyproj.Transformer.from_crs("EPSG:26910", P["crs"], always_xy=True).transform
             ext_p = [[round(c, 2) for c in back_ll(x, y)] for x, y in ext]
+            # the deck goes on under it: the outline grows by the piece, as wide as the lanes there (OSM's outline stops where OSM's bridge
+            # way stops, so the measured landing had lanes and no deck)
+            corridor = shapely.LineString([a["line"]["value"][-1 if e else 0]] + ext_p).buffer(max(abs(lo), abs(hi)), cap_style="flat")
+            grown = shapely.union_all([shapely.Polygon(P["deck"]["outline"]["value"]).buffer(0), corridor])
+            grown = max(shapely.get_parts(grown), key=lambda g_: g_.area)
+            P["deck"]["outline"]["value"] = [[round(x, 2), round(y, 2)] for x, y in grown.exterior.coords]
+            if "measured landings" not in P["deck"]["outline"]["source"]:
+                P["deck"]["outline"]["source"] += "; urbanstyle: the measured landings, as wide as their lanes"
+                P["deck"]["outline"]["method"] += "+derived"
             if e:
                 a["line"]["value"] += ext_p
                 for sec in a["sections"][-1:]:

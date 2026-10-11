@@ -25,3 +25,12 @@ def test_model_follows_the_profile():
     assert mid and mid[0][2] == 10.03 and mid[0][1] == 3.25          # the backward lane's left edge, on the deck at s = 48
     assert sorted(l["kind"] for l in m["lines"]) == ["centre line", "edge line", "edge line"]
     assert m["piers"] and m["piers"][0]["h"] == 9.0               # down from the deck's bottom
+
+
+def test_a_landing_meets_the_street():
+    """Where the deck lands (height 0), nothing of it lies under the ground and its parapet ends: on the flat map a slab under the ground
+    showed as a block standing on the street."""
+    m = model(_profile())
+    assert min(v[2] for v in m["verts"]) == 0.0
+    ends = [v for v in m["verts"] if abs(v[0] + 50) < 0.01]          # the deck's start, where the vertical profile is 0
+    assert ends and max(v[2] for v in ends) == 0.0

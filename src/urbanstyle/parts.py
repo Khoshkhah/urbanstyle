@@ -61,13 +61,14 @@ STOP_REACH_M = 15.0    # a lane's stop position: clear of the junction and of a 
 STOP_GAP_M = 1.0       # ... and this far before it (the stop line before the crosswalk; the turn arrows behind the stop line)
 # the parts standing above the roadway, and how high their top is (m): a kerb stands where they meet the flush ground (lanes, parking,
 # a parking lot, a crosswalk); the dossier's top_m and the 3D view use the same heights
-RAISED = {"sidewalk": 0.15, "furnishing": 0.15, "frontage": 0.15, "open": 0.15, "bus stop": 0.15, "island": 0.2, "tree pit": 0.1, "driveway": 0.05}
+RAISED = {"verge": 0.15, "sidewalk": 0.15, "furnishing": 0.15, "frontage": 0.15, "open": 0.15, "bus stop": 0.15, "island": 0.2, "tree pit": 0.1, "driveway": 0.05}
 DRIVEWAY_M = 3.5       # a driveway's apron across the sidewalk, when OSM gives no width (urbanstyle's chosen width)
 CROSS_ON_M = 1.0       # a crossing point is a node of the road it crosses: this close to its line, else it crosses something else
 # urbanstyle's chosen width of each painted or built line (m), stored on every mark (space.mark.width_m) and drawn at it in 2D and 3D;
 # a kerb's width is its stone's, standing KERB_TOP_M above the roadway
 LINE = {"stop line": 0.4, "give-way line": 0.35, "zebra": 0.5, "lane line": 0.12, "edge line": 0.12, "centre line": 0.12, "arrow": 0.15,
         "guide line": 0.1, "kerb": 0.25}
+GROUND_NEAR_M = 15.0     # a city's object with a street-level road this near is on the street (it has no level of its own)
 KERB_TOP_M = 0.2
 SLIVER_CUT_M = 0.02     # a part loses what is thinner than twice this (hairline slivers between other parts)
 NO_WIDTH = ("junction area", "ring")   # parts with no single width (a junction's area, a roundabout's ring)
@@ -251,6 +252,8 @@ def build(con, epsg):
             srcs = ", ".join(sorted({x for f in meters for x in f[4].split(", ")}, key=lambda x: RANK.get(x, 9)))
             held = f"but {tag_txt}" if tagged == "no parking" else None
             return "parking", (srcs, "derived"), held, " | ".join(rules) or "pay parking (meter; its rules not given)", [(f[0], f[3]) for f in meters]
+        if tagged == "no parking":      # no parking there: the strip is a shoulder, the tag its evidence (not a parking strip)
+            return "shoulder", ("osm", "mapped"), tag_txt, None, []
         if tagged:
             return tagged, ("osm", "mapped"), tag_txt, None, []
         here = [b for b in bays if b[1].distance(strip) <= BAY_M]
@@ -293,7 +296,18 @@ def build(con, epsg):
     except Exception:       # no Mapillary for this area
         seen_at = {}
     lv_of = {o[0]: o[2] for o in objs}
-    furniture = [(", ".join(m[0] for m in ms), cls, lv_of.get(ms[0][0], roads[rtree_ids[rtree.nearest(ms[0][2])]]["level"] if rtree is not None else 0),
+    ground_ix = [k for k in range(len(rtree_ids)) if roads[rtree_ids[k]]["level"] == 0] if rtree is not None else []
+    gtree_ = shapely.STRtree([roads[rtree_ids[k]]["g"] for k in ground_ix]) if ground_ix else None
+
+    def level_of(cls, pt):
+        """A city's object has no level: the street's (level 0) where a street-level road is within GROUND_NEAR_M (a lamp or tree under a
+        bridge stands on the street, not on the deck), always for a tree; else the nearest road's."""
+        if cls == "vegetation.tree" or rtree is None:
+            return 0
+        if gtree_ is not None and gtree_.query(pt.buffer(GROUND_NEAR_M)).size:
+            return 0
+        return roads[rtree_ids[rtree.nearest(pt)]]["level"]
+    furniture = [(", ".join(m[0] for m in ms), cls, lv_of.get(ms[0][0], level_of(cls, ms[0][2])),
                   ms[0][2], ", ".join(dict.fromkeys(m[1] for m in ms))) for cls, ms in group_objects(rows, seen_at)]
     ftree = shapely.STRtree([f[3] for f in furniture]) if furniture else None
     # public transport stops: OSM's (with its tags: name, number, shelter, bench, bin, lit, wheelchair, kerb), each tied to the
@@ -312,7 +326,8 @@ def build(con, epsg):
             if st is not None:
                 st[4], st[5] = t, "osm, gtfs"
             elif not any(o[1].distance(pt) <= GTFS_M for o in stops) and rtree is not None:
-                stops.append([f"gtfs{t['stop_id']}", pt, roads[rtree_ids[rtree.nearest(pt)]]["level"],
+                # a timetable stop has no level: a bus stops at the street, not on a bridge's ramp above it
+                stops.append([f"gtfs{t['stop_id']}", pt, 0,
                               {"name": t["name"], "ref": t.get("stop_code"), "wheelchair": t.get("wheelchair")}, t, "gtfs"])
 
     def stop_text(st):
@@ -716,8 +731,9 @@ def build(con, epsg):
             # its source: the OSM walkways it was measured from (in it or along its edge); none: it is only what the space leaves
             ways = sorted({path_osm[id(p[3])] for p in ([paths[k] for k in ptree.query(piece.buffer(1.5))] if ptree is not None else [])
                            if p[2] == level and p[1] != "crossing" and id(p[3]) in path_osm and p[3].distance(piece) <= 1.5})
-            add(uid, level, "sidewalk", piece, "measured" if ways else ("urbanstyle", "derived"), arm=grp, ref=", ".join(ways) or None,
-                holds=None if ways else "the space minus its roadway; no mapped sidewalk in or along it")
+            # a sidewalk only where OSM maps one in or along it; else the space beside the roadway is a verge (no source says people walk there)
+            add(uid, level, "sidewalk" if ways else "verge", piece, "measured" if ways else ("urbanstyle", "derived"), arm=grp,
+                ref=", ".join(ways) or None, holds=None if ways else "the space minus its roadway; no mapped sidewalk in or along it")
 
     def across(uid, line_or_cut, ln, C, inside):
         """Widths along a cross line: (roadway, pedestrian left, pedestrian right), left / right seen along `ln`."""

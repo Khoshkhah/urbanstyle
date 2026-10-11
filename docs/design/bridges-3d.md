@@ -1,34 +1,27 @@
 # Bridges in 3D
 
-<p class="lead">A bridge drawn as a 3D model on the dashboard (three.js), from OSM, with the values that no source gives marked as our own.</p>
+<p class="lead">A bridge drawn as a 3D model on the dashboard (three.js), from its bridge profile only.</p>
 
-Status: built 2026-10-11 for the Granville Bridge (`urbanstyle dashboard DB OUT --bridge data/vancouver_city.osm.duckdb "Granville Bridge"`,
-`bridge3d.py`). The model is drawn only; it is not stored in the space tables.
+Status: built 2026-10-11 for the Granville Bridge; since the same day, the model reads a [bridge profile](bridge-profile.md)
+(`urbanstyle dashboard DB OUT --bridge data/bridges/granville-bridge.bridge.json`, `bridge3d.py`). The model is drawn only. It is not
+stored in the space tables.
 
-## From OSM (mapped)
+## What the model draws
 
-- **The deck:** the outline of the bridge (`man_made=bridge` with the bridge's name), triangulated.
-- **The roads on it:** every road with `bridge=*` that lies more than 60 % on the outline; their lanes from `lanes` (and
-  `lanes:forward`); a lane line between lanes, an edge line at each side, the centre line between the two directions.
-- **The paths on it:** cycleways and footways (the Granville Connector), as a ribbon.
-- **The ends:** the nodes where a road on the bridge meets a road that is not a bridge. There the deck is at the ground.
+| part | from the profile |
+|---|---|
+| the deck | the outline, triangulated; each point at the height of the vertical profile of the nearest axis; as thick as `deck.thickness` |
+| the parapet | along the outline, `deck.parapet` high |
+| the lanes, cycleways and footways | one ribbon per band of each section, between `t - width / 2` and `t + width / 2`, at the deck's height |
+| the painted lines | an edge line at the outer edge of each run of lanes, a lane line between two lanes in one direction, the centre line between the two directions |
+| the piers | a wall across the deck at each pier, from the bottom of the deck down to the ground |
 
-## urbanstyle's own (chosen)
-
-OSM gives no heights, no lane widths and no piers.
-
-| value | | method |
-|---|---|---|
-| the deck rises from its ends at | 5 % | chosen |
-| the deck is at most | 27 m above its ends | chosen |
-| deck and girders | 1.8 m thick | chosen |
-| parapet | 1.1 m | chosen |
-| a pier | every 50 m along the longest road, where the deck is 3 m or more above the ground | chosen |
-| a lane | 3.3 m wide | chosen |
-
-LiDAR can measure the deck's height and the piers; then these values become `measured`.
+A click on a lane or path opens its fields: the OSM way, the GMNS link and lane, the direction, the use, the turn arrow, the width, and
+the source and method of the lane count, the width and the height. The profile says which values are `chosen`. On the Granville
+Bridge these are the heights, the lane widths (GMNS's width for the road class), the deck thickness, the parapet and the piers. LiDAR
+can measure the heights and the piers. Then these values become `measured`.
 
 ## On the page
 
-A three.js layer (MapLibre's custom layer) draws the model in metres from its origin; a box at the bottom right turns it on and off.
-The OSM database must hold the whole bridge (the unit's own clip holds only its ramps).
+A three.js layer (MapLibre's custom layer) draws the model in metres from its origin, the first point of the outline. A box at the
+bottom right turns it on and off. A custom layer is not in `map.getStyle()`. To find it in a test, use `map.getLayer('br3d-<name>')`.

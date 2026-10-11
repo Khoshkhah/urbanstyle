@@ -129,6 +129,19 @@ something is on the Earth; (s, t) says where it is *in the street*. That lets us
 order along the street, and ask for everything within 2 m of the kerb. OpenDRIVE and IFC 4.3 position road objects the same way.
 Not built yet (step 3 of `street-objects.md`).
 
+## Bridge profile
+
+The words of `docs/design/bridge-profile.md` (`bridge_profile.py`, `<name>.bridge.json`).
+
+| term | meaning |
+|---|---|
+| **bridge profile** | one JSON file per bridge (`urbanstyle.bridge/1`): its deck outline, axes, vertical profiles, sections, bands and piers, each value with its source and method. Scripts make it; nobody edits it by hand. The 3D model reads only this file |
+| **axis** (of a bridge) | one chain of OSM road ways on the deck between two branch points, the reference line of `(s, t)`. A bridge with ramps has more than one (`a1`, `a2`, ...) |
+| **vertical profile** | the height of the deck top along an axis, as points `(s, z)`, linear between the points; `z` above the profile's `z_datum` |
+| **section** (of a bridge axis) | a length of the axis, `s0` to `s1`, where its bands do not change: a new one starts at each end of a GMNS link. Not the street's section container |
+| **band** | one strip across a section: a lane (with its GMNS `lane_id`), a cycleway or a footway, at offset `t` (left of the axis positive) with its width |
+| **z_datum** | what `z` is measured from: now "ground at the ends" (chosen); a LiDAR measurement gives a survey datum |
+
 ## Unit dossier
 
 | term | meaning |

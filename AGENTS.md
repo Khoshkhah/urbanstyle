@@ -62,7 +62,11 @@ The order of work: `docs/plan.md`.
   loads that file when present (`docs/design/mapillary.md`). CC BY-SA: the data stays local. Mapillary is for validation only
   (`unit.CONFIRM_ONLY`, 2026-10-10): it builds no object, part or line; it confirms the objects of sources with real positions, and what
   it alone sees is a `check` row; on the page it is hidden until "Mapillary detections (validation)" is ticked.
-- `src/urbanstyle/cli.py`: the `urbanstyle build | check | quality | dashboard | layers | mapillary | unit` command.
+- `src/urbanstyle/bridge_profile.py`: `urbanstyle bridge OSM_DB GMNS_DB OUT_DIR [--name NAME]` writes one `<name>.bridge.json` per road
+  bridge (`docs/design/bridge-profile.md`): deck outline, axes, vertical profiles, sections, bands (lanes from duckOSM's GMNS export:
+  `duckosm gmns OSM --out GMNS -m driving`), piers, each value with its source and method. `bridge3d.py` draws the 3D model from the
+  profile only: `urbanstyle dashboard DB OUT --bridge PROFILE` (`docs/design/bridges-3d.md`).
+- `src/urbanstyle/cli.py`: the `urbanstyle build | check | quality | dashboard | layers | mapillary | unit | bridge` command.
 - `docs/`: the MkDocs site (`mkdocs.yml`); `docs/design/` the design notes. `docs/img/sodermalm.jpg` and `section.jpg` are screenshots of the dashboard
   (`viz/sodermalm-rs0.18.1.html` and `#c=s0-1277220079715399641`, 1600 × 1000): pictures in the docs come from the
   dashboard, never from a separate drawing script.

@@ -48,6 +48,7 @@ def part_checks(c, q, m):
         ("U9", "parts of one space overlapping by more than 0.5 m2", q("""SELECT count(*) FROM pt a JOIN pt b ON a.unit_id = b.unit_id AND a.part_id < b.part_id
                                   AND ST_Intersects(a.g, b.g) WHERE ST_Area(ST_Intersection(a.g, b.g)) > 0.5"""), True),
         ("U10", "cuts where the roadway differs by more than 0.5 m on the two sides", roadway_mismatch(c, q, m), False),
+        ("R1", "joints between two subsections where the roadway's edges differ by more than 0.1 m", roadway_joints(q, m), False),
     ] + approach_checks(q) + ground_checks(c, q, m)
 
 
@@ -130,6 +131,18 @@ def roadway_mismatch(c, q, m):
                   WHERE su.kind = 'subsection' AND ST_DWithin(s.g, cut.g, 0.5)) AS sw
                FROM cut JOIN rw i ON i.unit_id = cut.intersection_id)
       SELECT count(*) FROM side WHERE sw IS NOT NULL AND abs(iw - sw) > 0.5""")
+
+
+def roadway_joints(q, m):
+    """Where two subsections of one section meet, the roadway (no median) reaches the joint at the same points from both sides."""
+    road = "('lane', 'shoulder', 'parking', 'no parking', 'bus zone', 'bus lane', 'cycle lane', 'carriageway')"
+    return q(f"""WITH su AS (SELECT unit_id, section_id, ST_MakeValid({m('geometry')}) AS g FROM space.unit WHERE kind = 'subsection'),
+      rw AS (SELECT unit_id, ST_MakeValid(ST_Union_Agg(ST_MakeValid(ST_Buffer({m('geometry')}, 0.02)))) AS g FROM space.part WHERE type IN {road} GROUP BY unit_id),
+      j AS (SELECT a.unit_id AS ua, b.unit_id AS ub, ST_Intersection(a.g, b.g) AS g FROM su a JOIN su b ON a.section_id = b.section_id
+            AND a.unit_id < b.unit_id AND ST_Intersects(a.g, b.g)),
+      x AS (SELECT ST_Intersection(j.g, ra.g) AS xa, ST_Intersection(j.g, rb.g) AS xb FROM j JOIN rw ra ON ra.unit_id = j.ua
+            JOIN rw rb ON rb.unit_id = j.ub WHERE ST_Length(j.g) > 1)
+      SELECT count(*) FROM x WHERE ST_Length(ST_Difference(xa, ST_Buffer(xb, 0.1))) + ST_Length(ST_Difference(xb, ST_Buffer(xa, 0.1))) > 0.1""")
 
 
 def run(path):

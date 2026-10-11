@@ -190,3 +190,7 @@ No source gives these values yet (`bridge_profile.py`). Each one is in the profi
 - **The model is drawn on top.** The dashboard's flat layers (the street, the ground) have no depth test; added after the bridge, they
   painted over it, so on the page only the main span over the water showed. The bridge's layer now stays the top layer. The model's
   origin is the middle of the outline.
+- **The deck covers each measured landing** (2026-10-11). Where the LiDAR ran a ramp on past OSM's bridge way, the deck was only OSM's
+  outline, so it stopped in the air (ramp a2, edge 1211493292939381263, about 3 m above West 5th Avenue's side) and the lanes went on
+  alone. The deck is now OSM's outline and, under each landing, a strip as wide as the axis's bands there; its underside never goes
+  below the ground.

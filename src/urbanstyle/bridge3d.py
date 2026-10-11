@@ -28,6 +28,7 @@ def _z(points, s):
 def model(path):
     import pyproj
     import shapely
+    from shapely.ops import substring
 
     P = json.load(open(path)) if isinstance(path, str) else path
     to_ll = pyproj.Transformer.from_crs(P["crs"], "EPSG:4326", always_xy=True).transform
@@ -35,10 +36,22 @@ def model(path):
     xs_, ys_ = [x for x, _ in ol], [y for _, y in ol]
     x0, y0 = (min(xs_) + max(xs_)) / 2, (min(ys_) + max(ys_)) / 2       # the middle of the bridge: every part near the origin
     rel = lambda ps: [(x - x0, y - y0) for x, y in ps]
-    deck = shapely.make_valid(shapely.Polygon(rel(ol)))
-    deck = max(shapely.get_parts(deck), key=lambda p: p.area) if deck.geom_type != "Polygon" else deck
     DECK_M, RAIL_M = P["deck"]["thickness"]["value"], P["deck"]["parapet"]["value"]
     axes = [(shapely.LineString(rel(a["line"]["value"])), a) for a in P["axes"]]
+    # the deck: OSM's outline, and under each measured landing (an axis run on past OSM's bridge way) a strip as wide as its bands
+    pieces = [shapely.make_valid(shapely.Polygon(rel(ol)))]
+    for ln, a in axes:
+        for land in a.get("landings", []):
+            L, d = ln.length, land["length_m"]
+            s0, s1 = (L - d, L) if land["end"] == "end" else (0.0, d)
+            sec = a["sections"][-1] if land["end"] == "end" else a["sections"][0]
+            lo = min((b["t"] - b["width"]["value"] / 2 for b in sec["bands"]), default=-4.0)
+            hi = max((b["t"] + b["width"]["value"] / 2 for b in sec["bands"]), default=4.0)
+            piece = substring(ln, max(s0 - 2.0, 0.0), s1)
+            if piece.length > 0.5:
+                pieces.append(shapely.Polygon(list(piece.offset_curve(hi).coords) + list(piece.offset_curve(lo).coords)[::-1]).buffer(0))
+    deck = shapely.make_valid(shapely.union_all(pieces).buffer(0.01).buffer(-0.01))
+    deck = max(shapely.get_parts(deck), key=lambda p: p.area) if deck.geom_type != "Polygon" else deck
     by_id = {a["id"]: (ln, a) for ln, a in axes}
 
     def z(x, y):
@@ -63,13 +76,14 @@ def model(path):
             verts.append(list(k))
         return index[k]
     top = [[vid(x, y, z(x, y)) for x, y in t.exterior.coords[:3]] for t in tris]
-    bottom = [[vid(x, y, z(x, y) - DECK_M) for x, y in t.exterior.coords[:3]][::-1] for t in tris]
+    under = lambda zz: max(zz - DECK_M, min(zz, 0.0))      # the underside: DECK_M down, never below the ground (a landing)
+    bottom = [[vid(x, y, under(z(x, y))) for x, y in t.exterior.coords[:3]][::-1] for t in tris]
     sides, rails = [], []
     for ring in [dense.exterior] + list(dense.interiors):
         c = list(ring.coords)
         for (ax, ay), (bx, by) in zip(c, c[1:]):
             za, zb = z(ax, ay), z(bx, by)
-            a0, b0, a1, b1 = vid(ax, ay, za - DECK_M), vid(bx, by, zb - DECK_M), vid(ax, ay, za), vid(bx, by, zb)
+            a0, b0, a1, b1 = vid(ax, ay, under(za)), vid(bx, by, under(zb)), vid(ax, ay, za), vid(bx, by, zb)
             sides += [[a0, b0, b1], [a0, b1, a1]]
             r0, r1 = vid(ax, ay, za + RAIL_M), vid(bx, by, zb + RAIL_M)
             rails += [[a1, b1, r1], [a1, r1, r0]]

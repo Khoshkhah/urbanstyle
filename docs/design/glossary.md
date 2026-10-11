@@ -38,7 +38,7 @@ containers' above.
 
 | term | meaning | built |
 |---|---|---|
-| **block** | the land between the streets: a face the level-0 public streets enclose, less each street's half width; every building lies wholly inside one block. `space.block`, id `b<level>-w<way><side>`; each street side in `space.block_side` | yes (step 1) |
+| **block** | the land between the streets: a face the level-0 public streets enclose, less each street's half width; where a city has parcels, the face's parcels joined and closed across gaps narrower than 12 m. `space.block`, id `b<level>-w<way><side>`; each street side in `space.block_side` | yes (step 1) |
 | **bounding road** | an OSM public street at level 0 (motorway down to residential, living street, pedestrian, their links) that bounds blocks; a service road (alley, driveway, parking aisle) lies inside a block | test |
 | **chain** | the bounding roads joined end to end between two junctions | test |
 | **face** | an area the chains enclose, closed by the edge of the area; a block is what is left of it | test |

@@ -37,9 +37,6 @@ PARK_M = (2.2, 2.6)
 BIKE_M = (1.5, 2.0)
 GUTTER_M = 0.3
 BASIN_BACK_M = 0.3       # a catch basin sits in the gutter: the kerb is this far behind it
-GROW_M = 15.0            # a street piece grows into its block up to this far, to the parcels
-GROW_CONTACT_M = 12.0    # ... a strip it touches along at least this long (and not deeper than that): a lane's mouth is narrower
-LANE_MOUTH_M = 8.0       # a back lane's corridor (its line, this wide) stays in the block
 OBJ_KERB_M = 0.4         # a pole, a tree, a meter stands at least this far behind the kerb
 SHOULDER_EDGE_M = 0.3    # every carriageway keeps a shoulder this wide at each edge (the gutter); more where the lanes leave room
 FURNISH_M = (1.0, 0.6, 2.5)  # the pedestrian realm's buffer (furniture) zone at the kerb: where nothing stands in it; at least; at most
@@ -226,50 +223,6 @@ def build(con, epsg):
             secgeo[i] = poly(shapely.union_all([secgeo[i], x], grid_size=0.01))
         else:
             inter.append(x)
-
-    # ---- each street piece grows into its block up to the parcels: the block's ground in front of them that no parcel or building holds
-    # (land a city keeps for its street) is street; a lane's mouth stays in the block (an alley)
-    pcl = [g(w) for (w,) in rows(f"SELECT {m()} FROM space.parcel")]
-    grown_from = shapely.Polygon()
-    if pcl:
-        fixed = shapely.union_all(pcl + [g(w) for (w,) in rows(f"""SELECT {m()} FROM space.element WHERE type = 'building'
-                                                                  AND level_min <= 0 AND level_max >= 0""")])
-        lanes_ = shapely.union_all([g(w) for (w,) in rows(f"SELECT {m()} FROM space.element WHERE type = 'road' AND level_min = 0 AND class = 'service'")]
-                                   or [shapely.Point()]).buffer(LANE_MOUTH_M / 2, cap_style="flat")
-        free = poly(shapely.union_all(bgeo).difference(fixed, grid_size=0.01).difference(lanes_, grid_size=0.01))
-        ft = shapely.STRtree(list(shapely.get_parts(free))) if not free.is_empty else None
-        frees = list(shapely.get_parts(free)) if ft is not None else []
-        pieces_ = [(("s", i), secgeo[i]) for i in secgeo] + [(("i", k), x) for k, x in enumerate(inter)]
-        taken_ = set()
-        for key, P in pieces_:
-            add_ = []
-            for k in (ft.query(P.buffer(GROW_M)) if ft is not None else []):
-                if k in taken_:
-                    continue
-                c_ = frees[k].intersection(P.buffer(GROW_M))
-                for q in shapely.get_parts(c_):
-                    if q.geom_type != "Polygon" or q.area < 5:
-                        continue
-                    contact = q.boundary.intersection(P.boundary.buffer(0.05)).length
-                    depth = max(P.distance(shapely.Point(xy)) for xy in q.exterior.coords)
-                    if contact >= GROW_CONTACT_M and depth <= contact:     # a strip along the street, not a lane going into the block
-                        add_.append(q)
-                        taken_.add(k)
-            if add_:
-                # a lane's mouth between two strips the street takes goes with them (no tongue of the block reaching the street)
-                A = shapely.union_all(add_ + [P.buffer(0.01)])
-                gap = poly(A.buffer(LANE_MOUTH_M / 2 + 0.5, join_style="mitre").buffer(-(LANE_MOUTH_M / 2 + 0.5), join_style="mitre")
-                           .difference(A).intersection(shapely.union_all(bgeo)).difference(fixed))
-                add_ += [q for q in shapely.get_parts(gap) if q.area > 1 and q.distance(P) < 0.05]
-                grown = poly(shapely.union_all([P.buffer(0.01)] + [q.buffer(0.01) for q in add_], grid_size=0.01))
-                grown = max(shapely.get_parts(grown), key=lambda x: x.area) if grown.geom_type == "MultiPolygon" else grown
-                grown_from = shapely.union_all([grown_from] + add_)
-                if key[0] == "s":
-                    secgeo[key[1]] = grown
-                else:
-                    inter[key[1]] = grown
-        if not grown_from.is_empty:     # the blocks give that ground up
-            bgeo = [poly(b.difference(grown_from, grid_size=0.01)) for b in bgeo]
 
     # ---- roads: carriageways (their offset, width, lanes along / against) for the subsections
     lanes = {}
@@ -865,9 +818,6 @@ def build(con, epsg):
         con.executemany("UPDATE space.turn SET unit_id = ? WHERE rowid = ?", moved)
         con.execute("DELETE FROM space.turn WHERE level = 0 AND unit_id IS NULL")
     con.execute("DELETE FROM space.unit WHERE level = 0")
-    if not grown_from.is_empty:
-        con.executemany(f"UPDATE space.block SET geometry = {to_ll}, area_m2 = ? WHERE block_id = ?",
-                        [(shapely.to_wkb(b), round(b.area, 1), bid[k]) for k, b in enumerate(bgeo)])
     if decks:       # a deck taken as the street at ground level: its old level-1 spaces go too
         dk = shapely.union_all(decks)
         gone = [u for u, w in rows(f"SELECT unit_id, {m()} FROM space.unit WHERE level = 1") if g(w).intersection(dk).length > 5.0]

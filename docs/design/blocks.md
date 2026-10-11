@@ -70,6 +70,24 @@ Two other ideas were tried and rejected:
    city's own blocks have sharp corners too: over 320 corners of rectangular blocks, the median rounding is 0.02 m.
 7. **What is a block.** What is left of each face is a block if it is at least 400 m² and at least 8 m wide; a thinner piece (the strip
    between a divided road's two carriageways) is street.
+8. **Where a city has parcels, the block is its parcels** (2026-10-11). A parallel edge is one straight line, so where the parcels
+   along it step back (land a city keeps for its street in front of some lots), the block held ground that no parcel holds. So, in each
+   face:
+   - take the parcels that lie more than half in the face (for a parcel that the area's edge cuts: half of its part inside the area);
+   - join them and close every gap narrower than 12 m (a back lane, a slit between two parcels): grow by 6 m, then shrink by 6 m;
+   - that shape is the block, and the street is all of the face that is not in a block.
+
+   The block's edge is the parcels' front. It crosses a lane's mouth in a straight line from parcel corner to parcel corner, and a lane
+   or a slit stays inside the block. If the joined parcels cover less than 80 % of the block from the parallel edges (a park, a rail
+   yard with no parcel), that face keeps the parallel edges. `space.block_side.basis` is `parcels (joined)` for such a side.
+
+   Until 2026-10-11 the street grew into its blocks after the cuts, up to the parcels' front ("step 3b"). Each street piece grew
+   separately, so each special case (a lane mouth, a slit, a corner strip, a crumb) needed its own rule. It is removed: the parcels
+   now set the block before the cuts, and the cuts need no change.
+
+   Broadway × Granville: 52 blocks (427,492 m²), none in more than one part; 217 street sides, 210 from the joined parcels, 5 from a
+   parcel, 2 from sidewalks; the street is one piece; B6 47 of the city's 51 blocks, median overlap 1.00. The four not matched: two
+   slivers of a city block at the area's edge (547 m², 226 m²), and two city blocks that an OSM road divides into two of ours.
 
 Which side of a road a face lies on is tested at the middle of the road's stretch along that face. A road that runs past the edge of
 the area has its own middle outside the face; tested there, the road got no strip, and the blocks closed over the street's end.
@@ -143,16 +161,6 @@ street. (Angle-parking bays on the city's own land, outside the parcels, are str
    a section: the street goes on outside.
 4. The street is divided by all the cuts. A piece holding the middle of a facing stretch is that pair's section. A piece that
    meets fewer than three sections (the end of a street at the edge of the area) joins the section it shares the longest edge with.
-
-## Step 3b: the street grows to the parcels (built 2026-10-10)
-
-A block side is one straight line, so where the parcels along it step back (land a city keeps for its street in front of some lots),
-the block held a strip of ground that no parcel holds. After the sections and intersections are cut, each street piece grows into its
-block, up to 15 m, through the ground that no parcel and no building holds. It takes a strip only if it touches the piece along at least
-12 m and is not deeper than that contact: a back lane's corridor (its line, 8 m wide) stays in the block, but a lane's mouth between two
-strips the street takes goes with them. The block gives that ground up; its edge then follows the parcel fronts, with a step where they
-step. Broadway × Granville: 6,360 m² from the blocks to the street; the match with the city's blocks (B6) a median overlap of 1.00 (was
-0.99). The cost: the subsections follow the parcel fronts too, so fewer are rectangles (59 of 125 fill 95 % of their rectangle; was 106).
 
 ## Step 4: intersections
 
@@ -264,6 +272,8 @@ All are urbanstyle's own; none comes from a source.
 | the back of a sidewalk | its line + 1 m | chosen |
 | half right-of-way by class | living street 8 m; residential, unclassified, tertiary, pedestrian 10 m; secondary 12 m; primary 15 m; trunk 16 m; motorway 18 m | chosen |
 | a block is at least | 400 m², 8 m wide | chosen |
+| parcels are closed across gaps narrower than | 12 m (grow 6 m, shrink 6 m) | chosen |
+| the joined parcels set the block if they cover at least | 80 % of the block from the parallel edges | chosen |
 | points along an outline for the shares | 1 m apart | chosen |
 | facing tested every | 0.5 m | chosen |
 | facing: a side runs along the middle line within | 30° | chosen |

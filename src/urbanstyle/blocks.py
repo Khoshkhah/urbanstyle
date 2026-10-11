@@ -32,6 +32,8 @@ HIT_CAP = 1.5           # a parcel or sidewalk counts within this many times the
 SIDEWALK_BACK_M = 1.0   # a sidewalk is drawn along its middle: the property line is about this far behind it
 ALONG_COS = 0.82        # a sidewalk runs along the road: within ~35 degrees
 MIN_BLOCK_M2, MIN_BLOCK_W_M = 400.0, 8.0    # a thinner or smaller piece (between a divided road's carriageways) is street
+PARCEL_CLOSE_M = 6.0    # a block's parcels are closed across gaps narrower than twice this (a back lane, a slit between two parcels)
+PARCEL_SHARE = 0.8      # ... if they cover at least this share of the block the roads give; else (a park, a rail yard) that block stays
 
 
 def _city(con):
@@ -221,6 +223,25 @@ def build(con, epsg):
             if p.area >= MIN_BLOCK_M2 and p.buffer(-MIN_BLOCK_W_M / 2).area > 0:
                 out.append((p, srows, f))
 
+    # where a city has parcels, a block is its face's parcels joined and closed across every gap narrower than 2 x PARCEL_CLOSE_M (a back
+    # lane, a slit): its edge is the parcels' front. A face whose parcels cover less than PARCEL_SHARE of its block (a park, a rail yard
+    # with no parcel) keeps the block from the roads
+    by_face = {}
+    for p, srows, f in out:
+        by_face.setdefault(id(f), (f, srows, []))[2].append(p)
+    out, from_parcels = [], set()
+    for f, srows, road_blocks in by_face.values():
+        mine = [parcels[k] for k in (ptree.query(f) if ptree is not None else []) if parcels[k].intersection(f).area > 0.5 * parcels[k].intersection(box).area]   # (a parcel cut by the area's edge: its part inside)
+        joined = poly(shapely.union_all(mine).buffer(PARCEL_CLOSE_M, join_style="mitre").buffer(-PARCEL_CLOSE_M, join_style="mitre")
+                      .intersection(f, grid_size=0.01)) if mine else shapely.Polygon()
+        if mine and joined.area >= PARCEL_SHARE * sum(b.area for b in road_blocks):
+            for q in shapely.get_parts(joined):
+                if q.area >= MIN_BLOCK_M2 and q.buffer(-MIN_BLOCK_W_M / 2).area > 0:
+                    out.append((shapely.Polygon(q.exterior), srows, f))     # (a hole would be a courtyard: still the block's)
+                    from_parcels.add(len(out) - 1)
+        else:
+            out += [(b, srows, f) for b in road_blocks]
+
     # ids: the smallest OSM way among the bounding roads and the side of that way the block lies on
     ids = []
     for p, srows, f in out:
@@ -245,9 +266,11 @@ def build(con, epsg):
                         ST_Transform(ST_GeomFromWKB(?), '{epsg}', 'EPSG:4326', always_xy := true))""",
                     [(i, round(p.area, 1), shapely.to_wkb(p)) for i, (p, _, _) in zip(ids, out)])
     side_rows = []
-    for i, (p, srows, f) in zip(ids, out):
+    for n_, (i, (p, srows, f)) in enumerate(zip(ids, out)):
         for j, (d, basis, method, unpulled, bld) in srows:
             ch = chains[j]
+            if n_ in from_parcels:      # the edge is the parcels' front: its distance from the road, as measured
+                d, basis, method, unpulled, bld = round(ch["geom"].distance(p), 2), "parcels (joined)", "measured", None, None
             if ch["geom"].distance(p) > d + 1:      # a side of the face that this piece of it does not reach
                 continue
             way = min((oid for cl, n, oid, x in (roads[k] for k in rtree.query(ch["geom"].buffer(0.5)))

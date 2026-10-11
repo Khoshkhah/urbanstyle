@@ -1314,10 +1314,9 @@ def layers(db, out):
     # layer 0's street: each connected piece of the street spaces is one item, with an id and what it holds
     import shapely
     us = frame(con, f"""SELECT ST_AsWKB(geometry) AS geometry, unit_id, kind, section_id, {a()} AS area_m2 FROM space.unit WHERE level = 0""")
-    try:
-        net = shapely.coverage_union_all(list(us.geometry)) if len(us) else shapely.Polygon()
-    except shapely.errors.GEOSException:    # (spaces that do not meet edge to edge: joined the slower way)
-        net = shapely.union_all([shapely.make_valid(g_).buffer(0.000001) for g_ in us.geometry])
+    # joined within a few centimetres (the spaces meet edge to edge only to the grid of their geometry)
+    net = shapely.union_all([shapely.make_valid(g_).buffer(0.000001, join_style="mitre") for g_ in us.geometry]).buffer(-0.000001, join_style="mitre") \
+        if len(us) else shapely.Polygon()
     net = shapely.get_parts(net)
     net = sorted(net, key=lambda g: -g.area)
     rows_ = []

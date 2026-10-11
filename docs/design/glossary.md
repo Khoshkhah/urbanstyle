@@ -157,6 +157,7 @@ Not built yet (step 3 of `street-objects.md`).
 | **position_source, position_method, position_ref** | `space.part`: what set a part's edge (the kerb's evidence, the block's edge): e.g. `osm+vancouver`, `measured`, the OSM sidewalk ways and the city's catch basins |
 | **guide line** (mark) | a SUMO connection drawn through a junction, from an in-lane at its stop line to an out-lane; `space.turn` holds the same move |
 | **R1** (check) | joints between two subsections where the roadway's edges differ by more than 0.1 m |
+| **R2, R3** (checks) | R2: guide lines leaving the roadway by more than 0.5 m; R3: subsections where OSM's lane count does not fit between our kerbs (a lane under 2.75 m) |
 | **width_source, width_method; size_from** | where a part's or a mark's width comes from (`space.part`, `space.mark`, the dossier's `surface`, `line`, `lane`); an object's width and height and their sources (`size_from` on the page; the dossier's `object`: `width_source`, `height_source`, ...) |
 
 ## Dashboard

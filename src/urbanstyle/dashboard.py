@@ -118,8 +118,10 @@ SEEN_COLORS = {"parking": "#2563eb", "no parking": "#9333ea", "give way": "#f973
 PHOTOS_PER_SPACE = 6
 # painted and built lines, at real size: type, colour, width in metres, dash
 # painted and built lines: type, colour, dash; drawn at the width stored on the mark (parts.LINE, space.mark.width_m)
-MARKS = [(t, c, LINE[t], d) for t, c, d in (("guide line", "#e5e7eb", [2, 3]), ("arrow", "#ffffff", None), ("kerb", "#9ca3af", None),
-         ("centre line", "#ffffff", [3, 2]), ("lane line", "#ffffff", [3, 3]), ("edge line", "#ffffff", None), ("stop line", "#ffffff", None),
+# (a dash is in line widths: a lane line 0.12 m wide, 3 m painted and 6 m gap, as TAC's manual for Canada (MUTCDC) paints it, is [25, 50];
+# the line between the two directions is yellow and solid. A guide line is no paint: SUMO's move through a junction, thin amber dots)
+MARKS = [(t, c, LINE[t], d) for t, c, d in (("guide line", "#f59e0b", [1, 4]), ("arrow", "#ffffff", None), ("kerb", "#9ca3af", None),
+         ("centre line", "#facc15", None), ("lane line", "#ffffff", [25, 50]), ("edge line", "#ffffff", None), ("stop line", "#ffffff", None),
          ("give-way line", "#ffffff", [1, 1]), ("zebra", "#ffffff", None))]
 PANEL = """
 <style>.co-lg{display:none}  /* no road legend: the panel says what is drawn */
@@ -554,7 +556,12 @@ let tries=0;   // overlay data loads after the map's own load event: wait until 
 // start once the data is in: the buildings and the roads (filtering the roads before they are loaded would hide them all)
 (function start(){ if((rsQuery(()=>true,'Buildings').length===0||rsQuery(()=>true).length===0)&&tries++<100){setTimeout(start,200);return} apply(); fromHash() })();
 // direct link: viz/<area>.html?c=<container id> (or #c=<container id>) focuses that container; ?c= survives link openers that drop the #
-function fromHash(){const m=location.hash.match(/^#c=(.+)$/)||location.search.match(/[?&]c=([^&]+)/); if(m)focusOn(decodeURIComponent(m[1]))}
+function fromHash(){const m=location.hash.match(/^#c=(.+)$/)||location.search.match(/[?&]c=([^&]+)/); if(!m)return;
+  const id=decodeURIComponent(m[1]); if(byId[id])return focusOn(id);
+  // a new space (a subsection, an intersection) or one of its parts (<space>#<n>): the space in focus, then the part
+  const go=()=>{focusUnit({unit_id:id.split('#')[0]});
+    if(id.includes('#'))setTimeout(()=>{const ids=rsQuery(q=>q.part_id===id,'Parts'); if(ids.length)rsFocus(ids,{maxZoom:20},'Parts')},600)};
+  if(map.loaded())go(); else map.once('idle',go)}
 window.addEventListener('hashchange',fromHash);
 </script>
 """
@@ -1285,7 +1292,32 @@ document.getElementById('lycopy').onclick=()=>{const t=document.getElementById('
 // only the layers and the base map: the road network's own lines would read as more kinds
 function lyBare(){const mine=new Set(OVERLAYS.map(o=>o.source));
   map.getStyle().layers.forEach(x=>{if(x.source&&x.source!=='bm'&&!mine.has(x.source))map.setLayoutProperty(x.id,'visibility','none')})}
-const go=()=>{if(typeof rsSetOverlay==='function'&&typeof map!=='undefined'&&map.loaded&&map.loaded()){lyBare(); leaves(T[0]).filter(x=>!x.off).forEach(x=>on.add(key(x))); draw(); apply()}
+// a direct link: layers.html?u=<id> (or #u=<id>), any id of a space, a part, a ground item or a surface: the map goes to it, lights it, and
+// the panel lists all its fields (its sources too)
+function lyGoTo(id){for(const o of OVERLAYS){const s=map.getSource(o.source), g=s&&s._data&&s._data.geojson;
+    const f=g&&g.features&&g.features.find(x=>Object.values(x.properties||{}).includes(id)); if(!f)continue;
+    let b=[180,90,-180,-90]; const walk=c=>{if(typeof c[0]==='number'){b=[Math.min(b[0],c[0]),Math.min(b[1],c[1]),Math.max(b[2],c[0]),Math.max(b[3],c[1])]}else c.forEach(walk)};
+    walk(f.geometry.coordinates); map.fitBounds([[b[0],b[1]],[b[2],b[3]]],{padding:120,maxZoom:20,duration:0});
+    lySV({lng:(b[0]+b[2])/2,lat:(b[1]+b[3])/2});
+    if(f.id!=null)light({f:{source:o.source,id:f.id}});
+    document.getElementById('lyseltext').textContent=`${o.label}`+Object.entries(f.properties).filter(([k,v])=>!SKIP.has(k)&&v!==null&&v!=='').map(([k,v])=>`\n${k}: ${v}`).join('');
+    document.getElementById('lysel').style.display='block'; return}}
+// Street View: the road lines are hidden here, and roadstyle's Street View follows a click on a road line; so every click (and a direct
+// link) moves it to the road nearest the spot, looking along it (as svHere does on the dashboard)
+function lySV(ll){const src=map.getSource('roads'), data=src&&src.serialize&&src.serialize().data; if(!data||!data.features)return;
+  const k=Math.cos(ll.lat*Math.PI/180), X=ll.lng*k, Y=ll.lat; let best=null;
+  data.features.forEach(f=>{const g=f.geometry; if(!g)return; (g.type==='LineString'?[g.coordinates]:g.type==='MultiLineString'?g.coordinates:[]).forEach(cs=>{
+    for(let i=0;i<cs.length-1;i++){const ax=cs[i][0]*k, ay=cs[i][1], bx=cs[i+1][0]*k, by=cs[i+1][1], dx=bx-ax, dy=by-ay, L=dx*dx+dy*dy||1e-18;
+      const t=Math.max(0,Math.min(1,((X-ax)*dx+(Y-ay)*dy)/L)), px=ax+t*dx, py=ay+t*dy, d=(X-px)**2+(Y-py)**2;
+      if(!best||d<best.d)best={d,x:px/k,y:py,h:(Math.atan2(dx,dy)*180/Math.PI+360)%360,name:(f.properties||{}).name}}})});
+  if(!best||Math.sqrt(best.d)*111320>40)return;
+  if(window.rsSetStreetViewMarkerAt)rsSetStreetViewMarkerAt(best.x,best.y,best.h);
+  const url=`https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${best.y.toFixed(6)},${best.x.toFixed(6)}&heading=${Math.round(best.h)}`;
+  document.dispatchEvent(new CustomEvent('rs:select',{detail:{properties:{name:best.name||'Street View'},streetView:url}}))}
+map.on('click',e=>lySV(e.lngLat));
+const lyLink=()=>{const u=new URLSearchParams(location.search).get('u')||(location.hash.startsWith('#u=')?decodeURIComponent(location.hash.slice(3)):null); if(u)lyGoTo(u)};
+window.addEventListener('hashchange',lyLink);
+const go=()=>{if(typeof rsSetOverlay==='function'&&typeof map!=='undefined'&&map.loaded&&map.loaded()){lyBare(); leaves(T[0]).filter(x=>!x.off).forEach(x=>on.add(key(x))); draw(); apply(); lyLink()}
   else setTimeout(go,300)}; go()})();
 </script>"""
 OV = {"street": "Layer 0: street", "blocks": "Layer 0: blocks", "spaces": "Layer 1: street spaces", "land": "Layer 1: land",

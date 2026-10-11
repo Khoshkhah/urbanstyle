@@ -49,6 +49,13 @@ def part_checks(c, q, m):
                                   AND ST_Intersects(a.g, b.g) WHERE ST_Area(ST_Intersection(a.g, b.g)) > 0.5"""), True),
         ("U10", "cuts where the roadway differs by more than 0.5 m on the two sides", roadway_mismatch(c, q, m), False),
         ("R1", "joints between two subsections where the roadway's edges differ by more than 0.1 m", roadway_joints(q, m), False),
+        ("R3", "subsections where OSM's lane count does not fit between our kerbs (a lane under 2.75 m): our kerb is probably wrong",
+         q("SELECT count(DISTINCT unit_id) FROM space.part WHERE level = 0 AND type = 'lane' AND source = 'osm' AND width_m < 2.75"), False),
+        ("R2", "guide lines (SUMO's moves) leaving the roadway by more than 0.5 m", q(f"""WITH rw AS (SELECT ST_Union_Agg(ST_MakeValid(
+                                  ST_Buffer({m('geometry')}, 0.1))) AS g FROM space.part WHERE level = 0 AND type IN ('lane', 'shoulder', 'parking',
+                                  'bus zone', 'cycle lane', 'junction area'))
+                                  SELECT count(*) FROM space.mark, rw WHERE type = 'guide line' AND level = 0
+                                  AND ST_Length(ST_Difference({m('space.mark.geometry')}, rw.g)) > 0.5"""), False),
     ] + approach_checks(q) + ground_checks(c, q, m)
 
 

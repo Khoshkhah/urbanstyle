@@ -219,6 +219,12 @@ crumbs: a strip under 5 m² joins its neighbour.
   fit, made from the median width over its subsections. A median that meets the line between two carriageways closes onto it; a median
   on one side only closes at the joint (a carriageway joins). Check R1 counts the joints where the roadway edges differ by more than
   0.1 m: 17 before, 0 after.
+- **A mapped lane count is never changed** (2026-10-11). Where OSM has a `lanes` tag (read from duckOSM's driving network), the fit
+  keeps it; the width decides only the lane widths and the parking and bike lanes that OSM does not map. Where the width cannot hold
+  OSM's lanes, our kerb is probably wrong: check R3 lists it. Carriageways side by side with no median share their roadway by their
+  lane counts. Where OSM's lane count changes (a turn lane before a junction), the street is cut, also for a piece of 5 m to 12 m.
+- **Kerbs never inside OSM's carriageway**: a kerb, and a block made from parcels, stay at least half of the carriageway's lanes x 3.0 m
+  from its OSM line; poles on a median do not pull the kerbs in.
 - **A two-way street one lane wide** (a yield street) has one lane for both directions (`direction = both`), and no arrow.
 - **Bus zones.** Where an OSM bus stop (joined to the GTFS timetable by its number, `ref` = `stop_code`) or a GTFS stop that OSM does not
   have stands within 5 m of a parking lane, the parking lane is a `bus zone` from 20 m behind the stop pole to 2 m past it, in the
@@ -230,7 +236,9 @@ crumbs: a strip under 5 m² joins its neighbour.
 - **SUMO on our lanes.** After the lanes are fitted, duckOSM's driving network goes to SUMO (`sumo.network`) with our lane count and
   width for each direction of each OSM way, where its edge runs. SUMO decides which lane goes on to which. Each connection is a
   `guide line` (`source sumo`) from our in-lane, at its stop line, to our out-lane where it leaves the junction, a curve between the two
-  directions; `space.turn` holds it (the road piece and the lane from the right, as `parts.py` wrote them). The heads of each turn arrow
+  directions, pulled toward the junction's middle where it would leave the roadway (check R2); a move that passes SUMO edges inside our
+  junction (a divided road crossing another) is followed to its out-lane. A SUMO edge finds our lane by geometry (it ends in our
+  junction, runs the lane's way, lane number from the right), not by OSM way id; `space.turn` holds it (the road piece and the lane from the right, as `parts.py` wrote them). The heads of each turn arrow
   are its lane's moves (`osm+sumo`, `mapped`, where OSM has `turn:lanes`). `space.approach` lists every lane that comes into a junction
   (checks U11-U13). Broadway × Granville: 489 guide lines; of the 238 lanes that come into a junction, 215 have a move.
 - **Where each part comes from.** Every part has `source`, `method` and `ref` for what it is, `width_source` and `width_method` for its

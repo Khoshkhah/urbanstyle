@@ -33,6 +33,7 @@ SIDEWALK_BACK_M = 1.0   # a sidewalk is drawn along its middle: the property lin
 ALONG_COS = 0.82        # a sidewalk runs along the road: within ~35 degrees
 MIN_BLOCK_M2, MIN_BLOCK_W_M = 400.0, 8.0    # a thinner or smaller piece (between a divided road's carriageways) is street
 PARCEL_CLOSE_M = 6.0    # a block's parcels are closed across gaps narrower than twice this (a back lane, a slit between two parcels)
+LANE_LEAST_M = 3.0      # a lane is at least this wide: a road's carriageway is never inside a block
 PARCEL_SHARE = 0.8      # ... if they cover at least this share of the block the roads give; else (a park, a rail yard) that block stays
 
 
@@ -230,10 +231,21 @@ def build(con, epsg):
     for p, srows, f in out:
         by_face.setdefault(id(f), (f, srows, []))[2].append(p)
     out, from_parcels = [], set()
+    # a bounding road's carriageway is street, even where the city's parcels cover it: OSM's lanes (else one each way), each
+    # LANE_LEAST_M wide at least, either side of its line
+    tags = {o: (ln, ow) for o, ln, ow in rows("""SELECT osm_id, tags['lanes'], tags['oneway'] FROM osm.raw.ways
+                                                 WHERE osm_id IN (SELECT DISTINCT osm_id FROM space.element WHERE type = 'road')""")}
+    def lanes_of(oid):
+        ln, ow = tags.get(oid, (None, None))
+        try:
+            return max(1, int(float(str(ln).split(";")[0])))
+        except (TypeError, ValueError):
+            return 1 if ow in ("yes", "-1") else 2
+    carriage = shapely.union_all([x.buffer(lanes_of(oid) * LANE_LEAST_M / 2, cap_style="flat") for cl, n, oid, x in roads])
     for f, srows, road_blocks in by_face.values():
         mine = [parcels[k] for k in (ptree.query(f) if ptree is not None else []) if parcels[k].intersection(f).area > 0.5 * parcels[k].intersection(box).area]   # (a parcel cut by the area's edge: its part inside)
         joined = poly(shapely.union_all(mine).buffer(PARCEL_CLOSE_M, join_style="mitre").buffer(-PARCEL_CLOSE_M, join_style="mitre")
-                      .intersection(f, grid_size=0.01)) if mine else shapely.Polygon()
+                      .intersection(f, grid_size=0.01).difference(carriage, grid_size=0.01)) if mine else shapely.Polygon()
         if mine and joined.area >= PARCEL_SHARE * sum(b.area for b in road_blocks):
             for q in shapely.get_parts(joined):
                 if q.area >= MIN_BLOCK_M2 and q.buffer(-MIN_BLOCK_W_M / 2).area > 0:

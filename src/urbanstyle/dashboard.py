@@ -1297,7 +1297,9 @@ def main(db, out, bridges=None):
             ground_ = [shapely.from_wkb(bytes(w)) for (w,) in con.execute(
                 f"SELECT ST_AsWKB({to_crs}) FROM space.part WHERE level = 0 AND type = 'lane'").fetchall()]
             ground_ = [g for g in ground_ if g.distance(ol) < 50]
-            ms.append(model(P_, parts_, marks_, ground_))
+            # (the level-1 parts are not laid on the deck: parts.py makes them from rules OSM does not support there, e.g. a "no parking"
+            # strip from parking:both=no, a sidewalk OSM says is not there; the model's lanes and paths follow GMNS and OSM)
+            ms.append(model(P_, None, None, ground_))
         under = sorted(under)
         col = {"deck": PART_COLORS["lane"], "girder": "#8f8b86", "rail": "#cfc8bd",      # the deck's top is roadway; its sides concrete
                "parts": {**PART_COLORS, **{f"mark {t}": c for t, c, *_ in MARKS}, "mark kerb": "#8f8b86", "barrier": "#cfc8bd", "railing": "#6b7280"}}

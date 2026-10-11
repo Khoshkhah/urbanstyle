@@ -63,15 +63,18 @@ def model(path):
             verts.append(list(k))
         return index[k]
     top = [[vid(x, y, z(x, y)) for x, y in t.exterior.coords[:3]] for t in tris]
-    bottom = [[vid(x, y, z(x, y) - DECK_M) for x, y in t.exterior.coords[:3]][::-1] for t in tris]
+    # the deck's bottom never under the ground: near a landing the deck gets thinner and meets the street flush (the bridge is drawn over
+    # the flat map, which has no depth: a slab under the ground showed as a block standing on it)
+    under = lambda zz: max(zz - DECK_M, 0.0)
+    bottom = [[vid(x, y, under(z(x, y))) for x, y in t.exterior.coords[:3]][::-1] for t in tris]
     sides, rails = [], []
     for ring in [dense.exterior] + list(dense.interiors):
         c = list(ring.coords)
         for (ax, ay), (bx, by) in zip(c, c[1:]):
             za, zb = z(ax, ay), z(bx, by)
-            a0, b0, a1, b1 = vid(ax, ay, za - DECK_M), vid(bx, by, zb - DECK_M), vid(ax, ay, za), vid(bx, by, zb)
+            a0, b0, a1, b1 = vid(ax, ay, under(za)), vid(bx, by, under(zb)), vid(ax, ay, za), vid(bx, by, zb)
             sides += [[a0, b0, b1], [a0, b1, a1]]
-            r0, r1 = vid(ax, ay, za + RAIL_M), vid(bx, by, zb + RAIL_M)
+            r0, r1 = vid(ax, ay, za + min(RAIL_M, za)), vid(bx, by, zb + min(RAIL_M, zb))     # a parapet ends where the deck lands
             rails += [[a1, b1, r1], [a1, r1, r0]]
 
     def frame(ln, s):

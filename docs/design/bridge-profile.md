@@ -190,3 +190,21 @@ No source gives these values yet (`bridge_profile.py`). Each one is in the profi
 - **The model is drawn on top.** The dashboard's flat layers (the street, the ground) have no depth test; added after the bridge, they
   painted over it, so on the page only the main span over the water showed. The bridge's layer now stays the top layer. The model's
   origin is the middle of the outline.
+
+## Every landing meets the street (2026-10-11)
+
+Some arms of the Granville Bridge did not touch the ground on the page. All arms that are not landings meet other arms at the same
+height (five junctions: 27.0, 22.7, 18.2, 11.7 and 11.6 m). The landings had three faults:
+
+1. **The deck stood on the street as a block.** The deck was always 1.8 m thick, so at a landing its bottom and its side walls were
+   under the ground. The bridge is drawn over the flat map, which has no depth, so these parts showed as a block about 3 m high.
+   Now the bottom of the deck never goes under the ground: near a landing the deck gets thinner and meets the street flush. A
+   parapet is never higher than the deck is above the ground, so it ends where the deck lands.
+2. **A landing stopped at the end of one OSM way.** The landing of a ramp that OSM ends in the air follows the OSM roads that
+   continue it, way after way, not only the first way. a8 stopped after 70 m on w48525790, 4.0 m above the ground; it now lands
+   after 90 m on w1416437416, where the LiDAR deck is 0.4 m above the ground. A landing names only the ways that it reaches.
+3. **A landing had lanes and no deck.** OSM's outline stops where OSM's bridge way stops. Each measured landing now adds its
+   piece to the deck outline, as wide as its lanes, with method `derived`. Before, a2 had 45 m and a8 had 90 m of lanes with no deck,
+   and their decks ended 4.0 m and 8.5 m above the ground.
+
+At every landing the LiDAR deck is now 0.0 to 0.5 m above the ground, and every lane has deck under it.

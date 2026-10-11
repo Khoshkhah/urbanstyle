@@ -144,6 +144,16 @@ street. (Angle-parking bays on the city's own land, outside the parcels, are str
 4. The street is divided by all the cuts. A piece holding the middle of a facing stretch is that pair's section. A piece that
    meets fewer than three sections (the end of a street at the edge of the area) joins the section it shares the longest edge with.
 
+## Step 3b: the street grows to the parcels (built 2026-10-10)
+
+A block side is one straight line, so where the parcels along it step back (land a city keeps for its street in front of some lots),
+the block held a strip of ground that no parcel holds. After the sections and intersections are cut, each street piece grows into its
+block, up to 15 m, through the ground that no parcel and no building holds. It takes a strip only if it touches the piece along at least
+12 m and is not deeper than that contact: a back lane's corridor (its line, 8 m wide) stays in the block, but a lane's mouth between two
+strips the street takes goes with them. The block gives that ground up; its edge then follows the parcel fronts, with a step where they
+step. Broadway × Granville: 6,360 m² from the blocks to the street; the match with the city's blocks (B6) a median overlap of 1.00 (was
+0.99). The cost: the subsections follow the parcel fronts too, so fewer are rectangles (59 of 125 fill 95 % of their rectangle; was 106).
+
 ## Step 4: intersections
 
 The rest of the street. Each piece meets three or more sections. Its edges are the block corners and the cuts of the streets arriving
@@ -170,12 +180,18 @@ crumbs: a strip under 5 m² joins its neighbour.
 
 - **A subsection**, across its axis (the middle line between its two blocks), from one block to the other: pedestrian realm, kerb,
   roadway, kerb, pedestrian realm.
-  - **Kerb**: 1 m before OSM's sidewalk line (it is drawn along the sidewalk's middle), and on the road's side of the trees, poles
-    and furniture mapped there (0.5 m before the innermost); else the carriageway's edge. At least 1.5 m of pedestrian realm is left.
-  - **Roadway**: each carriageway (an OSM road running along the axis, its offset the median over the subsection) with its lanes (OSM's
-    lanes each way); a **median** between two carriageways more than 1 m apart; a **shoulder** at each edge of a carriageway, at
-    least 0.3 m (the gutter), wider where the lanes leave room. A lane is measured kerb to kerb where it falls between 2.75 and 4 m,
-    else 3.25 m (chosen). Lanes going along the axis keep right; lane 1 is at the kerb. Each lane is one whole item.
+  - **Kerb (top-down, 2026-10-10)**: one kerb on each side of a whole **section**, shared by its subsections, from the evidence along
+    the section's whole length: OSM's and the city's sidewalk lines (the kerb 1 m before them), the city's catch basins (in the gutter, the
+    kerb 0.3 m behind them); the kerb stays 0.4 m on the road's side of the city's poles, trees and parking meters. The evidence nearest
+    the road holds (the median of what lies within 2 m of it); a footway on a median is no evidence. Else the carriageway's edge. The
+    subsections share the section's axis. Broadway × Granville: 237 of 286 kerb lines measured; the roadway's edge at the joints between
+    subsections moves by a median 0 m (was 0.91 m), 4 joints over 0.5 m (was 20).
+  - **Roadway (top-down)**: the width between the kerbs is measured first; the cross-section that fits it best is chosen: 1-6 travel
+    lanes (3.0-3.7 m), a parking lane (2.2-2.6 m) and a bike lane (1.5-2.0 m) on each side or not, a gutter (0.3 m) at each kerb. The
+    evidence is a hint, not a fact: OSM's lane count (else one lane each way, a weaker hint), OSM's parking and cycleway tags, the city's
+    parking meters near a kerb, its painted or protected bikeways. Each element is widened within its range to fill the width; what is
+    left is the gutters. Each lane's `rule` says the fit ("fit: 2 lanes (OSM: 2), parking left, parking right"); `space.width.osm_lanes`
+    keeps OSM's count to compare (Broadway × Granville: the fit agrees with OSM on 74 of 86 subsections).
   - **Pedestrian realm**, NACTO's zones from the kerb out: **buffer** (`furnishing`: where trees and poles stand, else 1 m, chosen,
     where no sidewalk is mapped), **clear path** (`sidewalk`: 1.8 m around OSM's sidewalk line, else after the buffer), **frontage**
     (the rest to the block, if at least 0.75 m).

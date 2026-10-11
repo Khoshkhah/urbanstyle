@@ -23,6 +23,10 @@ The order of work: `docs/plan.md`.
   element belongs to.
 - `space.lot` (`LOTS` in container.py): off-street car parks, plots beside the street like buildings; the partition reads both as the
   building line; parking aisles are left out of the roads.
+- `src/urbanstyle/blocks.py` (called before `ground.build`): the blocks of `docs/design/blocks.md` (step 1): `space.block` (id
+  `b<level>-w<way><side>`), `space.block_side` (each street side's distance and what set it: parcels, sidewalks, class, building),
+  `space.area` (the area's edge), `space.city_block` (a city's own blocks, only for check B6). Not used by the partition yet.
+  The test of the later steps (neighbours, sections, intersections): `scripts/blocks_test.py`.
 - `src/urbanstyle/ground.py` (called at the end of `build`): layer 0 of `docs/design/space-layers.md`, `space.ground`: every piece of the
   area at level 0 is water, rail, street, path, square, structure, green, plot or unknown (checks G1, G2); `space.parcel`, a city's
   parcels, is the property line the street reaches (`subsections.building_line`). `ground.surfaces`: layer 1, `space.surface`, the
@@ -46,7 +50,7 @@ The order of work: `docs/plan.md`.
   at intersections). The roadway (lanes, junction shapes, turns) comes from SUMO: the subsections measure the lanes, `sumo.py` runs
   duckOSM's `to_sumo` with them, `from_sumo()` fills every unit; without SUMO `classic()` builds the roadway from bands. `urbanstyle check`
   U1-U10 test them; U11-U13 report the lanes entering each junction (`space.approach`),
-  G1-G2 the ground (`space.ground`), L1-L2 the surfaces (`space.surface`).
+  G1-G2 the ground (`space.ground`), L1-L2 the surfaces (`space.surface`), B1 and B6 the blocks (`space.block`).
 - `src/urbanstyle/mapillary.py`: `urbanstyle mapillary DB [--osm OSM]` fetches Mapillary's features and photos into `DB.mapillary.json`
   (token: `$MAPILLARY_TOKEN` or `~/.config/mapillary/token`, never in the repo) and loads `space.observed` / `space.photo`; `build`
   loads that file when present (`docs/design/mapillary.md`). CC BY-SA: the data stays local. Mapillary is for validation only
@@ -61,7 +65,7 @@ The order of work: `docs/plan.md`.
 
 ```bash
 P=/home/kaveh/projects/duckOSM/.venv/bin/python        # duckdb + spatial + duckOSM; has no recent roadstyle
-$P -m pytest -q                                        # 30 tests, offline (the turns test needs netconvert) (pythonpath=src from pyproject), ~10 s
+$P -m pytest -q                                        # 31 tests, offline (the turns test needs netconvert) (pythonpath=src from pyproject), ~10 s
 $P -m pytest -q tests/test_levels.py::test_street_space_width      # one test
 
 # build a container (Monaco ~1 min; Södermalm ~18 min and ~7 GB: check free memory first). Södermalm has no

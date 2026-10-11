@@ -77,7 +77,31 @@ def ground_checks(c, q, m):
     return [
         ("G1", f"pieces of ground of no known kind ({unknown[1]:,.0f} m2)", unknown[0], False),
         ("G2", "ground items overlapping by more than 0.5 m2", q("""SELECT count(*) FROM gr a JOIN gr b ON a.level = b.level
-                                  AND a.ground_id < b.ground_id AND ST_Intersects(a.g, b.g) WHERE ST_Area(ST_Intersection(a.g, b.g)) > 0.5"""), True),    ] + surface_checks(c, q, m)
+                                  AND a.ground_id < b.ground_id AND ST_Intersects(a.g, b.g) WHERE ST_Area(ST_Intersection(a.g, b.g)) > 0.5"""), True),    ] + surface_checks(c, q, m) + block_checks(c, q, m)
+
+
+def block_checks(c, q, m):
+    """B1, B6: the blocks (space.block, docs/design/blocks.md). B1: a building cut by a block's edge (inside the area); B6: how well our
+    blocks match a city's own, where it has them (a cross-check, never an input)."""
+    if not q("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'space' AND table_name = 'block'"):
+        return []
+    c.execute(f"CREATE TEMP TABLE bk AS SELECT block_id, ST_MakeValid({m('geometry')}) AS g FROM space.block")
+    c.execute(f"CREATE TEMP TABLE ar AS SELECT ST_MakeValid({m('geometry')}) AS g FROM space.area")
+    cut = c.execute(f"""WITH b AS (SELECT ST_MakeValid(ST_Intersection(ST_MakeValid({m('e.geometry')}), ar.g)) AS g FROM space.element e, ar
+                          WHERE e.type = 'building' AND e.level_min <= 0 AND e.level_max >= 0),
+                        x AS (SELECT b.g, ST_Area(ST_Intersection(b.g, k.g)) AS inside FROM b JOIN bk k ON ST_Intersects(b.g, k.g))
+                        SELECT count(*), coalesce(sum(ST_Area(g) - inside), 0) FROM x WHERE inside > 1 AND ST_Area(g) - inside > 1""").fetchone()
+    out = [("B1", f"buildings cut by a block's edge ({cut[1]:,.0f} m2 outside their block)", cut[0], False)]
+    if q("SELECT count(*) FROM space.city_block"):
+        mt = c.execute(f"""WITH cb AS (SELECT city_block_id, ST_MakeValid(ST_Intersection(ST_MakeValid({m('geometry')}), ar.g)) AS g
+                                         FROM space.city_block, ar),
+                              cbp AS (SELECT city_block_id, g FROM cb WHERE ST_Area(g) > 50),
+                              io AS (SELECT p.city_block_id, max(ST_Area(ST_Intersection(p.g, k.g)) / ST_Area(ST_Union(p.g, k.g))) AS iou
+                                     FROM cbp p JOIN bk k ON ST_Intersects(p.g, k.g) GROUP BY 1)
+                              SELECT count(*) FILTER (WHERE io.iou >= 0.8), count(*), median(coalesce(io.iou, 0))
+                              FROM cbp LEFT JOIN io USING (city_block_id)""").fetchone()
+        out.append(("B6", f"of the city's {mt[1]} blocks, matched by one of ours (overlap >= 0.8; median overlap {mt[2] or 0:.2f})", mt[0], False))
+    return out
 
 
 def surface_checks(c, q, m):

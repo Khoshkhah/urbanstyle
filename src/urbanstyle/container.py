@@ -938,7 +938,8 @@ def build(osm, out):
         from . import mapillary
         mapillary.load(con, out + ".mapillary.json")
     parts.build(con, epsg)         # ... and the inside of each space: parts, marks, widths
-    from . import ground
+    from . import blocks, ground
+    blocks.build(con, epsg)        # the blocks: the land between the streets (docs/design/blocks.md, step 1)
     ground.build(con, epsg)        # layer 0: every piece of the area is street, plot, green, ... (docs/design/space-layers.md)
     ground.surfaces(con, epsg)     # layer 1: the surfaces inside each ground item
     return con

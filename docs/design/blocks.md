@@ -4,9 +4,11 @@
 neighbouring blocks, cut at two positions; the rest of the street is the intersections; a section is divided further into subsections
 where its cross-section changes.</p>
 
-Status: agreed 2026-10-10 and tested on Broadway × Granville (test scripts, page `viz/broadway-granville-neighbours.html`). It is **not in
-the pipeline yet**: the street spaces (`space.unit`) are still cut from the road network by `spaces.py`. Subsections are designed here, not
-built.
+Status: agreed 2026-10-10 and tested on Broadway × Granville (`scripts/blocks_test.py`, page `viz/broadway-granville-neighbours.html`).
+**Step 1 is built** (2026-10-10): `blocks.py` makes `space.block` and `space.block_side` in every build; `urbanstyle check` reports B1 and
+B6; on Broadway × Granville 51 blocks (436,540 m²), B1 3 buildings (59 m²), B6 47 of the city's 51 blocks matched (median overlap 0.97),
+the same as the test. Steps 2-4 (neighbours, sections, intersections) are still only in the test: the street spaces (`space.unit`) are
+still cut from the road network by `spaces.py`. Subsections are designed here, not built.
 
 ## In short
 
@@ -184,7 +186,7 @@ The test used each piece's centre point as its id, which changes when anything m
 
 | item | id | example |
 |---|---|---|
-| block | `b<level>-w<way><side>`: the smallest OSM way id among its bounding roads, and the side of that way it lies on (`l` / `r`) | `b0-w5045123l` |
+| block | `b<level>-w<way><side>`: the smallest OSM way id among its bounding roads, and the side of that way it lies on (`l` / `r`); `.2`, `.3` ... where one way bounds several blocks on that side, in order of their centres (built) | `b0-w132047930l`, `b0-w132047930l.2` |
 | section | `s<level>-<block a>~<block b>`, the two blocks in order; `/k` when one pair has more than one | `s0-w5045123l~w5045180r` |
 | intersection | `i<level>-<smallest OSM node id inside it>` (as today) | `i0-11102738098` |
 | subsection | `<section id>/<k>`, k from the section's start | `s0-w5045123l~w5045180r/2` |
@@ -215,12 +217,12 @@ All are urbanstyle's own; none comes from a source.
 
 | check | what | today |
 |---|---|---|
-| B1 | no building cut by a block's edge | 3 buildings, 59 m², all at the edge of the area or the Granville ramps |
+| B1 | no building cut by a block's edge (built, reported) | 3 buildings, 59 m², all at the edge of the area or the Granville ramps |
 | B2 | the street pieces cover the street exactly: no gap, no overlap | 0, 0 |
 | B3 | no piece narrower than 2 m | 0 |
 | B4 | every section ends at two cuts, or at the edge of the area | yes |
 | B5 | every section at least as long as its street is wide (except at the area's edge) | yes |
-| B6 (info) | how well our blocks match a city's blocks, where it has them | see below |
+| B6 (info) | how well our blocks match a city's blocks, where it has them (built: `space.city_block`, from the unit's city file) | 47 of 51, median overlap 0.97 |
 
 ## Cross-validation with a city's blocks
 

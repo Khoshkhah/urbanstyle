@@ -42,7 +42,7 @@ In order; each item is a general rule, checked on Broadway x Granville before an
       unassigned ground, construction sites, U14, nodes, short lane pieces and stable ids.
 - [ ] **Blocks first** ([Blocks first](design/blocks.md), agreed 2026-10-10, tested on Broadway x Granville): the street divided
       between neighbouring blocks instead of from the road network; it is how layer 0 of **Layers** is built from now on. In order:
-      (1) `blocks.py` (the blocks, stable ids, checks B1, B6); (2) the street as the ground outside the blocks, sections and
+      (1) `blocks.py` (the blocks, stable ids, checks B1, B6; built 2026-10-10); (2) the street as the ground outside the blocks, sections and
       intersections (B2-B5), replacing the cutting in `spaces.py`; (3) `ground.py`'s land rules inside each block; (4) subsections, the
       layer-0 street items; (5) the parts, lanes (whole per subsection) and 3D on the new spaces. `check` before and after each.
       A city's block outlines only cross-check ours. Test: `scripts/blocks_test.py`.

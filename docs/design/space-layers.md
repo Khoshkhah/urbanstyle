@@ -166,7 +166,7 @@ tree is the hierarchy: level -> ground item -> surface -> bands, with each item'
 ## Order of work
 
 1. Layer 0, the ground, with G1 / G2 (no change inside the street yet): every piece of the area gets a kind; the page draws it. Built.
-   Then, blocks first ([Blocks first](blocks.md)): (a) the blocks (`space.block`, B1, B6); (b) the street as the ground outside them,
+   Then, blocks first ([Blocks first](blocks.md)): (a) the blocks (`space.block`, B1, B6; built); (b) the street as the ground outside them,
    sections and intersections (B2-B5), replacing the cutting in `spaces.py`; (c) the land rules inside each block; (d) subsections, the
    layer-0 street items. G1 / G2 and the checks before and after on Broadway × Granville.
 2. Layers 1-2 in streets: surfaces; lanes as whole items with predecessor / successor; one junction area; pedestrian zones. L1, L2, L4, L5.

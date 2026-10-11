@@ -435,7 +435,8 @@ function draw3d(){
       ['>=',['get','level_max'],0]);
   const up=['*',['-',['get','level'],lv3d],DECK_M];   // bridges: the levels above, as decks in the air
   add({id:'u3d-deck',type:'fill-extrusion',source:ovSrc('Parts'),paint:{'fill-extrusion-color':['get','color'],'fill-extrusion-opacity':1,
-      'fill-extrusion-base':['-',up,SLAB_M],'fill-extrusion-height':['+',up,byKey('type',RAISE,0)]}},['>',['get','level'],lv3d]);
+      'fill-extrusion-base':['-',up,SLAB_M],'fill-extrusion-height':['+',up,byKey('type',RAISE,0)]}},
+      ['all',['>',['get','level'],lv3d],['!',['in',['get','unit_id'],['literal',window.brUnits||[]]]]]);   // (a bridge's 3D model replaces its deck)
   add({id:'u3d-furn',type:'fill-extrusion',source:ovSrc('Street objects 3D'),paint:{'fill-extrusion-color':['get','color'],'fill-extrusion-opacity':1,
       'fill-extrusion-base':['get','base'],'fill-extrusion-height':['get','height']}},lvl);
   bind3d();
@@ -926,7 +927,67 @@ def dossier_layers(con, db):
     return roads, objs, matches
 
 
-def main(db, out):
+# a bridge as a 3D model (bridge3d.py) in a three.js layer on the map: its deck, parapets, piers, lanes and paths; a box on the map turns it
+# on and off. Names start with br (the page's global scope is roadstyle's too)
+BRIDGE_JS = """<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<label id=br3dbox style="position:absolute;right:10px;bottom:40px;z-index:5;background:#fff;padding:3px 8px;border-radius:4px;font:12px sans-serif;
+  box-shadow:0 1px 3px #0003"><input type=checkbox id=br3don checked> bridges in 3D (__BRNAMES__)</label>
+<script>(()=>{const BR=__BRIDGES__, BC=__BRCOL__; window.brUnits=__BRUNITS__;   // brUnits: the old level-1 spaces the models replace (draw3d)
+const hex=c=>parseInt(c.slice(1),16);
+function brLayer(M){const o=maplibregl.MercatorCoordinate.fromLngLat(M.origin,0), s=o.meterInMercatorCoordinateUnits();
+  const T=new THREE.Matrix4().makeTranslation(o.x,o.y,o.z).scale(new THREE.Vector3(s,-s,s)); let renderer,scene,camera; const pick=[];
+  const L={id:'br3d-'+M.name, type:'custom', renderingMode:'3d', pick,
+    onAdd(map,gl){camera=new THREE.Camera(); scene=new THREE.Scene(); L.camera=camera;
+      scene.add(new THREE.AmbientLight(0xffffff,0.7)); const d=new THREE.DirectionalLight(0xffffff,0.45); d.position.set(-0.5,-1,2); scene.add(d);
+      const P=new THREE.BufferAttribute(new Float32Array(M.verts.flat()),3);
+      const mesh=(faces,color)=>{const g=new THREE.BufferGeometry(); g.setAttribute('position',P); g.setIndex(faces.flat()); g.computeVertexNormals();
+        scene.add(new THREE.Mesh(g,new THREE.MeshLambertMaterial({color:hex(color),side:THREE.DoubleSide})))};
+      mesh(M.deck,BC.deck); mesh(M.sides,BC.girder); mesh(M.rails,BC.rail);
+      M.lanes.forEach(r=>{const v=[], f=[]; r.l.forEach((a,i)=>{const b=r.r[i]; v.push(...a,...b); if(i){const k=2*i; f.push(k-2,k-1,k+1,k-2,k+1,k)}});
+        const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(new Float32Array(v),3)); g.setIndex(f); g.computeVertexNormals();
+        const p=r.props, c=p.type==='lane'?BC['lane '+p.direction]||BC.lane:BC[p.type];
+        const m=new THREE.Mesh(g,new THREE.MeshLambertMaterial({color:hex(c),side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:-1}));
+        m.userData=p; scene.add(m); pick.push(m)});
+      M.lines.forEach(l=>{const g=new THREE.BufferGeometry().setFromPoints(l.pts.map(p=>new THREE.Vector3(p[0],p[1],p[2])));
+        const dashed=l.kind==='lane line', ln=new THREE.Line(g,dashed?new THREE.LineDashedMaterial({color:hex(BC[l.kind]),dashSize:3,gapSize:6}):new THREE.LineBasicMaterial({color:hex(BC[l.kind])}));
+        if(dashed)ln.computeLineDistances(); scene.add(ln)});
+      M.piers.forEach(q=>{const [ax,ay]=q.a,[bx,by]=q.b, m=new THREE.Mesh(new THREE.BoxGeometry(Math.hypot(bx-ax,by-ay),q.t,q.h),new THREE.MeshLambertMaterial({color:hex(BC.girder)}));
+        m.position.set((ax+bx)/2,(ay+by)/2,q.h/2); m.rotation.z=Math.atan2(by-ay,bx-ax); scene.add(m)});
+      renderer=new THREE.WebGLRenderer({canvas:map.getCanvas(),context:gl,antialias:true}); renderer.autoClear=false},
+    render(gl,args){const mm=args&&args.defaultProjectionData?args.defaultProjectionData.mainMatrix:args;
+      camera.projectionMatrix=new THREE.Matrix4().fromArray(mm).multiply(T); renderer.resetState(); renderer.render(scene,camera)}};
+  return L}
+const LAYERS={}, ray=new THREE.Raycaster();
+// the lane (or path) under a point of the map: a ray from the camera through it, in the model's own metres
+function brHit(pt){const c=map.getCanvas(), x=pt.x/c.clientWidth*2-1, y=1-pt.y/c.clientHeight*2; let best=null;
+  Object.values(LAYERS).forEach(L=>{if(!L.camera||!map.getLayer(L.id)||map.getLayoutProperty(L.id,'visibility')==='none')return;
+    const inv=L.camera.projectionMatrix.clone().invert(), a=new THREE.Vector3(x,y,-1).applyMatrix4(inv), b=new THREE.Vector3(x,y,1).applyMatrix4(inv);
+    ray.set(a,b.sub(a).normalize()); const h=ray.intersectObjects(L.pick)[0]; if(h&&(!best||h.distance<best.distance))best=h});
+  return best&&best.object}
+const brName=p=>p.type==='lane'?`lane ${p.lane} · ${p.direction} · ${p.name||p.osm}`:`${p.type} · ${p.name||p.osm}`;
+const brTip=new maplibregl.Popup({closeButton:false,closeOnClick:false,offset:12}); let brLit=null, brSel=null, brPop=null;
+const brShow=(m,on)=>{if(m)m.material.emissive.setHex(on?0x555555:0)};
+let brQ=false, brLast=null;
+map.on('mousemove',e=>{brLast=e; if(brQ)return; brQ=true; requestAnimationFrame(()=>{brQ=false; const m=brHit(brLast.point);
+  if(m!==brLit){if(brLit!==brSel)brShow(brLit,false); brLit=m; brShow(m,true); map.triggerRepaint()}
+  if(m){brTip.setLngLat(brLast.lngLat).setHTML(`<b>${brName(m.userData)}</b>`).addTo(map)}else brTip.remove()})});
+map.on('click',e=>{const m=brHit(e.point); if(!m)return;
+  if(brSel&&brSel!==m)brShow(brSel,false); brSel=m; brShow(m,true); map.triggerRepaint(); if(brPop)brPop.remove();
+  const rows=Object.entries(m.userData).filter(([k,v])=>v!=null&&v!=='').map(([k,v])=>`<tr><td style="color:#64748b;padding-right:6px">${k}</td><td>${v}</td></tr>`).join('');
+  brPop=new maplibregl.Popup({maxWidth:'340px'}).setLngLat(e.lngLat).setHTML(`<b>${brName(m.userData)}</b><table style="font-size:12px">${rows}</table>`).addTo(map);
+  brPop.on('close',()=>{if(brSel){brShow(brSel,false); brSel=null; map.triggerRepaint()}})});
+// (added again whenever the style is rebuilt: a basemap or a view switch drops custom layers)
+const brOn=()=>document.getElementById('br3don').checked;
+const brAdd=()=>{if(!map.isStyleLoaded())return; BR.forEach(M=>{const id='br3d-'+M.name; if(!map.getLayer(id)){
+  try{LAYERS[id]=brLayer(M); map.addLayer(LAYERS[id]); if(!brOn())map.setLayoutProperty(id,'visibility','none')}catch(e){console.error('bridge 3D:',e)}}})};
+const brGo=()=>{if(typeof map==='undefined'||!map.isStyleLoaded||!map.isStyleLoaded()||typeof THREE==='undefined')return setTimeout(brGo,300);
+  brAdd(); map.on('styledata',brAdd); map.on('idle',brAdd);
+  document.getElementById('br3don').onchange=()=>{BR.forEach(M=>{if(map.getLayer('br3d-'+M.name))map.setLayoutProperty('br3d-'+M.name,'visibility',brOn()?'visible':'none')});
+    window.brUnits=brOn()?__BRUNITS__:[]; if(typeof draw3d==='function'&&document.body.classList.contains('u3d'))draw3d()}};
+brGo()})();</script>"""
+
+
+def main(db, out, bridges=None):
     con = duckdb.connect(db, read_only=True)
     con.execute("LOAD spatial")
     edges = frame(con, """SELECT ST_AsWKB(geometry) AS geometry, class AS highway, name, level_min AS level, type, container_id,
@@ -1190,6 +1251,18 @@ def main(db, out):
     panel = (PANEL.replace("__PCOL__", json.dumps(PART_COLORS)).replace("__RAISED__", json.dumps(RAISED)).replace("__KERBTOP__", json.dumps(KERB_TOP_M)).replace("__OBJPOPUP__", json.dumps(OBJ_POPUP)).replace("__BLDPOPUP__", json.dumps(BLD_POPUP)).replace("__LOTPOPUP__", json.dumps(LOT_POPUP)).replace("__GROUNDPOPUP__", json.dumps(GROUND_POPUP)).replace("__NEWU__", json.dumps(newu)).replace("__MARKS__", json.dumps([t for t, *_ in MARKS if len(marks) and (marks["type"] == t).any()])).replace("__TREE__", json.dumps(tree_data(con, epsg)).replace("</", "<\\/"))
              .replace("__LEVELS__", json.dumps(list(range(LEVELS[0], LEVELS[1] + 1)))).replace("__LINKDEF__", json.dumps([{"t": t, "lab": n, "c": c, "d": d} for t, n, c, d in defs]))
              .replace("__KINDS__", json.dumps([{"k": k, "lab": lab, "c": c} for k, lab, c in kinds])).replace("__OBJDEF__", json.dumps([{"g": g, "c": c} for g, c in ogroups])).replace("__OBJCOLORS__", json.dumps({k: v[2] for k, v in OBJ_SHAPES.items()})).replace("__STRIPS__", json.dumps([{"t": t, "lab": lab, "c": c} for t, lab, c, _ in sdefs])).replace("__HAS__", json.dumps(has)).replace("__LEVELBTNS__", "".join(f'<button data-l="{l}">{l}</button>' for l in range(LEVELS[0], LEVELS[1] + 1))))
+    if bridges:     # [(OSM database, bridge name)]: each as a 3D model (bridge3d.py)
+        import shapely
+        from .bridge3d import model
+        ms = [model(o, n) for o, n in bridges]
+        # the old level-1 spaces under a model: their deck is not drawn in 3D (the model replaces it)
+        under = sorted({u for mm in ms for (u,) in con.execute("""SELECT unit_id FROM space.unit WHERE level > 0 AND ST_Intersects(geometry,
+                            ST_MakeValid(ST_GeomFromText(?)))""", [shapely.Polygon(mm["outline"]).wkt]).fetchall()})
+        col = {"deck": PART_COLORS["sidewalk"], "girder": "#8f8b86", "rail": "#cfc8bd", "lane": PART_COLORS["lane"],
+               "lane forward": PART_COLORS["lane forward"], "lane backward": PART_COLORS["lane backward"], "cycleway": PART_COLORS["cycle lane"],
+               "footway": PART_COLORS["sidewalk"], "lane line": "#ffffff", "edge line": "#ffffff", "centre line": "#facc15"}
+        panel += (BRIDGE_JS.replace("__BRIDGES__", json.dumps(ms, separators=(",", ":"))).replace("__BRNAMES__", ", ".join(n for _, n in bridges))
+                  .replace("__BRCOL__", json.dumps(col)).replace("__BRUNITS__", json.dumps(under)))
     open(out, "w").write(m.html.replace("</body>", panel + "</body>"))
 
 

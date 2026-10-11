@@ -14,6 +14,8 @@ def main(argv=None):
     d = sub.add_parser("dashboard", help="an offline HTML map with the hierarchy tree (needs roadstyle)")
     d.add_argument("db")
     d.add_argument("out")
+    d.add_argument("--bridge", nargs=2, action="append", metavar=("OSM_DB", "NAME"),
+                   help="draw a bridge as a 3D model: a duckOSM database holding all of it and its OSM name (man_made=bridge)")
     ly = sub.add_parser("layers", help="an offline HTML page of the layers: 0 the ground, 1 the surfaces (needs roadstyle)")
     ly.add_argument("db")
     ly.add_argument("out")
@@ -58,7 +60,7 @@ def main(argv=None):
         mly(a.db, a.osm)
     else:
         from .dashboard import main as dash
-        dash(a.db, a.out)
+        dash(a.db, a.out, a.bridge)
     return 0
 
 

@@ -21,8 +21,6 @@ PATH_W = {"cycleway": 3.0, "footway": 2.0, "path": 2.0, "pedestrian": 3.0}
 STEP_M = 10.0       # the vertical profile is sampled this often (then collinear points are dropped)
 ON_DECK = 0.6       # a road way is on the deck when this share of it lies within 5 m of the outline
 PATHS = ("cycleway", "footway", "path", "pedestrian")
-PATH_REACH_M = 25.0  # a path this near the axis, parallel to it (PARALLEL: the cosine of the angle), is a band of its section
-PARALLEL = 0.9
 
 
 def _val(value, source, method):
@@ -152,7 +150,7 @@ def _profile(g, tr, name, epsg, deck, outline, on, lines, pts, ground, osm_db, g
                      "vertical": {"points": _collinear_out([[round(s, 2), round(z, 2)] for s, z in zs]), "source": "urbanstyle",
                                   "method": "chosen", "rule": f"{GRADE:.0%} up from the nearest end where a road on it meets a ground road, "
                                                               f"at most {TOP_M} m"},
-                     "sections": _sections(ax, ways, tr_link, lanes, paths, lines, parts)})
+                     "sections": _sections(ax, ways, tr_link, lanes, lines)})
     piers = place_piers(axes)
     if outline is None:     # no OSM outline: the sections, each as wide as its bands
         polys = []
@@ -167,11 +165,11 @@ def _profile(g, tr, name, epsg, deck, outline, on, lines, pts, ground, osm_db, g
         deck = max(shapely.get_parts(deck), key=lambda p: p.area)
         outline = _val([[round(x, 2), round(y, 2)] for x, y in deck.exterior.coords], "urbanstyle: the sections, each as wide as its bands",
                        "derived")
-    # the paths on the deck that are no band of an axis (they turn, cross or join): each along its own OSM line
-    banded = {b["way"] for a in axes for sec in a["sections"] for b in sec["bands"] if b["type"] != "lane"}
+    # the paths on the deck (sidewalks, cycleways), each once, along its own OSM line: a fixed offset from an axis broke a path that
+    # curves away from it (w538616396, 6 bands on 2 axes)
     free = [{"way": f"w{w}", "type": "cycleway" if lines[w][2]["highway"] == "cycleway" else "footway", "name": lines[w][2].get("name"),
              "line": [[round(x, 2), round(y, 2)] for x, y in lines[w][0].coords], "width": _val(PATH_W[lines[w][2]["highway"]], "urbanstyle", "chosen"),
-             "source": f"osm w{w}", "method": "mapped"} for w in paths if f"w{w}" not in banded]
+             "source": f"osm w{w}", "method": "mapped"} for w in paths]
     return {"format": FORMAT, "name": name, "crs": f"EPSG:{epsg}",
             "z_datum": _val("ground at the ends", "urbanstyle", "chosen"),
             "made": {"by": "urbanstyle bridge profile", "date": datetime.date.today().isoformat(), "inputs": [osm_db, gmns_db]},
@@ -227,9 +225,9 @@ def _offset(ax, s, geom):
     return round((1 if side >= 0 else -1) * p.distance(q), 2)
 
 
-def _sections(ax, ways, links, lanes, paths, lines, axes):
+def _sections(ax, ways, links, lanes, lines):
     """The axis cut where the bands change: at each end of a GMNS link along it. Each section's bands from left to right: the lanes of
-    the links over its middle, and the paths beside it: within PATH_REACH_M, parallel to it, and nearer to it than to any other axis."""
+    the links over its middle (the paths are the profile's `paths`, each along its own line)."""
     import shapely
     import shapely.ops
     width_src = {}      # the ways whose lane widths OSM gives (width:lanes)
@@ -259,27 +257,9 @@ def _sections(ax, ways, links, lanes, paths, lines, axes):
                               "s_from": round(max(s0, ca), 2), "s_to": round(min(s1, cb), 2),
                               "width": _val(width, "osm width:lanes" if width_src.get(osm) else "duckOSM GMNS (road class)",
                                             "mapped" if width_src.get(osm) else "chosen")})
-        for w in paths:
-            ln = lines[w][0]
-            q = shapely.ops.nearest_points(pm, ln)[1]
-            if pm.distance(q) > PATH_REACH_M or min(axes, key=lambda x: x.distance(q)) is not ax or abs(_cos(ax, sm, ln, q)) < PARALLEL:
-                continue
-            hw = lines[w][2]["highway"]
-            bands.append({"type": "cycleway" if hw == "cycleway" else "footway", "way": f"w{w}", "name": lines[w][2].get("name"),
-                          "t": _offset(ax, sm, ln), "source": f"osm w{w}", "method": "mapped",
-                          "width": _val(PATH_W[hw], "urbanstyle", "chosen")})
         bands.sort(key=lambda b: -b["t"])
         out.append({"s0": s0, "s1": s1, "links": sorted({b["link"] for b in bands if "link" in b}), "bands": bands})
     return out
-
-
-def _cos(ax, s, ln, q):
-    """The cosine of the angle between the axis at s and the line ln at its point q."""
-    a, b = ax.interpolate(max(s - 1, 0)), ax.interpolate(min(s + 1, ax.length))
-    d = ln.project(q)
-    c, e = ln.interpolate(max(d - 1, 0)), ln.interpolate(min(d + 1, ln.length))
-    u, v = (b.x - a.x, b.y - a.y), (e.x - c.x, e.y - c.y)
-    return (u[0] * v[0] + u[1] * v[1]) / ((u[0] ** 2 + u[1] ** 2) ** .5 * (v[0] ** 2 + v[1] ** 2) ** .5 or 1)
 
 
 def _lane_count(tags):

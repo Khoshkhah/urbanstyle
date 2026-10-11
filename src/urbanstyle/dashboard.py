@@ -418,18 +418,19 @@ function draw3d(){
   const add=(spec,filter)=>{if(!spec.source)return; if(!map.getLayer(spec.id)){map.addLayer(spec); U3D.push(spec.id)}
     map.setFilter(spec.id,filter); map.setLayoutProperty(spec.id,'visibility',in3d?'visible':'none')};
   const lvl=['==',['get','level'],lv3d];
+  const own=['all',lvl,['!',['in',['get','unit_id'],['literal',window.brUnits||[]]]]];   // (on a bridge: the model lays them on its deck)
   add({id:'u3d-gnd',type:'fill',source:ovSrc('Ground'),paint:{'fill-color':['get','color'],'fill-opacity':1}},['all',lvl,['!=',['get','type'],'street']]);   // the ground beside the street
   add({id:'u3d-lot',type:'fill',source:ovSrc('Parking lots'),paint:{'fill-color':'#a8b0ba','fill-opacity':1}},lvl);   // a car park: paved, flush
   add({id:'u3d-ground',type:'fill',source:ovSrc('Parts'),paint:{'fill-color':['get','color'],'fill-opacity':1}},
-      ['all',lvl,['!',['in',['get','type'],['literal',Object.keys(RAISE)]]]]);
+      ['all',own,['!',['in',['get','type'],['literal',Object.keys(RAISE)]]]]);
   OVERLAYS.filter(o=>o.label.startsWith('Mark: ')&&!NOT_IN_3D.includes(o.label)).forEach(o=>{   // the paint, as in 2D, on the 3D ground
     const l2=map.getStyle().layers.find(x=>x.id===o.layers[0]); if(!l2)return;
-    add({id:'u3d-'+o.layers[0],type:l2.type,source:o.source,paint:l2.paint||{},layout:Object.assign({},l2.layout||{},{visibility:'none'})},lvl)});
+    add({id:'u3d-'+o.layers[0],type:l2.type,source:o.source,paint:l2.paint||{},layout:Object.assign({},l2.layout||{},{visibility:'none'})},own)});
   // the kerb: a stone 0.25 m wide along the roadway's edge
   add({id:'u3d-kerb',type:'fill-extrusion',source:ovSrc('Kerbs 3D'),paint:{'fill-extrusion-color':'#8f8b86','fill-extrusion-opacity':1,
-      'fill-extrusion-height':__KERBTOP__}},lvl);     // a grey stone, standing 5 cm above the sidewalk: the kerb reads as a line
+      'fill-extrusion-height':__KERBTOP__}},own);     // a grey stone, standing 5 cm above the sidewalk: the kerb reads as a line
   add({id:'u3d-raised',type:'fill-extrusion',source:ovSrc('Parts'),paint:{'fill-extrusion-color':['get','color'],'fill-extrusion-opacity':1,
-      'fill-extrusion-height':byKey('type',RAISE,0)}},['all',lvl,['in',['get','type'],['literal',Object.keys(RAISE)]]]);
+      'fill-extrusion-height':byKey('type',RAISE,0)}},['all',own,['in',['get','type'],['literal',Object.keys(RAISE)]]]);
   add({id:'u3d-bld',type:'fill-extrusion',source:ovSrc('Buildings'),paint:{'fill-extrusion-color':'#e7e2d8','fill-extrusion-opacity':0.92,
       'fill-extrusion-height':['get','height_m'],'fill-extrusion-base':['*',['max',['get','level_min'],0],LEVEL_M]}},     // its real height
       ['>=',['get','level_max'],0]);
@@ -943,14 +944,13 @@ function brLayer(M){const o=maplibregl.MercatorCoordinate.fromLngLat(M.origin,0)
       const mesh=(faces,color)=>{const g=new THREE.BufferGeometry(); g.setAttribute('position',P); g.setIndex(faces.flat()); g.computeVertexNormals();
         scene.add(new THREE.Mesh(g,new THREE.MeshLambertMaterial({color:hex(color),side:THREE.DoubleSide})))};
       mesh(M.deck,BC.deck); mesh(M.sides,BC.girder); mesh(M.rails,BC.rail);
-      M.lanes.forEach(r=>{const v=[], f=[]; r.l.forEach((a,i)=>{const b=r.r[i]; v.push(...a,...b); if(i){const k=2*i; f.push(k-2,k-1,k+1,k-2,k+1,k)}});
-        const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(new Float32Array(v),3)); g.setIndex(f); g.computeVertexNormals();
-        const p=r.props, c=p.type==='lane'?BC['lane '+p.direction]||BC.lane:BC[p.type];
-        const m=new THREE.Mesh(g,new THREE.MeshLambertMaterial({color:hex(c),side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:-1}));
-        m.userData=p; scene.add(m); pick.push(m)});
-      M.lines.forEach(l=>{const g=new THREE.BufferGeometry().setFromPoints(l.pts.map(p=>new THREE.Vector3(p[0],p[1],p[2])));
-        const dashed=l.kind==='lane line', ln=new THREE.Line(g,dashed?new THREE.LineDashedMaterial({color:hex(BC[l.kind]),dashSize:3,gapSize:6}):new THREE.LineBasicMaterial({color:hex(BC[l.kind])}));
-        if(dashed)ln.computeLineDistances(); scene.add(ln)});
+      // the surface, as the street: each part (or the model's own lane or path where the street has none) and each painted line on the
+      // deck, in the street's colours; a part keeps its fields for the popup (paint shares one material per colour)
+      const mats={}, paint=c=>mats[c]||(mats[c]=new THREE.MeshLambertMaterial({color:hex(c),side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2}));
+      M.surf.forEach(sf=>{const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(new Float32Array(sf.v.flat()),3));
+        g.setIndex(sf.f.flat()); g.computeVertexNormals(); const c=BC.parts[sf.key]||BC.parts[sf.key.split(' ')[0]]||'#999999';
+        const m=new THREE.Mesh(g,sf.props?new THREE.MeshLambertMaterial({color:hex(c),side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:-1,polygonOffsetUnits:-1}):paint(c));
+        if(sf.props){m.userData=sf.props; pick.push(m)} scene.add(m)});
       M.piers.forEach(q=>{const [ax,ay]=q.a,[bx,by]=q.b, m=new THREE.Mesh(new THREE.BoxGeometry(Math.hypot(bx-ax,by-ay),q.t,q.h),new THREE.MeshLambertMaterial({color:hex(BC.girder)}));
         m.position.set((ax+bx)/2,(ay+by)/2,q.h/2); m.rotation.z=Math.atan2(by-ay,bx-ax); scene.add(m)});
       scene.traverse(o=>{o.frustumCulled=false});   // the map's matrix is the camera: three.js's own culling dropped the parts far from the origin
@@ -965,7 +965,7 @@ function brHit(pt){const c=map.getCanvas(), x=pt.x/c.clientWidth*2-1, y=1-pt.y/c
     const inv=L.camera.projectionMatrix.clone().invert(), a=new THREE.Vector3(x,y,-1).applyMatrix4(inv), b=new THREE.Vector3(x,y,1).applyMatrix4(inv);
     ray.set(a,b.sub(a).normalize()); const h=ray.intersectObjects(L.pick)[0]; if(h&&(!best||h.distance<best.distance))best=h});
   return best&&best.object}
-const brName=p=>p.type==='lane'?`lane ${p.lane} · ${p.direction} · ${p.name||p.osm}`:`${p.type} · ${p.name||p.osm}`;
+const brName=p=>p.part_id?`${p.type}${p.direction?' · '+p.direction:''} · ${p.part_id}`:p.type==='lane'?`lane ${p.lane} · ${p.direction} · ${p.name||p.osm}`:`${p.type} · ${p.name||p.osm}`;
 const brTip=new maplibregl.Popup({closeButton:false,closeOnClick:false,offset:12}); let brLit=null, brSel=null, brPop=null;
 const brShow=(m,on)=>{if(m)m.material.emissive.setHex(on?0x555555:0)};
 let brQ=false, brLast=null;
@@ -1255,18 +1255,31 @@ def main(db, out, bridges=None):
     panel = (PANEL.replace("__PCOL__", json.dumps(PART_COLORS)).replace("__RAISED__", json.dumps(RAISED)).replace("__KERBTOP__", json.dumps(KERB_TOP_M)).replace("__OBJPOPUP__", json.dumps(OBJ_POPUP)).replace("__BLDPOPUP__", json.dumps(BLD_POPUP)).replace("__LOTPOPUP__", json.dumps(LOT_POPUP)).replace("__GROUNDPOPUP__", json.dumps(GROUND_POPUP)).replace("__NEWU__", json.dumps(newu)).replace("__MARKS__", json.dumps([t for t, *_ in MARKS if len(marks) and (marks["type"] == t).any()])).replace("__TREE__", json.dumps(tree_data(con, epsg)).replace("</", "<\\/"))
              .replace("__LEVELS__", json.dumps(list(range(LEVELS[0], LEVELS[1] + 1)))).replace("__LINKDEF__", json.dumps([{"t": t, "lab": n, "c": c, "d": d} for t, n, c, d in defs]))
              .replace("__KINDS__", json.dumps([{"k": k, "lab": lab, "c": c} for k, lab, c in kinds])).replace("__OBJDEF__", json.dumps([{"g": g, "c": c} for g, c in ogroups])).replace("__OBJCOLORS__", json.dumps({k: v[2] for k, v in OBJ_SHAPES.items()})).replace("__STRIPS__", json.dumps([{"t": t, "lab": lab, "c": c} for t, lab, c, _ in sdefs])).replace("__HAS__", json.dumps(has)).replace("__LEVELBTNS__", "".join(f'<button data-l="{l}">{l}</button>' for l in range(LEVELS[0], LEVELS[1] + 1))))
-    if bridges:     # [bridge profile]: each as a 3D model (bridge3d.py)
+    if bridges:     # [bridge profile]: each as a 3D model (bridge3d.py), its surface drawn as the street (the level's own parts on its deck)
         import shapely
         from .bridge3d import model
-        ms = [model(b) for b in bridges]
-        # the old level-1 spaces under a model: their deck is not drawn in 3D (the model replaces it)
-        under = sorted({u for mm in ms for (u,) in con.execute("""SELECT unit_id FROM space.unit WHERE level > 0 AND ST_Intersects(geometry,
-                            ST_MakeValid(ST_GeomFromText(?)))""", [shapely.Polygon(mm["outline"]).wkt]).fetchall()})
-        col = {"deck": PART_COLORS["sidewalk"], "girder": "#8f8b86", "rail": "#cfc8bd", "lane": PART_COLORS["lane"],
-               "lane forward": PART_COLORS["lane forward"], "lane backward": PART_COLORS["lane backward"], "cycleway": PART_COLORS["cycle lane"],
-               "footway": PART_COLORS["sidewalk"], "lane line": "#ffffff", "edge line": "#ffffff", "centre line": "#facc15",
-               "junction lane": PART_COLORS["lane"]}
-        panel += (BRIDGE_JS.replace("__BRIDGES__", json.dumps(ms, separators=(",", ":"))).replace("__BRNAMES__", ", ".join(mm["name"] for mm in ms))
+        ms, under = [], set()
+        for b in bridges:
+            P_ = json.load(open(b))
+            ol = shapely.Polygon(P_["deck"]["outline"]["value"])
+            to_crs = f"ST_Transform(geometry, 'EPSG:4326', '{P_['crs']}', always_xy := true)"
+            # the street spaces above level 0 on this bridge: their parts and marks lie on the deck; their flat 3D drawing is hidden
+            us = [u for u, w in con.execute(f"SELECT unit_id, ST_AsWKB({to_crs}) FROM space.unit WHERE level > 0").fetchall()
+                  if shapely.from_wkb(bytes(w)).intersects(ol)]
+            under |= set(us)
+            pf = ["part_id", "unit_id", "level", "type", "direction", "lane", "lane_id", "width_m", "road", "source", "method", "ref", "rule"]
+            have = {r[0] for r in con.execute("SELECT column_name FROM information_schema.columns WHERE table_schema = 'space' AND table_name = 'part'").fetchall()}
+            sel = ", ".join(c if c in have else f"NULL AS {c}" for c in pf)
+            parts_ = [(dict(zip(pf, r[:-1])), shapely.from_wkb(bytes(r[-1]))) for r in con.execute(
+                f"SELECT {sel}, ST_AsWKB({to_crs}) FROM space.part WHERE unit_id IN (SELECT unnest(?::VARCHAR[]))", [us]).fetchall()]
+            marks_ = [(t, shapely.from_wkb(bytes(w))) for t, w in con.execute(
+                f"SELECT type, ST_AsWKB({to_crs}) FROM space.mark WHERE unit_id IN (SELECT unnest(?::VARCHAR[]))", [us]).fetchall()]
+            ms.append(model(P_, parts_, marks_))
+        under = sorted(under)
+        col = {"deck": PART_COLORS["lane"], "girder": "#8f8b86", "rail": "#cfc8bd",      # the deck's top is roadway; its sides concrete
+               "parts": {**PART_COLORS, **{f"mark {t}": c for t, c, *_ in MARKS}, "mark kerb": "#8f8b86"}}
+        page_ms = [{k: v for k, v in mm.items() if k not in ("lanes", "lines")} for mm in ms]     # (the page draws `surf`)
+        panel += (BRIDGE_JS.replace("__BRIDGES__", json.dumps(page_ms, separators=(",", ":"))).replace("__BRNAMES__", ", ".join(mm["name"] for mm in ms))
                   .replace("__BRCOL__", json.dumps(col)).replace("__BRUNITS__", json.dumps(under)))
     open(out, "w").write(m.html.replace("</body>", panel + "</body>"))
 

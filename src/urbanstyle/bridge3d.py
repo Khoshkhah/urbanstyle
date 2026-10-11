@@ -1,8 +1,12 @@
 """A bridge as a 3D model for the dashboard's three.js layer (docs/design/bridges-3d.md), from its profile only
 (docs/design/bridge-profile.md, `bridge_profile.py`):
-    deck       the outline, its top as triangles; each point at the height of the nearest axis's vertical profile; as thick as the
-               profile's deck thickness, with a parapet along the outline
-    lanes      each band of each section, a ribbon between its left and right edges, with its fields (and their sources) for the popup
+    deck       the outline, its top as triangles; as thick as the profile's deck thickness, with a parapet along the outline
+    heights    one surface for the deck, the lanes and the lines: the two nearest axes' vertical profiles, each weighted by the other's
+               distance (so no step where the nearest axis changes, at a fork)
+    lanes      each band of each section, a ribbon between its left and right edges, from where SUMO starts the lane to where it ends it at a
+               junction (s_from, s_to: GMNS geom_cut), with its fields (and their sources) for the popup; through a junction on the deck,
+               SUMO's path from lane to lane (the profile's connectors), so the lanes of a fork or a merge do not lie on each other;
+               each path on the deck that is no band (it turns, crosses or joins) along its own line (the profile's paths)
     lines      an edge line at the outer edge of each run of lanes, a lane line between two lanes of one direction, the centre line
                between the two directions
     piers      a wall across the deck at each pier, down to the ground
@@ -11,6 +15,7 @@ Coordinates: metres east and north of the model's origin (its first outline poin
 import json
 
 STEP_M = 4.0        # the outline and the bands are sampled this often, so their heights follow the profile
+BLEND_M = 40.0      # the heights of two axes are blended where the second nearest is this near
 TOUCH_M = 0.5       # two lanes this close share one painted line
 
 
@@ -35,10 +40,13 @@ def model(path):
     by_id = {a["id"]: (ln, a) for ln, a in axes}
 
     def z(x, y):
-        """The deck's top at (x, y): the vertical profile of the nearest axis."""
+        """The deck's top at (x, y): the two nearest axes' vertical profiles, each weighted by the other's distance."""
         p = shapely.Point(x, y)
-        ln, a = min(axes, key=lambda la: la[0].distance(p))
-        return _z(a["vertical"]["points"], ln.project(p))
+        near = sorted(((ln.distance(p), _z(a["vertical"]["points"], ln.project(p))) for ln, a in axes), key=lambda dz: dz[0])[:2]
+        if len(near) < 2 or near[1][0] > BLEND_M:
+            return near[0][1]
+        (d1, z1), (d2, z2) = near
+        return (z1 * d2 + z2 * d1) / ((d1 + d2) or 1)
 
     # the deck's top: the outline densified, triangulated inside it
     dense = deck.segmentize(STEP_M)
@@ -77,8 +85,19 @@ def model(path):
         for i in range(n + 1):
             s = s0 + (s1 - s0) * i / n
             x, y, nx, ny = frame(ln, s)
-            out.append([round(x + nx * t, 2), round(y + ny * t, 2), round(_z(a["vertical"]["points"], s) + lift, 2)])
+            out.append([round(x + nx * t, 2), round(y + ny * t, 2), round(z(x + nx * t, y + ny * t) + lift, 2)])
         return out
+
+    def ribbon(line, w, lift):
+        """The left and right edges of a strip w wide along a line, every STEP_M, at the deck's height plus lift."""
+        line = line.segmentize(STEP_M)
+        l_, r_ = [], []
+        for k in range(len(line.coords)):
+            x, y, nx, ny = frame(line, line.project(shapely.Point(line.coords[k])))
+            for e_, sg in ((l_, 1), (r_, -1)):
+                px, py = x + nx * sg * w / 2, y + ny * sg * w / 2
+                e_.append([round(px, 2), round(py, 2), round(z(px, py) + lift, 2)])
+        return l_, r_
     lanes, lines = [], []
     for ln, a in axes:
         height = f"{a['vertical']['source']}, {a['vertical']['method']}"
@@ -90,10 +109,14 @@ def model(path):
                          "turn": b.get("turn"), "width_m": w, "width_source": b["width"]["source"], "width_method": b["width"]["method"],
                          "axis": a["id"], "section_m": f"{sec['s0']}-{sec['s1']}", "height": height,
                          "source": "duckOSM GMNS (lanes from SUMO)" if b["type"] == "lane" else "osm", "method": "mapped"}
-                lanes.append({"props": props, "l": along(ln, a, sec["s0"], sec["s1"], b["t"] + w / 2, 0.03),
-                              "r": along(ln, a, sec["s0"], sec["s1"], b["t"] - w / 2, 0.03)})
+                f_, t_ = b.get("s_from", sec["s0"]), b.get("s_to", sec["s1"])
+                if t_ - f_ < 0.5:       # (inside a junction: a connector covers it)
+                    continue
+                lanes.append({"props": props, "l": along(ln, a, f_, t_, b["t"] + w / 2, 0.03), "r": along(ln, a, f_, t_, b["t"] - w / 2, 0.03)})
             # painted lines: across the lanes of the section, from left to right
             ls, paint = [b for b in sec["bands"] if b["type"] == "lane"], []
+            f_ = min((b.get("s_from", sec["s0"]) for b in ls), default=sec["s0"])
+            t_ = max((b.get("s_to", sec["s1"]) for b in ls), default=sec["s1"])
             for i, b in enumerate(ls):
                 left, right = b["t"] + b["width"]["value"] / 2, b["t"] - b["width"]["value"] / 2
                 if i == 0 or abs(ls[i - 1]["t"] - ls[i - 1]["width"]["value"] / 2 - left) > TOUCH_M:
@@ -103,13 +126,30 @@ def model(path):
                     paint.append(("centre line" if nb["direction"] != b["direction"] else "lane line", (right + nb["t"] + nb["width"]["value"] / 2) / 2))
                 else:
                     paint.append(("edge line", right))
-            lines += [{"kind": k, "ref": a["id"], "pts": along(ln, a, sec["s0"], sec["s1"], t, 0.06)} for k, t in paint]
+            if t_ - f_ >= 0.5:
+                lines += [{"kind": k, "ref": a["id"], "pts": along(ln, a, f_, t_, t, 0.06)} for k, t in paint]
+    for f in P.get("paths", []):            # a path on the deck that is no band of an axis, along its own line
+        fl = shapely.LineString(rel(f["line"]))
+        if fl.length < 0.5:
+            continue
+        l_, r_ = ribbon(fl, f["width"]["value"], 0.04)
+        lanes.append({"props": {"type": f["type"], "name": f.get("name") or P["name"], "osm": f["way"], "width_m": f["width"]["value"],
+                                "width_source": f["width"]["source"], "width_method": f["width"]["method"], "source": f["source"],
+                                "method": f["method"]}, "l": l_, "r": r_})
+    for c in P.get("connectors", []):       # SUMO's path from lane to lane through a junction on the deck
+        cl = shapely.LineString(rel(c["line"]))
+        if cl.length < 0.5:
+            continue
+        l_, r_ = ribbon(cl, c["width"]["value"], 0.04)
+        lanes.append({"props": {"type": "junction lane", "name": P["name"], "connector": c["id"], "from_lane": c["from"], "to_lane": c["to"],
+                                "width_m": c["width"]["value"], "width_source": c["width"]["source"], "width_method": c["width"]["method"],
+                                "source": c["source"], "method": c["method"]}, "l": l_, "r": r_})
     piers = []
     for q in P["piers"]:
         ln, a = by_id[q["axis"]]
         x, y, nx, ny = frame(ln, q["s"])
         cut = shapely.LineString([(x - nx * 80, y - ny * 80), (x + nx * 80, y + ny * 80)]).intersection(deck.buffer(-2.0))
-        h = _z(a["vertical"]["points"], q["s"]) - DECK_M
+        h = z(x, y) - DECK_M
         for seg in shapely.get_parts(cut):
             if seg.geom_type == "LineString" and seg.length > 2:
                 (ax, ay), (bx, by) = seg.coords[0], seg.coords[-1]

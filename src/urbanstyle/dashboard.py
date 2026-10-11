@@ -1260,7 +1260,8 @@ def main(db, out, bridges=None):
                             ST_MakeValid(ST_GeomFromText(?)))""", [shapely.Polygon(mm["outline"]).wkt]).fetchall()})
         col = {"deck": PART_COLORS["sidewalk"], "girder": "#8f8b86", "rail": "#cfc8bd", "lane": PART_COLORS["lane"],
                "lane forward": PART_COLORS["lane forward"], "lane backward": PART_COLORS["lane backward"], "cycleway": PART_COLORS["cycle lane"],
-               "footway": PART_COLORS["sidewalk"], "lane line": "#ffffff", "edge line": "#ffffff", "centre line": "#facc15"}
+               "footway": PART_COLORS["sidewalk"], "lane line": "#ffffff", "edge line": "#ffffff", "centre line": "#facc15",
+               "junction lane": PART_COLORS["lane"]}
         panel += (BRIDGE_JS.replace("__BRIDGES__", json.dumps(ms, separators=(",", ":"))).replace("__BRNAMES__", ", ".join(mm["name"] for mm in ms))
                   .replace("__BRCOL__", json.dumps(col)).replace("__BRUNITS__", json.dumps(under)))
     open(out, "w").write(m.html.replace("</body>", panel + "</body>"))

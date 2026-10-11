@@ -121,9 +121,18 @@ def _profile(g, tr, name, epsg, deck, outline, on, lines, pts, ground, osm_db, g
     links = g.execute("""SELECT link_id, osm_id, ST_AsText(geom) FROM gmns_driving.link
                          WHERE osm_id IN (SELECT unnest(?::BIGINT[]))""", [roads]).fetchall()
     lanes = {}
-    for lane_id, lk, num, use, width, turn, gw in g.execute("""SELECT lane_id, link_id, lane_num, allowed_uses, width, turn, ST_AsText(geom)
-            FROM gmns_driving.lane WHERE link_id IN (SELECT unnest(?::BIGINT[])) AND geom IS NOT NULL""", [[r[0] for r in links]]).fetchall():
-        lanes.setdefault(lk, []).append((lane_id, num, use, width, turn, utm(gw)))
+    for lane_id, lk, num, use, width, turn, gw, gc in g.execute("""SELECT lane_id, link_id, lane_num, allowed_uses, width, turn, ST_AsText(geom),
+            ST_AsText(geom_cut) FROM gmns_driving.lane WHERE link_id IN (SELECT unnest(?::BIGINT[])) AND geom IS NOT NULL""",
+            [[r[0] for r in links]]).fetchall():
+        lanes.setdefault(lk, []).append((lane_id, num, use, width, turn, utm(gw), utm(gc) if gc else None))
+    # SUMO's paths from lane to lane through each junction on the deck (GMNS lane_connector: both lanes on the bridge's links)
+    on_deck = {lid for ls in lanes.values() for lid, *_ in ls}
+    connectors = [{"id": cid, "from": fl, "to": tl, "width": _val(round(w, 2), "duckOSM GMNS (SUMO's internal lane)", "derived"),
+                   "line": [[round(x, 2), round(y, 2)] for x, y in utm(gw).coords], "source": "sumo, via duckOSM GMNS lane_connector",
+                   "method": "derived"}
+                  for cid, fl, tl, w, gw in g.execute("""SELECT connector_id, from_lane_id, to_lane_id, width, ST_AsText(geom)
+                      FROM gmns_driving.lane_connector WHERE from_lane_id IN (SELECT unnest(?::VARCHAR[]))
+                      AND to_lane_id IN (SELECT unnest(?::VARCHAR[])) AND geom IS NOT NULL""", [sorted(on_deck), sorted(on_deck)]).fetchall()]
     tr_link = {lk: (osm, utm(gw)) for lk, osm, gw in links}
     axes = []
     for k, ax in enumerate(parts):
@@ -166,11 +175,16 @@ def _profile(g, tr, name, epsg, deck, outline, on, lines, pts, ground, osm_db, g
         deck = max(shapely.get_parts(deck), key=lambda p: p.area)
         outline = _val([[round(x, 2), round(y, 2)] for x, y in deck.exterior.coords], "urbanstyle: the sections, each as wide as its bands",
                        "derived")
+    # the paths on the deck that are no band of an axis (they turn, cross or join): each along its own OSM line
+    banded = {b["way"] for a in axes for sec in a["sections"] for b in sec["bands"] if b["type"] != "lane"}
+    free = [{"way": f"w{w}", "type": "cycleway" if lines[w][2]["highway"] == "cycleway" else "footway", "name": lines[w][2].get("name"),
+             "line": [[round(x, 2), round(y, 2)] for x, y in lines[w][0].coords], "width": _val(PATH_W[lines[w][2]["highway"]], "urbanstyle", "chosen"),
+             "source": f"osm w{w}", "method": "mapped"} for w in paths if f"w{w}" not in banded]
     return {"format": FORMAT, "name": name, "crs": f"EPSG:{epsg}",
             "z_datum": _val("ground at the ends", "urbanstyle", "chosen"),
             "made": {"by": "urbanstyle bridge profile", "date": datetime.date.today().isoformat(), "inputs": [osm_db, gmns_db]},
             "deck": {"outline": outline, "thickness": _val(DECK_M, "urbanstyle", "chosen"), "parapet": _val(RAIL_M, "urbanstyle", "chosen")},
-            "axes": axes, "piers": piers}
+            "axes": axes, "connectors": connectors, "paths": free, "piers": piers}
 
 
 def _collinear_out(ps, tol=0.01):
@@ -225,9 +239,12 @@ def _sections(ax, ways, links, lanes, paths, lines, axes):
                 continue
             d = "forward" if b > a else "backward"
             src, how = _lane_count(lines[osm][2])
-            for lane_id, num, use, width, turn, lg in lanes.get(lk, []):
+            for lane_id, num, use, width, turn, lg, cut in lanes.get(lk, []):
+                # where SUMO ends the lane at a junction (GMNS geom_cut): the band stops there, a connector goes on
+                ca, cb = sorted((ax.project(shapely.Point(cut.coords[0])), ax.project(shapely.Point(cut.coords[-1])))) if cut else (s0, s1)
                 bands.append({"type": "lane", "lane_id": lane_id, "link": str(lk), "way": f"w{osm}", "direction": d, "lane": num, "use": use,
                               "turn": turn, "t": _offset(ax, sm, lg), "source": src, "method": how,
+                              "s_from": round(max(s0, ca), 2), "s_to": round(min(s1, cb), 2),
                               "width": _val(width, "osm width:lanes" if width_src.get(osm) else "duckOSM GMNS (road class)",
                                             "mapped" if width_src.get(osm) else "chosen")})
         for w in paths:

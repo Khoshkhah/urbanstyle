@@ -91,8 +91,17 @@ branch points is one axis.
    urbanstyle's own, with method `chosen`.
 6. **Scripts make the file. Nobody edits it by hand.** A measurement is a script that replaces a value and its source and method:
    for example, the vertical points from LiDAR (`measured`), or a lane width from the aerial photo.
-7. **The model reads only the profile.** `bridge3d.py` makes the deck top from the vertical profile of the nearest axis, the lanes and
-   lines from the bands, and the piers from `piers`.
+7. **The model reads only the profile.** `bridge3d.py` makes the deck, the lanes and the lines on one height surface: at each point,
+   the vertical profiles of the two nearest axes, each weighted by the distance to the other (within 40 m). So no lane steps where the
+   nearest axis changes at a fork. The piers come from `piers`.
+8. **A lane stops where SUMO ends it at a junction** (2026-10-11). Each lane band has `s_from` and `s_to`: the ends of its GMNS
+   `lane.geom_cut`, projected onto the axis. Through a fork or a merge on the deck, the profile's `connectors` hold SUMO's paths from
+   lane to lane (GMNS `lane_connector`, both lanes on the bridge's links), each with its width. Before, each axis drew its lanes to its
+   OSM node, and at the forks the lanes of two axes lay on each other in 48 places, at different heights. Now 18 overlaps remain,
+   where two ramps run close together after a fork: their OSM lines are closer than their lanes are wide.
+9. **Every path on the deck is drawn** (2026-10-11). A path that is no band of an axis (it turns, crosses or joins) is in the
+   profile's `paths`, along its own OSM line. Before, 12 paths were missing on the Granville Bridge, among them 111 m of the Granville
+   Connector.
 
 ## Commands
 

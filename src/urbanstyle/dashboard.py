@@ -610,6 +610,7 @@ GROUND_COLORS = {k: KIND_COLORS[k] for k in ("street", "alley", "building", "yar
 GROUND_POPUP = ["ground_id", "type", "name", "source", "method", "ref", "area_m2"]
 LOT_POPUP = ["type", "name", "operator", "parking", "access", "fee", "id"]     # an off-street car park (space.lot), 2D and 3D
 BLD_POPUP = ["type", "name", "use", "ground_floor", "evidence", "class", "floors", "height_m", "level_src", "source", "id"]     # a building's popup, the same in 2D and 3D
+DOOR_WALL_M = 3.0   # an entrance this near a building's wall is a door in that wall (turned along it)
 OBJ_POPUP, OBJ_TIP = ["type", "width_m", "height_m", "size_from", "details", "sources", "method", "refs", "space"], ["type"]
 TYPE_NAME = {"crossing.zebra": "zebra crossing", "crossing.signalised": "signalised crossing", "crossing.other": "crossing", "kerb.node": "kerb",
              "transit.stop": "transit stop", "access.entrance": "entrance", "access.parking_entrance": "parking entrance", "barrier.other": "barrier",
@@ -760,6 +761,10 @@ def furniture_3d(con, epsg, place, objs):
     roads = con.execute(f"SELECT level_min, {to_m()} FROM space.element WHERE type = 'road'").fetchall()
     rg = [shapely.from_wkb(bytes(r[1])) for r in roads]
     rtree = shapely.STRtree(rg)
+    # the buildings' footprints: an entrance's door lies along the wall it is on (OSM maps it on the building's outline)
+    bg = [shapely.make_valid(shapely.from_wkb(bytes(w))) for (w,) in con.execute(
+        f"SELECT {to_m()} FROM space.element WHERE type = 'building' AND level_min <= 0 AND level_max >= 0").fetchall()]
+    btree = shapely.STRtree(bg) if bg else None
     units = con.execute(f"SELECT unit_id, level, {to_m()} FROM space.unit").fetchall()
     ug = [shapely.from_wkb(bytes(u[2])) for u in units]
     utree = shapely.STRtree(ug)
@@ -780,7 +785,21 @@ def furniture_3d(con, epsg, place, objs):
             h = math.hypot(q.x - p.x, q.y - p.y)
             if h > 0.1:
                 ux, uy = (q.x - p.x) / h, (q.y - p.y) / h
-        ax, ay = -uy, ux            # along the road
+        if cls.startswith("access.") and btree is not None:     # an entrance: along the wall of the building it is on, facing out of it
+            near = [k for k in btree.query(p.buffer(DOOR_WALL_M)) if bg[k].boundary.distance(p) <= DOOR_WALL_M]
+            if near:
+                wall = bg[min(near, key=lambda k: bg[k].boundary.distance(p))].boundary
+                wall = min(shapely.get_parts(wall), key=lambda w_: w_.distance(p))
+                d_ = wall.project(p)
+                a_, b_ = wall.interpolate(max(d_ - 0.5, 0)), wall.interpolate(min(d_ + 0.5, wall.length))
+                h = math.hypot(b_.x - a_.x, b_.y - a_.y)
+                if h > 0.1:
+                    tx, ty = (b_.x - a_.x) / h, (b_.y - a_.y) / h
+                    ux, uy = -ty, tx
+                    on = wall.interpolate(d_)
+                    if bg[min(near, key=lambda k: bg[k].boundary.distance(p))].contains(shapely.Point(on.x + ux * 0.3, on.y + uy * 0.3)):
+                        ux, uy = -ux, -uy           # out of the building, not into it
+        ax, ay = -uy, ux            # along the road (an entrance: along its wall)
 
         def blk(off, L, W, b, t, col):     # a block centred `off` m towards the road, L along it, W across
             cx, cy = p.x + ux * off, p.y + uy * off

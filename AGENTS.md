@@ -31,7 +31,8 @@ The order of work: `docs/plan.md`.
   area at level 0 is water, rail, street, path, square, structure, green, plot or unknown (checks G1, G2); `space.parcel`, a city's
   parcels, is the property line the street reaches (`subsections.building_line`). `ground.surfaces`: layer 1, `space.surface`, the
   surfaces covering each ground item (roadway, pedestrian realm, median, verge; building, yard, car park, ...; checks L1, L2).
-  `urbanstyle layers DB OUT.html` (`dashboard.layers`) shows layer 0 and layer 1 each alone.
+  `urbanstyle layers DB OUT.html` (`dashboard.layers`) shows the blocks, layer 0 and layer 1 each alone; the main dashboard has a
+  `Blocks` overlay (off at first, level 0).
 - `src/urbanstyle/buildings.py` (called in `build`): each building's `use` and `ground_use` with their source and method, from OSM's
   `building` tag, the shops OSM maps inside it and a city's storefronts (`<unit>.vancouver.json`); `uses` lists the evidence.
 - `src/urbanstyle/strips.py` (called at the end of `build`) fills every container with typed bands in `space.strip`

@@ -25,6 +25,21 @@ def frame(con, sql):
     return gpd.GeoDataFrame(df, geometry="geometry", crs=4326)
 
 
+BLOCK_POPUP = ["block_id", "area_m2", "source", "method", "sides"]
+BLOCK_COLOR = "#a78bfa"
+
+
+def blocks_frame(con):
+    """The blocks (space.block, docs/design/blocks.md) with their street sides in one line each: the road, its distance and what set it."""
+    try:
+        return frame(con, """SELECT ST_AsWKB(b.geometry) AS geometry, b.block_id, b.level, round(b.area_m2) AS area_m2, b.source, b.method,
+            s.sides FROM space.block b LEFT JOIN (SELECT block_id, string_agg(coalesce(name, class) || ': ' || distance_m || ' m from ' || basis
+              || CASE WHEN unpulled_m IS NOT NULL THEN ' (was ' || unpulled_m || ' m, ' || building || ')' ELSE '' END, '; ' ORDER BY name)
+              AS sides FROM space.block_side GROUP BY 1) s USING (block_id)""")
+    except duckdb.CatalogException:     # built before the blocks
+        return None
+
+
 def tree_data(con, epsg):
     q = lambda sql: con.execute(sql).fetchall()
     by_level = dict(q("""SELECT l, count(*) FROM space.element, generate_series(level_min, level_max) t(l)
@@ -199,6 +214,7 @@ function apply(){
   // the base map shows the streets at ground level: on another level it fades, so that level's own spaces stand out
   map.getStyle().layers.filter(x=>x.source==='bm'&&x.type==='raster').forEach(x=>map.setPaintProperty(x.id,'raster-opacity',l===0?1:0.3));
   if(OVERLAYS.some(o=>o.label==='Ground'))rsFilter(rsQuery(p=>p.level===l,'Ground'),'Ground');   // the ground of the level viewed only
+  if(OVERLAYS.some(o=>o.label==='Blocks'))rsFilter(rsQuery(p=>p.level===l,'Blocks'),'Blocks');   // blocks are at level 0 only
   up3d(PU,l,ALL);
   LK.forEach(k=>{const lab='Link: '+k.lab, one=t==='links',
       on=one?k.t===sel.type:['root','ctr','ctrL','lnk'].includes(t)&&show['k:'+k.t]===true;
@@ -908,6 +924,7 @@ def main(db, out):
         ground["color"] = ground["type"].map(GROUND_COLORS).fillna("#9ca3af")
     except duckdb.CatalogException:     # built before the ground layer
         ground = None
+    blocks = blocks_frame(con)     # the land between the streets
     try:    # off-street car parks: beside the street, not in it
         lots = frame(con, """SELECT ST_AsWKB(geometry) AS geometry, lot_id AS id, type, name, operator, parking, access, fee, level FROM space.lot""")
     except duckdb.CatalogException:     # built before car parks were lots
@@ -1045,6 +1062,8 @@ def main(db, out):
         color_options={"Roads": {"color_by": "type", "colors": {"road": "#555", "walkway": "#a16207", "cycleway": "#16a34a"}}},
         overlays=([o(ground, color=GROUND_COLORS["plot"], color_col="color", opacity=0.55, outline="#94a3b8", width=0.5, label="Ground", popup=GROUND_POPUP,
                      tooltip=["type", "name"])] if ground is not None and len(ground) else []) +
+                 ([o(blocks, color=BLOCK_COLOR, opacity=0.35, outline="#6d28d9", width=1.5, label="Blocks", visible=False, popup=BLOCK_POPUP,
+                     tooltip=["block_id"])] if blocks is not None and len(blocks) else []) +
                  [o(streets[streets.kind == k], color=c, opacity=0.8, outline=dark, width=1.2, label=lab, popup=POP, tooltip=["cid", "name"])
                   for k, lab, c, dark in KINDS if (streets.kind == k).any()] + [
                   o(zones[zones.zone == "pedestrian_realm"], color="#f8c4b4", opacity=0.9, outline="#e8a898", label="Pedestrian realm",
@@ -1156,18 +1175,18 @@ LAYER_COLORS = {0: GROUND_COLORS,
                     "yard": "#fde68a", "car park": "#2dd4bf", "construction site": "#fdba74", "garden": "#4ade80", "lawn": "#86efac",
                     "play": "#f472b6", "path": "#c4b5fd", "track bed": "#d8b4fe", "under bridge": "#b45309", "paved": "#fcd34d",
                     "water": "#93c5fd"}}
-LAYER_LABELS = {0: "Layer 0: ground", 1: "Layer 1: surfaces"}
+LAYER_LABELS = {0: "Layer 0: ground", 1: "Layer 1: surfaces", 2: "Blocks"}
 LAYERS_PANEL = """
 <style>#ly{position:fixed;top:10px;left:10px;z-index:6;width:300px;background:#fff;border:1px solid #cbd5e1;border-radius:8px;padding:10px;
   font:13px system-ui;box-shadow:0 2px 8px #0002}#ly h3{margin:0 0 6px;font-size:14px}#ly button{margin:0 6px 8px 0;padding:4px 10px;border:1px solid #94a3b8;
   border-radius:5px;background:#f8fafc;cursor:pointer}#ly button.on{background:#1e3a8a;color:#fff;border-color:#1e3a8a}#ly table{width:100%;border-collapse:collapse}
   #ly td{padding:2px 4px}#ly td.n{text-align:right;color:#475569}#ly .sw{display:inline-block;width:12px;height:12px;border:1px solid #64748b;margin-right:6px;vertical-align:-2px}
   #ly p{margin:6px 0 0;color:#64748b;font-size:11px}</style>
-<div id=ly><h3>urbanstyle · layers</h3><button data-ly=0>layer 0 · ground</button><button data-ly=1>layer 1 · surfaces</button>
+<div id=ly><h3>urbanstyle · layers</h3><button data-ly=2>blocks</button><button data-ly=0>layer 0 · ground</button><button data-ly=1>layer 1 · surfaces</button>
 <table id=lyt></table><p id=lyp></p></div>
 <script>
 (function(){const LY_DATA=__LYDATA__, LY_LAB=__LYLAB__, LY_NOTE=__LYNOTE__;
-function lyShow(l){[0,1].forEach(k=>rsSetOverlay(LY_LAB[k],k===l));
+function lyShow(l){Object.keys(LY_DATA).map(Number).forEach(k=>rsSetOverlay(LY_LAB[k],k===l));
   document.querySelectorAll('#ly button').forEach(b=>b.classList.toggle('on',+b.dataset.ly===l));
   document.getElementById('lyt').innerHTML='<tr><td><b>kind</b></td><td class=n><b>items</b></td><td class=n><b>m²</b></td><td class=n><b>%</b></td></tr>'+
     LY_DATA[l].map(r=>`<tr><td><span class=sw style="background:${r.c}"></span>${r.t}</td><td class=n>${r.n}</td><td class=n>${r.a.toLocaleString()}</td><td class=n>${r.p}</td></tr>`).join('');
@@ -1204,12 +1223,25 @@ def layers(db, out):
                    for t, r in agg.iterrows()]
         note[l] = (f"{len(df):,} items covering {tot:,.0f} m². " + ("Every piece of the area at level 0 is one item of one kind (G1, G2)."
                    if l == 0 else "Every ground item is covered exactly by its surfaces (L1, L2). Click one: its ground item is named."))
+    blocks = blocks_frame(con)
+    if blocks is not None and len(blocks):     # the land between the streets, and what set each street side's edge
+        basis = dict(con.execute("SELECT basis, count(*) FROM space.block_side GROUP BY 1").fetchall())
+        street = float(ground.loc[ground["type"] == "street", "area_m2"].sum())
+        data[2] = [{"t": "block", "c": BLOCK_COLOR, "n": len(blocks), "a": int(round(blocks["area_m2"].sum())),
+                    "p": round(100 * blocks["area_m2"].sum() / (ground["area_m2"].sum() or 1.0), 1)},
+                   {"t": "street today (layer 0)", "c": LAYER_COLORS[0]["street"], "n": int((ground["type"] == "street").sum()), "a": int(round(street)),
+                    "p": round(100 * street / (ground["area_m2"].sum() or 1.0), 1)}]
+        note[2] = ("The land between the streets (docs/design/blocks.md). Each street side's edge is set by " +
+                   ", ".join(f"{k} {v}" for k, v in sorted(basis.items(), key=lambda t: -t[1])) + " sides. Click a block for its sides.")
     o = lambda g, **kw: rs.Overlay(g, placement="under", **kw)
     m = rs.render_edges(edges, palette="mono", basemap="voyager", name="urbanstyle layers", filter_control=False,
+        street_view_key=os.environ.get("GOOGLE_MAPS_KEY"),
         overlays=[o(ground, color=LAYER_COLORS[0]["plot"], color_col="color", opacity=0.85, outline="#475569", width=0.6, label=LAYER_LABELS[0],
                     popup=["ground_id", "type", "name", "source", "method", "ref", "area_m2", "surfaces"], tooltip=["type", "name"]),
                   o(surf, color=LAYER_COLORS[1]["building"], color_col="color", opacity=0.9, outline="#334155", width=0.4, label=LAYER_LABELS[1], visible=False,
-                    popup=["surface_id", "type", "ground_id", "ground_type", "source", "method", "ref", "area_m2"], tooltip=["type", "ground_type"])])
+                    popup=["surface_id", "type", "ground_id", "ground_type", "source", "method", "ref", "area_m2"], tooltip=["type", "ground_type"])]
+                 + ([o(blocks, color=BLOCK_COLOR, opacity=0.6, outline="#4c1d95", width=1.2, label=LAYER_LABELS[2], visible=False, popup=BLOCK_POPUP,
+                       tooltip=["block_id"])] if 2 in data else []))
     panel = (LAYERS_PANEL.replace("__LYDATA__", json.dumps(data)).replace("__LYLAB__", json.dumps(LAYER_LABELS))
              .replace("__LYNOTE__", json.dumps(note)))
     open(out, "w").write(m.html.replace("</body>", panel + "</body>"))

@@ -31,7 +31,7 @@ KIND_COLORS = {
     "street": "#94a3b8", "block": "#d4a373",
     # layer 1: the street's pieces, and the land in the blocks
     "subsection": "#bfdbfe", "intersection": "#f97316",
-    "building": "#e05d5d", "yard": "#f3e9d2", "alley": "#cfc8c0", "green": "#6cc070", "path": "#a78bfa", "car park": "#22b8cf",
+    "building": "#a8a29e", "yard": "#f3e9d2", "alley": "#cfc8c0", "green": "#6cc070", "path": "#a78bfa", "car park": "#22b8cf",
     "construction site": "#fcd34d", "square": "#fbcfe8", "rail": "#64748b", "structure": "#8b5e3c", "water": "#38bdf8", "unknown": "#ff00ff",
     "plot": "#a16207",
     # layer 2: surfaces (a kind of layer 1 keeps its colour)

@@ -31,6 +31,28 @@ a column or a table name it is written in `code`. "Built" says whether it exists
 | **object** | a thing standing in the street space: a bench, a lamp, a tree, a crossing... (`space.object`). Has a `group.class` such as `furniture.bench`. Today: point objects from OSM nodes | yes |
 | **boundary** | what bounds the street space on a side: a building, wall, fence, hedge, retaining wall, or open (`space.boundary`) | not yet |
 
+## Blocks first (2026-10-10, designed and tested, not in the pipeline yet)
+
+The words of [Blocks first](blocks.md). Its **section** and **intersection** are cut from the blocks, not from the road network as the
+containers' above.
+
+| term | meaning | built |
+|---|---|---|
+| **block** | the land between the streets: a face the level-0 public streets enclose, less each street's half width; every building lies wholly inside one block. Id `b<level>-w<way><side>` (proposed) | test |
+| **bounding road** | an OSM public street at level 0 (motorway down to residential, living street, pedestrian, their links) that bounds blocks; a service road (alley, driveway, parking aisle) lies inside a block | test |
+| **chain** | the bounding roads joined end to end between two junctions | test |
+| **face** | an area the chains enclose, closed by the edge of the area; a block is what is left of it | test |
+| **street side** | one side of one chain within one face: it gets one distance from the road line, so the block's edge there runs parallel to the road. The distance comes from the parcels, else the sidewalks, else the road class, pulled in to the nearest building | test |
+| **share** | the part of the street nearest to one block | test |
+| **middle line** | where two blocks' shares meet: the line down the middle of the street between them | test |
+| **facing stretch** | the part of a middle line where a line square to it meets block A on one side and block B on the other, each on a side running along it | test |
+| **street neighbours** | two blocks that face each other across one street for at least as long as the street is wide; one section each | test |
+| **corner neighbours** | two blocks whose shares meet but that do not face each other long enough (diagonal across a junction); their ground is intersection | test |
+| **cut** | a straight line square to the middle line, from one block to the other, 3 m inside each end of a facing stretch (`ARM_M`) | test |
+| **street opening** | where the edge of the area crosses a street (shorter than 40 m): the outside is no neighbour there | test |
+| **subsection** | a piece of a section between two cuts where its lanes, width or frontage change, at least 12 m long. Id `<section id>/<k>` | designed |
+| **access** | an opening of a car park or a back lane onto a street: the section it opens onto, its driveway apron there, the OSM way of its driveway or aisle. A car park or lane with openings onto two streets connects them; it still lies inside one block. An `open` car park side (no barrier mapped) has the whole side as its access, a `closed` one (fence, wall, hedge, bollards) only its driveways and gaps | designed |
+
 ## Measuring the street space
 
 | term | meaning |

@@ -1,6 +1,7 @@
 # Layers: the whole area, and the inside of a street, as a hierarchy
 
-Status: agreed 2026-10-10; being built in the order below. Step 1 built (`ground.py`, `space.ground`, `space.parcel`), on Broadway ×
+Status: agreed 2026-10-10; being built in the order below. Since 2026-10-10 layer 0 is to be built **blocks first** (see "Blocks first"
+below and [Blocks first](blocks.md)): agreed and tested, not built. Step 1 built (`ground.py`, `space.ground`, `space.parcel`), on Broadway ×
 Granville's neighbourhood (640,106 m² at level 0): plot 60.7 %, street 36.5 %, green 1.9 %, structure 0.5 %, rail 0.3 %, path 0.1 %,
 **unknown 0** (G1); no overlaps (G2). With it the street reaches the property line where a city has parcels ([Plots](plots.md), step 2):
 the street spaces' width at the city's 125 right-of-way points is now the city's own (ours / theirs: median 1.00, middle half 0.99-1.07,
@@ -67,7 +68,38 @@ A street's ground is fixed by the street's own rules (cuts, the building line); 
 the order above decides where two sources claim the same ground. The ground of one level is independent of another's (a bridge deck at
 level 1 over a street at level 0).
 
+### Blocks first: how layer 0 is built from 2026-10-10 (agreed, not built)
+
+[Blocks first](blocks.md) changes how layer 0 is built, not what the layers are. Instead of each kind taking ground in the order above,
+with the street taken from `space.unit` (cut from the road network), the area at level 0 is first split in two halves that fit exactly:
+
+```
+the area (level 0)
+├── blocks                    the land: the faces of the public streets, less each street's half width
+│   └── water, rail, square, structure, green, plot, path     the order above, applied inside each block
+└── the street                everything outside the blocks
+    ├── section               between two neighbouring blocks
+    │   └── subsection        where its lanes, width or frontage change (the layer-0 street item)
+    └── intersection          the rest of the street
+```
+
+- **The street is the ground outside the blocks**, so the two halves cover the area with no gap and no overlap; G1 (`unknown`) is left
+  only inside blocks, where no land rule claims a piece.
+- **A block is a group, not a layer**, as a street name group (`k<level>-<way>`) is. Each land item of layer 0 names its block
+  (`block_id`); each street item names its section, and its street group as today.
+- **Layer 0's street items are the subsections and the intersections.** A section with no change is one subsection. The section is their
+  group (as a block is for land).
+- **Inside a block**, today's rules (steps 1, 2 and 4-7 above) divide the land: plots from a city's parcels, car parks, construction sites,
+  land use and buildings; green; squares; paths. Back lanes, parking aisles and driveways lie inside blocks, and so do park paths and rail
+  lines, which bound no block. A car park's side onto a street is `open` or `closed` ([Blocks first](blocks.md), "What lies inside a block").
+- **Other levels** (bridges, tunnels) have no blocks: their street is the deck or the tube, as today.
+
 ### Layers 1-2 in a street
+
+- **Subsection and intersection are the parents.** Layers 1-5 sit inside each subsection or intersection. A subsection is cut along the
+  street exactly where the lane count, a lane's type or its rules change, or the width or the frontage changes, so its surfaces divide it
+  across (roadway, pedestrian realm, median, verge) and each lane is one whole item from one end of the subsection to the other. An
+  overlay may lie across a cut (a crosswalk reaching past an intersection's 3 m into the arm) and names everything it lies on.
 
 - **Section**: the roadway is tiled across by its lanes and shoulders. A lane is **one item** from the space's edge to the next point
   where the lane count, its type or its rules change (where SUMO starts a new edge for that reason), and each lane item names its
@@ -88,13 +120,19 @@ crosswalk). Each relation has a source and a method, like every item.
 ### Ids
 
 Stable, from what an item is, never from build order: `g<level>-<type>-<source id>` for ground (`g0-plot-pl030585457`,
-`g0-street-s0-2002513880381972879/1`); for items in a space, `<space id>:<type>:<key>`, the key from the source: a lane `<OSM way>:<direction>:
+`g0-street-s0-2002513880381972879/1`); with blocks first, a block `b<level>-w<way><side>`, a section `s<level>-<block a>~<block b>`, a
+subsection `<section id>/<k>`, an intersection `i<level>-<node>` ([Blocks first](blocks.md), "Ids"), and a ground item of the street
+`g0-street-<subsection or intersection id>`; for items in a space, `<space id>:<type>:<key>`, the key from the source: a lane `<OSM way>:<direction>:
 <lane from the kerb>:<n-th piece along>`, a crosswalk its OSM id, the junction area nothing (`i0-571700151:junction area`), a pedestrian zone
 `<side>:<zone>`, a tree pit its tree's id. A rebuild on the same data gives the same ids.
 
 ## Tables
 
-- `space.ground` (new): `ground_id`, `level`, `type`, `name`, `source`, `method`, `ref`, `geometry`.
+- `space.ground` (new): `ground_id`, `level`, `type`, `name`, `source`, `method`, `ref`, `geometry`; with blocks first also `block_id`
+  (land) or `section_id` (street).
+- `space.block` (blocks first): `block_id`, `level`, the street sides with their distance and its source, `geometry`.
+- `space.section` (blocks first): `section_id`, the two blocks, the facing stretch, the two cuts, `geometry`; `space.ground` holds its
+  subsections.
 - `space.part`: gains `layer` (1, 2 or 3), `parent_id`, and for overlays `on` (the ids it lies on); its ids become the stable ones; the
   priority rule "a part takes only ground no earlier part took" stays only within one layer of one parent.
 - `space.mark`, `space.object`: gain `parent_id`.
@@ -114,6 +152,9 @@ Stable, from what an item is, never from build order: `g<level>-<type>-<source i
 | L5 | lane items shorter than 2 m | reported |
 | L6 | ids that changed between two builds of the same data | reported |
 
+With blocks first, the checks B1-B6 of [Blocks first](blocks.md) come in (no building cut, the street pieces covering the street, no
+piece under 2 m wide, every section between two cuts and as long as its street is wide; B6 the match with a city's blocks).
+
 U14 goes (G1 covers it). U1-U7 (the spaces) and U10-U13 (the roadway at cuts, the approaches) stay.
 
 ## The page
@@ -124,7 +165,10 @@ tree is the hierarchy: level -> ground item -> surface -> bands, with each item'
 
 ## Order of work
 
-1. Layer 0, the ground, with G1 / G2 (no change inside the street yet): every piece of the area gets a kind; the page draws it.
+1. Layer 0, the ground, with G1 / G2 (no change inside the street yet): every piece of the area gets a kind; the page draws it. Built.
+   Then, blocks first ([Blocks first](blocks.md)): (a) the blocks (`space.block`, B1, B6); (b) the street as the ground outside them,
+   sections and intersections (B2-B5), replacing the cutting in `spaces.py`; (c) the land rules inside each block; (d) subsections, the
+   layer-0 street items. G1 / G2 and the checks before and after on Broadway × Granville.
 2. Layers 1-2 in streets: surfaces; lanes as whole items with predecessor / successor; one junction area; pedestrian zones. L1, L2, L4, L5.
 3. Layer 3 overlays and `space.relation`: crosswalks (area and walking line), parking, bus, tree pits, aprons, connections. L3.
 4. Layers 4-5: markings and objects with their parent.

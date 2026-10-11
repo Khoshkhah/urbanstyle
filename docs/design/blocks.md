@@ -1,0 +1,266 @@
+# Blocks first: blocks, then sections, intersections and subsections
+
+<p class="lead">Divide the ground at street level into blocks first. Then divide the street between them: one section for each pair of
+neighbouring blocks, cut at two positions; the rest of the street is the intersections; a section is divided further into subsections
+where its cross-section changes.</p>
+
+Status: agreed 2026-10-10 and tested on Broadway × Granville (test scripts, page `viz/broadway-granville-neighbours.html`). It is **not in
+the pipeline yet**: the street spaces (`space.unit`) are still cut from the road network by `spaces.py`. Subsections are designed here, not
+built.
+
+## In short
+
+| word | what it is |
+|---|---|
+| **block** | the land between the streets: the area the street lines enclose, less each street's half width. Every building is wholly inside one block |
+| **share** | every point of the street belongs to the block nearest to it; that is the block's share of the street |
+| **middle line** | where two blocks' shares meet: the line down the middle of the street between them |
+| **neighbours** | two blocks that face each other across one street, with only street between them, for a stretch at least as long as the street is wide |
+| **section** | the street between two neighbouring blocks, cut at two positions: 3 m inside each end of the stretch where they face each other |
+| **intersection** | the street that is in no section: the open ground between the block corners, and 3 m into each street arriving there |
+| **subsection** | a piece of a section between two cuts where its cross-section changes (lanes, width, what is beside it) |
+
+## Why
+
+Until now the street was cut from the road network: a cut across every road that arrives at a junction, at the block corners
+([Network first](network-first.md)). The road network is not a clean map of streets. A divided street is two lines, one junction is
+several nodes, and ramps add more. Each of these made its own cut, and two cuts that nearly coincide or cross leave a sliver. Around
+Broadway × Granville the last version of that test had 18 pieces narrower than 2 m, sections with no cut or one, and crossing cuts on
+Fir and Hemlock, where each street is drawn as two one-way carriageways. Every fix added a special case.
+
+The blocks do not have this problem: a divided street has one block on each side, like any other street. So the road lines are used
+only to make the blocks, and the street is divided from the blocks alone.
+
+Two other ideas were tried and rejected:
+
+- **Grow each road's strip until it touches a building.** Buildings stand back from the property line (here a median 1.7 m, a quarter of
+  them 3.9 m or more), and 55 of 226 street sides have no building at all (parks, car parks, construction sites). The street took 35,863 m²
+  of the city's block ground, against 5,008 m² with the rule below.
+- **Use a city's block outlines as input.** See [Cross-validation](#cross-validation-with-a-citys-blocks): they cut 114 of OSM's buildings
+  and have 251 m of our streets inside them. Our blocks are the method everywhere; a city's blocks only check them.
+
+## Step 1: blocks
+
+1. **Bounding roads.** OSM's public streets at level 0: motorway down to residential, living street and pedestrian street, with their
+   links. Service roads (alleys, driveways, parking aisles), paths and rail do not bound blocks: an alley lies inside its block. A road
+   on a deck at level 1 bounds blocks only when nothing at ground level passes under it (a temporary deck over works, not a bridge).
+2. **Chains.** The bounding roads joined end to end between junctions, with OSM's small wiggles taken out (simplified by 1 m).
+3. **Faces.** The areas the chains enclose, closed by the edge of the area.
+4. **One edge per street side.** Each side of each chain gets **one distance** from the road line, so the block's edge on that side runs
+   parallel to the road. The distance comes from the best source that has it, measured on lines square to the road every 5 m, inside
+   that face only:
+   - **the parcels** (a city's property lots, `space.parcel`): the median distance to the nearest parcel, when at least half the lines
+     reach one;
+   - **else the sidewalks**: the median distance to OSM's sidewalk lines that run along the road (within 35°), plus 1 m (a sidewalk is
+     drawn along its middle);
+   - **else the road class**: half the usual right-of-way for that class (living street 8 m; residential, unclassified, tertiary and
+     pedestrian 10 m; secondary 12 m; primary 15 m; trunk 16 m; motorway 18 m).
+   
+   Each line's hit is taken only when it is within 1.5 × the class's half width, so a parcel or sidewalk of the next street does not count.
+5. **No building is cut.** The distance is pulled in to the nearest building on that side, if a building is nearer than the parcel or
+   sidewalk line. The street ends at a wall, never inside a building.
+6. **Sharp corners.** Each edge line is continued past the junction, so two edges meet in a corner, as two parallel offsets do. The
+   city's own blocks have sharp corners too: over 320 corners of rectangular blocks, the median rounding is 0.02 m.
+7. **What is a block.** What is left of each face is a block if it is at least 400 m² and at least 8 m wide; a thinner piece (the strip
+   between a divided road's two carriageways) is street.
+
+Which side of a road a face lies on is tested at the middle of the road's stretch along that face. A road that runs past the edge of
+the area has its own middle outside the face; tested there, the road got no strip, and the blocks closed over the street's end.
+
+## What lies inside a block: car parks and lanes
+
+A block divides land, not traffic: its edge is where the public street ends. Whatever is not a public street lies inside a block, even when
+one can drive through it from one street to another.
+
+- **OSM's tag decides.** Aisles and driveways (`service=parking_aisle`, `driveway`) and back lanes (`service=alley`) are inside a block. A
+  way tagged as a public street (`residential`, `unclassified`, ...) is a bounding road and divides the block, even where it runs through a
+  car park. Vancouver's own blocks do the same: 86 % of the length of its lanes lies inside its blocks.
+- **An off-street car park** (`space.lot`) is a plot of its block (layer 0), its surface a `car park` (layer 1). Around Broadway ×
+  Granville: 16 car parks, 8,080 m²; 14 wholly inside a block, 2 crossing a block's edge (40 m² of 1,129 m², 5 m² of 268 m²), none in the
+  street.
+- **A car park over the block's edge** (proposed, to be agreed): the part outside the block is street. The edge is the property line, and
+  OSM often draws a car park over the sidewalk. Unlike a building, a car park does not pull the edge in: drawn 1-2 m over the line, it
+  would move the whole street side.
+- **A multi-storey car park** is a building (`building=parking`): wholly inside its block. **An underground one** is at level -1, its own
+  level; its ramps are links between levels.
+- **Parking in the street** (a parking lane, street-side bays) is not in a block: it is a band of the roadway (layer 2) or a parking zone
+  lying on it (layer 3).
+
+**Connections (access).** A car park or a lane that opens onto two streets connects them. The connection is kept, without dividing the
+block:
+
+- in the street, each opening is a **driveway apron** in the section it opens onto (a part of the sidewalk, as in `parts.py` today), and
+  the section lists its **access points**;
+- the car park or lane lists its **access**: each opening, the section it opens onto and the OSM way of its driveway or aisle. A car park
+  with two openings reads "connects section A and section B";
+- as a route for traffic, the connection belongs to the road network, not to the ground: SUMO's network leaves parking aisles out today;
+  adding them for through-traffic would not change the blocks.
+
+**Open car parks.** Many surface car parks have nothing along the street (no fence, wall or kerb): one can walk or drive in from any
+point. Such a car park still lies inside its block: the block's edge is the property line, and being open does not make the land
+street. (Angle-parking bays on the city's own land, outside the parcels, are street already: a parking zone, as above.)
+
+- **Each side of a car park that faces a street has a boundary type** (the glossary's `boundary`):
+  - `open`: no barrier along it. Its access is the whole side, a stretch of the section it faces, not a point;
+  - `closed`: a mapped fence, wall, hedge or line of bollards runs along it (OSM `barrier=*`). Its access is its driveways and the gaps
+    in the barrier, as above.
+  
+  Where no barrier is mapped, the side is `open` (urbanstyle's own, `chosen`); it is `closed` only on evidence.
+- **The street knows it.** An open side is a frontage of its own (`car park, open`), so the stretch of street in front of it is a
+  subsection of its own (step 5). Its sidewalk is flush there (no kerb) where the data shows a lowered kerb along it.
+- **Connections.** An open car park touching two streets reads "open to section A along 40 m, open to section B along 25 m"; a closed one
+  lists its openings.
+
+## Step 2: neighbours
+
+1. **Shares.** Every point of the street belongs to the block nearest to it (a Voronoi diagram of points 1 m apart along every block's
+   outline). The outside of the area is one more "block", but only where a street runs **along** the edge of the area. Where a street
+   **leaves** the area (the edge crosses the street, an opening shorter than 40 m), the outside has no share: the two blocks' shares run
+   on to the edge.
+2. **Middle line.** Where two shares meet. Pieces whose ends are within 5 cm are one line (rounding gaps).
+3. **Facing.** Along the middle line, every 0.5 m, a line square to it is cast to both sides. It **faces** where the first thing it meets
+   on one side is block A and on the other block B, and it meets each on a side that runs along the middle line (within 30°). Past a
+   corner, the line meets the block's next side at a slant: that is not facing.
+4. **Street neighbours** face each other over a stretch long enough for a section (step 3). **Corner neighbours** only touch: their
+   shares meet, but they do not face each other for long enough. Diagonal blocks across a junction are corner neighbours; they get no
+   section, and their ground is the intersection.
+
+## Step 3: sections
+
+1. Each stretch where two blocks face each other is cut at **two positions, 3 m inside each end**. The 3 m (`ARM_M`, chosen) is the part
+   of each arriving street that belongs to the intersection: its crosswalk and stop line. An end at the edge of the area gets no cut;
+   the section runs on to the edge.
+2. A cut is a straight line square to the middle line, from block A to block B.
+3. **A section is at least as long as its street is wide** (length between its cuts, width block to block at its middle). A shorter one
+   is part of the junction: it gets no cuts and its ground stays in the intersection. A section cut short by the edge of the area stays
+   a section: the street goes on outside.
+4. The street is divided by all the cuts. A piece holding the middle of a facing stretch is that pair's section. A piece that
+   meets fewer than three sections (the end of a street at the edge of the area) joins the section it shares the longest edge with.
+
+## Step 4: intersections
+
+The rest of the street. Each piece meets three or more sections. Its edges are the block corners and the cuts of the streets arriving
+there, so it reaches 3 m into each arm.
+
+## Step 5: subsections (designed, not built)
+
+A section is one strip between two blocks, with one direction: its middle line. A subsection is a stretch of it with one cross-section.
+
+1. **Where to cut.** Along the middle line, the section is cut where, for at least 12 m:
+   - the **lanes** change: the number of lanes, their use (bus, turn, parking) or one-way (OSM's lane tags, SUMO's lanes);
+   - the **width** changes: block to block, by more than 1 m;
+   - the **frontage** changes on either side: a building, a car park, a park, a construction site or a yard begins or ends (layer 0's
+     plots, [Layers](space-layers.md)).
+2. **The cut** is straight, square to the middle line, block to block, as the section's own cuts.
+3. **No short pieces.** A subsection is at least 12 m long; changes closer together are one cut, at their middle. No cut is closer than
+   12 m to the section's own cuts.
+4. A section with no change is one subsection.
+
+## Blocks in the layers
+
+Blocks first changes how [layer 0](space-layers.md) is built, not what the layers are:
+
+```
+the area (level 0)
+├── blocks                    the land
+│   └── water, rail, square, structure, green, plot, path     the land rules of layer 0, inside each block
+└── the street                everything outside the blocks
+    ├── section               between two neighbouring blocks
+    │   └── subsection        the layer-0 street item
+    └── intersection          the rest of the street, also a layer-0 street item
+```
+
+- Blocks and the street cover the area with no gap and no overlap. G1 (`unknown` ground) can be left only inside a block.
+- A block is a group (as a street name group is), not a layer: each land item names its block, each street item its section.
+- Layers 1-5 sit inside each subsection or intersection. A subsection is cut where the lanes, the width or the frontage change, so its
+  lanes (layer 2) are whole items from one end to the other, and its surfaces (layer 1) divide it across: roadway, pedestrian realm,
+  median, verge. Overlays (layer 3) may lie across a cut and name what they lie on; markings and objects (layers 4-5) name the
+  subsection or intersection they are in.
+- Other levels (bridges, tunnels) have no blocks: their street follows the deck or the tube.
+
+## Ids
+
+The test used each piece's centre point as its id, which changes when anything moves. Proposed stable ids:
+
+| item | id | example |
+|---|---|---|
+| block | `b<level>-w<way><side>`: the smallest OSM way id among its bounding roads, and the side of that way it lies on (`l` / `r`) | `b0-w5045123l` |
+| section | `s<level>-<block a>~<block b>`, the two blocks in order; `/k` when one pair has more than one | `s0-w5045123l~w5045180r` |
+| intersection | `i<level>-<smallest OSM node id inside it>` (as today) | `i0-11102738098` |
+| subsection | `<section id>/<k>`, k from the section's start | `s0-w5045123l~w5045180r/2` |
+
+## Values
+
+All are urbanstyle's own; none comes from a source.
+
+| value | | method |
+|---|---|---|
+| a chain is simplified by | 1 m | chosen |
+| lines square to the road, every | 5 m | chosen |
+| looked for out to | 25 m | chosen |
+| a hit counts within | 1.5 × the class's half width | chosen |
+| the back of a sidewalk | its line + 1 m | chosen |
+| half right-of-way by class | living street 8 m; residential, unclassified, tertiary, pedestrian 10 m; secondary 12 m; primary 15 m; trunk 16 m; motorway 18 m | chosen |
+| a block is at least | 400 m², 8 m wide | chosen |
+| points along an outline for the shares | 1 m apart | chosen |
+| facing tested every | 0.5 m | chosen |
+| facing: a side runs along the middle line within | 30° | chosen |
+| a street opening at the area's edge is shorter than | 40 m | chosen |
+| an intersection reaches into each arm | 3 m | chosen |
+| a section is at least | as long as its street is wide | derived |
+| a subsection is at least | 12 m (designed) | chosen |
+| a width change counts from | 1 m (designed) | chosen |
+
+## Checks (proposed)
+
+| check | what | today |
+|---|---|---|
+| B1 | no building cut by a block's edge | 3 buildings, 59 m², all at the edge of the area or the Granville ramps |
+| B2 | the street pieces cover the street exactly: no gap, no overlap | 0, 0 |
+| B3 | no piece narrower than 2 m | 0 |
+| B4 | every section ends at two cuts, or at the edge of the area | yes |
+| B5 | every section at least as long as its street is wide (except at the area's edge) | yes |
+| B6 (info) | how well our blocks match a city's blocks, where it has them | see below |
+
+## Cross-validation with a city's blocks
+
+Decided 2026-10-10: our blocks are the method in every city; a city's block outlines (Vancouver's `block-outlines`) are used only to check
+them, never as input. A city's parcels may still set the block's edge (step 1).
+
+Broadway × Granville:
+
+| | the city's blocks | ours |
+|---|---|---|
+| blocks | 51 | 51 (436,540 m²) |
+| city blocks matched by one of ours (overlap ≥ 0.8) | | 47 of 51; overlap median 0.97, lowest quarter 0.96 |
+| distance between their edges and ours | | median 0.3 m; 90 % within 1.4 m |
+| OSM buildings cut by a block's edge | 114 (2,238 m²) | 3 (59 m²) |
+| our bounding roads running inside a block | 251 m (W 5th Ave under the bridge, Birch St) | 0 m |
+| corner points per block (median) | 20 | 5 |
+| parcel land given to the street | 82 m² | 2,228 m² |
+
+The four city blocks we do not match all touch the edge of the area. The 2,228 m² of parcel land is where an OSM building stands over the
+property line (OSM's buildings are drawn a little off the city's survey) and the edge was pulled in to it.
+
+Where the edges come from: 260 street sides, 190 from parcels, 9 from sidewalks, 61 from the road class; 83 pulled in to a building.
+
+## Result on Broadway × Granville
+
+| | |
+|---|---|
+| neighbour pairs (shares meet) | 116, 7 of them with the outside |
+| sections | 92; 76 fill their rectangle ≥ 95 %, 84 ≥ 85 % |
+| intersections | 40, each meeting 3 or more sections |
+| pieces narrower than 2 m | 0 |
+
+Before (cuts from the road network, last version): 120 sections, 54 intersections, 18 pieces narrower than 2 m.
+
+## Open points
+
+- **The Granville Bridge ramps.** No blocks face each other there for long, so the ramps are a few large intersections. It is one
+  complex junction; whether to divide it more is open.
+- **A thin strip at the top edge** (39 m², between a block and the edge of the area) is a section with the outside; it should probably
+  be part of the intersection beside it.
+- **Levels.** Only level 0. Bridges and tunnels (levels 1, -1) have their own street, without blocks: their spaces follow the deck.
+- **Stable ids** as above, and the move into the pipeline: `blocks.py` (step 1), the cutting in `spaces.py` from the blocks (steps 2-4),
+  then subsections (step 5); `urbanstyle check` before and after.

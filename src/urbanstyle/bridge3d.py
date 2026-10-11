@@ -21,6 +21,7 @@ BLEND_M = 40.0      # the heights of two axes are blended where the second neare
 MEET_M = 1.5        # ... and only where their heights differ by less than this (they meet at a fork)
 FADE_M = 2.0        # an arm's weight fades to 0 over this to the edge of its lanes
 END_FADE_M = 10.0   # ... and over this to its end
+LAND_BLEND_M = 30.0 # a bridge lane moves to the street's lane it lands on over this
 LIFT = {True: 0.05, False: 0.10}   # above the deck: a lane (True), a path (False); clear of each other, no flicker
 LINE_LIFT_M = 0.15  # a painted line above both
 COLUMN_M = 2.5      # a pier's column, square (chosen; 1.5 m was too narrow)
@@ -36,10 +37,11 @@ def _h(vertical, s):
     return height(vertical, s)
 
 
-def model(path, parts=None, marks=None):
+def model(path, parts=None, marks=None, ground=None):
     """The 3D model of the bridge profile at `path` (or the profile itself). `parts`, `marks`: the street's own parts and marks that lie
     on the bridge (a unit's level > 0 spaces: [(props, polygon)], [(type, line)], in the profile's crs), laid on the deck so the bridge
-    is drawn as its street; elsewhere the model's lanes and paths in the street's types."""
+    is drawn as its street; elsewhere the model's lanes and paths in the street's types. `ground`: the street's lanes at level 0 near
+    the bridge ([polygon], same crs): a bridge lane that lands on one moves to its place and width over the last LAND_BLEND_M."""
     import pyproj
     import shapely
     import shapely.affinity
@@ -140,7 +142,8 @@ def model(path, parts=None, marks=None):
         for i in range(n + 1):
             s = s0 + (s1 - s0) * i / n
             x, y, nx, ny = frame(ln, s)
-            out.append([round(x + nx * t, 2), round(y + ny * t, 2), round(z(x + nx * t, y + ny * t) + lift, 2)])     # on the deck's surface
+            tv = t(s) if callable(t) else t
+            out.append([round(x + nx * tv, 2), round(y + ny * tv, 2), round(z(x + nx * tv, y + ny * tv) + lift, 2)])     # on the deck's surface
         return out
 
     def ribbon(line, w, lift):
@@ -153,11 +156,53 @@ def model(path, parts=None, marks=None):
                 px, py = x + nx * sg * w / 2, y + ny * sg * w / 2
                 e_.append([round(px, 2), round(py, 2), round(z(px, py) + lift, 2)])
         return l_, r_
+    # a bridge lane that lands on a ground lane (the street's own, level 0): its edges move to that lane's over the last LAND_BLEND_M
+    gl = [shapely.affinity.translate(g, -x0, -y0) for g in (ground or [])]
+    gtree = shapely.STRtree(gl) if gl else None
+    land = {}       # (axis id, band index in its section, section index) -> [(end, left, right)]
+    for ln, a in axes:
+        for e in (0, 1):
+            if gtree is None or not a["ends"][e].get("ground") or not a["sections"]:
+                continue
+            si = len(a["sections"]) - 1 if e else 0
+            sv = ln.length if e else 0.0
+            x, y, nx, ny = frame(ln, sv)
+            across = shapely.LineString([(x - nx * 20, y - ny * 20), (x + nx * 20, y + ny * 20)])
+            for bi, b in enumerate(a["sections"][si]["bands"]):
+                if b["type"] != "lane":
+                    continue
+                pt = shapely.Point(x + nx * b["t"], y + ny * b["t"])
+                near = [k for k in gtree.query(pt.buffer(2.0)) if gl[k].distance(pt) <= 2.0]
+                if not near:
+                    continue
+                cut = across.intersection(gl[min(near, key=lambda k: gl[k].distance(pt))])
+                ts = [(q[0] - x) * nx + (q[1] - y) * ny for g_ in shapely.get_parts(cut) if g_.geom_type == "LineString" for q in g_.coords]
+                if len(ts) >= 2 and max(ts) - min(ts) > 1.0:
+                    land.setdefault((a["id"], si, bi), []).append((e, max(ts), min(ts)))
+
+    def edges(a, ln, si, bi, b):
+        """The band's left and right edge offsets, functions of s (moving to a ground lane near a landing)."""
+        w = b["width"]["value"]
+        L0, R0 = b["t"] + w / 2, b["t"] - w / 2
+        tg = land.get((a["id"], si, bi), [])
+        if not tg:
+            return L0, R0
+
+        def blend(base, k):
+            def f(s):
+                v = base
+                for e, gl_, gr_ in tg:
+                    d = (ln.length - s) if e else s
+                    u = 0.0 if d >= LAND_BLEND_M else 0.5 * (1 + math.cos(math.pi * d / LAND_BLEND_M))
+                    v = v * (1 - u) + (gl_ if k == 0 else gr_) * u
+                return v
+            return f
+        return blend(L0, 0), blend(R0, 1)
     lanes, lines = [], []
     for ln, a in axes:
         height = f"{a['vertical']['source']}, {a['vertical']['method']}"
-        for sec in a["sections"]:
-            for b in sec["bands"]:
+        for si, sec in enumerate(a["sections"]):
+            for bi, b in enumerate(sec["bands"]):
                 w = b["width"]["value"]
                 props = {"type": b["type"], "name": b.get("name") or P["name"], "osm": b.get("way"), "link": b.get("link"),
                          "lane_id": b.get("lane_id"), "direction": b.get("direction"), "lane": b.get("lane"), "use": b.get("use"),
@@ -167,20 +212,28 @@ def model(path, parts=None, marks=None):
                 f_, t_ = b.get("s_from", sec["s0"]), b.get("s_to", sec["s1"])
                 if t_ - f_ < 0.5:       # (inside a junction: a connector covers it)
                     continue
-                lanes.append({"props": props, "l": along(ln, a, f_, t_, b["t"] + w / 2, LIFT[b["type"] == "lane"]), "r": along(ln, a, f_, t_, b["t"] - w / 2, LIFT[b["type"] == "lane"])})
+                le, re_ = edges(a, ln, si, bi, b)
+                if land.get((a["id"], si, bi)):
+                    props["landing"] = "moves to the street's lane over the last %.0f m" % LAND_BLEND_M
+                lanes.append({"props": props, "l": along(ln, a, f_, t_, le, LIFT[b["type"] == "lane"]), "r": along(ln, a, f_, t_, re_, LIFT[b["type"] == "lane"])})
             # painted lines: across the lanes of the section, from left to right
-            ls, paint = [b for b in sec["bands"] if b["type"] == "lane"], []
-            f_ = min((b.get("s_from", sec["s0"]) for b in ls), default=sec["s0"])
-            t_ = max((b.get("s_to", sec["s1"]) for b in ls), default=sec["s1"])
-            for i, b in enumerate(ls):
+            ls = [(bi, b) for bi, b in enumerate(sec["bands"]) if b["type"] == "lane"]
+            paint = []
+            f_ = min((b.get("s_from", sec["s0"]) for _, b in ls), default=sec["s0"])
+            t_ = max((b.get("s_to", sec["s1"]) for _, b in ls), default=sec["s1"])
+            val = lambda t, s: t(s) if callable(t) else t
+            for i, (bi, b) in enumerate(ls):
                 left, right = b["t"] + b["width"]["value"] / 2, b["t"] - b["width"]["value"] / 2
-                if i == 0 or abs(ls[i - 1]["t"] - ls[i - 1]["width"]["value"] / 2 - left) > TOUCH_M:
-                    paint.append(("edge line", left))
-                if i + 1 < len(ls) and abs(ls[i + 1]["t"] + ls[i + 1]["width"]["value"] / 2 - right) <= TOUCH_M:
-                    nb = ls[i + 1]
-                    paint.append(("centre line" if nb["direction"] != b["direction"] else "lane line", (right + nb["t"] + nb["width"]["value"] / 2) / 2))
+                le, re_ = edges(a, ln, si, bi, b)
+                if i == 0 or abs(ls[i - 1][1]["t"] - ls[i - 1][1]["width"]["value"] / 2 - left) > TOUCH_M:
+                    paint.append(("edge line", le))
+                if i + 1 < len(ls) and abs(ls[i + 1][1]["t"] + ls[i + 1][1]["width"]["value"] / 2 - right) <= TOUCH_M:
+                    nbi, nb = ls[i + 1]
+                    nle, _ = edges(a, ln, si, nbi, nb)
+                    paint.append(("centre line" if nb["direction"] != b["direction"] else "lane line",
+                                  (lambda s, re_=re_, nle=nle: (val(re_, s) + val(nle, s)) / 2)))
                 else:
-                    paint.append(("edge line", right))
+                    paint.append(("edge line", re_))
             if t_ - f_ >= 0.5:
                 lines += [{"kind": k, "ref": a["id"], "pts": along(ln, a, f_, t_, t, LINE_LIFT_M)} for k, t in paint]
     crossings = []      # (a crossing OSM maps, marked or not, its fields): a crosswalk over the lanes it crosses, not a path

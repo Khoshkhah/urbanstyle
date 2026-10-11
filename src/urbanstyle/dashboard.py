@@ -1293,7 +1293,11 @@ def main(db, out, bridges=None):
                 f"SELECT {sel}, ST_AsWKB({to_crs}) FROM space.part WHERE unit_id IN (SELECT unnest(?::VARCHAR[]))", [us]).fetchall()]
             marks_ = [(t, shapely.from_wkb(bytes(w))) for t, w in con.execute(
                 f"SELECT type, ST_AsWKB({to_crs}) FROM space.mark WHERE unit_id IN (SELECT unnest(?::VARCHAR[]))", [us]).fetchall()]
-            ms.append(model(P_, parts_, marks_))
+            # the street's lanes at level 0 near the bridge: a bridge lane that lands on one meets it exactly
+            ground_ = [shapely.from_wkb(bytes(w)) for (w,) in con.execute(
+                f"SELECT ST_AsWKB({to_crs}) FROM space.part WHERE level = 0 AND type = 'lane'").fetchall()]
+            ground_ = [g for g in ground_ if g.distance(ol) < 50]
+            ms.append(model(P_, parts_, marks_, ground_))
         under = sorted(under)
         col = {"deck": PART_COLORS["lane"], "girder": "#8f8b86", "rail": "#cfc8bd",      # the deck's top is roadway; its sides concrete
                "parts": {**PART_COLORS, **{f"mark {t}": c for t, c, *_ in MARKS}, "mark kerb": "#8f8b86", "barrier": "#cfc8bd", "railing": "#6b7280"}}

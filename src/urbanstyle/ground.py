@@ -184,6 +184,8 @@ def build(con, epsg):
         row = has_parcels and streets and land_ is None     # blocks first: land never joins the street
         if land_ is not None:
             near = [(L, k) for L, k in near if out[k][1] != "street"] or near
+        # a building's ground item is its footprint, exactly: a strip beside it joins another neighbour, or stays (a yard)
+        near = [(L, k) for L, k in near if out[k][1] != "building"]
         if ((p.area < SLIVER_M2 or 2 * p.area / p.length < SLIVER_W_M) and near and near[0][0] > 0.1) or row:
             k = streets[0][1] if row else near[0][1]
             out[k] = out[k][:6] + (poly(shapely.union_all([out[k][6], p.buffer(0.01)], grid_size=0.01)),)

@@ -62,7 +62,10 @@ Built per level over the unit's neighbourhood (the clip's box), in this order, e
    park is the park's). What is left that a path or a road runs through is that path's or that street's.
 7. `unknown`: what is left, reported by G1, each piece with its area and its neighbours, so it can be traced to a missing rule; but a
    sliver (under 5 m², or thinner than 2 m on average) joins the neighbour it shares the most edge with, and where a city has parcels,
-   ground outside them that touches a street is right-of-way and joins that street.
+   ground outside them that touches a street is right-of-way and joins that street. A sliver never joins a building (2026-10-11): a
+   building's ground item is its footprint, exactly; a strip between a building and its block's edge joins another neighbour or is
+   a yard. Before, 34 buildings on Broadway × Granville had up to 122 m² of ground beside them (1,093 m² in all), now none. A
+   building that reaches over its block's edge stays reported (B1): the street takes that part of its ground.
 
 A street's ground is fixed by the street's own rules (cuts, the building line); a plot's by its parcel, or by its buildings and land use;
 the order above decides where two sources claim the same ground. The ground of one level is independent of another's (a bridge deck at

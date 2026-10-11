@@ -87,9 +87,10 @@ PYTHONPATH=src $P -m urbanstyle check data/monaco.duckdb data/sodermalm.duckdb
 
 # dashboard: system python3 (roadstyle 0.13.1 from PyPI), then serve it; Street View needs http
 PYTHONPATH=src python3 -m urbanstyle dashboard data/monaco.duckdb viz/monaco.html
-(cd viz && python3 -m http.server 8765)                # viz/<area>.html#c=<container id> opens one container
-# Street View's linked panorama: GOOGLE_MAPS_KEY (the roadstyle conda env sets it on activate; its Google restriction must allow
-# http://localhost:8765/*). Clicks inside a focused space move the Street View window too (svHere in dashboard.py).
+(cd viz && python3 -m http.server 8784 --bind 127.0.0.1)   # viz/<area>.html#c=<container id> opens one container
+# Street View's linked panorama: GOOGLE_MAPS_KEY, set when the page is BUILT (the roadstyle conda env sets it on activate; with the
+# system python3: `source ~/miniconda3/envs/roadstyle/etc/conda/activate.d/google_maps_key.sh` first). Its Google restriction allows
+# http://localhost:8784/* only: serve the pages on port 8784. Clicks inside a focused space move the Street View window too (svHere in dashboard.py).
 
 # docs
 mkdocs build --strict                                  # needs pip install ".[docs]"

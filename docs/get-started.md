@@ -51,7 +51,7 @@ Ids are stable across rebuilds: `s<level>-<edge>` for a section, `i<level>-<node
 urbanstyle check data/monaco.duckdb       # one line per invariant; exit 1 if a hard one fails
 urbanstyle quality data/monaco.duckdb     # how rectangular the sections are, how much of them lies on a facade
 urbanstyle dashboard data/monaco.duckdb viz/monaco.html
-cd viz && python3 -m http.server 8765     # Street View needs http, not file://
+cd viz && python3 -m http.server 8784     # Street View needs http, not file://; the Maps key allows port 8784
 ```
 
 The dashboard is a [roadstyle](https://khoshkhah.github.io/roadstyle/) map with a tree of streets, sections and

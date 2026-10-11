@@ -26,6 +26,7 @@ LINE_LIFT_M = 0.15  # a painted line above both
 COLUMN_M = 2.5      # a pier's column, square (chosen; 1.5 m was too narrow)
 COLUMN_GAP_M = 2.0  # two columns at least this far apart, else one (chosen)
 BARRIER_M = (0.8, 0.3)      # the guard: a concrete barrier this high and wide along each side of the deck (chosen)
+BARRIER_SEP_M = (0.5, 0.8)  # the barrier between a path for walking and cycling and the vehicle lanes: wide, high (chosen)
 RAILING_M = (1.1, 2.5)      # ... a metal railing on it, its top this high, a post every this far (chosen)
 TOUCH_M = 0.5       # two lanes this close share one painted line
 
@@ -182,7 +183,8 @@ def model(path, parts=None, marks=None):
                     paint.append(("edge line", right))
             if t_ - f_ >= 0.5:
                 lines += [{"kind": k, "ref": a["id"], "pts": along(ln, a, f_, t_, t, LINE_LIFT_M)} for k, t in paint]
-    crossings = []      # (a path's piece over the roadway, marked or not, its fields): drawn as a crosswalk, not as the path
+    crossings = []      # (a crossing OSM maps, marked or not, its fields): a crosswalk over the lanes it crosses, not a path
+    shared = []         # (a path for walking and cycling, its width, its fields): one lane, with a barrier towards the vehicle lanes
     road_ = shapely.union_all([shapely.Polygon([p[:2] for p in l["l"]] + [p[:2] for p in l["r"]][::-1]).buffer(0) for l in lanes]) if lanes else shapely.Polygon()
     for f in P.get("paths", []):            # each path on the deck, along its own line
         fl = shapely.LineString(rel(f["line"]))
@@ -190,14 +192,16 @@ def model(path, parts=None, marks=None):
             continue
         props = {"type": f["type"], "name": f.get("name") or P["name"], "osm": f["way"], "width_m": f["width"]["value"],
                  "width_source": f["width"]["source"], "width_method": f["width"]["method"], "source": f["source"], "method": f["method"]}
-        marked = not (f.get("crossing") == "unmarked" or f.get("markings") == "no")
-        for pc in shapely.get_parts(fl.intersection(road_)):         # where it crosses lanes: a crosswalk
-            if pc.geom_type == "LineString" and pc.length > 1.0:
-                crossings.append((pc, marked, {**props, "type": "crosswalk", "marked": marked}))
-        for pc in shapely.get_parts(fl.difference(road_.buffer(0.3))):
-            if pc.geom_type == "LineString" and pc.length > 0.5:
-                l_, r_ = ribbon(pc, f["width"]["value"], LIFT[False])
-                lanes.append({"props": props, "l": l_, "r": r_})
+        # a crossing is what OSM maps as one (footway=crossing, cycleway=crossing, a crossing tag): a crosswalk over the lanes it crosses;
+        # any other path is drawn whole (a path beside the lanes is no crossing)
+        if f.get("footway") == "crossing" or f.get("cycleway") == "crossing" or f.get("crossing"):
+            marked = not (f.get("crossing") == "unmarked" or f.get("markings") == "no")
+            crossings.append((fl, marked, {**props, "type": "crosswalk", "marked": marked}))
+        elif f["type"] == "shared path":    # a path for walking and cycling: drawn below with its barrier
+            shared.append((fl, f["width"]["value"], props))
+        else:
+            l_, r_ = ribbon(fl, f["width"]["value"], LIFT[False])
+            lanes.append({"props": props, "l": l_, "r": r_})
     for c in P.get("connectors", []):       # SUMO's path from lane to lane through a junction on the deck
         cl = shapely.LineString(rel(c["line"]))
         if cl.length < 0.5:
@@ -282,10 +286,11 @@ def model(path, parts=None, marks=None):
                 strip(g, 0.25, "mark kerb", 0.03, None, KERB_TOP_M)
             elif ty in LINE and ty not in ("arrow", "zebra"):
                 strip(g, LINE[ty], f"mark {ty}", 0.06, (3.0, 6.0) if ty == "lane line" else None)
-    for pc, marked, props in crossings:     # a crosswalk, as on the street: zebra bars along the road, none if unmarked
-        if not covered.is_empty and pc.intersection(covered).length > 0.5 * pc.length:
-            continue
-        if marked:
+    for fl_, marked, props in crossings:    # a crosswalk: its piece over the lanes, zebra bars along the road unless OSM says unmarked
+        for pc in shapely.get_parts(fl_.intersection(road_.buffer(0.5))):
+            if pc.geom_type != "LineString" or pc.length <= 1.0 or not marked or \
+                    (not covered.is_empty and pc.intersection(covered).length > 0.5 * pc.length):
+                continue
             d_ = ZEBRA_BAR_M / 2
             while d_ < pc.length:
                 c_ = pc.interpolate(d_)
@@ -295,6 +300,18 @@ def model(path, parts=None, marks=None):
                 bar = shapely.LineString([(c_.x - ty * CROSSWALK_M / 2, c_.y + tx * CROSSWALK_M / 2), (c_.x + ty * CROSSWALK_M / 2, c_.y - tx * CROSSWALK_M / 2)])
                 mesh(bar.buffer(ZEBRA_BAR_M / 2, cap_style="flat"), "mark zebra", LINE_LIFT_M, props)
                 d_ += ZEBRA_BAR_M + ZEBRA_GAP_M
+    for pc, w, props in shared:             # one lane for walking and cycling, a concrete barrier on its side towards the vehicle lanes
+        if not covered.is_empty and pc.intersection(covered).length > 0.5 * pc.length:
+            continue
+        l_, r_ = ribbon(pc, w, LIFT[False])
+        mesh(shapely.Polygon([q[:2] for q in l_] + [q[:2] for q in r_][::-1]).buffer(0), "cycle lane", LIFT[False], props)
+        lt, rt = pc.offset_curve(w / 2 + BARRIER_SEP_M[0]), pc.offset_curve(-(w / 2 + BARRIER_SEP_M[0]))
+        dl = road_.distance(lt) if not lt.is_empty else 1e9
+        dr = road_.distance(rt) if not rt.is_empty else 1e9
+        bar = pc.offset_curve((1 if dl < dr else -1) * (w / 2 + BARRIER_SEP_M[0] / 2))
+        for bp in shapely.get_parts(bar.difference(road_.buffer(0.3)) if not bar.is_empty else bar):
+            if bp.geom_type == "LineString" and bp.length > 1.0:
+                strip(bp, BARRIER_SEP_M[0], "barrier", 0.0, None, BARRIER_SEP_M[1])
     # the model's own items where the street has no part: lanes, connectors and paths in the street's types, its lines as paint
     for l in lanes:
         pg = shapely.Polygon([p[:2] for p in l["l"]] + [p[:2] for p in l["r"]][::-1]).buffer(0)

@@ -17,6 +17,7 @@ PIER_M = 80.0       # a pier every this along each axis (chosen; 50 m was too ma
 PIER_MIN_M = 3.0    # no pier under a deck lower than this
 PIER_W = 1.5        # a pier's thickness along the axis
 PIER_GAP_M = 30.0   # no pier this near another one (two axes side by side; chosen)
+SHARED_W = 4.0      # a path for walking and cycling: one lane both share (chosen; OSM gives no width)
 PATH_W = {"cycleway": 3.0, "footway": 2.0, "path": 2.0, "pedestrian": 3.0}
 STEP_M = 10.0       # the vertical profile is sampled this often (then collinear points are dropped)
 ON_DECK = 0.6       # a road way is on the deck when this share of it lies within 5 m of the outline
@@ -170,7 +171,12 @@ def _profile(g, tr, name, epsg, deck, outline, on, lines, pts, ground, osm_db, g
     free = [{"way": f"w{w}", "type": "cycleway" if lines[w][2]["highway"] == "cycleway" else "footway", "name": lines[w][2].get("name"),
              "line": [[round(x, 2), round(y, 2)] for x, y in lines[w][0].coords], "width": _val(PATH_W[lines[w][2]["highway"]], "urbanstyle", "chosen"),
              "source": f"osm w{w}", "method": "mapped", "footway": lines[w][2].get("footway"), "crossing": lines[w][2].get("crossing"),
-             "markings": lines[w][2].get("crossing:markings")} for w in paths]
+             "markings": lines[w][2].get("crossing:markings"), "foot": lines[w][2].get("foot"), "bicycle": lines[w][2].get("bicycle"),
+             "segregated": lines[w][2].get("segregated"), "cycleway": lines[w][2].get("cycleway")} for w in paths]
+    # a path for walking and cycling both (foot and bicycle designated): one wide shared path, SHARED_W (chosen; OSM gives no width)
+    for f in free:
+        if f["foot"] == "designated" and f["bicycle"] == "designated":
+            f.update({"type": "shared path", "width": _val(SHARED_W, "urbanstyle", "chosen")})
     return {"format": FORMAT, "name": name, "crs": f"EPSG:{epsg}",
             "z_datum": _val("ground at the ends", "urbanstyle", "chosen"),
             "made": {"by": "urbanstyle bridge profile", "date": datetime.date.today().isoformat(), "inputs": [osm_db, gmns_db]},
@@ -212,6 +218,26 @@ def fit_alignment(samples, tol=0.25, curve_max=80.0):
                       for i in range(1, len(pts) - 1)] + ([0.0] if len(pts) > 1 else [])
     errs = [abs(height({"points": pts, "curves": curves}, s_) - z_) for s_, z_ in samples]
     return pts, curves, (sum(e * e for e in errs) / len(errs)) ** .5, max(errs)
+
+
+def fit_from(samples, z0, g0, tol=0.25, curve_max=80.0, tangent_m=30.0):
+    """fit_alignment with its start fixed: at s = 0 the height z0 and the grade g0 (where an arm leaves the arm it starts from, so it
+    goes on smoothly): a first grade of g0 to TANGENT (at most half the way to the next point), then the samples' fit."""
+    pts, _, _, _ = fit_alignment([(0.0, z0)] + [tuple(q) for q in samples[1:]], tol, curve_max)
+    T = min(tangent_m, pts[1][0] / 2) if len(pts) > 1 else 0.0
+    if T > 1.0:
+        pts = [pts[0], [round(T, 2), round(z0 + g0 * T, 2)]] + pts[1:]
+    curves = [0.0] + [round(min(curve_max, 0.9 * min(pts[i][0] - pts[i - 1][0], pts[i + 1][0] - pts[i][0])), 1)
+                      for i in range(1, len(pts) - 1)] + ([0.0] if len(pts) > 1 else [])
+    errs = [abs(height({"points": pts, "curves": curves}, s_) - z_) for s_, z_ in samples]
+    return pts, curves, (sum(e * e for e in errs) / len(errs)) ** .5, max(errs)
+
+
+def grade(vertical, s, d=1.0):
+    """The grade of a vertical profile at s (its own direction)."""
+    L = vertical["points"][-1][0]
+    a, b = max(s - d, 0.0), min(s + d, L)
+    return (height(vertical, b) - height(vertical, a)) / ((b - a) or 1)
 
 
 def place_piers(axes):

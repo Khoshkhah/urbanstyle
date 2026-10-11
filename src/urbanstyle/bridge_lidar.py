@@ -253,16 +253,14 @@ def measure(profile, tiles, survey="City of Vancouver LiDAR 2022", osm_db=None):
                     if d < LAND_TAPER_M:
                         q[1] = round(max(q[1] - r * 0.5 * (1 + math.cos(math.pi * d / LAND_TAPER_M)), 0.0), 2)
         m_ = sum(st["method"] == "measured" for st in stations)
-        # the standard form: grades and vertical curves fitted to the samples (the samples stay as the measurement)
-        from .bridge_profile import fit_alignment
-        fpts, fcur, rms, mx = fit_alignment([tuple(q) for q in pts])
-        a["vertical"] = {"points": fpts, "curves": fcur, "samples": pts, "fit": {"rms_m": round(rms, 3), "max_m": round(mx, 3)},
+        a["vertical"] = {"points": pts, "curves": [], "samples": pts,
                          "source": survey if m_ else a["vertical"]["source"], "method": "derived" if m_ else "chosen",
                          "rule": f"grades and parabolic vertical curves fitted (within 0.25 m) to the deck top (the {DECK_Q:.0%} quantile of the returns in the lane bands, {2 * HALF_M:.0f} m along) above the "
                                  f"bridge's reference ground (the ground and water returns within {GROUND_R_M:.0f} m of every station, weighted over "
                                  f"{REF_SIGMA_M:.0f} m, pinned to the deck at each landing), every {STEP_M:.0f} m; {m_} of {len(stations)} stations "
                                  f"measured, the others keep the chosen value",
                          "stations": stations, "chosen_before": chosen}
+    _fit_in_order(P)
     from .bridge_profile import place_piers
     P["piers"] = place_piers(P["axes"])       # again, on the measured heights
     P["z_datum"] = {"value": f"the bridge's reference ground: the measured ground and water under it, weighted over {REF_SIGMA_M:.0f} m and "
@@ -270,6 +268,60 @@ def measure(profile, tiles, survey="City of Vancouver LiDAR 2022", osm_db=None):
     P.setdefault("made", {})["measured"] = {"by": "urbanstyle bridge-measure", "survey": survey, "tiles": list(tiles),
                                             "stations": n_all, "measured": n_meas}
     return P
+
+
+def _fit_in_order(P, touch_m=1.5):
+    """Each arm's heights in the standard form (grades and vertical curves, fitted to its samples), the arms in order: the longest first,
+    free; then every arm whose end touches an arm already fitted, starting there with that arm's height and grade (in its own direction),
+    so it leaves the fork smoothly. An arm that touches none is fitted free."""
+    import shapely
+    from .bridge_profile import fit_alignment, fit_from, grade, height
+    lines = {a["id"]: shapely.LineString(a["line"]["value"]) for a in P["axes"]}
+    unit = lambda ln, s: (lambda p, q: ((q.x - p.x) / (p.distance(q) or 1), (q.y - p.y) / (p.distance(q) or 1)))(
+        ln.interpolate(max(s - 2, 0)), ln.interpolate(min(s + 2, ln.length)))
+    todo = sorted(P["axes"], key=lambda a: -a["length_m"])
+    done = []
+
+    def put(a, pts, cur, rms, mx, parent=None):
+        a["vertical"].update({"points": pts, "curves": cur, "fit": {"rms_m": round(rms, 3), "max_m": round(mx, 3)}})
+        if parent:
+            a["vertical"]["starts_from"] = parent
+    first = todo.pop(0)
+    put(first, *fit_alignment([tuple(q) for q in first["vertical"]["samples"]]))
+    done.append(first)
+    while todo:
+        best = None
+        for a in todo:
+            ln = lines[a["id"]]
+            for e in (0, 1):
+                end = shapely.Point(ln.coords[-1] if e else ln.coords[0])
+                for b in done:
+                    lb = lines[b["id"]]
+                    if lb.distance(end) <= touch_m:
+                        best = best or (a, e, b, lb.project(end))
+        if best is None:                    # touches no fitted arm (yet): free
+            a = todo.pop(0)
+            put(a, *fit_alignment([tuple(q) for q in a["vertical"]["samples"]]))
+            done.append(a)
+            continue
+        a, e, b, sb = best
+        todo.remove(a)
+        ln, lb = lines[a["id"]], lines[b["id"]]
+        z0 = height(b["vertical"], sb)
+        ta, tb = unit(ln, ln.length if e else 0.0), unit(lb, sb)
+        g_b = grade(b["vertical"], sb)
+        g_a = g_b * (1 if ta[0] * tb[0] + ta[1] * tb[1] >= 0 else -1)      # the same slope, in a's own direction
+        smp = [tuple(q) for q in a["vertical"]["samples"]]
+        if e:       # it touches at its end: fit it from that end, then turn it back
+            L = smp[-1][0]
+            rev = [(round(L - s_, 2), z_) for s_, z_ in reversed(smp)]
+            pts, cur, rms, mx = fit_from(rev, z0, -g_a)
+            pts = [[round(L - s_, 2), z_] for s_, z_ in reversed(pts)]
+            cur = list(reversed(cur))
+        else:
+            pts, cur, rms, mx = fit_from(smp, z0, g_a)
+        put(a, pts, cur, rms, mx, b["id"])
+        done.append(a)
 
 
 def write(profile_path, out, tiles, osm_db=None):

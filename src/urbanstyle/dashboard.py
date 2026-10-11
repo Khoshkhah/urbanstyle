@@ -953,6 +953,7 @@ function brLayer(M){const o=maplibregl.MercatorCoordinate.fromLngLat(M.origin,0)
         if(dashed)ln.computeLineDistances(); scene.add(ln)});
       M.piers.forEach(q=>{const [ax,ay]=q.a,[bx,by]=q.b, m=new THREE.Mesh(new THREE.BoxGeometry(Math.hypot(bx-ax,by-ay),q.t,q.h),new THREE.MeshLambertMaterial({color:hex(BC.girder)}));
         m.position.set((ax+bx)/2,(ay+by)/2,q.h/2); m.rotation.z=Math.atan2(by-ay,bx-ax); scene.add(m)});
+      scene.traverse(o=>{o.frustumCulled=false});   // the map's matrix is the camera: three.js's own culling dropped the parts far from the origin
       renderer=new THREE.WebGLRenderer({canvas:map.getCanvas(),context:gl,antialias:true}); renderer.autoClear=false},
     render(gl,args){const mm=args&&args.defaultProjectionData?args.defaultProjectionData.mainMatrix:args;
       camera.projectionMatrix=new THREE.Matrix4().fromArray(mm).multiply(T); renderer.resetState(); renderer.render(scene,camera)}};
@@ -978,8 +979,11 @@ map.on('click',e=>{const m=brHit(e.point); if(!m)return;
   brPop.on('close',()=>{if(brSel){brShow(brSel,false); brSel=null; map.triggerRepaint()}})});
 // (added again whenever the style is rebuilt: a basemap or a view switch drops custom layers)
 const brOn=()=>document.getElementById('br3don').checked;
+// the bridge stays the top layer: a flat layer drawn after it (the street, the ground) has no depth test and painted over it, and the page
+// adds its layers after this one
 const brAdd=()=>{if(!map.isStyleLoaded())return; BR.forEach(M=>{const id='br3d-'+M.name; if(!map.getLayer(id)){
-  try{LAYERS[id]=brLayer(M); map.addLayer(LAYERS[id]); if(!brOn())map.setLayoutProperty(id,'visibility','none')}catch(e){console.error('bridge 3D:',e)}}})};
+  try{LAYERS[id]=brLayer(M); map.addLayer(LAYERS[id]); if(!brOn())map.setLayoutProperty(id,'visibility','none')}catch(e){console.error('bridge 3D:',e)}}
+  const ord=map.style._order; if(ord[ord.length-1]!==id&&map.getLayer(id))map.moveLayer(id)})};
 const brGo=()=>{if(typeof map==='undefined'||!map.isStyleLoaded||!map.isStyleLoaded()||typeof THREE==='undefined')return setTimeout(brGo,300);
   brAdd(); map.on('styledata',brAdd); map.on('idle',brAdd);
   document.getElementById('br3don').onchange=()=>{BR.forEach(M=>{if(map.getLayer('br3d-'+M.name))map.setLayoutProperty('br3d-'+M.name,'visibility',brOn()?'visible':'none')});

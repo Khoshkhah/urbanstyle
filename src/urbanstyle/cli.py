@@ -41,6 +41,7 @@ def main(argv=None):
     bm.add_argument("profile", help="a <name>.bridge.json (`urbanstyle bridge`)")
     bm.add_argument("out", help="the measured profile: a .json file or a directory")
     bm.add_argument("--lidar", nargs="+", required=True, help="ducklidar Parquet tiles that cover the bridge")
+    bm.add_argument("--osm", help="the duckOSM .duckdb of the profile: a ramp that OSM ends in the air runs on along the road that continues it")
     a = p.parse_args(argv)
 
     if a.cmd == "build":
@@ -66,7 +67,7 @@ def main(argv=None):
         print(layers(a.db, a.out))
     elif a.cmd == "bridge-measure":
         from .bridge_lidar import write as measure
-        print(measure(a.profile, a.out, a.lidar))
+        print(measure(a.profile, a.out, a.lidar, a.osm))
     elif a.cmd == "bridge":
         from .bridge_profile import write
         print("\n".join(write(a.osm, a.gmns, a.name, a.out_dir)))

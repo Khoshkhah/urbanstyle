@@ -21,7 +21,7 @@ def test_model_follows_the_profile():
     m = model(_profile())
     assert max(v[2] for v in m["verts"]) == 11.1                  # the deck's top at s = 48 (10 m) plus the parapet
     assert len(m["lanes"]) == 2
-    mid = [p for p in m["lanes"][0]["l"] if abs(p[0] - 48) < 0.01]  # the origin is the outline's first point: x - X, y - (Y - 10)
-    assert mid and mid[0][2] == 10.03 and mid[0][1] == 10 + 3.25   # the backward lane's left edge, on the deck at s = 48
+    mid = [p for p in m["lanes"][0]["l"] if abs(p[0] - (48 - 50)) < 0.01]  # the origin is the middle of the outline: x - (X + 50), y - Y
+    assert mid and mid[0][2] == 10.03 and mid[0][1] == 3.25          # the backward lane's left edge, on the deck at s = 48
     assert sorted(l["kind"] for l in m["lines"]) == ["centre line", "edge line", "edge line"]
     assert m["piers"] and m["piers"][0]["h"] == 9.0               # down from the deck's bottom

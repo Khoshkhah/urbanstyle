@@ -1,8 +1,8 @@
 """A bridge as a 3D model for the dashboard's three.js layer (docs/design/bridges-3d.md), from its profile only
 (docs/design/bridge-profile.md, `bridge_profile.py`):
     deck       the outline, its top as triangles; as thick as the profile's deck thickness, with a parapet along the outline
-    heights    one surface for the deck, the lanes and the lines: the two nearest axes' vertical profiles, each weighted by the other's
-               distance (so no step where the nearest axis changes, at a fork)
+    heights    the lanes and lines: their own axis's vertical profile; the deck: the nearest axis's, blended with the second nearest
+               where the two meet (heights within MEET_M, a fork), so no step there and no bump between two roads at different heights
     lanes      each band of each section, a ribbon between its left and right edges, from where SUMO starts the lane to where it ends it at a
                junction (s_from, s_to: GMNS geom_cut), with its fields (and their sources) for the popup; through a junction on the deck,
                SUMO's path from lane to lane (the profile's connectors), so the lanes of a fork or a merge do not lie on each other;
@@ -10,12 +10,13 @@
     lines      an edge line at the outer edge of each run of lanes, a lane line between two lanes of one direction, the centre line
                between the two directions
     piers      a wall across the deck at each pier, down to the ground
-Coordinates: metres east and north of the model's origin (its first outline point), and up.
+Coordinates: metres east and north of the model's origin (the middle of its outline's bounds), and up.
 """
 import json
 
 STEP_M = 4.0        # the outline and the bands are sampled this often, so their heights follow the profile
 BLEND_M = 40.0      # the heights of two axes are blended where the second nearest is this near
+MEET_M = 1.5        # ... and only where their heights differ by less than this (they meet at a fork)
 TOUCH_M = 0.5       # two lanes this close share one painted line
 
 
@@ -31,7 +32,8 @@ def model(path):
     P = json.load(open(path)) if isinstance(path, str) else path
     to_ll = pyproj.Transformer.from_crs(P["crs"], "EPSG:4326", always_xy=True).transform
     ol = P["deck"]["outline"]["value"]
-    x0, y0 = ol[0]
+    xs_, ys_ = [x for x, _ in ol], [y for _, y in ol]
+    x0, y0 = (min(xs_) + max(xs_)) / 2, (min(ys_) + max(ys_)) / 2       # the middle of the bridge: every part near the origin
     rel = lambda ps: [(x - x0, y - y0) for x, y in ps]
     deck = shapely.make_valid(shapely.Polygon(rel(ol)))
     deck = max(shapely.get_parts(deck), key=lambda p: p.area) if deck.geom_type != "Polygon" else deck
@@ -40,10 +42,11 @@ def model(path):
     by_id = {a["id"]: (ln, a) for ln, a in axes}
 
     def z(x, y):
-        """The deck's top at (x, y): the two nearest axes' vertical profiles, each weighted by the other's distance."""
+        """The deck's top at (x, y): the nearest axis's vertical profile, blended with the second nearest (each weighted by the other's
+        distance) only where the two meet (their heights within MEET_M: a fork); two roads side by side at other heights keep their own."""
         p = shapely.Point(x, y)
         near = sorted(((ln.distance(p), _z(a["vertical"]["points"], ln.project(p))) for ln, a in axes), key=lambda dz: dz[0])[:2]
-        if len(near) < 2 or near[1][0] > BLEND_M:
+        if len(near) < 2 or near[1][0] > BLEND_M or abs(near[0][1] - near[1][1]) > MEET_M:
             return near[0][1]
         (d1, z1), (d2, z2) = near
         return (z1 * d2 + z2 * d1) / ((d1 + d2) or 1)
@@ -85,7 +88,7 @@ def model(path):
         for i in range(n + 1):
             s = s0 + (s1 - s0) * i / n
             x, y, nx, ny = frame(ln, s)
-            out.append([round(x + nx * t, 2), round(y + ny * t, 2), round(z(x + nx * t, y + ny * t) + lift, 2)])
+            out.append([round(x + nx * t, 2), round(y + ny * t, 2), round(_z(a["vertical"]["points"], s) + lift, 2)])     # its own axis
         return out
 
     def ribbon(line, w, lift):
@@ -148,8 +151,13 @@ def model(path):
     for q in P["piers"]:
         ln, a = by_id[q["axis"]]
         x, y, nx, ny = frame(ln, q["s"])
-        cut = shapely.LineString([(x - nx * 80, y - ny * 80), (x + nx * 80, y + ny * 80)]).intersection(deck.buffer(-2.0))
-        h = z(x, y) - DECK_M
+        # across its own road only (its bands at s), inside the deck
+        sec = next((sc for sc in a["sections"] if sc["s0"] - 0.01 <= q["s"] <= sc["s1"] + 0.01), None)
+        bs = sec["bands"] if sec else []
+        lo = min((b["t"] - b["width"]["value"] / 2 for b in bs), default=-4.0) + 1.0
+        hi = max((b["t"] + b["width"]["value"] / 2 for b in bs), default=4.0) - 1.0
+        cut = shapely.LineString([(x + nx * lo, y + ny * lo), (x + nx * hi, y + ny * hi)]).intersection(deck.buffer(0.5))
+        h = _z(a["vertical"]["points"], q["s"]) - DECK_M
         for seg in shapely.get_parts(cut):
             if seg.geom_type == "LineString" and seg.length > 2:
                 (ax, ay), (bx, by) = seg.coords[0], seg.coords[-1]

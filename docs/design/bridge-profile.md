@@ -175,3 +175,18 @@ No source gives these values yet (`bridge_profile.py`). Each one is in the profi
 - The cross slope of the deck (OpenDRIVE `lateralProfile`): the deck is flat across.
 - The lane widths from the aerial photo. (The heights from LiDAR: see above.)
 - The piers' real positions. They stay every 50 m (`chosen`) until a source gives them.
+
+## Smooth heights, real landings, piers on every axis, drawn on top (2026-10-11)
+
+- **One reference ground for the whole bridge.** The measured deck is smooth, but the ground under it jumps (a street, Granville
+  Island, the water). Each height is now the measured deck above one smooth reference ground: the ground and water samples weighted
+  over 60 m and pinned to the deck at each landing. A landing's last 60 m go to 0 smoothly. The axes agree where they meet.
+- **A ramp that OSM ends in the air runs on to its measured landing**, along the OSM road that continues it, while the LiDAR still
+  sees the deck above the ground (at most 150 m). Granville Bridge: a2 45 m, a8 70 m, a5, a6, a11, a12 5-10 m (`landings` on the axis).
+- **The lanes and lines follow their own axis.** The deck blends two axes only where their heights agree within 1.5 m (a fork).
+- **Piers along every axis** (`place_piers`), every 50 m where the deck is 3 m or more above the ground, none within 15 m of another;
+  made again from the measured heights; each pier only as wide as its own road. Granville Bridge: 52 on 11 axes (before: 11, on the
+  main span only).
+- **The model is drawn on top.** The dashboard's flat layers (the street, the ground) have no depth test; added after the bridge, they
+  painted over it, so on the page only the main span over the water showed. The bridge's layer now stays the top layer. The model's
+  origin is the middle of the outline.

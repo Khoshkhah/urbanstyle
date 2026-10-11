@@ -16,6 +16,7 @@ RAIL_M = 1.1        # parapet height
 PIER_M = 50.0       # a pier every, along the longest axis
 PIER_MIN_M = 3.0    # no pier under a deck lower than this
 PIER_W = 1.5        # a pier's thickness along the axis
+PIER_GAP_M = 15.0   # no pier this near another one (two axes side by side)
 PATH_W = {"cycleway": 3.0, "footway": 2.0, "path": 2.0, "pedestrian": 3.0}
 STEP_M = 10.0       # the vertical profile is sampled this often (then collinear points are dropped)
 ON_DECK = 0.6       # a road way is on the deck when this share of it lies within 5 m of the outline
@@ -152,16 +153,7 @@ def _profile(g, tr, name, epsg, deck, outline, on, lines, pts, ground, osm_db, g
                                   "method": "chosen", "rule": f"{GRADE:.0%} up from the nearest end where a road on it meets a ground road, "
                                                               f"at most {TOP_M} m"},
                      "sections": _sections(ax, ways, tr_link, lanes, paths, lines, parts)})
-    piers = []
-    if axes:
-        ax = parts[0]
-        vert = axes[0]["vertical"]["points"]
-        s = PIER_M / 2
-        while s < ax.length:
-            if _z(vert, s) - DECK_M >= PIER_MIN_M:
-                piers.append({"axis": axes[0]["id"], "s": round(s, 2), "width": PIER_W, "source": "urbanstyle", "method": "chosen",
-                              "rule": f"every {PIER_M} m along the longest axis, where the deck is {PIER_MIN_M} m or more above the ground"})
-            s += PIER_M
+    piers = place_piers(axes)
     if outline is None:     # no OSM outline: the sections, each as wide as its bands
         polys = []
         for a, ax in zip(axes, parts):
@@ -185,6 +177,26 @@ def _profile(g, tr, name, epsg, deck, outline, on, lines, pts, ground, osm_db, g
             "made": {"by": "urbanstyle bridge profile", "date": datetime.date.today().isoformat(), "inputs": [osm_db, gmns_db]},
             "deck": {"outline": outline, "thickness": _val(DECK_M, "urbanstyle", "chosen"), "parapet": _val(RAIL_M, "urbanstyle", "chosen")},
             "axes": axes, "connectors": connectors, "paths": free, "piers": piers}
+
+
+def place_piers(axes):
+    """The piers of a bridge: along every axis, every PIER_M (from PIER_M / 2), where the deck is PIER_MIN_M or more above the ground; none
+    within PIER_GAP_M of a pier already placed (two axes side by side share one). Made again from the measured heights (bridge_lidar)."""
+    import shapely
+    out, placed = [], []
+    for a in sorted(axes, key=lambda a: -a["length_m"]):
+        ln = shapely.LineString(a["line"]["value"])
+        vert = a["vertical"]["points"]
+        s = PIER_M / 2
+        while s < ln.length:
+            p = ln.interpolate(s)
+            if _z(vert, s) - DECK_M >= PIER_MIN_M and all(p.distance(q) >= PIER_GAP_M for q in placed):
+                placed.append(p)
+                out.append({"axis": a["id"], "s": round(s, 2), "width": PIER_W, "source": "urbanstyle", "method": "chosen",
+                            "rule": f"every {PIER_M:.0f} m along each axis, where the deck is {PIER_MIN_M:.0f} m or more above the ground "
+                                    f"({a['vertical']['method']} heights); one where two axes run side by side"})
+            s += PIER_M
+    return out
 
 
 def _collinear_out(ps, tol=0.01):

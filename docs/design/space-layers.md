@@ -58,8 +58,10 @@ Built per level over the unit's neighbourhood (the clip's box), in this order, e
 6. `green`: the rest of the green, OSM `landuse=grass`, gardens, allotments. Public green (parks, playgrounds, pitches, recreation grounds,
    woods) comes before `plot`: a city park is a parcel too, and would otherwise be a plot.
    Then `structure` again: land under a street space of a higher level (a deck OSM maps as a bridge without its outline); `path`: the
-   measured path spaces (a greenway, a connector) and `square`: the measured plazas, after the plots and the green (a footpath through a
-   park is the park's). What is left that a path or a road runs through is that path's or that street's.
+   measured path spaces (a greenway, a connector), after the plots and the green (a footpath through a park is the park's). What is
+   left that a path or a road runs through is that path's or that street's. A `square` is only what OSM maps as one (2026-10-11):
+   urbanstyle's own plaza rule (open ground between buildings) made 17 squares on Broadway × Granville that no source maps, all inside
+   a block and a city parcel; that ground is now yard. A kind that no source gives is proposed and agreed before it is built.
 7. `unknown`: what is left, reported by G1, each piece with its area and its neighbours, so it can be traced to a missing rule; but a
    sliver (under 5 m², or thinner than 2 m on average) joins the neighbour it shares the most edge with, and where a city has parcels,
    ground outside them that touches a street is right-of-way and joins that street. A sliver never joins a building (2026-10-11): a

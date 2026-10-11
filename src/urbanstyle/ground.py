@@ -116,13 +116,11 @@ def build(con, epsg):
                   AND coalesce(w.tags['layer'], '0') = '0' AND coalesce(w.tags['tunnel'], 'no') = 'no' GROUP BY e.osm_id""")]
     order.append(("driveway", drives, "osm", "mapped"))
     order.append(("green", land(OTHER_GREEN), "osm", "mapped"))
-    # the measured path spaces and plazas after the plots and the green: a footpath through a park is the park's, a plaza in a parcel
-    # the plot's; they take what no parcel or green holds (a greenway, a public plaza)
+    # the measured path spaces after the plots and the green: a footpath through a park is the park's; they take what no parcel or green
+    # holds (a greenway). (No square from urbanstyle's own plaza rule, 2026-10-11: no source maps them; a square is OSM's.)
     order += [
         ("structure", [(u, None, g(w)) for u, w in rows(f"SELECT unit_id, {m()} FROM space.unit WHERE level > 0")], "urbanstyle", "derived"),
         ("path", [(c_, n, g(w)) for c_, n, w in rows(f"SELECT container_id, name, {m()} FROM space.container WHERE kind = 'path' AND level = 0")],
-         "urbanstyle", "measured"),
-        ("square", [(c_, n, g(w)) for c_, n, w in rows(f"SELECT container_id, name, {m()} FROM space.container WHERE kind = 'plaza' AND level = 0")],
          "urbanstyle", "measured"),
     ]
 
@@ -137,8 +135,7 @@ def build(con, epsg):
         order = (first("street") + [("building",) + plots[4]] + first("water") + first("rail") + first("square") + first("structure")
                  + greens[:1] + [o for o in order if o[0] == "alley"] + [("car park",) + plots[1], ("construction site",) + plots[2]]
                  + [("alley",) + o[1:] for o in order if o[0] == "driveway"]
-                 + greens[1:] + order[-3:-2]
-                 + order[-1:])     # (footpaths are not ground: they lie on it, whole, in space.path)
+                 + greens[1:] + order[-2:-1])     # the structures; (footpaths are not ground: they lie on it, whole, in space.path)
     else:
         order = [o for o in order if o[0] != "driveway"]
     taken, out = shapely.Polygon(), []

@@ -26,7 +26,24 @@ def frame(con, sql):
 
 
 BLOCK_POPUP = ["block_id", "area_m2", "source", "method", "sides"]
-BLOCK_COLOR = "#a78bfa"
+KIND_COLORS = {
+    # layer 0
+    "street": "#94a3b8", "block": "#d4a373",
+    # layer 1: the street's pieces, and the land in the blocks
+    "subsection": "#bfdbfe", "intersection": "#f97316",
+    "building": "#e05d5d", "yard": "#f3e9d2", "alley": "#cfc8c0", "green": "#6cc070", "path": "#a78bfa", "car park": "#22b8cf",
+    "construction site": "#fcd34d", "square": "#fbcfe8", "rail": "#64748b", "structure": "#8b5e3c", "water": "#38bdf8", "unknown": "#ff00ff",
+    "plot": "#a16207",
+    # layer 2: surfaces (a kind of layer 1 keeps its colour)
+    "roadway": "#6b7280", "pedestrian realm": "#e5e7eb", "median": "#84cc16", "verge": "#86efac", "garden": "#4caf50", "lawn": "#a7d7a0",
+    "play": "#f472b6", "track bed": "#64748b", "under bridge": "#8b5e3c", "paved": "#fbcfe8",
+    # layer 3: parts (the roadway's darker greys, the pedestrian realm's light ones)
+    "lane": "#4b5563", "shoulder": "#9ca3af", "junction area": "#374151", "island": "#84cc16", "furnishing": "#a8a29e", "sidewalk": "#e5e7eb",
+    "frontage": "#fde4cf",
+}
+BLOCK_COLOR = KIND_COLORS["block"]
+PATH_COLORS = {"sidewalk": "#c4b5fd", "footway": "#8b5cf6", "path": "#8b5cf6", "pedestrian": "#c4b5fd", "steps": "#5b21b6",
+               "cycleway": "#059669", "crossing": "#f8fafc"}     # paths lie on every layer: violets (and a cycleway green, a crossing white)
 
 
 def blocks_frame(con):
@@ -94,7 +111,7 @@ PART_COLORS = {"lane circulating": "#4b5260", "ring": "#4b5260", "junction area"
                "lane both": "#4b5260", "lane": "#4b5260", "shoulder": "#5c6370", "parking": "#64748b", "no parking": "#4b5260", "bus zone": "#7f1d1d",
                "parking lot": "#94a3b8", "carriageway": "#4b5260", "bus lane": "#9b2c2c",
                "cycle lane": "#2f855a", "cycle crossing": "#38a169", "crosswalk": "#4b5260", "island": "#8fbf6f",
-               "sidewalk": "#d8d2c6", "furnishing": "#b9a58b", "open": "#e9e4d6", "bus stop": "#93c5fd",
+               "sidewalk": "#d8d2c6", "furnishing": "#b9a58b", "frontage": "#ece6da", "open": "#e9e4d6", "bus stop": "#93c5fd",
                "tree pit": "#6b4f2a", "driveway": "#a8a29e"}   # asphalt, paving; crosswalks are asphalt under their zebra bars
 SEEN_COLORS = {"parking": "#2563eb", "no parking": "#9333ea", "give way": "#f97316", "stop": "#dc2626", "traffic light": "#ef4444",
                "street light": "#facc15", "bin": "#65a30d", "bench": "#84cc16", "lane arrow": "#06b6d4", "zebra": "#ffffff"}
@@ -580,8 +597,7 @@ FACADE_SNAP_M = 3.0   # a point this far inside a building is at its facade (map
 # an object's popup and tooltip, the same in 2D and in 3D: the tooltip names its type, the popup says what it is and who knows it
 DOT_COLORS = {"furniture": "#4f46e5", "vegetation": "#16a34a", "utility": "#6b7280", "transit": "#0891b2", "access": "#db2777", "barrier": "#78350f"}
 # layer 0, the ground (space.ground): its kinds' colours; unknown in red, to be found
-GROUND_COLORS = {"street": "#e5e7eb", "square": "#fcd34d", "rail": "#d8b4fe", "plot": "#fde68a", "green": "#86efac", "water": "#93c5fd",
-                 "path": "#c4b5fd", "structure": "#b45309", "unknown": "#ef4444"}
+GROUND_COLORS = {k: KIND_COLORS[k] for k in ("street", "alley", "building", "yard", "car park", "construction site", "square", "rail", "plot", "green", "water", "path", "structure", "unknown")}
 GROUND_POPUP = ["ground_id", "type", "name", "source", "method", "ref", "area_m2"]
 LOT_POPUP = ["type", "name", "operator", "parking", "access", "fee", "id"]     # an off-street car park (space.lot), 2D and 3D
 BLD_POPUP = ["type", "name", "use", "ground_floor", "evidence", "class", "floors", "height_m", "level_src", "source", "id"]     # a building's popup, the same in 2D and 3D
@@ -1062,8 +1078,8 @@ def main(db, out):
         color_options={"Roads": {"color_by": "type", "colors": {"road": "#555", "walkway": "#a16207", "cycleway": "#16a34a"}}},
         overlays=([o(ground, color=GROUND_COLORS["plot"], color_col="color", opacity=0.55, outline="#94a3b8", width=0.5, label="Ground", popup=GROUND_POPUP,
                      tooltip=["type", "name"])] if ground is not None and len(ground) else []) +
-                 ([o(blocks, color=BLOCK_COLOR, opacity=0.35, outline="#6d28d9", width=1.5, label="Blocks", visible=False, popup=BLOCK_POPUP,
-                     tooltip=["block_id"])] if blocks is not None and len(blocks) else []) +
+                 ([rs.Overlay(blocks, placement="over", color=BLOCK_COLOR, opacity=0.25, outline="#7c4a1e", width=1.5, label="Blocks", visible=False,
+                              popup=BLOCK_POPUP, tooltip=["block_id"])] if blocks is not None and len(blocks) else []) +
                  [o(streets[streets.kind == k], color=c, opacity=0.8, outline=dark, width=1.2, label=lab, popup=POP, tooltip=["cid", "name"])
                   for k, lab, c, dark in KINDS if (streets.kind == k).any()] + [
                   o(zones[zones.zone == "pedestrian_realm"], color="#f8c4b4", opacity=0.9, outline="#e8a898", label="Pedestrian realm",
@@ -1170,79 +1186,243 @@ def main(db, out):
 
 
 # the layers page (docs/design/space-layers.md): layer 0 the ground, layer 1 the surfaces, each alone, with the hierarchy in the popups
-LAYER_COLORS = {0: GROUND_COLORS,
-                1: {"roadway": "#6b7280", "pedestrian realm": "#d6d3d1", "median": "#86efac", "verge": "#a3e635", "building": "#93c5fd",
-                    "yard": "#fde68a", "car park": "#2dd4bf", "construction site": "#fdba74", "garden": "#4ade80", "lawn": "#86efac",
-                    "play": "#f472b6", "path": "#c4b5fd", "track bed": "#d8b4fe", "under bridge": "#b45309", "paved": "#fcd34d",
-                    "water": "#93c5fd"}}
-LAYER_LABELS = {0: "Layer 0: ground", 1: "Layer 1: surfaces", 2: "Blocks"}
+LAYER_COLORS = {0: GROUND_COLORS, 1: KIND_COLORS}
+LAYER_LABELS = {0: "Layer 0: ground", 1: "Layer 1: surfaces", 2: "Blocks", 3: "Street spaces", 4: "Layer 2: parts"}
+LAYER_ORDER = [(2, "1 · blocks"), (3, "2 · sections, intersections"), (0, "3 · layer 0 · ground"), (1, "4 · layer 1 · surfaces"),
+               (4, "5 · layer 2 · parts")]     # the order to check them in: each stands on the one before
+SPACE_PALETTE = ["#93c5fd", "#a5b4fc", "#99f6e4", "#bae6fd", "#c7d2fe", "#a7f3d0", "#bfdbfe", "#ddd6fe"]
 LAYERS_PANEL = """
-<style>#ly{position:fixed;top:10px;left:10px;z-index:6;width:300px;background:#fff;border:1px solid #cbd5e1;border-radius:8px;padding:10px;
-  font:13px system-ui;box-shadow:0 2px 8px #0002}#ly h3{margin:0 0 6px;font-size:14px}#ly button{margin:0 6px 8px 0;padding:4px 10px;border:1px solid #94a3b8;
-  border-radius:5px;background:#f8fafc;cursor:pointer}#ly button.on{background:#1e3a8a;color:#fff;border-color:#1e3a8a}#ly table{width:100%;border-collapse:collapse}
-  #ly td{padding:2px 4px}#ly td.n{text-align:right;color:#475569}#ly .sw{display:inline-block;width:12px;height:12px;border:1px solid #64748b;margin-right:6px;vertical-align:-2px}
-  #ly p{margin:6px 0 0;color:#64748b;font-size:11px}</style>
-<div id=ly><h3>urbanstyle · layers</h3><button data-ly=2>blocks</button><button data-ly=0>layer 0 · ground</button><button data-ly=1>layer 1 · surfaces</button>
-<table id=lyt></table><p id=lyp></p></div>
+<style>.ov-ctrl{display:none!important}
+#ly{position:fixed;top:10px;left:10px;z-index:6;width:340px;max-height:calc(100vh - 40px);overflow:auto;background:#fff;border:1px solid #cbd5e1;
+  border-radius:8px;padding:10px 12px;font:13px system-ui;box-shadow:0 2px 8px #0002}#ly h3{margin:0 0 4px;font-size:14px}
+#ly ul{list-style:none;margin:0;padding-left:18px}#ly>div>ul{padding-left:0}#ly li{margin:3px 0}
+#ly .tw{display:inline-block;width:14px;cursor:pointer;color:#475569;user-select:none}#ly .tw.no{cursor:default}
+#ly .sw{display:inline-block;width:11px;height:11px;border:1px solid #64748b;margin:0 5px 0 3px;vertical-align:-1px}
+#ly .n{color:#64748b;font-size:11px;margin-left:4px}#ly input{margin:0 2px 0 0;vertical-align:-2px}#ly .lay{font-weight:700}#ly .br{font-weight:600}
+#ly .only{font-size:11px;margin-left:6px;color:#1e3a8a;cursor:pointer;visibility:hidden}#ly li>div:hover>.only{visibility:visible}
+#ly .note{color:#64748b;font-size:11px;margin:1px 0 4px 32px}#ly p{margin:0 0 6px;color:#64748b;font-size:11px}.lytip .maplibregl-popup-content{padding:3px 7px;font:12px system-ui}</style>
+<div id=ly><h3>urbanstyle · layers</h3><p>Each layer divides the one above it. Tick a layer to draw it; tick the next to draw it on top
+(the layers under it stay drawn beneath, their edges as dark lines: untick a kind and the layer under it shows). ▸ opens a layer to see what is in it, without drawing anything; "only" draws that one alone.</p>
+<div id=lytree></div><div id=lyhere style="margin-top:8px;padding-top:6px;border-top:1px solid #e2e8f0;font-size:12px;color:#334155"></div>
+<div id=lysel style="margin-top:6px;padding-top:6px;border-top:1px solid #e2e8f0;font-size:12px;color:#0f172a;display:none">
+<b>clicked</b> <button id=lycopy style="font-size:11px;margin-left:6px;cursor:pointer">copy</button>
+<pre id=lyseltext style="white-space:pre-wrap;user-select:text;font:12px ui-monospace,monospace;margin:4px 0 0;background:#f8fafc;padding:4px;border-radius:4px"></pre></div></div>
 <script>
-(function(){const LY_DATA=__LYDATA__, LY_LAB=__LYLAB__, LY_NOTE=__LYNOTE__;
-function lyShow(l){Object.keys(LY_DATA).map(Number).forEach(k=>rsSetOverlay(LY_LAB[k],k===l));
-  document.querySelectorAll('#ly button').forEach(b=>b.classList.toggle('on',+b.dataset.ly===l));
-  document.getElementById('lyt').innerHTML='<tr><td><b>kind</b></td><td class=n><b>items</b></td><td class=n><b>m²</b></td><td class=n><b>%</b></td></tr>'+
-    LY_DATA[l].map(r=>`<tr><td><span class=sw style="background:${r.c}"></span>${r.t}</td><td class=n>${r.n}</td><td class=n>${r.a.toLocaleString()}</td><td class=n>${r.p}</td></tr>`).join('');
-  document.getElementById('lyp').textContent=LY_NOTE[l]}
-document.getElementById('ly').addEventListener('click',e=>{const l=e.target.dataset.ly; if(l!==undefined)lyShow(+l)});
-// only the layer viewed and the base map: the road network's own lines (a grey per road class, casings, arrows) would read as more kinds
+(function(){const T=__LYTREE__;
+const on=new Set(), open=new Set(['0']);       // the leaves drawn ("overlay|value"); the nodes opened
+const leaves=n=>n.leaf?[n]:(n.children||[]).flatMap(leaves), key=x=>x.ov+'|'+x.val;
+const orig={};      // each overlay's own fill opacity and outline, to restore when it is the top layer again
+function layersOf(ov){return map.getStyle().layers.filter(x=>x.source===(OVERLAYS.find(o=>o.label===ov)||{}).source)}
+function apply(){if(typeof light==='function')light(null); const drawn=T.map((t,i)=>leaves(t).some(x=>on.has(key(x)))?i:-1).filter(i=>i>=0), top=Math.max(-1,...drawn);
+  T.forEach((t,i)=>{const ovs=[...new Set(leaves(t).map(x=>x.ov))];
+    ovs.forEach(ov=>{const vis=drawn.includes(i); rsSetOverlay(ov,vis); if(!vis)return;
+      const vals=new Set(leaves(t).filter(x=>x.ov===ov&&on.has(key(x))).map(x=>x.val));
+      rsFilter(rsQuery(p=>vals.has(String(p.node)),ov),ov);       // a layer's ticks apply to that layer only
+      layersOf(ov).forEach(L=>{if(!(L.id in orig))orig[L.id]=L.type==='fill'?map.getPaintProperty(L.id,'fill-opacity'):
+                                 [map.getPaintProperty(L.id,'line-color'),map.getPaintProperty(L.id,'line-width')];
+        if(L.type==='fill')map.setPaintProperty(L.id,'fill-opacity',orig[L.id]);     // every ticked layer stays filled: a hidden kind shows the layer under it
+        if(L.type==='line'){map.setPaintProperty(L.id,'line-color',i===top?orig[L.id][0]:t.edge);
+          map.setPaintProperty(L.id,'line-width',i===top?orig[L.id][1]:2.4-0.5*i); if(i!==top)map.moveLayer(L.id)}})})})}
+function draw(){const box=document.getElementById('lytree'); box.innerHTML=''; const root=document.createElement('ul'); box.append(root);
+  const node=(n,ul,id,depth)=>{const li=document.createElement('li'), row=document.createElement('div'), ls=leaves(n), lsOn=n.leaf?ls:ls.filter(x=>!x.off),
+      all=lsOn.length>0&&lsOn.every(x=>on.has(key(x))), some=ls.some(x=>on.has(key(x)));
+    const tw=document.createElement('span'); tw.className='tw'+(n.children?'':' no'); tw.textContent=n.children?(open.has(id)?'▾':'▸'):'';
+    tw.onclick=()=>{if(!n.children)return; open.has(id)?open.delete(id):open.add(id); draw()};
+    const cb=document.createElement('input'); cb.type='checkbox'; cb.checked=all; cb.indeterminate=some&&!all;
+    cb.onchange=()=>{ls.forEach(x=>cb.checked?(n.leaf||!x.off)&&on.add(key(x)):on.delete(key(x))); draw(); apply()};
+    const lab=document.createElement('span'); lab.className=depth===0?'lay':n.children?'br':'';
+    lab.innerHTML=(n.c?`<span class=sw style="background:${n.c}"></span>`:' ')+n.label+(n.n!=null?`<span class=n>${n.n} · ${n.a.toLocaleString()} m²</span>`:'');
+    if(n.children)lab.style.cursor='pointer', lab.onclick=tw.onclick;
+    const only=document.createElement('span'); only.className='only'; only.textContent='only';
+    only.onclick=()=>{on.clear(); lsOn.forEach(x=>on.add(key(x))); draw(); apply()};
+    row.append(tw,cb,lab,only); li.append(row); ul.append(li);
+    if(depth===0&&n.note&&open.has(id)){const d=document.createElement('div'); d.className='note'; d.textContent=n.note; li.append(d)}
+    if(n.children&&open.has(id)){const u=document.createElement('ul'); n.children.forEach((c,j)=>node(c,u,id+'.'+j,depth+1)); li.append(u)}};
+  T.forEach((t,i)=>node(t,root,String(i),0))}
+// what is under the mouse in every layer drawn, from the top layer down (a block under its plots, a subsection under its lanes)
+const ID=['part_id','surface_id','unit_id','ground_id','block_id','street_id','kind'], what=p=>{const i=ID.find(k=>p[k]!=null); return (p.type||p.kind||'')+(i&&i!=='kind'?' '+p[i]:'')};
+const SKIP=new Set(['node','p0','p1','p2','color','_rsid','geometry']);
+function at(point,full){const src={}; OVERLAYS.forEach(o=>src[o.source]=o.label); const seen={};
+  map.queryRenderedFeatures(point).forEach(f=>{const lab=src[f.source]; if(!lab||seen[lab]||f.layer.id.startsWith('lyhl')||map.getLayoutProperty(f.layer.id,'visibility')==='none')return;
+    seen[lab]=full?what(f.properties)+'\\n'+Object.entries(f.properties).filter(([k,v])=>!SKIP.has(k)&&v!==null&&v!=='').map(([k,v])=>`   ${k}: ${v}`).join('\\n'):what(f.properties)});
+  return T.map((t,i)=>[i,[...new Set(leaves(t).map(x=>x.ov))].filter(ov=>seen[ov]).map(ov=>seen[ov])]).filter(r=>r[1].length).reverse()}
+// the top item under the mouse (the highest layer drawn there): its outline lit, its name in a label; a click opens its popup
+const lyOf={}; T.forEach((t,i)=>leaves(t).forEach(x=>lyOf[x.ov]=i));
+function top(point){const src={}; OVERLAYS.forEach(o=>src[o.source]=o.label); let best=null;
+  map.queryRenderedFeatures(point).forEach(f=>{const lab=src[f.source]; if(!lab||f.layer.id.startsWith('lyhl')||map.getLayoutProperty(f.layer.id,'visibility')==='none')return;
+    if(f.layer.type==='fill'&&(!best||lyOf[lab]>lyOf[best.lab]))best={f,lab}}); return best}
+const esc=v=>String(v).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'})[c]);
+// the lit item is drawn from its own source by its id (not from the tiles' clipped pieces, which filled as stray triangles)
+const NONE=['==',['id'],-1];
+OVERLAYS.forEach(o=>{map.addLayer({id:'lyhlf-'+o.source,type:'fill',source:o.source,filter:NONE,paint:{'fill-color':'#ffffff','fill-opacity':0.55}});
+  map.addLayer({id:'lyhl-'+o.source,type:'line',source:o.source,filter:NONE,paint:{'line-color':'#111827','line-width':3}})});
+let lit=null; function light(t){const k=t?t.f.source+'|'+t.f.id:null; if(k===lit)return;
+  if(lit){const s=lit.split('|')[0]; map.setFilter('lyhlf-'+s,NONE); map.setFilter('lyhl-'+s,NONE)}
+  lit=k; if(t){const f=['==',['id'],t.f.id]; map.setFilter('lyhlf-'+t.f.source,f); map.setFilter('lyhl-'+t.f.source,f)}}
+const tip=new maplibregl.Popup({closeButton:false,closeOnClick:false,offset:12,className:'lytip'});
+// every move is followed: the latest position is handled once per frame (a skipped move left the label on the last item)
+let last=null, queued=false; map.on('mousemove',e=>{last=e; if(!queued){queued=true; requestAnimationFrame(()=>{queued=false; hover(last)})}});
+function hover(e){const rows=at(e.point);
+  document.getElementById('lyhere').innerHTML=rows.length?'<b>here:</b><br>'+rows.map(([i,v])=>`layer ${i}: ${v.join(', ')}`).join('<br>'):'';
+  const t=top(e.point); light(t);
+  map.getCanvas().style.cursor=t?'pointer':'';
+  if(t)tip.setLngLat(e.lngLat).setHTML(`<b>layer ${lyOf[t.lab]}</b> · ${esc(what(t.f.properties))}`).addTo(map); else tip.remove()}
+map.on('mouseout',()=>{tip.remove(); light(null)});
+let pop=null;
+map.on('click',e=>{const t=top(e.point); if(pop)pop.remove(); if(!t)return; const rows=at(e.point);
+  const fields=Object.entries(t.f.properties).filter(([k,v])=>!SKIP.has(k)&&v!==null&&v!=='').map(([k,v])=>`<tr><td style="color:#64748b;padding-right:6px">${esc(k)}</td><td>${esc(v)}</td></tr>`).join('');
+  const under=rows.filter(([i])=>i<lyOf[t.lab]).map(([i,v])=>`<div style="color:#475569">in layer ${i}: ${esc(v.join(', '))}</div>`).join('');
+  pop=new maplibregl.Popup({maxWidth:'360px'}).setLngLat(e.lngLat).setHTML(`<b>layer ${lyOf[t.lab]}</b> · ${esc(what(t.f.properties))}<table style="font-size:12px;margin-top:4px">${fields}</table>${under}`).addTo(map)});
+// a click pins what is there, in every layer drawn, as text to copy (with the point's coordinates)
+map.on('click',e=>{const rows=at(e.point,true); if(!rows.length)return;
+  document.getElementById('lyseltext').textContent=rows.map(([i,v])=>`layer ${i}: ${v.join(', ')}`).join('\\n')+`\\nat ${e.lngLat.lng.toFixed(6)}, ${e.lngLat.lat.toFixed(6)}`;
+  document.getElementById('lysel').style.display='block'});
+document.getElementById('lycopy').onclick=()=>{const t=document.getElementById('lyseltext').textContent;
+  (navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).catch(()=>{const r=document.createRange(); r.selectNode(document.getElementById('lyseltext'));
+    getSelection().removeAllRanges(); getSelection().addRange(r); document.execCommand('copy')}); document.getElementById('lycopy').textContent='copied'; setTimeout(()=>document.getElementById('lycopy').textContent='copy',1200)};
+// only the layers and the base map: the road network's own lines would read as more kinds
 function lyBare(){const mine=new Set(OVERLAYS.map(o=>o.source));
   map.getStyle().layers.forEach(x=>{if(x.source&&x.source!=='bm'&&!mine.has(x.source))map.setLayoutProperty(x.id,'visibility','none')})}
-const go=()=>{if(typeof rsSetOverlay==='function'&&typeof map!=='undefined'&&map.loaded&&map.loaded()){lyBare();lyShow(0)} else setTimeout(go,300)}; go()})();
+const go=()=>{if(typeof rsSetOverlay==='function'&&typeof map!=='undefined'&&map.loaded&&map.loaded()){lyBare(); leaves(T[0]).filter(x=>!x.off).forEach(x=>on.add(key(x))); draw(); apply()}
+  else setTimeout(go,300)}; go()})();
 </script>"""
+OV = {"street": "Layer 0: street", "blocks": "Layer 0: blocks", "spaces": "Layer 1: street spaces", "land": "Layer 1: land",
+      "parcels": "Layer 1: parcels (property lines)", "paths": "Paths (whole)",
+      "surf": "Layer 2: surfaces", "parts": "Layer 3: parts"}
+GROUND_NOTE = {"building": "each building, whole", "yard": "private ground around the buildings", "car park": "an off-street car park",
+               "construction site": "a building site", "green": "parks, playgrounds, grass",
+               "alley": "a road inside a block: a back lane, a driveway, a parking aisle", "path": "a footpath or a greenway away from the street",
+               "rail": "a railway's ground", "structure": "the land under a bridge", "square": "a pedestrian square",
+               "water": "water", "unknown": "no rule claims it (check G1)"}
+PART_GROUPS = [("roadway", ("lane", "shoulder", "junction area", "parking", "bus lane", "cycle lane", "carriageway")), ("median", ("island",)),
+               ("pedestrian realm", ("furnishing", "sidewalk", "frontage", "tree pit", "driveway", "bus stop", "open"))]
+PART_NAMES = {"furnishing": "buffer (furnishing)", "sidewalk": "clear path (sidewalk)"}
 
 
 def layers(db, out):
-    """The layers page: layer 0 (space.ground) and layer 1 (space.surface) of a built area, each shown alone, coloured by kind, with a
-    legend (items, area, share) and the hierarchy in the popups (a ground item lists its surfaces; a surface names its ground item)."""
+    """The layers page: a strict hierarchy, each layer dividing the one above it. Layer 0: the area into street and blocks. Layer 1: the
+    street into its sections (subsections) and intersections, the blocks into plots, green, alleys ... Layer 2: each of those into its
+    surfaces. Layer 3: the street's surfaces into parts (lanes, shoulders, the junction area, the pedestrian zones). Layers stack: the top
+    one drawn filled, the ones under it as outlines; each opens (without drawing) to its kinds."""
     con = duckdb.connect(db, read_only=True)
     con.execute("LOAD spatial")
     ep = epsg_of(con)
-    a = f"round(ST_Area(ST_Transform(geometry, 'EPSG:4326', '{ep}', always_xy := true)), 1)"
+    a = lambda col="geometry": f"round(ST_Area(ST_Transform({col}, 'EPSG:4326', '{ep}', always_xy := true)), 1)"
     edges = frame(con, """SELECT ST_AsWKB(geometry) AS geometry, class AS highway, name, level_min AS level, type,
         try_cast(source_id AS BIGINT) AS edge_id FROM space.element WHERE type = 'road' AND level_min = 0""")
     edges["edge_id"] = edges["edge_id"].astype("Int64")
-    ground = frame(con, f"""SELECT ST_AsWKB(g.geometry) AS geometry, g.ground_id, g.type, g.name, g.source, g.method, g.ref,
-        {a.replace('geometry', 'g.geometry')} AS area_m2, s.surfaces FROM space.ground g LEFT JOIN (
-          SELECT ground_id, string_agg(type || ' ' || {a}::INT || ' m²', ', ' ORDER BY type) AS surfaces FROM space.surface GROUP BY 1) s USING (ground_id)""")
-    surf = frame(con, f"""SELECT ST_AsWKB(s.geometry) AS geometry, s.surface_id, s.type, s.ground_id, g.type AS ground_type, s.source, s.method,
-        s.ref, {a.replace('geometry', 's.geometry')} AS area_m2 FROM space.surface s JOIN space.ground g USING (ground_id)""")
-    data, note = {}, {}
-    for l, df in ((0, ground), (1, surf)):
-        df["color"] = df["type"].map(LAYER_COLORS[l]).fillna("#9ca3af")
-        tot = df["area_m2"].sum() or 1.0
-        agg = df.groupby("type").agg(n=("type", "size"), a=("area_m2", "sum")).sort_values("a", ascending=False)
-        data[l] = [{"t": t, "c": LAYER_COLORS[l].get(t, "#9ca3af"), "n": int(r.n), "a": int(round(r.a)), "p": round(100 * r.a / tot, 1)}
-                   for t, r in agg.iterrows()]
-        note[l] = (f"{len(df):,} items covering {tot:,.0f} m². " + ("Every piece of the area at level 0 is one item of one kind (G1, G2)."
-                   if l == 0 else "Every ground item is covered exactly by its surfaces (L1, L2). Click one: its ground item is named."))
+    # layer 0's street: each connected piece of the street spaces is one item, with an id and what it holds
+    import shapely
+    us = frame(con, f"""SELECT ST_AsWKB(geometry) AS geometry, unit_id, kind, section_id, {a()} AS area_m2 FROM space.unit WHERE level = 0""")
+    net = shapely.get_parts(shapely.coverage_union_all(list(us.geometry)) if len(us) else shapely.Polygon())
+    net = sorted(net, key=lambda g: -g.area)
+    rows_ = []
+    for k, gm in enumerate(net, 1):
+        inside = us[[gm.intersects(x.representative_point()) for x in us.geometry]]
+        rows_.append(dict(geometry=gm, street_id=f"street-{k}", node="street", kind="street", area_m2=round(float(inside["area_m2"].sum())),
+                          sections=int(inside["section_id"].nunique()), subsections=int((inside["kind"] == "subsection").sum()),
+                          intersections=int((inside["kind"] == "intersection").sum())))
+    street = gpd.GeoDataFrame(rows_, geometry="geometry", crs=4326)
     blocks = blocks_frame(con)
-    if blocks is not None and len(blocks):     # the land between the streets, and what set each street side's edge
-        basis = dict(con.execute("SELECT basis, count(*) FROM space.block_side GROUP BY 1").fetchall())
-        street = float(ground.loc[ground["type"] == "street", "area_m2"].sum())
-        data[2] = [{"t": "block", "c": BLOCK_COLOR, "n": len(blocks), "a": int(round(blocks["area_m2"].sum())),
-                    "p": round(100 * blocks["area_m2"].sum() / (ground["area_m2"].sum() or 1.0), 1)},
-                   {"t": "street today (layer 0)", "c": LAYER_COLORS[0]["street"], "n": int((ground["type"] == "street").sum()), "a": int(round(street)),
-                    "p": round(100 * street / (ground["area_m2"].sum() or 1.0), 1)}]
-        note[2] = ("The land between the streets (docs/design/blocks.md). Each street side's edge is set by " +
-                   ", ".join(f"{k} {v}" for k, v in sorted(basis.items(), key=lambda t: -t[1])) + " sides. Click a block for its sides.")
-    o = lambda g, **kw: rs.Overlay(g, placement="under", **kw)
+    blocks["node"] = "block"
+    spaces = frame(con, f"""SELECT ST_AsWKB(u.geometry) AS geometry, u.unit_id, u.kind, u.kind AS node, 'street' AS p0, u.section_id, {a('u.geometry')} AS area_m2,
+        s."left" AS block_left, s."right" AS block_right, s.width_m AS kerb_to_kerb_m, s.starts_at AS cut_because,
+        w.total_m AS block_to_block_m, w.lanes_out AS lanes_along, w.lanes_in AS lanes_against
+        FROM space.unit u LEFT JOIN space.subsection s ON s.subsection_id = u.unit_id LEFT JOIN space.width w ON w.unit_id = u.unit_id
+        WHERE u.level = 0""")
+    spaces["color"] = [KIND_COLORS[k] for k in spaces["kind"]]
+    try:    # every footpath whole, lying on the layers (space.path)
+        paths_ = frame(con, f"""SELECT ST_AsWKB(geometry) AS geometry, path_id, kind, kind AS node, name, width_m, width_source, width_method,
+            "on", {a()} AS area_m2 FROM space.path""")
+        paths_["color"] = [PATH_COLORS.get(k, "#8b5cf6") for k in paths_["kind"]]
+    except duckdb.CatalogException:
+        paths_ = None
+    try:    # a city's parcels, as lines only: shown on request, they never cut or hide a building
+        parcels = frame(con, f"""SELECT ST_AsWKB(p.geometry) AS geometry, p.parcel_id, p.name AS address, 'plot' AS node, {a('p.geometry')} AS area_m2
+            FROM space.parcel p, space.area ar WHERE ST_Intersects(p.geometry, ar.geometry)""")
+    except duckdb.CatalogException:
+        parcels = None
+    # a building is drawn whole: its own outline, even where it reaches over the block's edge (the ground item stops at the edge)
+    whole = """CASE WHEN g.type = 'building' AND e.geometry IS NOT NULL THEN e.geometry ELSE {col} END"""
+    land = frame(con, f"""SELECT ST_AsWKB({whole.format(col='g.geometry')}) AS geometry, g.ground_id, g.type, g.type AS node, 'block' AS p0,
+        g.name, g.source, g.method, g.ref, {a('g.geometry')} AS area_m2
+        FROM space.ground g LEFT JOIN space.element e ON e.type = 'building' AND e.source_id = g.ref WHERE g.type <> 'street'""")
+    land["color"] = land["type"].map(LAYER_COLORS[0]).fillna("#9ca3af")
+    surf = frame(con, f"""SELECT ST_AsWKB(CASE WHEN s.type = 'building' AND g.type = 'building' AND e.geometry IS NOT NULL THEN e.geometry
+        ELSE s.geometry END) AS geometry, s.surface_id, s.type, g.type AS ground_type,
+        CASE WHEN g.type <> 'street' THEN g.type WHEN g.ground_id LIKE 'g0-street-i%' THEN 'intersection' ELSE 'subsection' END || ':' || s.type AS node,
+        CASE WHEN g.type = 'street' THEN 'street' ELSE 'block' END AS p0,
+        CASE WHEN g.type <> 'street' THEN g.type WHEN g.ground_id LIKE 'g0-street-i%' THEN 'intersection' ELSE 'subsection' END AS p1,
+        s.ground_id, s.source, s.method, s.ref,
+        {a('s.geometry')} AS area_m2 FROM space.surface s JOIN space.ground g USING (ground_id)
+        LEFT JOIN space.element e ON e.type = 'building' AND e.source_id = g.ref""")
+    surf["color"] = surf["type"].map(LAYER_COLORS[1]).fillna("#9ca3af")
+    parts_ = frame(con, f"""SELECT ST_AsWKB(p.geometry) AS geometry, p.part_id, p.type, p.type AS node, 'street' AS p0, u.kind AS p1,
+        p.unit_id, p.direction, p.lane, p.width_m, p.width_method, p.road, p.road_class, {a('p.geometry')} AS area_m2
+        FROM space.part p JOIN space.unit u USING (unit_id) WHERE p.level = 0""")
+    from .ground import STREET_SURFACE
+    parts_["p2"] = ["street:" + STREET_SURFACE.get(t, "roadway") for t in parts_["type"]]
+    parts_["color"] = [KIND_COLORS.get(t, "#999999") for t in parts_["type"]]
+
+    def leaf(ov, df, val, label, color):
+        sel = df[df["node"] == val]
+        return dict(leaf=True, ov=OV[ov], val=val, label=label, c=color, n=len(sel), a=int(round(sel["area_m2"].sum())))
+
+    def branch(label, children, **kw):
+        ch = [c for c in children if c and (not c.get("leaf") or c["n"])]
+        return dict(label=label, children=ch, n=sum(0 if c.get("outline") else c["n"] for c in ch),
+                    a=sum(0 if c.get("outline") else c["a"] for c in ch), **kw) if ch else None
+    by = lambda df: df.groupby("type")["area_m2"].sum().sort_values(ascending=False).index.tolist()
+    n_street = len(street)
+    tree = [
+        branch("Layer 0 · street and blocks", [
+            dict(leaf("street", street, "street", "street", KIND_COLORS["street"]), n=n_street),
+            leaf("blocks", blocks, "block", "blocks", BLOCK_COLOR)],
+            edge="#111827", note="The area at street level in two: the street, and the blocks (the land between the streets)."),
+        branch("Layer 1 · street spaces and land", [
+            branch("in the street", [leaf("spaces", spaces, "subsection", "sections (cut into subsections)", KIND_COLORS["subsection"]),
+                                     leaf("spaces", spaces, "intersection", "intersections", KIND_COLORS["intersection"])]),
+            branch("in the blocks", [leaf("land", land, t, f"{t}: {GROUND_NOTE.get(t, '')}".rstrip(": "), LAYER_COLORS[0].get(t, "#9ca3af"))
+                                     for t in by(land)]
+                   + ([dict(leaf("parcels", parcels, "plot", "parcels (property lines): the city's parcels, outlines only, off at first", KIND_COLORS["plot"]),
+                            off=True, outline=True)] if parcels is not None and len(parcels) else []))],
+            edge="#1e3a8a", note="The street into sections (each between two neighbouring blocks, cut into subsections) and intersections; "
+                                 "the blocks into buildings (each whole), yards, alleys, green, car parks ... (layer 0 of space-layers.md)."),
+        branch("Layer 2 · surfaces", [
+            branch("in the street", [branch(name, [leaf("surf", surf, f"{k}:{t}", t, LAYER_COLORS[1].get(t, "#9ca3af")) for t in by(surf[surf["p1"] == k])])
+                                     for name, k in (("sections", "subsection"), ("intersections", "intersection"))]),
+            branch("in the blocks", [branch(k, [leaf("surf", surf, f"{k}:{t}", t, LAYER_COLORS[1].get(t, "#9ca3af")) for t in by(surf[surf["p1"] == k])])
+                                     for k in by(land)])],
+            edge="#7c2d12", note="Each item of layer 1 covered by its surfaces: roadway, pedestrian realm, median; building, yard, car park ..."),
+        branch("Layer 3 · parts", [branch(g_, [leaf("parts", parts_, t, PART_NAMES.get(t, t), KIND_COLORS.get(t, "#999999")) for t in ts])
+                                   for g_, ts in PART_GROUPS]
+               + [branch("other", [leaf("parts", parts_, t, t, KIND_COLORS.get(t, "#999999"))
+                                   for t in sorted(set(parts_["type"]) - {t for _, ts in PART_GROUPS for t in ts})])],
+            edge="#374151", note="The street's surfaces into parts: lanes, shoulders, the junction area; the pedestrian realm's buffer, clear "
+                                 "path and frontage. (The blocks have no parts yet.)"),
+    ]
+    if paths_ is not None and len(paths_):     # not a layer of the hierarchy: whole footpaths lying on all of them
+        tree.append(branch("Paths · whole, on top of the layers", [leaf("paths", paths_, k, k, PATH_COLORS.get(k, "#8b5cf6"))
+                                                                    for k in by(paths_.assign(type=paths_["kind"]))],
+                           edge="#4c1d95", note="Every footpath whole (one item per OSM way, at its width): sidewalks, footways, cycleways, "
+                                                "steps, crossings. A path is not cut by a block's edge: it lies on the street and the blocks "
+                                                "and names what it lies on."))
+    tree = [t for t in tree if t]
+    # no map popups here: a click pins every layer's item in the panel (the map's own popup took the lowest layer)
+    o = lambda g, **kw: rs.Overlay(g, placement="under", visible=False, popup=[], **kw)
+    ovs = [o(street, color=KIND_COLORS["street"], opacity=0.85, outline="#475569", width=1.0, label=OV["street"]),
+           o(blocks, color=BLOCK_COLOR, opacity=0.6, outline="#7c4a1e", width=1.2, label=OV["blocks"]),
+           o(spaces, color=KIND_COLORS["subsection"], color_col="color", opacity=0.85, outline="#1e3a8a", width=1.2, label=OV["spaces"]),
+           o(land, color=LAYER_COLORS[0]["plot"], color_col="color", opacity=0.85, outline="#475569", width=0.6, label=OV["land"]),
+           o(surf, color=LAYER_COLORS[1]["building"], color_col="color", opacity=0.9, outline="#334155", width=0.4, label=OV["surf"]),
+           o(parts_, color="#4b5260", color_col="color", opacity=0.95, outline="#1f2937", width=0.3, label=OV["parts"])]
+    if paths_ is not None and len(paths_):
+        ovs.append(rs.Overlay(paths_, placement="over", visible=False, popup=[], color="#8b5cf6", color_col="color", opacity=0.9,
+                              outline="#4c1d95", width=0.6, label=OV["paths"]))
+    if parcels is not None and len(parcels):
+        ovs.append(rs.Overlay(parcels, placement="over", visible=False, popup=[], color=KIND_COLORS["plot"], opacity=0.0, outline=KIND_COLORS["plot"], width=1.6,
+                              label=OV["parcels"]))
     m = rs.render_edges(edges, palette="mono", basemap="voyager", name="urbanstyle layers", filter_control=False,
-        street_view_key=os.environ.get("GOOGLE_MAPS_KEY"),
-        overlays=[o(ground, color=LAYER_COLORS[0]["plot"], color_col="color", opacity=0.85, outline="#475569", width=0.6, label=LAYER_LABELS[0],
-                    popup=["ground_id", "type", "name", "source", "method", "ref", "area_m2", "surfaces"], tooltip=["type", "name"]),
-                  o(surf, color=LAYER_COLORS[1]["building"], color_col="color", opacity=0.9, outline="#334155", width=0.4, label=LAYER_LABELS[1], visible=False,
-                    popup=["surface_id", "type", "ground_id", "ground_type", "source", "method", "ref", "area_m2"], tooltip=["type", "ground_type"])]
-                 + ([o(blocks, color=BLOCK_COLOR, opacity=0.6, outline="#4c1d95", width=1.2, label=LAYER_LABELS[2], visible=False, popup=BLOCK_POPUP,
-                       tooltip=["block_id"])] if 2 in data else []))
-    panel = (LAYERS_PANEL.replace("__LYDATA__", json.dumps(data)).replace("__LYLAB__", json.dumps(LAYER_LABELS))
-             .replace("__LYNOTE__", json.dumps(note)))
-    open(out, "w").write(m.html.replace("</body>", panel + "</body>"))
+                        street_view_key=os.environ.get("GOOGLE_MAPS_KEY"), overlays=ovs)
+    open(out, "w").write(m.html.replace("</body>", LAYERS_PANEL.replace("__LYTREE__", json.dumps(tree)) + "</body>"))
     return out

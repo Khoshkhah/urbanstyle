@@ -68,10 +68,13 @@ basin "location approximate") is approximate whatever its dataset says. The city
 
 | kind | source, method | items |
 |---|---|---|
-| plot from a parcel | vancouver, surveyed | 534 |
-| street, structure, right-of-way pieces | urbanstyle, derived | 355 |
-| plot from OSM (car park, site, land use, building), green, rail | osm, mapped | 78 |
-| path | urbanstyle, measured | 4 |
+| street (the street spaces) | urbanstyle, derived | 164 |
+| building (each whole) | osm, mapped (vancouver, approximate for a city outline) | 429 |
+| yard (the rest of a block's private ground) | urbanstyle, derived | 123 |
+| alley (between the parcels, a road through it) | urbanstyle, derived | 43 |
+| path (the footpath at its width), car park, construction site, green, rail | osm, mapped | 131 |
+
+The city's parcels are not ground items. They set the block edges (`space.block_side`) and find the alleys.
 
 A known error: a plot made from one of the city's building outlines would say `vancouver, mapped`; it must say `approximate` (the city's
 own note on its 2009 and 2015 outlines). None is in this unit's layer 0 today; it is fixed with the next step.

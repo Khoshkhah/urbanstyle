@@ -7,8 +7,10 @@ where its cross-section changes.</p>
 Status: agreed 2026-10-10 and tested on Broadway × Granville (`scripts/blocks_test.py`, page `viz/broadway-granville-neighbours.html`).
 **Step 1 is built** (2026-10-10): `blocks.py` makes `space.block` and `space.block_side` in every build; `urbanstyle check` reports B1 and
 B6; on Broadway × Granville 51 blocks (436,540 m²), B1 3 buildings (59 m²), B6 47 of the city's 51 blocks matched (median overlap 0.97),
-the same as the test. Steps 2-4 (neighbours, sections, intersections) are still only in the test: the street spaces (`space.unit`) are
-still cut from the road network by `spaces.py`. Subsections are designed here, not built.
+the same as the test. **Steps 2-4 and the inside are built too** (2026-10-10, `division.py`): at level 0 the street spaces (`space.unit`)
+are the sections' subsections and the intersections, no longer `spaces.py`'s, and their parts are strips parallel to each subsection's
+axis, no longer `parts.py`'s (see "The inside of a subsection and an intersection" below). Subsections are cut where the carriageways
+or lanes change; cuts where the width or the frontage changes are not built yet.
 
 ## In short
 
@@ -59,8 +61,11 @@ Two other ideas were tried and rejected:
      pedestrian 10 m; secondary 12 m; primary 15 m; trunk 16 m; motorway 18 m).
    
    Each line's hit is taken only when it is within 1.5 × the class's half width, so a parcel or sidewalk of the next street does not count.
-5. **No building is cut.** The distance is pulled in to the nearest building on that side, if a building is nearer than the parcel or
-   sidewalk line. The street ends at a wall, never inside a building.
+5. **No parcel is cut** (2026-10-10). The distance is pulled in to the nearest parcel on that side, so a block holds its parcels whole.
+   **Where parcels set the side, an OSM building does not move it:** the parcel line is surveyed, and an OSM outline (drawn from an
+   aerial photo, a tall building's roof shifted) can be a few metres off. Such a building is drawn whole and reaches over the edge
+   (check B1 counts them: 99 at Broadway × Granville, 1,771 m²). Where no parcel sets the side, the nearest building still pulls it in.
+   Result: 194 of 201 sides set by parcels; the match with the city's blocks (B6) 47 of 51, median overlap 0.99 (was 0.97).
 6. **Sharp corners.** Each edge line is continued past the junction, so two edges meet in a corner, as two parallel offsets do. The
    city's own blocks have sharp corners too: over 320 corners of rectangular blocks, the median rounding is 0.02 m.
 7. **What is a block.** What is left of each face is a block if it is at least 400 m² and at least 8 m wide; a thinner piece (the strip
@@ -157,6 +162,45 @@ A section is one strip between two blocks, with one direction: its middle line. 
 3. **No short pieces.** A subsection is at least 12 m long; changes closer together are one cut, at their middle. No cut is closer than
    12 m to the section's own cuts.
 4. A section with no change is one subsection.
+
+## The inside of a subsection and an intersection (built)
+
+Each layer is made from its parent's shape by lines parallel to its axis, never by clipping polygons against each other, so it has no
+crumbs: a strip under 5 m² joins its neighbour.
+
+- **A subsection**, across its axis (the middle line between its two blocks), from one block to the other: pedestrian realm, kerb,
+  roadway, kerb, pedestrian realm.
+  - **Kerb**: 1 m before OSM's sidewalk line (it is drawn along the sidewalk's middle), and on the road's side of the trees, poles
+    and furniture mapped there (0.5 m before the innermost); else the carriageway's edge. At least 1.5 m of pedestrian realm is left.
+  - **Roadway**: each carriageway (an OSM road running along the axis, its offset the median over the subsection) with its lanes (OSM's
+    lanes each way); a **median** between two carriageways more than 1 m apart; a **shoulder** at each edge of a carriageway, at
+    least 0.3 m (the gutter), wider where the lanes leave room. A lane is measured kerb to kerb where it falls between 2.75 and 4 m,
+    else 3.25 m (chosen). Lanes going along the axis keep right; lane 1 is at the kerb. Each lane is one whole item.
+  - **Pedestrian realm**, NACTO's zones from the kerb out: **buffer** (`furnishing`: where trees and poles stand, else 1 m, chosen,
+    where no sidewalk is mapped), **clear path** (`sidewalk`: 1.8 m around OSM's sidewalk line, else after the buffer), **frontage**
+    (the rest to the block, if at least 0.75 m).
+- **An intersection**: at each block corner, the pedestrian corner is the ground beyond both arms' kerbs (on that block's side); the
+  rest is **one junction area**; the kerb's corner is rounded by 4 m.
+- **Marks**: kerbs, lane lines, centre lines, a stop line 1 m before the end of each section at an intersection across the lanes
+  going toward it, and zebra bars where OSM maps a crossing over the roadway (they lie on the lanes and the junction area, cutting
+  nothing). SUMO's lane-to-lane turns are kept, moved to the new intersection holding each; its lane arrows and guide lines are not
+  redrawn yet.
+- **A deck at level 1 that crosses nothing at ground level** (Broadway over the subway works) is the street at ground level, as for the
+  blocks; its old level-1 spaces are dropped.
+
+Broadway × Granville, level 0, before (cut from the road network, `parts.py`) and after:
+
+| | before | after |
+|---|---|---|
+| spaces | 352 | 164 (124 subsections, 40 intersections) |
+| parts | 5,845 | 1,314 |
+| parts under 5 m² | 1,739 | 0 |
+| parts thinner than 1.5 m | 1,011 | 214 (shoulders 0.3-1.5 m wide: the gutter, on purpose) |
+| street surfaces (layer 1) in several pieces | 277 of 666 | 0 of 612 |
+| edges under 30 cm in the parts | 28,634 | 1,253 |
+| U10: cuts where the roadway differs on the two sides | 96 | 2 |
+
+Every check on the spaces, the parts, the ground and the surfaces passes (U1-U9, G1-G2, L1-L2).
 
 ## Blocks in the layers
 

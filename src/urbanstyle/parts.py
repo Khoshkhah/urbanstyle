@@ -61,7 +61,7 @@ STOP_REACH_M = 15.0    # a lane's stop position: clear of the junction and of a 
 STOP_GAP_M = 1.0       # ... and this far before it (the stop line before the crosswalk; the turn arrows behind the stop line)
 # the parts standing above the roadway, and how high their top is (m): a kerb stands where they meet the flush ground (lanes, parking,
 # a parking lot, a crosswalk); the dossier's top_m and the 3D view use the same heights
-RAISED = {"sidewalk": 0.15, "furnishing": 0.15, "open": 0.15, "bus stop": 0.15, "island": 0.2, "tree pit": 0.1, "driveway": 0.05}
+RAISED = {"sidewalk": 0.15, "furnishing": 0.15, "frontage": 0.15, "open": 0.15, "bus stop": 0.15, "island": 0.2, "tree pit": 0.1, "driveway": 0.05}
 DRIVEWAY_M = 3.5       # a driveway's apron across the sidewalk, when OSM gives no width (urbanstyle's chosen width)
 CROSS_ON_M = 1.0       # a crossing point is a node of the road it crosses: this close to its line, else it crosses something else
 # urbanstyle's chosen width of each painted or built line (m), stored on every mark (space.mark.width_m) and drawn at it in 2D and 3D;

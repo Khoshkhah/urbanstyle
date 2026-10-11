@@ -6,14 +6,15 @@
     faces           the areas the chains enclose, closed by the edge of the area (the clip's box)
     street side     each side of a chain within a face gets one distance from the road line, so the block's edge there runs parallel to
                     the road: the parcels' median line (a city's `space.parcel`), else OSM's sidewalks + SIDEWALK_BACK_M, else half the
-                    class's right-of-way (HALF_ROW); pulled in to the nearest building, so no building is cut
+                    class's right-of-way (HALF_ROW); pulled in to the nearest parcel (and, where no parcel sets the side, to the
+                    nearest building), so no plot is cut; a building is drawn whole even where its OSM outline reaches over the line
     block           what is left of a face, if at least MIN_BLOCK_M2 and MIN_BLOCK_W_M wide; corners are sharp (each edge line runs on
                     past the junction)
 
 space.block       block_id, level, area_m2, source, method, geometry. Id `b<level>-w<way><side>`: the smallest OSM way among its bounding
                   roads and the side of that way it lies on (l / r), `.2`, `.3` ... where one way bounds several blocks on that side
-space.block_side  one row per street side of a block: the way, the distance and what set it (`basis`: parcels, sidewalks, class or
-                  building), the distance before a building pulled it in, that building
+space.block_side  one row per street side of a block: the way, the distance and what set it (`basis`: parcels, sidewalks, class,
+                  building or parcel), the distance before a building or a parcel pulled it in, that building or parcel
 space.area        the edge of the area (the clip's box), for the checks
 space.city_block  a city's own block outlines (Vancouver `block-outlines`), only to cross-check ours (check B6), never as input
 """
@@ -89,7 +90,9 @@ def build(con, epsg):
     side = [g(w) for (w,) in rows(f"""SELECT {m()} FROM space.element WHERE type = 'walkway' AND level_min = 0
                                      AND coalesce(subtype, '') <> 'crossing'""")]
     stree = shapely.STRtree(side)
-    parcels = [g(w) for (w,) in rows(f"SELECT {m()} FROM space.parcel")]
+    pmeta = rows(f"SELECT parcel_id, {m()} FROM space.parcel")
+    parcels = [g(w) for _, w in pmeta]
+    ptree = shapely.STRtree(parcels) if parcels else None
     PU = shapely.union_all(parcels) if parcels else None
     PUin = PU.buffer(-0.1) if PU is not None else None
     bmeta = rows(f"""SELECT {m()}, source, coalesce(CAST(osm_id AS VARCHAR), source_id) FROM space.element
@@ -151,8 +154,16 @@ def build(con, epsg):
         near = [(x.distance(blds[k].intersection(zone)), k) for k in btree.query(zone)
                 if blds[k].intersects(zone) and not blds[k].intersects(x)]
         bd, bk = min(near, default=(1e9, None))
-        if bd < d:      # the street ends at a wall, never inside a building
-            return round(bd, 2), "building", "measured", round(d, 2), f"{bmeta[bk][1]}:{bmeta[bk][2]}"
+        # a plot is like a building: the street ends at its line, never inside it (a parcel the road line itself crosses is no limit)
+        pnear = [(x.distance(parcels[k].intersection(zone)), k) for k in (ptree.query(zone) if ptree is not None else [])
+                 if parcels[k].intersects(zone) and not parcels[k].intersects(x) and not parcels[k].intersection(zone).is_empty]
+        pd, pk = min(pnear, default=(1e9, None))
+        if basis == "parcels":      # a surveyed property line is the edge: an OSM outline (drawn from photos, often shifted) does not move it
+            bd = 1e9
+        if min(bd, pd) < d:
+            if bd <= pd:    # the street ends at a wall, never inside a building
+                return round(bd, 2), "building", "measured", round(d, 2), f"{bmeta[bk][1]}:{bmeta[bk][2]}"
+            return round(pd, 2), "parcel", "measured", round(d, 2), f"vancouver:{pmeta[pk][0]}"
         return round(d, 2), basis, method, None, None
 
     def extend(x, e, ends):

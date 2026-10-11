@@ -25,13 +25,18 @@ The order of work: `docs/plan.md`.
   building line; parking aisles are left out of the roads.
 - `src/urbanstyle/blocks.py` (called before `ground.build`): the blocks of `docs/design/blocks.md` (step 1): `space.block` (id
   `b<level>-w<way><side>`), `space.block_side` (each street side's distance and what set it: parcels, sidewalks, class, building),
-  `space.area` (the area's edge), `space.city_block` (a city's own blocks, only for check B6). Not used by the partition yet.
-  The test of the later steps (neighbours, sections, intersections): `scripts/blocks_test.py`.
+  `space.area` (the area's edge), `space.city_block` (a city's own blocks, only for check B6).
+- `src/urbanstyle/division.py` (after `blocks.build`): at level 0 the street divided between the blocks (sections, their subsections,
+  intersections) and the inside of each (lanes, shoulders, medians, NACTO's pedestrian zones, one junction area, pedestrian corners;
+  kerbs, lane and centre lines, stop lines, zebras), as strips parallel to each subsection's axis. It replaces the level-0 rows that
+  `spaces.py` and `parts.py` make (`space.unit`, `space.part`, `space.mark`, `space.cut`, `space.subsection`, `space.width`); those two
+  still make the other levels. `docs/design/blocks.md`. The test it came from: `scripts/blocks_test.py`.
 - `src/urbanstyle/ground.py` (called at the end of `build`): layer 0 of `docs/design/space-layers.md`, `space.ground`: every piece of the
   area at level 0 is water, rail, street, path, square, structure, green, plot or unknown (checks G1, G2); `space.parcel`, a city's
   parcels, is the property line the street reaches (`subsections.building_line`). `ground.surfaces`: layer 1, `space.surface`, the
   surfaces covering each ground item (roadway, pedestrian realm, median, verge; building, yard, car park, ...; checks L1, L2).
-  `urbanstyle layers DB OUT.html` (`dashboard.layers`) shows the blocks, layer 0 and layer 1 each alone; the main dashboard has a
+  `urbanstyle layers DB OUT.html` (`dashboard.layers`) shows, one at a time and in this order, the blocks, the street spaces
+  (sections, subsections, intersections), layer 0, layer 1 and the parts; in each, its kinds can be ticked or shown alone; the main dashboard has a
   `Blocks` overlay (off at first, level 0).
 - `src/urbanstyle/buildings.py` (called in `build`): each building's `use` and `ground_use` with their source and method, from OSM's
   `building` tag, the shops OSM maps inside it and a city's storefronts (`<unit>.vancouver.json`); `uses` lists the evidence.

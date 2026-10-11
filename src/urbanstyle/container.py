@@ -940,8 +940,11 @@ def build(osm, out):
     parts.build(con, epsg)         # ... and the inside of each space: parts, marks, widths
     from . import blocks, ground
     blocks.build(con, epsg)        # the blocks: the land between the streets (docs/design/blocks.md, step 1)
+    from . import division
+    division.build(con, epsg)      # the street divided between the blocks, and the inside of each piece, at level 0 (steps 2-5)
     ground.build(con, epsg)        # layer 0: every piece of the area is street, plot, green, ... (docs/design/space-layers.md)
     ground.surfaces(con, epsg)     # layer 1: the surfaces inside each ground item
+    ground.paths(con, epsg)        # every footpath whole, lying on the ground (not cut by the blocks)
     return con
 
 

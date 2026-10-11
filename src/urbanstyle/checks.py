@@ -91,7 +91,7 @@ def block_checks(c, q, m):
                           WHERE e.type = 'building' AND e.level_min <= 0 AND e.level_max >= 0),
                         x AS (SELECT b.g, ST_Area(ST_Intersection(b.g, k.g)) AS inside FROM b JOIN bk k ON ST_Intersects(b.g, k.g))
                         SELECT count(*), coalesce(sum(ST_Area(g) - inside), 0) FROM x WHERE inside > 1 AND ST_Area(g) - inside > 1""").fetchone()
-    out = [("B1", f"buildings cut by a block's edge ({cut[1]:,.0f} m2 outside their block)", cut[0], False)]
+    out = [("B1", f"buildings reaching over a block's edge ({cut[1]:,.0f} m2 outside their block; drawn whole)", cut[0], False)]
     if q("SELECT count(*) FROM space.city_block"):
         mt = c.execute(f"""WITH cb AS (SELECT city_block_id, ST_MakeValid(ST_Intersection(ST_MakeValid({m('geometry')}), ar.g)) AS g
                                          FROM space.city_block, ar),

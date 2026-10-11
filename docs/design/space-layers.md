@@ -1,7 +1,7 @@
 # Layers: the whole area, and the inside of a street, as a hierarchy
 
-Status: agreed 2026-10-10; being built in the order below. Since 2026-10-10 layer 0 is to be built **blocks first** (see "Blocks first"
-below and [Blocks first](blocks.md)): agreed and tested, not built. Step 1 built (`ground.py`, `space.ground`, `space.parcel`), on Broadway ×
+Status: agreed 2026-10-10; being built in the order below. Since 2026-10-10 layer 0 is built **blocks first** (see "Blocks first"
+below and [Blocks first](blocks.md)), and the street's layers 1-2 at level 0 are strips parallel to each subsection's axis (`division.py`). Step 1 built (`ground.py`, `space.ground`, `space.parcel`), on Broadway ×
 Granville's neighbourhood (640,106 m² at level 0): plot 60.7 %, street 36.5 %, green 1.9 %, structure 0.5 %, rail 0.3 %, path 0.1 %,
 **unknown 0** (G1); no overlaps (G2). With it the street reaches the property line where a city has parcels ([Plots](plots.md), step 2):
 the street spaces' width at the city's 125 right-of-way points is now the city's own (ours / theirs: median 1.00, middle half 0.99-1.07,
@@ -83,6 +83,15 @@ the area (level 0)
     └── intersection          the rest of the street
 ```
 
+- **Built 2026-10-10** (`ground.py`): the street items of layer 0 are exactly the street spaces (taken first, before water and rail); every
+  other kind only fills the blocks; a road inside a block (a back lane, a driveway, a parking aisle) is an `alley`, not street.
+  Where a city has parcels, the ground between them that a road runs through is an alley, taken before OSM's land use, which is often
+  drawn over a whole block, its lanes too.
+- **No plots inside the blocks** (2026-10-10). A city's parcels cut buildings into pieces (271 of 432 buildings at Broadway × Granville),
+  so they are not items. They set the block edges and find the alleys only. Inside a block the kinds are, in this order: `building`
+  (each building whole, before all other kinds), water, rail, square, structure, public green, `alley`, `car park`, `construction site`,
+  other green, `path` (the footpath line at its own width, 2 m where OSM gives none), measured squares. The rest of the ground is `yard`.
+  Broadway × Granville: 429 buildings (220,931 m²), 123 yards, 43 alleys, 97 paths; G1 0.
 - **The street is the ground outside the blocks**, so the two halves cover the area with no gap and no overlap; G1 (`unknown`) is left
   only inside blocks, where no land rule claims a piece.
 - **A block is a group, not a layer**, as a street name group (`k<level>-<way>`) is. Each land item of layer 0 names its block

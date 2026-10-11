@@ -51,6 +51,11 @@ containers' above.
 | **cut** | a straight line square to the middle line, from one block to the other, 3 m inside each end of a facing stretch (`ARM_M`) | test |
 | **street opening** | where the edge of the area crosses a street (shorter than 40 m): the outside is no neighbour there | test |
 | **subsection** | a piece of a section between two cuts where its lanes, width or frontage change, at least 12 m long. Id `<section id>/<k>` | designed |
+| **axis** (of a subsection) | the middle line between its two blocks, straightened: every strip inside it runs parallel to it, at an offset (left +) | yes |
+| **shoulder** | the roadway between a carriageway's lanes and its kerb or median: at least 0.3 m (the gutter), wider where the lanes leave room | yes |
+| **buffer / furnishing**, **clear path / sidewalk**, **frontage** | NACTO's zones of the pedestrian realm, from the kerb out: where trees, poles and furniture stand; the walking path (1.8 m around OSM's sidewalk line); the rest up to the block | yes |
+| **yard** (ground kind) | layer 0 inside a block that no other kind holds: private open ground around the buildings (a garden, a forecourt, a paved area). Inside the blocks there are no plots: each building is a ground item, whole | yes |
+| **alley** (ground kind) | layer 0 inside a block that a road runs through and no plot, green or path holds: a back lane, a driveway, a parking aisle. Not street: the street is the street spaces | yes |
 | **access** | an opening of a car park or a back lane onto a street: the section it opens onto, its driveway apron there, the OSM way of its driveway or aisle. A car park or lane with openings onto two streets connects them; it still lies inside one block. An `open` car park side (no barrier mapped) has the whole side as its access, a `closed` one (fence, wall, hedge, bollards) only its driveways and gaps | designed |
 
 ## Measuring the street space

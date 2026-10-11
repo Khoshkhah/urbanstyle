@@ -49,6 +49,7 @@ def part_checks(c, q, m):
                                   AND ST_Intersects(a.g, b.g) WHERE ST_Area(ST_Intersection(a.g, b.g)) > 0.5"""), True),
         ("U10", "cuts where the roadway differs by more than 0.5 m on the two sides", roadway_mismatch(c, q, m), False),
         ("R1", "joints between two subsections where the roadway's edges differ by more than 0.1 m", roadway_joints(q, m), False),
+        ("R4", "edges of lanes, cycle lanes and parking at a joint with no edge on the other side (0.3 m in, within 0.25 m)", lane_joints(c, m), False),
         ("R3", "subsections where OSM's lane count does not fit between our kerbs (a lane under 2.75 m): our kerb is probably wrong",
          q("SELECT count(DISTINCT unit_id) FROM space.part WHERE level = 0 AND type = 'lane' AND source = 'osm' AND width_m < 2.75"), False),
         ("R2", "guide lines (SUMO's moves) leaving the roadway by more than 0.5 m", q(f"""WITH rw AS (SELECT ST_Union_Agg(ST_MakeValid(
@@ -138,6 +139,47 @@ def roadway_mismatch(c, q, m):
                   WHERE su.kind = 'subsection' AND ST_DWithin(s.g, cut.g, 0.5)) AS sw
                FROM cut JOIN rw i ON i.unit_id = cut.intersection_id)
       SELECT count(*) FROM side WHERE sw IS NOT NULL AND abs(iw - sw) > 0.5""")
+
+
+def lane_joints(c, m):
+    """R4: where two subsections meet (of one section, or of two with no intersection between them), each edge between two roadway items
+    (lanes, cycle lanes, parking) on one side has one on the other (division.join_lanes). Read along the joint every 0.1 m, 0.3 m into
+    each side; a taper (zero width at the joint) has no edge there."""
+    import shapely
+    from shapely import wkb
+    items = ('lane', 'cycle lane', 'parking', 'bus zone')
+    units = {u: wkb.loads(bytes(w)) for u, w in c.execute(f"SELECT unit_id, ST_AsWKB(ST_MakeValid({m('geometry')})) FROM space.unit "
+                                                           "WHERE level = 0 AND kind = 'subsection'").fetchall()}
+    parts = {}
+    for u, pid, w in c.execute(f"SELECT unit_id, part_id, ST_AsWKB(ST_MakeValid({m('geometry')})) FROM space.part WHERE level = 0 AND type IN {items}").fetchall():
+        parts.setdefault(u, []).append((pid, wkb.loads(bytes(w))))
+    ids = list(units)
+    tree = shapely.STRtree([units[u] for u in ids])
+    bad = 0
+    for u in ids:
+        for j in tree.query(units[u].buffer(0.1)):
+            v = ids[j]
+            if v <= u or not (parts.get(u) or parts.get(v)):
+                continue
+            for seg in shapely.get_parts(shapely.line_merge(units[u].boundary.intersection(units[v].buffer(0.05)))):
+                if seg.geom_type != "LineString" or seg.length < 2:
+                    continue
+                edges = {}
+                for w in (u, v):
+                    labs = []
+                    for k in range(int(seg.length / 0.1)):
+                        d = 0.05 + k * 0.1
+                        p, a, b = seg.interpolate(d), seg.interpolate(max(d - 0.05, 0)), seg.interpolate(min(d + 0.05, seg.length))
+                        nx, ny = a.y - b.y, b.x - a.x
+                        h = (nx * nx + ny * ny) ** .5 or 1
+                        q_ = shapely.Point(p.x + nx / h * 0.3, p.y + ny / h * 0.3)
+                        if not units[w].contains(q_):
+                            q_ = shapely.Point(p.x - nx / h * 0.3, p.y - ny / h * 0.3)
+                        labs.append(next((pid for pid, g in parts.get(w, []) if g.contains(q_)), None))
+                    edges[w] = [k for k in range(1, len(labs)) if labs[k] != labs[k - 1]]
+                bad += sum(1 for k in edges[u] if not any(abs(k - x) <= 2 for x in edges[v]))
+                bad += sum(1 for k in edges[v] if not any(abs(k - x) <= 2 for x in edges[u]))
+    return bad
 
 
 def roadway_joints(q, m):

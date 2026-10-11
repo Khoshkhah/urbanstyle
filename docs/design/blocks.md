@@ -192,6 +192,8 @@ crumbs: a strip under 5 m² joins its neighbour.
     the section's whole length: OSM's and the city's sidewalk lines (the kerb 1 m before them), the city's catch basins (in the gutter, the
     kerb 0.3 m behind them); the kerb stays 0.4 m on the road's side of the city's poles, trees and parking meters. The evidence nearest
     the road holds (the median of what lies within 2 m of it); a footway on a median is no evidence. Else the carriageway's edge. The
+    side of a sidewalk line or a catch basin comes from the carriageways, not from the axis (2026-10-11): the axis is the middle line
+    between the blocks, and a street off that middle can have a sidewalk near the axis. The
     subsections share the section's axis. Broadway × Granville: 237 of 286 kerb lines measured; the roadway's edge at the joints between
     subsections moves by a median 0 m (was 0.91 m), 4 joints over 0.5 m (was 20).
   - **Roadway (top-down)**: the width between the kerbs is measured first; the cross-section that fits it best is chosen: 1-6 travel
@@ -219,6 +221,26 @@ crumbs: a strip under 5 m² joins its neighbour.
   fit, made from the median width over its subsections. A median that meets the line between two carriageways closes onto it; a median
   on one side only closes at the joint (a carriageway joins). Check R1 counts the joints where the roadway edges differ by more than
   0.1 m: 17 before, 0 after.
+- **Every item meets its continuation at a joint** (2026-10-11, `division.join_lanes`, check R4). The kerbs and medians alone do not
+  make the lanes meet: each subsection puts its lanes in the middle of its own room, so a lane moved sideways where a neighbour had
+  other lanes, another carriageway or other shoulders. Now `division.py` first makes the layout of each subsection (its items and their
+  edges at its two ends), then joins each joint, then makes the parts:
+  1. The items of the two sides (lanes by direction of travel, cycle lanes, parking) are matched in order, with the most overlap.
+     A lane moved sideways by less than 1 m (`JOIN_M`) still matches. Each pair gets the mean of its edges on the two sides.
+  2. Between two pairs: with no other item on either side, the two pairs meet at one point. With items on one side only, these items
+     start or stop there at zero width: a **taper**. With items on both sides (a lane that becomes a cycle lane), each side fills the
+     same room with its own items.
+  3. Each median then lies between the items of its two carriageways.
+
+  The same applies where two sections of one street meet with no intersection between them (their spaces share 2 m of edge or more,
+  their axes there are within about 30° of one line); there the kerbs also meet half way. The offsets of one side are converted to the
+  frame of the other (`t_A = ±t_B + c`). A taper's `width_m` is its full width, and its `rule` says that it is a taper. A strip under
+  5 m² never joins a lane or a shoulder, and a shoulder never joins another strip, so the lanes keep their shape to the joint.
+  Broadway × Granville: R4 234 -> 7 edges with no partner; R1 1 -> 0; R2 19 -> 16; R3 1 -> 1.
+- **Roads only for buses** (2026-10-11). duckOSM does not put a road only for buses (`vehicle=bus`, `psv=yes`) in its driving network,
+  and urbanstyle stores it as a `walkway` of street class. `division.py` takes it as a carriageway: its lanes and `oneway` come from its
+  own OSM tags (`lanes`, `lanes:forward`, `lanes:backward`, `oneway`), and it is no sidewalk line for the kerbs. Before, it had two lanes
+  in two directions (`chosen`) and its own line set a kerb (West 5th Avenue west of Granville Street).
 - **A mapped lane count is never changed** (2026-10-11). Where OSM has a `lanes` tag (read from duckOSM's driving network), the fit
   keeps it; the width decides only the lane widths and the parking and bike lanes that OSM does not map. Where the width cannot hold
   OSM's lanes, our kerb is probably wrong: check R3 lists it. Carriageways side by side with no median share their roadway by their

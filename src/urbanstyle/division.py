@@ -38,6 +38,9 @@ TRAVEL_M = (3.0, 3.7)    # the fit's widths (chosen): a travel lane, a parking l
 PARK_M = (2.2, 2.6)
 BIKE_M = (1.5, 2.0)
 GUTTER_M = 0.3
+JOIN_M = 1.0             # at a joint, a lane shifted sideways by less than this still matches its continuation (join_lanes)
+JOIN_EDGE_M = 2.0        # two sections whose spaces share this much edge (no intersection between them) meet at a joint
+JOIN_COS = 0.85          # ... when their axes there are this near in line (cos of the angle)
 BASIN_BACK_M = 0.3       # a catch basin sits in the gutter: the kerb is this far behind it
 OBJ_KERB_M = 0.4         # a pole, a tree, a meter stands at least this far behind the kerb
 SHOULDER_EDGE_M = 0.3    # every carriageway keeps a shoulder this wide at each edge (the gutter); more where the lanes leave room
@@ -262,7 +265,9 @@ def build(con, epsg):
             if c[8] == 1:
                 decks.append(c[7])
     road_tree = shapely.STRtree([r[7] for r in roads])
-    walk_rows = rows(f"""SELECT osm_id, {m()} FROM space.element WHERE type = 'walkway' AND level_min = 0 AND coalesce(subtype, '') <> 'crossing'""")
+    # (a walkway of a street's class is a road only buses or bikes use: a carriageway above, not a sidewalk)
+    walk_rows = rows(f"""SELECT osm_id, {m()} FROM space.element WHERE type = 'walkway' AND level_min = 0 AND coalesce(subtype, '') <> 'crossing'
+                           AND replace(coalesce(class, ''), '_link', '') NOT IN {STREET}""")
     walks, walk_ids = [g(w) for _, w in walk_rows], [f"w{o}" for o, _ in walk_rows]
     walk_tree = shapely.STRtree(walks) if walks else None
     crossings = [(oid, typ, g(w)) for oid, typ, w in rows(f"""SELECT osm_id, type, {m()} FROM space.element WHERE type IN ('walkway', 'cycleway')
@@ -331,7 +336,8 @@ def build(con, epsg):
     tree_of = lambda xs: shapely.STRtree(xs) if xs else None
     basin_t, behind_t, meter_t, cwalk_t = tree_of(basins), tree_of(behind), tree_of(meters), tree_of(city_walks)
     bike_t = tree_of([x for _, x in bikeways])
-    osm_tags = {oid: dict(t or {}) for oid, t in rows("SELECT osm_id, tags FROM osm.raw.ways WHERE osm_id IN (SELECT DISTINCT osm_id FROM space.element WHERE type = 'road' AND level_min IN (0, 1))")}
+    osm_tags = {oid: dict(t or {}) for oid, t in rows("SELECT osm_id, tags FROM osm.raw.ways WHERE osm_id IN (SELECT DISTINCT osm_id FROM space.element "
+                                                     "WHERE type IN ('road', 'walkway') AND level_min IN (0, 1))")}
     otree = shapely.STRtree(objs) if objs else None
 
     def objects_in(ax, Q, sg):
@@ -352,6 +358,16 @@ def build(con, epsg):
         """(lanes going along the axis, lanes going against it) of road r, `along` whether the road's own direction is the axis's."""
         oid, n, cl, ow, wd = r[:5]
         f, bk = lanes.get((oid, False)), lanes.get((oid, True))
+        tg_ = osm_tags.get(oid, {})
+        if f is None and bk is None and tg_:     # not in the driving network (a road only for buses): its own OSM tags
+            num = lambda k: int(tg_[k]) if str(tg_.get(k, "")).isdigit() else None
+            ow = ow or tg_.get("oneway") in ("yes", "true", "1", "-1")
+            f, bk = num("lanes:forward"), num("lanes:backward")
+            if ow and f is None:
+                f = num("lanes")
+            if tg_.get("oneway") == "-1":        # one way against the way's own direction
+                f, bk, ow = 0, f or 1, False
+                return (f, bk) if along else (bk, f)
         tot = max(1, round((wd or LANE_M * 2) / LANE_M))
         if ow:
             f, bk = f or tot, 0
@@ -561,19 +577,23 @@ def build(con, epsg):
         ax, P = sec_axis[i]
         ev = {1: [], -1: []}            # (offset, source, id)
         swl, swr = [], []
+        # the side of a line or a basin: of the carriageways, not of the axis (the middle between the blocks: a street off that middle has a
+        # sidewalk near it); a footway between the carriageways' edges (on a median) is no kerb
+        mid_ = (outer_l + outer_r) / 2
+        side = lambda t: (1 if t >= outer_l - 1.0 else 0) if t > mid_ else (-1 if t <= outer_r + 1.0 else 0)
         for src, tree, lines_, ids_ in (("osm", walk_tree, walks, walk_ids), ("vancouver", cwalk_t, city_walks, [r_[0] for r_ in cwalk_rows])):
             for k in (tree.query(P) if tree is not None else []):
                 t = along(ax, lines_[k], P)
-                if t is not None and abs(t) > 1.0:
-                    sg = 1 if t > 0 else -1
+                sg = side(t) if t is not None else 0
+                if sg:
                     ev[sg].append((t - sg * SIDEWALK_HALF_M, src, ids_[k]))
                     if src == "osm":
                         (swl if sg > 0 else swr).append((t, ids_[k]))
         for k in (basin_t.query(P) if basin_t is not None else []):
             if P.contains(basins[k]):
                 t = offset(ax, basins[k])
-                if abs(t) > 1.0:
-                    ev[1 if t > 0 else -1].append((t + (BASIN_BACK_M if t > 0 else -BASIN_BACK_M), "vancouver", basin_rows[k][0]))
+                sg = 1 if t > mid_ else -1
+                ev[sg].append((t + sg * BASIN_BACK_M, "vancouver", basin_rows[k][0]))
         lim = {1: [], -1: []}
         for k in (behind_t.query(P) if behind_t is not None else []):
             if P.contains(behind[k]):
@@ -734,7 +754,7 @@ def build(con, epsg):
     for sub, (ax, L, R, i, Q) in sub_axis.items():
         for c in meas[sub]["cw"]:
             h = (c["al"] + c["ag"]) * TRAVEL_M[0] / 2
-            lo_, hi_ = least_of.get(i, (0.0, 0.0))
+            lo_, hi_ = least_of.get(i, (-math.inf, math.inf))      # (the axis, between the blocks, can lie beside the carriageways)
             least_of[i] = (max(lo_, c["t"] + h), min(hi_, c["t"] - h))
 
     def frame(sub):
@@ -814,12 +834,238 @@ def build(con, epsg):
         ref = ", ".join(sorted({r_[3] for r_ in rs_ if r_[3]})) or ("property-parcel-polygons" if src == "vancouver" else None)
         return (src, rs_[0][2] if rs_ and src != "urbanstyle" else "chosen", f"block {bid[k]} ({basis})" + (f": {ref}" if ref else ""))
 
+    def join_lanes(la, lb, ea=1, eb=0, sgn=1, c0=0.0):
+        """The joint of two subsections, A's end ea and B's end eb (la, lb: their layouts; 0 the start, 1 the end). B's offsets in A's
+        frame are sgn * t + c0 (one section: 1, 0; two sections: their axes there, sgn -1 where they point apart). The items of the two sides (lanes
+        by direction, cycle lanes, parking) are matched in order, most overlap first (a lane shifted sideways by less than JOIN_M still
+        matches); each pair gets the mean of its edges on both sides. Between two pairs: with no other item on either side, the pairs
+        meet at one point; with items on one side only, these open or close there at zero width (a taper); with items on both sides
+        (a lane that becomes a cycle lane), each side fills the same room with its own. Then each median sits between its items."""
+        if la[0][0] is None or lb[0][0] is None:      # a side with no roadway: nothing goes on
+            return
+
+        def pieces(lay_, e, s_):
+            out = []
+            for k, C in enumerate(lay_[1]):
+                k_lane = 0
+                for (typ, _), ed in zip(C["items"], C["ie"]):
+                    if typ == "lane":
+                        key = ("lane", "both" if C["shared"] else (k_lane < C["n_al"]) == (s_ > 0))
+                        k_lane += 1
+                    else:
+                        key = (typ, None)
+                    cc = c0 if lay_ is lb else 0.0
+                    a_, b_ = sorted((s_ * float(ed[0][e]) + cc, s_ * float(ed[1][e]) + cc))
+                    out.append(dict(key=key, ed=ed, e=e, k=k, s=s_, c=cc, a=a_, b=b_))
+            return sorted(out, key=lambda r: (r["a"], r["b"]))
+
+        def put(r, a_, b_):
+            u, v = sorted(((a_ - r["c"]) * r["s"], (b_ - r["c"]) * r["s"]))     # back to its own frame
+            r["ed"][0][r["e"]], r["ed"][1][r["e"]], r["a"], r["b"] = u, v, a_, b_
+
+        def fill(U, lo_, hi_):          # the items U side by side from lo_ to hi_, each as wide as before in proportion
+            ws_ = [max(r["b"] - r["a"], 0.01) for r in U]
+            t_ = lo_
+            for r, w_ in zip(U, ws_):
+                put(r, t_, t_ + (hi_ - lo_) * w_ / sum(ws_))
+                t_ = r["b"]
+        P_, Q_ = pieces(la, ea, 1), pieces(lb, eb, sgn)
+        score = lambda p, q: (min(p["b"], q["b"]) - max(p["a"], q["a"]) + JOIN_M) if p["key"] == q["key"] else 0.0
+        n1, n2 = len(P_), len(Q_)
+        D = [[0.0] * (n2 + 1) for _ in range(n1 + 1)]
+        for x in range(n1 - 1, -1, -1):
+            for y in range(n2 - 1, -1, -1):
+                sc = score(P_[x], Q_[y])
+                D[x][y] = max(D[x + 1][y], D[x][y + 1], sc + D[x + 1][y + 1] if sc > 0 else 0.0)
+        pairs, x, y = [], 0, 0
+        while x < n1 and y < n2:
+            sc = score(P_[x], Q_[y])
+            if sc > 0 and abs(D[x][y] - (sc + D[x + 1][y + 1])) < 1e-9:
+                pairs.append((x, y))
+                x, y = x + 1, y + 1
+            elif D[x + 1][y] >= D[x][y + 1]:
+                x += 1
+            else:
+                y += 1
+        for x, y in pairs:
+            p, q = P_[x], Q_[y]
+            a_, b_ = (p["a"] + q["a"]) / 2, (p["b"] + q["b"]) / 2
+            put(p, a_, b_)
+            put(q, a_, b_)
+        seq = [(-1, -1)] + pairs + [(n1, n2)]
+        for (x0, y0), (x1, y1) in zip(seq, seq[1:]):
+            UA, UB = P_[x0 + 1:x1], Q_[y0 + 1:y1]
+            lo_ = P_[x0]["b"] if x0 >= 0 else None
+            hi_ = P_[x1]["a"] if x1 < n1 else None
+            if lo_ is not None and hi_ is not None:
+                if UA and UB:
+                    fill(UA, lo_, hi_)
+                    fill(UB, lo_, hi_)
+                    continue
+                if not UA and not UB and P_[x0]["k"] != P_[x1]["k"] and Q_[y0]["k"] != Q_[y1]["k"]:
+                    continue        # a median between them on both sides: it keeps its width
+                m_ = (lo_ + hi_) / 2
+                for r in (P_[x0], Q_[y0]):
+                    put(r, r["a"], m_)
+                for r in (P_[x1], Q_[y1]):
+                    put(r, m_, r["b"])
+                for r in UA + UB:
+                    put(r, m_, m_)
+            elif UA and UB:         # beyond the last pair (or the first), or no pair at all: both sides fill the same room
+                lo2 = lo_ if lo_ is not None else (UA[0]["a"] + UB[0]["a"]) / 2
+                hi2 = hi_ if hi_ is not None else (UA[-1]["b"] + UB[-1]["b"]) / 2
+                fill(UA, lo2, hi2)
+                fill(UB, lo2, hi2)
+            else:                   # on one side only: they open or close at the edge of the last (or first) pair
+                at_ = lo_ if lo_ is not None else hi_
+                if at_ is not None:
+                    for r in UA + UB:
+                        put(r, at_, at_)
+        for lay_, e in ((la, ea), (lb, eb)):
+            edges_ = lay_[0][6]
+            for k in range(len(lay_[1]) - 1):       # the median (or the line) between two carriageways: between their items
+                if lay_[1][k]["ie"] and lay_[1][k + 1]["ie"]:
+                    lo_, hi_ = lay_[1][k]["ie"][-1][1][e], lay_[1][k + 1]["ie"][0][0][e]
+                    edges_[k][1][e] = min(max(edges_[k][1][e], lo_), hi_)
+                    edges_[k + 1][0][e] = min(max(edges_[k + 1][0][e], edges_[k][1][e]), hi_)
+
+    # pass 3a: the layout of each subsection: its frame (kerbs, carriageways) and in each carriageway its items (parking, cycle lanes,
+    # lanes, right to left), each with its edges (right, left), each (start, end)
+    lay = {}
+    for sub, (ax, L, R, i, Q) in sub_axis.items():
+        fr = frame(sub)
+        sx, sP = sec_axis[i]
+        cws = []
+        for c, (lo, hi) in zip(meas[sub]["cw"], fr[6]):
+            rd = c["road"]
+            tg = osm_tags.get(rd[0], {})
+            fwd = c["fw"]
+            side_of = lambda tag_side: (-1 if tag_side == "right" else 1) * (1 if fwd else -1)   # OSM's right of the way, as our side
+            park, bike = {1: None, -1: None}, {1: None, -1: None}
+            park_pv, bike_pv = {}, {}       # side -> (source, method, ref) of the evidence
+            for k_, v in tg.items():
+                if k_.startswith(("parking:lane:", "parking:")) and not k_.endswith(("restriction", "reason", "fee", "maxstay", "orientation")):
+                    part_ = k_.split(":")[-1] if k_.count(":") == 1 else k_.split(":")[2] if k_.startswith("parking:lane:") else k_.split(":")[1]
+                    yes = v not in ("no", "none", "separate", "no_parking", "no_stopping")
+                    for sd in ((side_of("left"), side_of("right")) if part_ == "both" else (side_of(part_),) if part_ in ("left", "right") else ()):
+                        park[sd] = yes
+                        park_pv[sd] = ("osm", "mapped", f"w{rd[0]} {k_}={v}")
+                if k_.startswith("cycleway") and k_.count(":") <= 1:
+                    part_ = k_.split(":")[1] if ":" in k_ else "both"
+                    yes = v in ("lane", "track", "buffered_lane", "opposite_lane")
+                    for sd in ((side_of("left"), side_of("right")) if part_ == "both" else (side_of(part_),) if part_ in ("left", "right") else ()):
+                        bike[sd] = yes if (yes or v in ("no", "none", "shared_lane")) else bike[sd]
+                        if yes or v in ("no", "none", "shared_lane"):
+                            bike_pv[sd] = ("osm", "mapped", f"w{rd[0]} {k_}={v}")
+            # the city's parking meters and bike lanes near a kerb, along the whole section (one short subsection does not decide alone)
+            for sd, kerb_t in ((1, hi), (-1, lo)):
+                kline = line_at(sx, mean(kerb_t), sP, 6.0)
+                mt = [meter_rows[k][0] for k in (meter_t.query(kline) if kline is not None and meter_t is not None else []) if kline.contains(meters[k])]
+                if mt:
+                    park[sd] = True
+                    park_pv[sd] = prov_of([("vancouver", x) for x in mt], "mapped", None)
+                bw = [bike_ids[k] for k in (bike_t.query(kline) if kline is not None and bike_t is not None else []) if bikeways[k][1].intersection(kline).length > 10]
+                if bw:
+                    bike[sd] = True
+                    bike_pv[sd] = prov_of([("vancouver", x) for x in bw], "mapped", None)
+            osm_n = c["al"] + c["ag"] if (tg.get("lanes") or tg.get("lanes:forward") or tg.get("lanes:backward")) else None
+            hint_n = osm_n or (1 if (c["ag"] == 0 or c["al"] == 0) else 2)     # no lane tag: one lane each way (chosen), a weaker hint
+            room = hi - lo
+            key = (i, rd[0], fwd)
+            if key not in fits:
+                fits[key] = (fit(statistics.median(rooms.get(key) or [mean(room)]), hint_n, None, c["ag"] == 0 or c["al"] == 0, park, bike,
+                                 1.5 if osm_n else 0.8, fixed=bool(osm_n)), dict(park_pv), dict(bike_pv))
+            (sc, n, pk, bk), park_pv, bike_pv = fits[key]
+            # what the lanes are: OSM's count where the width holds it, else the count the width holds (the fit)
+            if osm_n and n == osm_n:
+                lane_pv = ("osm", "mapped", f"w{rd[0]} lanes={tg.get('lanes') or osm_n}")
+            elif osm_n:
+                lane_pv = ("urbanstyle", "derived", f"w{rd[0]} lanes={osm_n}; the width kerb to kerb holds {n}")
+            else:
+                lane_pv = ("urbanstyle", "chosen", f"w{rd[0]} has no lanes tag: {hint_n} chosen, the width holds {n}")
+            items = [("parking", PARK_M)] * pk[-1] + [("cycle lane", BIKE_M)] * bk[-1] + [("lane", TRAVEL_M)] * n + \
+                    [("cycle lane", BIKE_M)] * bk[1] + [("parking", PARK_M)] * pk[1]
+
+            def spread(rm):
+                """The widths at one end: each element within its range, filling the room; what is left goes to the gutters."""
+                mn = sum(r[0] for _, r in items) + 2 * GUTTER_M
+                mx = sum(r[1] for _, r in items) + 2 * GUTTER_M
+                f_ = 0.0 if mx == mn else min(max((rm - mn) / (mx - mn), 0.0), 1.0)
+                ws_ = [r[0] + f_ * (r[1] - r[0]) for _, r in items]
+                if rm < mn:       # too narrow even at the least: everything narrower in proportion (reported by R2)
+                    ws_ = [w_ * max(rm - 2 * GUTTER_M, 0.0) / sum(ws_) for w_ in ws_]
+                return ws_, (rm - sum(ws_)) / 2
+            (w0, g0), (w1, g1) = spread(room[0]), spread(room[1])
+            ws, gut = [V(a, b) for a, b in zip(w0, w1)], V(g0, g1)
+            # directions: the lanes in OSM's share (one way: all one way)
+            if c["ag"] == 0 or c["al"] == 0:
+                n_al = n if c["ag"] == 0 else 0
+            else:
+                n_al = min(max(round(n * c["al"] / (c["al"] + c["ag"])), 1), n - 1) if n > 1 else 1
+            al_dir, ag_dir = ("forward", "backward") if fwd else ("backward", "forward")     # relative to the OSM way
+            shared = n == 1 and c["al"] > 0 and c["ag"] > 0     # a two-way street one lane wide: one lane both ways (a yield street)
+            rule = f"fit: {n} lanes" + (f" (OSM: {osm_n})" if osm_n else " (OSM: none)") + \
+                   "".join(f", parking {('left' if sd > 0 else 'right')}" for sd in (1, -1) if pk[sd]) + \
+                   "".join(f", bike lane {('left' if sd > 0 else 'right')}" for sd in (1, -1) if bk[sd])
+            ie, t = [], lo + gut
+            for w_ in ws:
+                ie.append([t, t + w_])
+                t = t + w_
+            cws.append(dict(c=c, rd=rd, tg=tg, fwd=fwd, osm_n=osm_n, n=n, items=items, ie=ie, n_al=n_al, al_dir=al_dir, ag_dir=ag_dir,
+                            shared=shared, rule=rule, lane_pv=lane_pv, park_pv=park_pv, bike_pv=bike_pv))
+        lay[sub] = (fr, cws)
+
+    # pass 3b: at each joint, every item that goes on has the same edges on both sides; one with no partner starts or stops there at
+    # zero width (a taper); the medians sit between the items again (check R4)
+    for sub in sub_axis:
+        sid, k_ = sub.rsplit("/", 1)
+        if f"{sid}/{int(k_) + 1}" in lay:
+            join_lanes(lay[sub], lay[f"{sid}/{int(k_) + 1}"])
+    # and where two sections meet with no intersection between them (their spaces share JOIN_EDGE_M or more of edge, their axes nearly
+    # in line there): the kerbs too meet half way, then the items as above
+    sids = [(i, sid) for i, sid in section_ids.items() if i in sec_axis]
+    stree = shapely.STRtree([sec_axis[i][1] for i, _ in sids])
+    for i, sid in sids:
+        Pi = sec_axis[i][1]
+        for y_ in stree.query(Pi.buffer(0.1)):
+            j, sjd = sids[y_]
+            if j <= i:
+                continue
+            jl = Pi.boundary.intersection(sec_axis[j][1].buffer(0.05))
+            if jl.length < JOIN_EDGE_M:
+                continue
+            mid_ = jl.centroid
+            end = []
+            for k_, sd in ((i, sid), (j, sjd)):
+                subs = sorted((x for x in lay if x.rsplit("/", 1)[0] == sd), key=lambda x: int(x.rsplit("/", 1)[1]))
+                ax_ = sec_axis[k_][0]
+                e_ = 0 if shapely.Point(ax_.coords[0]).distance(mid_) < shapely.Point(ax_.coords[-1]).distance(mid_) else 1
+                sub_ = subs[0] if e_ == 0 else subs[-1]
+                sax = sub_axis[sub_][0]
+                sv = 0.0 if e_ == 0 else sax.length
+                end.append((sub_, e_, sax.interpolate(sv), tangent(sax, sv)))
+            (A_, ea, pa, (ux, uy)), (B_, eb, pb, (vx, vy)) = end
+            if abs(ux * vx + uy * vy) < JOIN_COS or lay[A_][0][0] is None or lay[B_][0][0] is None:
+                continue
+            sgn = 1 if ux * vx + uy * vy > 0 else -1
+            c0 = (pb.x - pa.x) * -uy + (pb.y - pa.y) * ux       # B's axis, left of A's
+            (klA, krA, *_r, edA), (klB, krB, *_s, edB) = lay[A_][0], lay[B_][0]
+            bl, br = (klB, krB) if sgn > 0 else (krB, klB)       # B's kerb on A's left, on A's right
+            nl, nr = (klA[ea] + sgn * bl[eb] + c0) / 2, (krA[ea] + sgn * br[eb] + c0) / 2
+            klA[ea] = edA[-1][1][ea] = nl
+            krA[ea] = edA[0][0][ea] = nr
+            bl[eb] = (nl - c0) * sgn
+            br[eb] = (nr - c0) * sgn
+            edB[-1][1][eb], edB[0][0][eb] = klB[eb], krB[eb]
+            join_lanes(lay[A_], lay[B_], ea, eb, sgn, c0)
+
     # pass 3: the inside of each subsection
     lane_rec = []       # every travel lane: key (subsection, OSM way, direction along the way, lane from the right), its axis and middle
     arrow_req = []      # (subsection, axis, lane middle (start, end), +1 along the axis / -1, turn heads or None, OSM says, ref)
     for sub, (ax, L, R, i, Q) in sub_axis.items():
         cw, tl, tr, meds = meas[sub]["cw"], meas[sub]["tl"], meas[sub]["tr"], meas[sub]["meds"]
-        kl, kr, kl_m, kr_m, swl, swr, edges = frame(sub)
+        fr, cws = lay[sub]
+        kl, kr, kl_m, kr_m, swl, swr, edges = fr
         kerbs_of[sub] = (kl, kr, ax, L, R)
         road = cw[0]["road"] if cw else None
         ways = sorted({c["road"][0] for c in cw})
@@ -884,102 +1130,37 @@ def build(con, epsg):
             mark(sub, "kerb", line2(ax, b_, Q), *isl)
         lin, lout, osm_total, lane_ws = 0, 0, 0, []
         sx, sP = sec_axis[i]
-        for c, (lo, hi) in zip(cw, edges):
-            rd = c["road"]
-            tg = osm_tags.get(rd[0], {})
-            fwd = c["fw"]
-            side_of = lambda tag_side: (-1 if tag_side == "right" else 1) * (1 if fwd else -1)   # OSM's right of the way, as our side
-            park, bike = {1: None, -1: None}, {1: None, -1: None}
-            park_pv, bike_pv = {}, {}       # side -> (source, method, ref) of the evidence
-            for k_, v in tg.items():
-                if k_.startswith(("parking:lane:", "parking:")) and not k_.endswith(("restriction", "reason", "fee", "maxstay", "orientation")):
-                    part_ = k_.split(":")[-1] if k_.count(":") == 1 else k_.split(":")[2] if k_.startswith("parking:lane:") else k_.split(":")[1]
-                    yes = v not in ("no", "none", "separate", "no_parking", "no_stopping")
-                    for sd in ((side_of("left"), side_of("right")) if part_ == "both" else (side_of(part_),) if part_ in ("left", "right") else ()):
-                        park[sd] = yes
-                        park_pv[sd] = ("osm", "mapped", f"w{rd[0]} {k_}={v}")
-                if k_.startswith("cycleway") and k_.count(":") <= 1:
-                    part_ = k_.split(":")[1] if ":" in k_ else "both"
-                    yes = v in ("lane", "track", "buffered_lane", "opposite_lane")
-                    for sd in ((side_of("left"), side_of("right")) if part_ == "both" else (side_of(part_),) if part_ in ("left", "right") else ()):
-                        bike[sd] = yes if (yes or v in ("no", "none", "shared_lane")) else bike[sd]
-                        if yes or v in ("no", "none", "shared_lane"):
-                            bike_pv[sd] = ("osm", "mapped", f"w{rd[0]} {k_}={v}")
-            # the city's parking meters and bike lanes near a kerb, along the whole section (one short subsection does not decide alone)
-            for sd, kerb_t in ((1, hi), (-1, lo)):
-                kline = line_at(sx, mean(kerb_t), sP, 6.0)
-                mt = [meter_rows[k][0] for k in (meter_t.query(kline) if kline is not None and meter_t is not None else []) if kline.contains(meters[k])]
-                if mt:
-                    park[sd] = True
-                    park_pv[sd] = prov_of([("vancouver", x) for x in mt], "mapped", None)
-                bw = [bike_ids[k] for k in (bike_t.query(kline) if kline is not None and bike_t is not None else []) if bikeways[k][1].intersection(kline).length > 10]
-                if bw:
-                    bike[sd] = True
-                    bike_pv[sd] = prov_of([("vancouver", x) for x in bw], "mapped", None)
-            osm_n = c["al"] + c["ag"] if (tg.get("lanes") or tg.get("lanes:forward") or tg.get("lanes:backward")) else None
-            hint_n = osm_n or (1 if (c["ag"] == 0 or c["al"] == 0) else 2)     # no lane tag: one lane each way (chosen), a weaker hint
-            room = hi - lo
-            key = (i, rd[0], fwd)
-            if key not in fits:
-                fits[key] = (fit(statistics.median(rooms.get(key) or [mean(room)]), hint_n, None, c["ag"] == 0 or c["al"] == 0, park, bike,
-                                 1.5 if osm_n else 0.8, fixed=bool(osm_n)), dict(park_pv), dict(bike_pv))
-            (sc, n, pk, bk), park_pv, bike_pv = fits[key]
-            # what the lanes are: OSM's count where the width holds it, else the count the width holds (the fit)
-            if osm_n and n == osm_n:
-                lane_pv = ("osm", "mapped", f"w{rd[0]} lanes={tg.get('lanes') or osm_n}")
-            elif osm_n:
-                lane_pv = ("urbanstyle", "derived", f"w{rd[0]} lanes={osm_n}; the width kerb to kerb holds {n}")
-            else:
-                lane_pv = ("urbanstyle", "chosen", f"w{rd[0]} has no lanes tag: {hint_n} chosen, the width holds {n}")
-            side_pv = lambda typ, sd: (park_pv if typ == "parking" else bike_pv).get(sd) or ("urbanstyle", "derived", "the width holds it (the fit)")
+        for C, (lo, hi) in zip(cws, edges):
+            c, rd, tg, fwd, osm_n, n, items, ie, n_al = (C[x] for x in ("c", "rd", "tg", "fwd", "osm_n", "n", "items", "ie", "n_al"))
+            al_dir, ag_dir, shared, rule, lane_pv = (C[x] for x in ("al_dir", "ag_dir", "shared", "rule", "lane_pv"))
+            side_pv = lambda typ, sd, pp=C["park_pv"], bp=C["bike_pv"]: (pp if typ == "parking" else bp).get(sd) or \
+                ("urbanstyle", "derived", "the width holds it (the fit)")
             osm_total += osm_n or 0
-            items = [("parking", PARK_M)] * pk[-1] + [("cycle lane", BIKE_M)] * bk[-1] + [("lane", TRAVEL_M)] * n + \
-                    [("cycle lane", BIKE_M)] * bk[1] + [("parking", PARK_M)] * pk[1]
-
-            def spread(rm):
-                """The widths at one end: each element within its range, filling the room; what is left goes to the gutters."""
-                mn = sum(r[0] for _, r in items) + 2 * GUTTER_M
-                mx = sum(r[1] for _, r in items) + 2 * GUTTER_M
-                f_ = 0.0 if mx == mn else min(max((rm - mn) / (mx - mn), 0.0), 1.0)
-                ws_ = [r[0] + f_ * (r[1] - r[0]) for _, r in items]
-                if rm < mn:       # too narrow even at the least: everything narrower in proportion (reported by R2)
-                    ws_ = [w_ * max(rm - 2 * GUTTER_M, 0.0) / sum(ws_) for w_ in ws_]
-                return ws_, (rm - sum(ws_)) / 2
-            (w0, g0), (w1, g1) = spread(room[0]), spread(room[1])
-            ws, gut = [V(a, b) for a, b in zip(w0, w1)], V(g0, g1)
-            # directions: the lanes in OSM's share (one way: all one way)
-            if c["ag"] == 0 or c["al"] == 0:
-                n_al = n if c["ag"] == 0 else 0
-            else:
-                n_al = min(max(round(n * c["al"] / (c["al"] + c["ag"])), 1), n - 1) if n > 1 else 1
-            al_dir, ag_dir = ("forward", "backward") if fwd else ("backward", "forward")     # relative to the OSM way
-            shared = n == 1 and c["al"] > 0 and c["ag"] > 0     # a two-way street one lane wide: one lane both ways (a yield street)
-            rule = f"fit: {n} lanes" + (f" (OSM: {osm_n})" if osm_n else " (OSM: none)") + \
-                   "".join(f", parking {('left' if sd > 0 else 'right')}" for sd in (1, -1) if pk[sd]) + \
-                   "".join(f", bike lane {('left' if sd > 0 else 'right')}" for sd in (1, -1) if bk[sd])
-            t = lo.copy()
-            add(sub, "shoulder", band2(ax, t, t + gut, Q), width_m=round(mean(gut), 2), width_method="derived", direction=None, lane=None, **common,
-                **PV("urbanstyle", "derived", "the room left beside the lanes"), **POS(k_both))
-            t = t + gut
+            add(sub, "shoulder", band2(ax, lo, ie[0][0], Q), width_m=round(mean(ie[0][0] - lo), 2), width_method="derived", direction=None, lane=None,
+                **common, **PV("urbanstyle", "derived", "the room left beside the lanes"), **POS(k_both))
             k_lane = 0
             first_t = None
             lane_at = []        # each travel lane's (right edge, left edge)
-            for (typ, _), w_ in zip(items, ws):
+            for (typ, _), (t, t_) in zip(items, ie):
+                w_ = t_ - t
+                taper = min(w_) < 0.05 < max(w_)       # it opens or closes at a joint (join_lanes): its width is the full one
+                w_m, rule_ = (max(w_), rule + "; a taper: zero width at a joint, where the next subsection has no such item") if taper \
+                    else (mean(w_), rule)
                 if typ == "lane":
                     along_ = k_lane < n_al
                     if first_t is None:
                         first_t = t
                     elif k_lane:
                         mark(sub, "centre line" if k_lane == n_al else "lane line", line2(ax, t, Q), *lane_pv)
-                    add(sub, "lane", band2(ax, t, t + w_, Q), width_m=round(mean(w_), 2), width_method="derived",
+                    add(sub, "lane", band2(ax, t, t_, Q), width_m=round(w_m, 2), width_method="derived",
                         direction="both" if shared else al_dir if along_ else ag_dir, lane=(k_lane + 1) if along_ else (n - k_lane),
-                        **common, rule=rule, **PV(*lane_pv), **POS(k_both))
-                    lane_ws.append(mean(w_))
-                    lane_at.append((t, t + w_))
+                        **common, rule=rule_, **PV(*lane_pv), **POS(k_both))
+                    lane_ws.append(w_m)
+                    lane_at.append((t, t_))
                     k_lane += 1
                 else:
                     sd_ = 1 if first_t is not None else -1          # after the travel lanes: on the left
-                    B = band2(ax, t, t + w_, Q)
+                    B = band2(ax, t, t_, Q)
                     if typ == "parking":    # where a bus stops at this kerb (behind its stop pole, in the travel direction): a bus zone
                         go = (1 if n_al == n else -1) if sd_ > 0 else (1 if n_al > 0 else -1)
                         zs = []
@@ -993,17 +1174,17 @@ def build(con, epsg):
                                     continue
                                 nm = st["tags"].get("name") or (st["tt"] or {}).get("name") or "bus stop"
                                 when = gt.describe(st["tt"])
-                                add(sub, "bus zone", z, width_m=round(mean(w_), 2), width_method="derived", direction=None, lane=None, **common,
+                                add(sub, "bus zone", z, width_m=round(w_m, 2), width_method="derived", direction=None, lane=None, **common,
                                     rule="no parking: buses stop here" + (f"; {when}" if when else ""),
                                     **PV(st["source"], "mapped", f"{st['id']} {nm}" + (f" (stop {st['tags']['ref']})" if st["tags"].get("ref") else "")),
                                     **POS(k_both))
                                 zs.append(z)
                         B = poly(B.difference(shapely.union_all(zs), grid_size=0.01)) if zs else B
-                    add(sub, typ, B, width_m=round(mean(w_), 2), width_method="derived", direction=None, lane=None,
-                        **common, rule=rule, **PV(*side_pv(typ, sd_)), **POS(k_both))
+                    add(sub, typ, B, width_m=round(w_m, 2), width_method="derived", direction=None, lane=None,
+                        **common, rule=rule_, **PV(*side_pv(typ, sd_)), **POS(k_both))
                     # its line on the side of the travel lanes: after them its near edge, before them its far edge
-                    mark(sub, "edge line", line2(ax, t if first_t is not None else t + w_, Q), *side_pv(typ, sd_))
-                t = t + w_
+                    mark(sub, "edge line", line2(ax, t if first_t is not None else t_, Q), *side_pv(typ, sd_))
+            t = ie[-1][1]
             add(sub, "shoulder", band2(ax, t, hi, Q), width_m=round(mean(hi - t), 2), width_method="derived", direction=None, lane=None, **common,
                 **PV("urbanstyle", "derived", "the room left beside the lanes"), **POS(k_both))
             lin += n - n_al
@@ -1507,17 +1688,18 @@ def build(con, epsg):
     marks[:] = [m_ for m_ in marks if m_[2] is not None and not m_[2].is_empty]
     parts[:] = [p for p in parts if not p["geom"].is_empty]
 
-    # ---- no crumbs: a strip under PIECE_MIN_M2 joins its neighbour in the same space (never a lane: a lane keeps its own)
+    # ---- no crumbs: a strip under PIECE_MIN_M2 joins its neighbour in the same space (never a lane or a shoulder, either way: they keep
+    # their own shape, so the roadway's items meet the next subsection's at the joint)
     by_unit = {}
     for p in parts:
         by_unit.setdefault(p["unit_id"], []).append(p)
     for uid, ps in by_unit.items():
         for p in sorted(ps, key=lambda p: p["geom"].area):
-            if p["geom"].area >= PIECE_MIN_M2 or p["type"] in ("lane", "junction area") or p.get("gone"):
+            if p["geom"].area >= PIECE_MIN_M2 or p["type"] in ("lane", "shoulder", "junction area") or p.get("gone"):
                 continue
-            nb = [q for q in ps if q is not p and not q.get("gone") and q["geom"].distance(p["geom"]) < 0.05]
+            nb = [q for q in ps if q is not p and not q.get("gone") and q["type"] != "lane" and q["geom"].distance(p["geom"]) < 0.05]
             same = [q for q in nb if (q["type"] in ROADWAY) == (p["type"] in ROADWAY)]
-            nb = same or nb         # a crumb of roadway joins the roadway, a crumb of the pedestrian realm joins the realm
+            nb = same if p["type"] in ROADWAY else (same or nb)    # a crumb of roadway joins the roadway (or stays), one of the realm the realm
             if not nb:
                 continue
             q = max(nb, key=lambda q: q["geom"].boundary.intersection(p["geom"].boundary.buffer(0.05)).length)

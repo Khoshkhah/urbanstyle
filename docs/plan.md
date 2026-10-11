@@ -48,7 +48,9 @@ In order; each item is a general rule, checked on Broadway x Granville before an
       (5) the parts, lanes (whole per subsection) and 3D on the new spaces (built: lanes, shoulders, medians, pedestrian zones, junction
       area, kerbs, lines, stop lines, zebras; 2026-10-11: blocks from the parcels, lanes that meet at the joints (R1), edge lines,
       crosswalk bands, turn arrows and guide lines from SUMO on our lanes, bus zones, driveways, OSM's driveways as ground, the source of
-      every part; not yet: lanes that taper where they are added or dropped, tree pits, bus lanes). `check` before and after each.
+      every part; lanes, cycle lanes and parking that meet their continuation at every joint, with tapers where they are added or dropped
+      (R4 234 -> 7), also between two sections of one street; roads only for buses with their own tags; not yet: tree pits, bus lanes).
+      `check` before and after each.
       A city's block outlines only cross-check ours. Test: `scripts/blocks_test.py`.
 - [ ] **Slanted lanes** west of West Broadway's 4 -> 6 joint; **West Broadway's north kerb east of Hemlock** still about 8 m short.
 - [ ] Then the gaps of [What the sources hold](design/source-inventory.md): crossing and kerb details, every Mapillary class, the city's

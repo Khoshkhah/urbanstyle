@@ -41,6 +41,8 @@ GUTTER_M = 0.3
 JOIN_M = 1.0             # at a joint, a lane shifted sideways by less than this still matches its continuation (join_lanes)
 JOIN_EDGE_M = 2.0        # two sections whose spaces share this much edge (no intersection between them) meet at a joint
 JOIN_COS = 0.85          # ... when their axes there are this near in line (cos of the angle)
+FOLLOW_MAX_M = 30.0      # a section's axis runs on along its main road past the middle between the blocks by at most this
+FOLLOW_MIN_M = 5.0       # ... where the middle between the blocks stops at least this short of the section's end
 BASIN_BACK_M = 0.3       # a catch basin sits in the gutter: the kerb is this far behind it
 OBJ_KERB_M = 0.4         # a pole, a tree, a meter stands at least this far behind the kerb
 SHOULDER_EDGE_M = 0.3    # every carriageway keeps a shoulder this wide at each edge (the gutter); more where the lanes leave room
@@ -78,6 +80,7 @@ def build(con, epsg):
     import duckdb
     import numpy as np
     import shapely
+    import shapely.affinity
     from shapely.ops import substring
 
     m = lambda col="geometry": f"ST_AsWKB(ST_Transform({col}, 'EPSG:4326', '{epsg}', always_xy := true))"
@@ -265,6 +268,11 @@ def build(con, epsg):
             if c[8] == 1:
                 decks.append(c[7])
     road_tree = shapely.STRtree([r[7] for r in roads])
+    way_lines = {}       # each OSM way's line, its pieces joined
+    for r in roads:
+        way_lines.setdefault(r[0], []).append(r[7])
+    way_lines = {k: shapely.line_merge(shapely.union_all(v)) for k, v in way_lines.items()}
+
     # (a walkway of a street's class is a road only buses or bikes use: a carriageway above, not a sidewalk)
     walk_rows = rows(f"""SELECT osm_id, {m()} FROM space.element WHERE type = 'walkway' AND level_min = 0 AND coalesce(subtype, '') <> 'crossing'
                            AND replace(coalesce(class, ''), '_link', '') NOT IN {STREET}""")
@@ -432,6 +440,41 @@ def build(con, epsg):
         chord = shapely.LineString([c[0], c[-1]])
         return chord if max(chord.distance(shapely.Point(p)) for p in c) < 1.0 else line.simplify(0.5)
 
+    def follow_road(axis, P):
+        """The axis run on past each end along the OSM line of the section's main road (the road with the most length in P), moved to start
+        at that end, to the edge of P: where a block steps back, the middle between the blocks stops short of the section's end, and a
+        straight run past it leaves the road where the road bends."""
+        rs = [roads[k] for k in road_tree.query(P)]
+        best = max(rs, key=lambda r: r[7].intersection(P).length, default=None)
+        if best is None or best[7].intersection(P).length < 5:
+            return axis
+        cs = list(axis.coords)
+        for end in (0, 1):
+            E = shapely.Point(cs[-1] if end else cs[0])
+            A = shapely.Point(cs[-2] if end else cs[1])
+            part = min(shapely.get_parts(way_lines[best[0]]), key=lambda q: q.distance(E))
+            sq = part.project(E)
+            Qp = part.interpolate(sq)
+            if Qp.distance(E) > RAY_M:
+                continue
+            ox, oy = E.x - A.x, E.y - A.y
+            rx, ry = tangent(part, sq)
+            fwd = rx * ox + ry * oy > 0                      # the road's own direction is the outward one
+            rest = substring(part, sq, min(sq + FOLLOW_MAX_M, part.length)) if fwd else substring(part, max(sq - FOLLOW_MAX_M, 0.0), sq).reverse()
+            if rest.geom_type != "LineString" or rest.length < 1:
+                continue
+            fx, fy = tangent(rest, 0.5)
+            if (fx * ox + fy * oy) / (math.hypot(ox, oy) or 1) < 0.5:      # it must run on outward, not back along the section
+                continue
+            moved = shapely.affinity.translate(rest, E.x - Qp.x, E.y - Qp.y)
+            piece = next((x for x in shapely.get_parts(moved.intersection(P.buffer(0.01)))
+                          if x.geom_type == "LineString" and not x.is_empty and shapely.Point(x.coords[0]).distance(E) < 0.5), None)
+            if piece is None or piece.length < FOLLOW_MIN_M:      # (an oblique end at an intersection: the straight run is enough)
+                continue
+            ext = list(piece.coords)[1:]
+            cs = cs + ext if end else ext[::-1] + cs
+        return shapely.LineString(cs)
+
     sec_axis = {}       # section index -> (its axis, its polygon)
     sub_axis = {}       # subsection id -> (axis, left block, right block, section index, its polygon)
     sub_span = {}       # subsection id -> (start, end) along its section's axis
@@ -443,7 +486,7 @@ def build(con, epsg):
         axis = substring(line, a0, a1)
         if axis.geom_type != "LineString" or axis.length < 1:
             continue
-        axis = straight(axis)
+        axis = follow_road(straight(axis), P)
         sec_axis[i] = (axis, P)
         # where its carriageways change (for SUB_MIN_M at least): the subsections
         keys = []
@@ -843,6 +886,15 @@ def build(con, epsg):
         (a lane that becomes a cycle lane), each side fills the same room with its own. Then each median sits between its items."""
         if la[0][0] is None or lb[0][0] is None:      # a side with no roadway: nothing goes on
             return
+        # the kerbs meet half way
+        (klA, krA, *_r, edA), (klB, krB, *_s, edB) = la[0], lb[0]
+        bl, br = (klB, krB) if sgn > 0 else (krB, klB)           # B's kerb on A's left, on A's right
+        nl, nr = (klA[ea] + sgn * bl[eb] + c0) / 2, (krA[ea] + sgn * br[eb] + c0) / 2
+        klA[ea] = edA[-1][1][ea] = nl
+        krA[ea] = edA[0][0][ea] = nr
+        bl[eb] = (nl - c0) * sgn
+        br[eb] = (nr - c0) * sgn
+        edB[-1][1][eb], edB[0][0][eb] = klB[eb], krB[eb]
 
         def pieces(lay_, e, s_):
             out = []
@@ -898,13 +950,26 @@ def build(con, epsg):
             lo_ = P_[x0]["b"] if x0 >= 0 else None
             hi_ = P_[x1]["a"] if x1 < n1 else None
             if lo_ is not None and hi_ is not None:
-                if UA and UB:
-                    fill(UA, lo_, hi_)
-                    fill(UB, lo_, hi_)
+                # no island between the two pairs (one carriageway, or two that meet at a line) on side A, on side B
+                isl = lambda lay_, k0, k1: any(lay_[1][k]["isle"] for k in range(min(k0, k1), max(k0, k1)))
+                one_a, one_b = not isl(la, P_[x0]["k"], P_[x1]["k"]), not isl(lb, Q_[y0]["k"], Q_[y1]["k"])
+                if (one_a and UA and (UB or not one_b)) or (one_b and UB and (UA or not one_a)):
+                    # a side with items in one carriageway fills the room with them; the other side's items, if any, likewise, or
+                    # (across a median) open at zero width in their own middle
+                    for U, one in ((UA, one_a), (UB, one_b)):
+                        if U and (one or (UA and UB)):
+                            fill(U, lo_, hi_)
+                        else:
+                            for r in U:
+                                c_ = min(max((r["a"] + r["b"]) / 2, lo_), hi_)
+                                put(r, c_, c_)
                     continue
-                if not UA and not UB and P_[x0]["k"] != P_[x1]["k"] and Q_[y0]["k"] != Q_[y1]["k"]:
-                    continue        # a median between them on both sides: it keeps its width
-                m_ = (lo_ + hi_) / 2
+                if not one_a and not one_b:     # a median between them on both sides: it stays; items in it open in their own middle
+                    for r in UA + UB:
+                        c_ = min(max((r["a"] + r["b"]) / 2, lo_), hi_)
+                        put(r, c_, c_)
+                    continue
+                m_ = (lo_ + hi_) / 2            # the pairs meet (a median on one side closes there, as in pass 2)
                 for r in (P_[x0], Q_[y0]):
                     put(r, r["a"], m_)
                 for r in (P_[x1], Q_[y1]):
@@ -923,6 +988,10 @@ def build(con, epsg):
                         put(r, at_, at_)
         for lay_, e in ((la, ea), (lb, eb)):
             edges_ = lay_[0][6]
+            kl_, kr_ = lay_[0][0][e], lay_[0][1][e]
+            for C in lay_[1]:                       # the items stay between the kerbs
+                for ed in C["ie"]:
+                    ed[0][e], ed[1][e] = min(max(ed[0][e], kr_), kl_), min(max(ed[1][e], kr_), kl_)
             for k in range(len(lay_[1]) - 1):       # the median (or the line) between two carriageways: between their items
                 if lay_[1][k]["ie"] and lay_[1][k + 1]["ie"]:
                     lo_, hi_ = lay_[1][k]["ie"][-1][1][e], lay_[1][k + 1]["ie"][0][0][e]
@@ -1012,7 +1081,8 @@ def build(con, epsg):
                 ie.append([t, t + w_])
                 t = t + w_
             cws.append(dict(c=c, rd=rd, tg=tg, fwd=fwd, osm_n=osm_n, n=n, items=items, ie=ie, n_al=n_al, al_dir=al_dir, ag_dir=ag_dir,
-                            shared=shared, rule=rule, lane_pv=lane_pv, park_pv=park_pv, bike_pv=bike_pv))
+                            shared=shared, rule=rule, lane_pv=lane_pv, park_pv=park_pv, bike_pv=bike_pv,
+                            isle=len(cws) in meas[sub]["isle"]))     # an island (not a line) between it and the next carriageway
         lay[sub] = (fr, cws)
 
     # pass 3b: at each joint, every item that goes on has the same edges on both sides; one with no partner starts or stops there at
@@ -1049,14 +1119,6 @@ def build(con, epsg):
                 continue
             sgn = 1 if ux * vx + uy * vy > 0 else -1
             c0 = (pb.x - pa.x) * -uy + (pb.y - pa.y) * ux       # B's axis, left of A's
-            (klA, krA, *_r, edA), (klB, krB, *_s, edB) = lay[A_][0], lay[B_][0]
-            bl, br = (klB, krB) if sgn > 0 else (krB, klB)       # B's kerb on A's left, on A's right
-            nl, nr = (klA[ea] + sgn * bl[eb] + c0) / 2, (krA[ea] + sgn * br[eb] + c0) / 2
-            klA[ea] = edA[-1][1][ea] = nl
-            krA[ea] = edA[0][0][ea] = nr
-            bl[eb] = (nl - c0) * sgn
-            br[eb] = (nr - c0) * sgn
-            edB[-1][1][eb], edB[0][0][eb] = klB[eb], krB[eb]
             join_lanes(lay[A_], lay[B_], ea, eb, sgn, c0)
 
     # pass 3: the inside of each subsection

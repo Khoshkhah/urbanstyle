@@ -227,16 +227,26 @@ crumbs: a strip under 5 m² joins its neighbour.
   edges at its two ends), then joins each joint, then makes the parts:
   1. The items of the two sides (lanes by direction of travel, cycle lanes, parking) are matched in order, with the most overlap.
      A lane moved sideways by less than 1 m (`JOIN_M`) still matches. Each pair gets the mean of its edges on the two sides.
-  2. Between two pairs: with no other item on either side, the two pairs meet at one point. With items on one side only, these items
-     start or stop there at zero width: a **taper**. With items on both sides (a lane that becomes a cycle lane), each side fills the
-     same room with its own items.
+  2. Between two pairs, what matters is whether an island lies between them on each side (one carriageway, or two that meet at a
+     painted line, is no island):
+     - no island on either side: the two pairs meet at one point, and items on one side only start or stop there at zero width (a
+       **taper**); items on both sides (a lane that becomes a cycle lane) each fill the same room;
+     - an island on both sides: the island stays; an item inside it on one side only opens at zero width in its own middle (a ramp
+       lane that joins between two carriageways);
+     - an island on one side only: it closes at the joint (as in pass 2), unless the other side has items there, which then fill the room.
   3. Each median then lies between the items of its two carriageways.
 
   The same applies where two sections of one street meet with no intersection between them (their spaces share 2 m of edge or more,
   their axes there are within about 30° of one line); there the kerbs also meet half way. The offsets of one side are converted to the
   frame of the other (`t_A = ±t_B + c`). A taper's `width_m` is its full width, and its `rule` says that it is a taper. A strip under
   5 m² never joins a lane or a shoulder, and a shoulder never joins another strip, so the lanes keep their shape to the joint.
-  Broadway × Granville: R4 234 -> 7 edges with no partner; R1 1 -> 0; R2 19 -> 16; R3 1 -> 1.
+  Broadway × Granville: R4 234 -> 5 edges with no partner; R1 1 -> 0; R2 19 -> 16; R3 1 -> 1; no hole over 1 m² and no lane wider
+  than 5 m anywhere (before and after).
+- **A section's axis follows its road past the middle between the blocks** (2026-10-11, `division.follow_road`). Where a block steps back
+  (the entrance of a service road), the middle line between the two blocks bends away or stops 5 m or more before the section's end.
+  The axis then runs on along the OSM line of the section's main road, moved to start at the axis end, to the section's edge (30 m at
+  most). Before, the lanes ran straight on past the end of the axis and left the road where it bends (West 5th Avenue at Granville
+  Street: the lane ended 4 m beside the next section's lane).
 - **Roads only for buses** (2026-10-11). duckOSM does not put a road only for buses (`vehicle=bus`, `psv=yes`) in its driving network,
   and urbanstyle stores it as a `walkway` of street class. `division.py` takes it as a carriageway: its lanes and `oneway` come from its
   own OSM tags (`lanes`, `lanes:forward`, `lanes:backward`, `oneway`), and it is no sidewalk line for the kerbs. Before, it had two lanes

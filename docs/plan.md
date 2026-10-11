@@ -49,7 +49,8 @@ In order; each item is a general rule, checked on Broadway x Granville before an
       area, kerbs, lines, stop lines, zebras; 2026-10-11: blocks from the parcels, lanes that meet at the joints (R1), edge lines,
       crosswalk bands, turn arrows and guide lines from SUMO on our lanes, bus zones, driveways, OSM's driveways as ground, the source of
       every part; lanes, cycle lanes and parking that meet their continuation at every joint, with tapers where they are added or dropped
-      (R4 234 -> 7), also between two sections of one street; roads only for buses with their own tags; not yet: tree pits, bus lanes).
+      (R4 234 -> 5), also between two sections of one street; an axis that follows its road where a block steps back; roads only for
+      buses with their own tags; not yet: tree pits, bus lanes).
       `check` before and after each.
       A city's block outlines only cross-check ours. Test: `scripts/blocks_test.py`.
 - [ ] **Slanted lanes** west of West Broadway's 4 -> 6 joint; **West Broadway's north kerb east of Hemlock** still about 8 m short.

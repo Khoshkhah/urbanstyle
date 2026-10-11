@@ -1,7 +1,8 @@
 # Plots: the ground of the blocks, and where the street ends
 
 Status: agreed 2026-10-10. Step 1 built: U14 and the fill rule (Broadway × Granville: 316 pieces, 14,289 m² of street ground in no
-space -> 65 pieces, 6,372 m²; what is left is over 300 m² a piece or borders no space). Step 2 (parcels) not started. Since 2026-10-10 the ground layer ([Layers](space-layers.md)) holds every
+space -> 65 pieces, 6,372 m²; what is left is over 300 m² a piece or borders no space). Step 2 built 2026-10-10: the city's parcels (`space.parcel`) are the property line; the partition's building line holds
+them as they are (never closed), so a street reaches them, and the ground's plots are them. Since 2026-10-10 the ground layer ([Layers](space-layers.md)) holds every
 piece of the area, the parcels included; its check G1 replaced U14.
 
 ## The problem

@@ -1407,6 +1407,30 @@ def build(con, epsg):
         rdf = pd.DataFrame([(u, shapely.to_wkb(g)) for u, g in reshaped.items()], columns=["unit_id", "wkb"])
         con.execute(f"""UPDATE space.unit u SET geometry = ST_Transform(ST_GeomFromWKB(r.wkb::BLOB), '{epsg}', 'EPSG:4326', always_xy := true)
                         FROM rdf r WHERE u.unit_id = r.unit_id""")
+    # the parts cover their space (docs/design/space-layers.md, L1): ground of a space no part took (a strip between a lane's edge and the
+    # pedestrian realm that a rule left over) joins the part it shares the longest edge with
+    of_unit = {}
+    for k, p_ in enumerate(parts):
+        of_unit.setdefault(p_[0], []).append(k)
+    for uid, kind, sec, level, U in units:
+        ks = of_unit.get(uid)
+        if not ks:
+            continue
+        U = reshaped.get(uid, U)        # a bridge's or a tunnel's space, cut back to its tube
+        geoms = {k: shapely.from_wkb(parts[k][-1]) for k in ks}
+        try:
+            rem = area(U.difference(shapely.union_all(list(geoms.values())), grid_size=0.01))
+        except shapely.errors.GEOSException:
+            continue
+        for piece in polys(rem):
+            if piece.area < 0.05:
+                continue
+            best = max(ks, key=lambda k: piece.boundary.intersection(geoms[k].buffer(0.05)).length)
+            if piece.boundary.intersection(geoms[best].buffer(0.05)).length < 0.1:
+                continue
+            geoms[best] = area(shapely.union_all([geoms[best], piece], grid_size=0.01))
+            parts[best] = parts[best][:-1] + (shapely.to_wkb(geoms[best]),)
+
     # kerbs: in each space, where a raised part meets the flush ground; not along a parking lot or a parking aisle, paved flush
     sides = {}
     for p_ in parts:

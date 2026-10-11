@@ -909,6 +909,8 @@ def build(osm, out):
     from . import buildings
     buildings.city(con)     # a city's footprints where OSM has none, and its LiDAR heights (docs/design/source-inventory.md)
     con.execute(RAIL)
+    from . import ground
+    ground.parcels(con)     # a city's property lines, where it has them: the street reaches them
     try:
         con.execute(LOTS)
     except duckdb.CatalogException:     # a database without duckOSM's features: no car parks known
@@ -938,6 +940,7 @@ def build(osm, out):
     parts.build(con, epsg)         # ... and the inside of each space: parts, marks, widths
     from . import ground
     ground.build(con, epsg)        # layer 0: every piece of the area is street, plot, green, ... (docs/design/space-layers.md)
+    ground.surfaces(con, epsg)     # layer 1: the surfaces inside each ground item
     return con
 
 

@@ -77,7 +77,20 @@ def ground_checks(c, q, m):
     return [
         ("G1", f"pieces of ground of no known kind ({unknown[1]:,.0f} m2)", unknown[0], False),
         ("G2", "ground items overlapping by more than 0.5 m2", q("""SELECT count(*) FROM gr a JOIN gr b ON a.level = b.level
-                                  AND a.ground_id < b.ground_id AND ST_Intersects(a.g, b.g) WHERE ST_Area(ST_Intersection(a.g, b.g)) > 0.5"""), True),
+                                  AND a.ground_id < b.ground_id AND ST_Intersects(a.g, b.g) WHERE ST_Area(ST_Intersection(a.g, b.g)) > 0.5"""), True),    ] + surface_checks(c, q, m)
+
+
+def surface_checks(c, q, m):
+    """L1-L2: layer 1, the surfaces (space.surface): they cover their ground item exactly and do not overlap."""
+    if not q("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'space' AND table_name = 'surface'"):
+        return []
+    c.execute(f"CREATE TEMP TABLE sf AS SELECT surface_id, ground_id, ST_MakeValid(ST_Buffer({m('geometry')}, -0.01)) AS g, ST_Area({m('geometry')}) AS a FROM space.surface")
+    return [
+        ("L1", "ground items whose surfaces do not cover them (3% or 1.5 m2)", q(f"""SELECT count(*) FROM (SELECT gd.ground_id,
+                                  ST_Area({m('gd.geometry')}) AS a, coalesce(sum(s.a), 0) AS sa FROM space.ground gd LEFT JOIN sf s USING (ground_id)
+                                  GROUP BY gd.ground_id, gd.geometry) WHERE abs(a - sa) > greatest(0.03 * a, 1.5)"""), True),
+        ("L2", "surfaces of one ground item overlapping by more than 0.5 m2", q("""SELECT count(*) FROM sf a JOIN sf b ON a.ground_id = b.ground_id
+                                  AND a.surface_id < b.surface_id AND ST_Intersects(a.g, b.g) WHERE ST_Area(ST_Intersection(a.g, b.g)) > 0.5"""), True),
     ]
 
 

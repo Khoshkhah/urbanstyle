@@ -24,7 +24,10 @@ The order of work: `docs/plan.md`.
 - `space.lot` (`LOTS` in container.py): off-street car parks, plots beside the street like buildings; the partition reads both as the
   building line; parking aisles are left out of the roads.
 - `src/urbanstyle/ground.py` (called at the end of `build`): layer 0 of `docs/design/space-layers.md`, `space.ground`: every piece of the
-  area at level 0 is water, rail, street, square, green, plot or unknown (checks G1, G2).
+  area at level 0 is water, rail, street, path, square, structure, green, plot or unknown (checks G1, G2); `space.parcel`, a city's
+  parcels, is the property line the street reaches (`subsections.building_line`). `ground.surfaces`: layer 1, `space.surface`, the
+  surfaces covering each ground item (roadway, pedestrian realm, median, verge; building, yard, car park, ...; checks L1, L2).
+  `urbanstyle layers DB OUT.html` (`dashboard.layers`) shows layer 0 and layer 1 each alone.
 - `src/urbanstyle/buildings.py` (called in `build`): each building's `use` and `ground_use` with their source and method, from OSM's
   `building` tag, the shops OSM maps inside it and a city's storefronts (`<unit>.vancouver.json`); `uses` lists the evidence.
 - `src/urbanstyle/strips.py` (called at the end of `build`) fills every container with typed bands in `space.strip`
@@ -43,13 +46,13 @@ The order of work: `docs/plan.md`.
   at intersections). The roadway (lanes, junction shapes, turns) comes from SUMO: the subsections measure the lanes, `sumo.py` runs
   duckOSM's `to_sumo` with them, `from_sumo()` fills every unit; without SUMO `classic()` builds the roadway from bands. `urbanstyle check`
   U1-U10 test them; U11-U13 report the lanes entering each junction (`space.approach`),
-  G1-G2 the ground (`space.ground`).
+  G1-G2 the ground (`space.ground`), L1-L2 the surfaces (`space.surface`).
 - `src/urbanstyle/mapillary.py`: `urbanstyle mapillary DB [--osm OSM]` fetches Mapillary's features and photos into `DB.mapillary.json`
   (token: `$MAPILLARY_TOKEN` or `~/.config/mapillary/token`, never in the repo) and loads `space.observed` / `space.photo`; `build`
   loads that file when present (`docs/design/mapillary.md`). CC BY-SA: the data stays local. Mapillary is for validation only
   (`unit.CONFIRM_ONLY`, 2026-10-10): it builds no object, part or line; it confirms the objects of sources with real positions, and what
   it alone sees is a `check` row; on the page it is hidden until "Mapillary detections (validation)" is ticked.
-- `src/urbanstyle/cli.py`: the `urbanstyle build | check | quality | dashboard | mapillary` command.
+- `src/urbanstyle/cli.py`: the `urbanstyle build | check | quality | dashboard | layers | mapillary | unit` command.
 - `docs/`: the MkDocs site (`mkdocs.yml`); `docs/design/` the design notes. `docs/img/sodermalm.jpg` and `section.jpg` are screenshots of the dashboard
   (`viz/sodermalm-rs0.18.1.html` and `#c=s0-1277220079715399641`, 1600 × 1000): pictures in the docs come from the
   dashboard, never from a separate drawing script.

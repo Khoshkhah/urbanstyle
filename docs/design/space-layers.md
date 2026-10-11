@@ -1,8 +1,13 @@
 # Layers: the whole area, and the inside of a street, as a hierarchy
 
-Status: agreed 2026-10-10; being built in the order below. Step 1 built (`ground.py`): Broadway × Granville's neighbourhood, 640,106 m²
-at level 0: street 53.3 %, plot 44.7 %, green 1.3 %, rail 0.3 %, unknown 0.4 % (8 pieces, 2,517 m²; the largest, 1,515 m², West Broadway's
-north side before the station site, right-of-way no street space reaches); no overlaps (G2). Basis: [How standards layer a street](layers-research.md).
+Status: agreed 2026-10-10; being built in the order below. Step 1 built (`ground.py`, `space.ground`, `space.parcel`), on Broadway ×
+Granville's neighbourhood (640,106 m² at level 0): plot 60.7 %, street 36.5 %, green 1.9 %, structure 0.5 %, rail 0.3 %, path 0.1 %,
+**unknown 0** (G1); no overlaps (G2). With it the street reaches the property line where a city has parcels ([Plots](plots.md), step 2):
+the street spaces' width at the city's 125 right-of-way points is now the city's own (ours / theirs: median 1.00, middle half 0.99-1.07,
+76 % within 15 %; before, out to the building faces: median 2.47, 18 % within 15 %).
+Layer 1 built (`ground.surfaces`, `space.surface`): 1,838 surfaces covering every ground item exactly (L1, L2): in streets the
+roadway (159,454 m²) and the pedestrian realm (74,021 m²); in plots buildings (217,480 m²), yards, construction sites, car parks, gardens;
+in green lawn, paths, play. The page `urbanstyle layers DB OUT` shows layer 0 and layer 1 each alone, with the hierarchy in the popups.
 
 ## Why
 
@@ -43,15 +48,20 @@ shape we keep the richest form: a crosswalk is an overlay area **and** its walki
 Built per level over the unit's neighbourhood (the clip's box), in this order, each kind taking only ground no earlier kind took:
 
 1. `water`: OSM `natural=water`, `waterway` areas.
-2. `rail`: OSM railway corridors (`landuse=railway`), a rail line's own space (`r<level>-<way>`).
-3. `street`: our street spaces (`space.unit`: sections and intersections), as built today.
-4. `square`: OSM pedestrian areas (`highway=pedestrian` + `area=yes`, `place=square`), plazas (`p` spaces today).
-5. `plot`: a city's parcels where it has them (Vancouver `property-parcel-polygons`, [Plots](plots.md)); else buildings, car parks
-   (`space.lot`), construction sites and OSM `landuse` areas (residential, retail, commercial ...) with what lies between them, block by
-   block.
+2. `rail`: OSM railway corridors (`landuse=railway`), a rail line's own bed.
+3. `street`: our street spaces (`space.unit`: sections and intersections).
+4. `square`: OSM pedestrian areas, squares; `structure`: the land under a bridge (OSM `man_made=bridge`).
+5. public `green` (parks, playgrounds, pitches, recreation grounds, woods), then `plot`: a city's parcels where it has them (Vancouver
+   `property-parcel-polygons`, `space.parcel`); car parks (`space.lot`), construction sites, OSM `landuse` areas (residential, retail, ...),
+   a building no plot holds.
 6. `green`: the rest of the green, OSM `landuse=grass`, gardens, allotments. Public green (parks, playgrounds, pitches, recreation grounds,
    woods) comes before `plot`: a city park is a parcel too, and would otherwise be a plot.
-7. `unknown`: what is left. Reported (check G1), each piece with its area and its neighbours, so it can be traced to a missing rule.
+   Then `structure` again: land under a street space of a higher level (a deck OSM maps as a bridge without its outline); `path`: the
+   measured path spaces (a greenway, a connector) and `square`: the measured plazas, after the plots and the green (a footpath through a
+   park is the park's). What is left that a path or a road runs through is that path's or that street's.
+7. `unknown`: what is left, reported by G1, each piece with its area and its neighbours, so it can be traced to a missing rule; but a
+   sliver (under 5 m², or thinner than 2 m on average) joins the neighbour it shares the most edge with, and where a city has parcels,
+   ground outside them that touches a street is right-of-way and joins that street.
 
 A street's ground is fixed by the street's own rules (cuts, the building line); a plot's by its parcel, or by its buildings and land use;
 the order above decides where two sources claim the same ground. The ground of one level is independent of another's (a bridge deck at

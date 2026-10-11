@@ -295,6 +295,7 @@ def build(con, epsg):
                               JOIN space.junction j ON j.cluster_id = a.intersection_id AND j.node_id = a.node_id AND j.level = a.level""").fetchall()
     blds = con.execute(f"""SELECT l, {to_m} FROM space.element, generate_series(level_min, level_max) t(l) WHERE type = 'building'
                            UNION ALL SELECT level, {to_m} FROM space.lot""").fetchall()     # a car park is a plot, as a building is
+    parcel_rows = con.execute(f"SELECT {to_m} FROM space.parcel").fetchall()           # a city's property lines, where it has them
     # the street ground (the measured street space: sections and intersections), so that none of it is left to no space
     street_rows = con.execute(f"SELECT level, {to_m} FROM space.container WHERE kind IN ('section', 'intersection')").fetchall()
     xing_rows = con.execute(f"""SELECT level_min, {to_m} FROM space.element WHERE type = 'walkway' AND subtype = 'crossing'
@@ -303,7 +304,8 @@ def build(con, epsg):
     for lv in sorted({s[2] for s in subs} | {a[3] for a in arm_rows}):
         from urbanstyle.subsections import building_line
         bparts = building_line([shapely.from_wkb(bytes(b[1])) for b in blds if b[0] == lv],
-                               [shapely.from_wkb(bytes(r[6])) for r in road_rows if r[1] == lv])
+                               [shapely.from_wkb(bytes(r[6])) for r in road_rows if r[1] == lv],
+                               [shapely.make_valid(shapely.from_wkb(bytes(w))) for (w,) in parcel_rows] if lv == 0 else ())
         btree = shapely.STRtree(bparts) if bparts else None
         bline = shapely.union_all(bparts) if bparts else shapely.Polygon()
         roads, node_xy, sec_lines, info = {}, {}, [], {}
@@ -507,12 +509,26 @@ def build(con, epsg):
                 final[win][3] = grown
                 for u, g in kept.items():
                     final[u][3] = g
+        ids_ = list(final)
+        ntree = shapely.STRtree([final[i][3] for i in ids_]) if ids_ else None
+        neighbours = {u: [ids_[k] for k in ntree.query(final[u][3].buffer(0.1)) if ids_[k] != u] for u in ids_} if ntree is not None else {}
         for uid, (kind, sec, color, gm, line) in final.items():
             # the cracks merging leaves along old edges (zero-width slits: ground on both sides is this space's, yet a point
             # on the slit is in none) are closed: out and back in by CRACK_M, corners kept square
             # (and the 1 cm spikes that leaves are opened: in and back out by 1 cm; it was one piece: the largest is kept)
             shut = gm.buffer(CRACK_M, join_style="mitre").buffer(-CRACK_M, join_style="mitre")
+            others = [final[o][3] for o in neighbours.get(uid, ())]
+            if others:      # the closing fills this space's own cracks, never ground a neighbour holds (a concave corner on a shared edge)
+                shut = shapely.union_all([gm, shut.difference(shapely.union_all(others))])
             gm = _one(shapely.set_precision(shut.buffer(-0.01, join_style="mitre").buffer(0.01, join_style="mitre"), 0.01))
+            if others and not gm.is_empty:      # and gives up what its neighbours hold (the 1 cm grid can push a shared edge across)
+                try:
+                    gm = _one(_clean(gm.difference(shapely.union_all([final[o][3] for o in neighbours[uid]]), grid_size=0.01)))
+                except shapely.errors.GEOSException:
+                    pass
+            final[uid][3] = gm      # the next space closes against this one as it is now: a crack between two is filled once
+            if gm.is_empty:         # a strip thinner than 2 cm (a subsection the property lines left almost nothing of): no space
+                continue
             rows.append((uid, kind, sec, lv, color, shapely.to_wkb(gm)))
             if line is not None:    # the subsection's road ends at its cut: inside the junction the road is the intersection's
                 inside = [x for x in shapely.get_parts(line.intersection(gm.buffer(0.01))) if x.geom_type == "LineString" and x.length > 0.1]

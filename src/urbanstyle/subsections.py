@@ -144,17 +144,19 @@ def _followers(runs, bparts, btree):
     return out
 
 
-def building_line(blds, roads):
+def building_line(blds, roads, parcels=()):
     """The building line of one level, as polygons: the buildings closed by BLINE_M (a gap narrower than twice that is no way through),
     except along a road: a street narrower than that between two facades stays open, ROAD_KEEP_M either side of its line (the buildings
-    themselves always stay)."""
+    themselves always stay). A city's parcels, where it has them, are the property line itself: added as they are, never closed, the
+    same corridor along every road kept open (docs/design/space-layers.md, the ground: the street reaches the property line)."""
     import shapely
     u = shapely.union_all(blds) if len(blds) else shapely.Polygon()
-    if u.is_empty:
+    pl = shapely.union_all(parcels) if len(parcels) else shapely.Polygon()
+    if u.is_empty and pl.is_empty:
         return []
-    closed = u.buffer(BLINE_M).buffer(-BLINE_M)
-    if len(roads):
-        closed = shapely.union_all([closed.difference(shapely.union_all([r.buffer(ROAD_KEEP_M, cap_style="flat") for r in roads])), u])
+    closed = u.buffer(BLINE_M).buffer(-BLINE_M) if not u.is_empty else shapely.Polygon()
+    keep = shapely.union_all([r.buffer(ROAD_KEEP_M, cap_style="flat") for r in roads]) if len(roads) else shapely.Polygon()
+    closed = shapely.union_all([closed.difference(keep), pl.difference(keep), u])
     return [p for p in shapely.get_parts(shapely.make_valid(closed)) if p.geom_type == "Polygon" and not p.is_empty]
 
 
@@ -259,9 +261,11 @@ def build(con, epsg):
         pass
     blds = con.execute(f"""SELECT l, {to_m} FROM space.element, generate_series(level_min, level_max) t(l) WHERE type = 'building'
                            UNION ALL SELECT level, {to_m} FROM space.lot""").fetchall()     # a car park is a plot, as a building is
+    parcel_rows = con.execute(f"SELECT {to_m} FROM space.parcel").fetchall()           # a city's property lines, where it has them
     blines = {}
     for lv in {r[1] for r in roads}:
-        parts = building_line([shapely.from_wkb(bytes(b[1])) for b in blds if b[0] == lv], [shapely.from_wkb(bytes(r[5])) for r in roads if r[1] == lv])
+        parts = building_line([shapely.from_wkb(bytes(b[1])) for b in blds if b[0] == lv], [shapely.from_wkb(bytes(r[5])) for r in roads if r[1] == lv],
+                              [shapely.make_valid(shapely.from_wkb(bytes(w))) for (w,) in parcel_rows] if lv == 0 else ())
         blines[lv] = (parts, shapely.STRtree(parts) if parts else None)
 
     rows = []

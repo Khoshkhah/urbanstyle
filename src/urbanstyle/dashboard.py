@@ -198,6 +198,7 @@ function apply(){
     if(on&&PU)rsFilter(rsQuery(p=>PU.has(p.unit),'Mapillary'),'Mapillary'); else if(on)rsFilter(inL('Mapillary'),'Mapillary')}
   // the base map shows the streets at ground level: on another level it fades, so that level's own spaces stand out
   map.getStyle().layers.filter(x=>x.source==='bm'&&x.type==='raster').forEach(x=>map.setPaintProperty(x.id,'raster-opacity',l===0?1:0.3));
+  if(OVERLAYS.some(o=>o.label==='Ground'))rsFilter(rsQuery(p=>p.level===l,'Ground'),'Ground');   // the ground of the level viewed only
   up3d(PU,l,ALL);
   LK.forEach(k=>{const lab='Link: '+k.lab, one=t==='links',
       on=one?k.t===sel.type:['root','ctr','ctrL','lnk'].includes(t)&&show['k:'+k.t]===true;
@@ -564,7 +565,7 @@ FACADE_SNAP_M = 3.0   # a point this far inside a building is at its facade (map
 DOT_COLORS = {"furniture": "#4f46e5", "vegetation": "#16a34a", "utility": "#6b7280", "transit": "#0891b2", "access": "#db2777", "barrier": "#78350f"}
 # layer 0, the ground (space.ground): its kinds' colours; unknown in red, to be found
 GROUND_COLORS = {"street": "#e5e7eb", "square": "#fcd34d", "rail": "#d8b4fe", "plot": "#fde68a", "green": "#86efac", "water": "#93c5fd",
-                 "unknown": "#ef4444"}
+                 "path": "#c4b5fd", "structure": "#b45309", "unknown": "#ef4444"}
 GROUND_POPUP = ["ground_id", "type", "name", "source", "method", "ref", "area_m2"]
 LOT_POPUP = ["type", "name", "operator", "parking", "access", "fee", "id"]     # an off-street car park (space.lot), 2D and 3D
 BLD_POPUP = ["type", "name", "use", "ground_floor", "evidence", "class", "floors", "height_m", "level_src", "source", "id"]     # a building's popup, the same in 2D and 3D
@@ -1042,7 +1043,7 @@ def main(db, out):
         street_view_key=os.environ.get("GOOGLE_MAPS_KEY"),
         settings={"config": {"fill_opacity": 0.35, "casing_opacity": 0.2}}, road_popup=["edge_id", "container_id", "name", "type", "highway", "level", "width_m", "width_src"],   # Street View's linked panorama (the key is written into the page: restrict it in Google Cloud)
         color_options={"Roads": {"color_by": "type", "colors": {"road": "#555", "walkway": "#a16207", "cycleway": "#16a34a"}}},
-        overlays=([o(ground, color="#e5e7eb", color_col="color", opacity=0.55, outline="#94a3b8", width=0.5, label="Ground", popup=GROUND_POPUP,
+        overlays=([o(ground, color=GROUND_COLORS["plot"], color_col="color", opacity=0.55, outline="#94a3b8", width=0.5, label="Ground", popup=GROUND_POPUP,
                      tooltip=["type", "name"])] if ground is not None and len(ground) else []) +
                  [o(streets[streets.kind == k], color=c, opacity=0.8, outline=dark, width=1.2, label=lab, popup=POP, tooltip=["cid", "name"])
                   for k, lab, c, dark in KINDS if (streets.kind == k).any()] + [
@@ -1147,3 +1148,69 @@ def main(db, out):
              .replace("__KINDS__", json.dumps([{"k": k, "lab": lab, "c": c} for k, lab, c in kinds])).replace("__OBJDEF__", json.dumps([{"g": g, "c": c} for g, c in ogroups])).replace("__OBJCOLORS__", json.dumps({k: v[2] for k, v in OBJ_SHAPES.items()})).replace("__STRIPS__", json.dumps([{"t": t, "lab": lab, "c": c} for t, lab, c, _ in sdefs])).replace("__HAS__", json.dumps(has)).replace("__LEVELBTNS__", "".join(f'<button data-l="{l}">{l}</button>' for l in range(LEVELS[0], LEVELS[1] + 1))))
     open(out, "w").write(m.html.replace("</body>", panel + "</body>"))
 
+
+
+# the layers page (docs/design/space-layers.md): layer 0 the ground, layer 1 the surfaces, each alone, with the hierarchy in the popups
+LAYER_COLORS = {0: GROUND_COLORS,
+                1: {"roadway": "#6b7280", "pedestrian realm": "#d6d3d1", "median": "#86efac", "verge": "#a3e635", "building": "#93c5fd",
+                    "yard": "#fde68a", "car park": "#2dd4bf", "construction site": "#fdba74", "garden": "#4ade80", "lawn": "#86efac",
+                    "play": "#f472b6", "path": "#c4b5fd", "track bed": "#d8b4fe", "under bridge": "#b45309", "paved": "#fcd34d",
+                    "water": "#93c5fd"}}
+LAYER_LABELS = {0: "Layer 0: ground", 1: "Layer 1: surfaces"}
+LAYERS_PANEL = """
+<style>#ly{position:fixed;top:10px;left:10px;z-index:6;width:300px;background:#fff;border:1px solid #cbd5e1;border-radius:8px;padding:10px;
+  font:13px system-ui;box-shadow:0 2px 8px #0002}#ly h3{margin:0 0 6px;font-size:14px}#ly button{margin:0 6px 8px 0;padding:4px 10px;border:1px solid #94a3b8;
+  border-radius:5px;background:#f8fafc;cursor:pointer}#ly button.on{background:#1e3a8a;color:#fff;border-color:#1e3a8a}#ly table{width:100%;border-collapse:collapse}
+  #ly td{padding:2px 4px}#ly td.n{text-align:right;color:#475569}#ly .sw{display:inline-block;width:12px;height:12px;border:1px solid #64748b;margin-right:6px;vertical-align:-2px}
+  #ly p{margin:6px 0 0;color:#64748b;font-size:11px}</style>
+<div id=ly><h3>urbanstyle · layers</h3><button data-ly=0>layer 0 · ground</button><button data-ly=1>layer 1 · surfaces</button>
+<table id=lyt></table><p id=lyp></p></div>
+<script>
+(function(){const LY_DATA=__LYDATA__, LY_LAB=__LYLAB__, LY_NOTE=__LYNOTE__;
+function lyShow(l){[0,1].forEach(k=>rsSetOverlay(LY_LAB[k],k===l));
+  document.querySelectorAll('#ly button').forEach(b=>b.classList.toggle('on',+b.dataset.ly===l));
+  document.getElementById('lyt').innerHTML='<tr><td><b>kind</b></td><td class=n><b>items</b></td><td class=n><b>m²</b></td><td class=n><b>%</b></td></tr>'+
+    LY_DATA[l].map(r=>`<tr><td><span class=sw style="background:${r.c}"></span>${r.t}</td><td class=n>${r.n}</td><td class=n>${r.a.toLocaleString()}</td><td class=n>${r.p}</td></tr>`).join('');
+  document.getElementById('lyp').textContent=LY_NOTE[l]}
+document.getElementById('ly').addEventListener('click',e=>{const l=e.target.dataset.ly; if(l!==undefined)lyShow(+l)});
+// only the layer viewed and the base map: the road network's own lines (a grey per road class, casings, arrows) would read as more kinds
+function lyBare(){const mine=new Set(OVERLAYS.map(o=>o.source));
+  map.getStyle().layers.forEach(x=>{if(x.source&&x.source!=='bm'&&!mine.has(x.source))map.setLayoutProperty(x.id,'visibility','none')})}
+const go=()=>{if(typeof rsSetOverlay==='function'&&typeof map!=='undefined'&&map.loaded&&map.loaded()){lyBare();lyShow(0)} else setTimeout(go,300)}; go()})();
+</script>"""
+
+
+def layers(db, out):
+    """The layers page: layer 0 (space.ground) and layer 1 (space.surface) of a built area, each shown alone, coloured by kind, with a
+    legend (items, area, share) and the hierarchy in the popups (a ground item lists its surfaces; a surface names its ground item)."""
+    con = duckdb.connect(db, read_only=True)
+    con.execute("LOAD spatial")
+    ep = epsg_of(con)
+    a = f"round(ST_Area(ST_Transform(geometry, 'EPSG:4326', '{ep}', always_xy := true)), 1)"
+    edges = frame(con, """SELECT ST_AsWKB(geometry) AS geometry, class AS highway, name, level_min AS level, type,
+        try_cast(source_id AS BIGINT) AS edge_id FROM space.element WHERE type = 'road' AND level_min = 0""")
+    edges["edge_id"] = edges["edge_id"].astype("Int64")
+    ground = frame(con, f"""SELECT ST_AsWKB(g.geometry) AS geometry, g.ground_id, g.type, g.name, g.source, g.method, g.ref,
+        {a.replace('geometry', 'g.geometry')} AS area_m2, s.surfaces FROM space.ground g LEFT JOIN (
+          SELECT ground_id, string_agg(type || ' ' || {a}::INT || ' m²', ', ' ORDER BY type) AS surfaces FROM space.surface GROUP BY 1) s USING (ground_id)""")
+    surf = frame(con, f"""SELECT ST_AsWKB(s.geometry) AS geometry, s.surface_id, s.type, s.ground_id, g.type AS ground_type, s.source, s.method,
+        s.ref, {a.replace('geometry', 's.geometry')} AS area_m2 FROM space.surface s JOIN space.ground g USING (ground_id)""")
+    data, note = {}, {}
+    for l, df in ((0, ground), (1, surf)):
+        df["color"] = df["type"].map(LAYER_COLORS[l]).fillna("#9ca3af")
+        tot = df["area_m2"].sum() or 1.0
+        agg = df.groupby("type").agg(n=("type", "size"), a=("area_m2", "sum")).sort_values("a", ascending=False)
+        data[l] = [{"t": t, "c": LAYER_COLORS[l].get(t, "#9ca3af"), "n": int(r.n), "a": int(round(r.a)), "p": round(100 * r.a / tot, 1)}
+                   for t, r in agg.iterrows()]
+        note[l] = (f"{len(df):,} items covering {tot:,.0f} m². " + ("Every piece of the area at level 0 is one item of one kind (G1, G2)."
+                   if l == 0 else "Every ground item is covered exactly by its surfaces (L1, L2). Click one: its ground item is named."))
+    o = lambda g, **kw: rs.Overlay(g, placement="under", **kw)
+    m = rs.render_edges(edges, palette="mono", basemap="voyager", name="urbanstyle layers", filter_control=False,
+        overlays=[o(ground, color=LAYER_COLORS[0]["plot"], color_col="color", opacity=0.85, outline="#475569", width=0.6, label=LAYER_LABELS[0],
+                    popup=["ground_id", "type", "name", "source", "method", "ref", "area_m2", "surfaces"], tooltip=["type", "name"]),
+                  o(surf, color=LAYER_COLORS[1]["building"], color_col="color", opacity=0.9, outline="#334155", width=0.4, label=LAYER_LABELS[1], visible=False,
+                    popup=["surface_id", "type", "ground_id", "ground_type", "source", "method", "ref", "area_m2"], tooltip=["type", "ground_type"])])
+    panel = (LAYERS_PANEL.replace("__LYDATA__", json.dumps(data)).replace("__LYLAB__", json.dumps(LAYER_LABELS))
+             .replace("__LYNOTE__", json.dumps(note)))
+    open(out, "w").write(m.html.replace("</body>", panel + "</body>"))
+    return out

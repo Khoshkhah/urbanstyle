@@ -300,7 +300,10 @@ def dossier(space_db, osm_db, unit_id, out, name, city, nvdb=None, flows=None, m
           WHERE source = 'vancouver' AND try_cast(json_extract_string(attrs, '$.height_m') AS DOUBLE) > 0""")
     if vancouver_json:
         # what the city says of each road piece, from its item nearest the piece (within 15 m): legal width, pavement, bikeway
-        for col, ds, val in (("row_width", "right-of-way-widths", "(p->>'width') || ' (ft or m)'"), ("pavement", "%pavement-condition%", "p->>'pci_rating'"),
+        # the city's right-of-way widths are feet unless marked "(m)" (20 is a lane's 20 ft, 66 a street's 66 ft): stored in metres
+        row_m = """round(CASE WHEN p->>'width' LIKE '%(m)%' THEN try_cast(regexp_extract(p->>'width', '[0-9.]+') AS DOUBLE)
+                 ELSE try_cast(regexp_extract(p->>'width', '[0-9.]+') AS DOUBLE) * 0.3048 END, 2)"""
+        for col, ds, val in (("row_width_m", "right-of-way-widths", row_m), ("pavement", "%pavement-condition%", "p->>'pci_rating'"),
                              ("bikeway", "bikeways", "concat_ws(' ', p->>'bikeway_type', p->>'bikeway_direction')")):
             con.execute(f"""ALTER TABLE road ADD COLUMN {col} VARCHAR;
                 UPDATE road r SET {col} = n.v FROM (SELECT r2.road_id, arg_min({val}, ST_Distance(r2.geometry, {m('v.geometry')})) AS v
@@ -336,7 +339,8 @@ def dossier(space_db, osm_db, unit_id, out, name, city, nvdb=None, flows=None, m
                    p->>'meter_id', {vprov}, {m('geometry')} FROM van WHERE ds = 'parking-meters' AND {near('geometry', 3)}
             UNION ALL SELECT 'disability parking', p->>'description', p->>'location', {vprov}, {m('geometry')}
                 FROM van WHERE ds = 'disability-parking' AND {near('geometry', 3)}
-            UNION ALL SELECT 'right-of-way width', (p->>'width') || ' (ft or m: not stated)', NULL, {vprov}, {m('geometry')}
+            UNION ALL SELECT 'right-of-way width', round(CASE WHEN p->>'width' LIKE '%(m)%' THEN try_cast(regexp_extract(p->>'width', '[0-9.]+') AS DOUBLE) ELSE try_cast(regexp_extract(p->>'width', '[0-9.]+') AS DOUBLE) * 0.3048 END, 2) || ' m (the city: ' || (p->>'width') || CASE WHEN p->>'width' LIKE '%(m)%' THEN ')' ELSE ' ft)' END,
+                NULL, {vprov}, {m('geometry')}
                 FROM van WHERE ds = 'right-of-way-widths' AND {near('geometry', FLOW_M)}
             UNION ALL SELECT 'bikeway', concat_ws(' ', p->>'bikeway_type', p->>'subtype', p->>'bikeway_direction'), p->>'street_name',
                 {vprov}, {m('geometry')} FROM van WHERE ds = 'bikeways' AND {near('geometry', FLOW_M)}

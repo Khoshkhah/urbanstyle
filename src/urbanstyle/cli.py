@@ -1,4 +1,4 @@
-"""The `urbanstyle` command: build, check, quality, dashboard, mapillary, unit."""
+"""The `urbanstyle` command: build, check, quality, dashboard, layers, mapillary, unit."""
 import argparse
 import sys
 
@@ -14,6 +14,9 @@ def main(argv=None):
     d = sub.add_parser("dashboard", help="an offline HTML map with the hierarchy tree (needs roadstyle)")
     d.add_argument("db")
     d.add_argument("out")
+    ly = sub.add_parser("layers", help="an offline HTML page of the layers: 0 the ground, 1 the surfaces (needs roadstyle)")
+    ly.add_argument("db")
+    ly.add_argument("out")
     m = sub.add_parser("mapillary", help="fetch Mapillary's street-level features and photos for a built area (needs a token)")
     m.add_argument("db")
     m.add_argument("--osm", help="the duckOSM .duckdb it was built from: rebuild the parts with them now")
@@ -47,6 +50,9 @@ def main(argv=None):
     elif a.cmd == "unit":
         from .unit import main as unit
         unit(a.name, a.at[0], a.at[1], a.osm, a.nvdb, a.flows, a.city, not a.no_mapillary, a.vancouver, a.gtfs)
+    elif a.cmd == "layers":
+        from .dashboard import layers
+        print(layers(a.db, a.out))
     elif a.cmd == "mapillary":
         from .mapillary import main as mly
         mly(a.db, a.osm)

@@ -65,6 +65,7 @@ nav:
       - Street objects: design/street-objects.md
       - Objects, step 1: design/street-objects-step1.md
       - Strips, first version: design/street-strips-v1.md
+      - "Sources and methods": design/provenance.md
       - Glossary: design/glossary.md
       - "Research: partitioning": design/partitioning-research.md
       - "Research: levels": design/levels-research.md

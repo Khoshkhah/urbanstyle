@@ -37,6 +37,10 @@ def main(argv=None):
     br.add_argument("gmns", help="its GMNS export (`duckosm gmns OSM --out GMNS -m driving`): the lanes")
     br.add_argument("out_dir")
     br.add_argument("--name", help="the bridge's OSM name (man_made=bridge); without it, every road bridge")
+    bm = sub.add_parser("bridge-measure", help="measure a bridge profile's heights from LiDAR (ducklidar Parquet tiles; the conda env `lidar`)")
+    bm.add_argument("profile", help="a <name>.bridge.json (`urbanstyle bridge`)")
+    bm.add_argument("out", help="the measured profile: a .json file or a directory")
+    bm.add_argument("--lidar", nargs="+", required=True, help="ducklidar Parquet tiles that cover the bridge")
     a = p.parse_args(argv)
 
     if a.cmd == "build":
@@ -60,6 +64,9 @@ def main(argv=None):
     elif a.cmd == "layers":
         from .dashboard import layers
         print(layers(a.db, a.out))
+    elif a.cmd == "bridge-measure":
+        from .bridge_lidar import write as measure
+        print(measure(a.profile, a.out, a.lidar))
     elif a.cmd == "bridge":
         from .bridge_profile import write
         print("\n".join(write(a.osm, a.gmns, a.name, a.out_dir)))

@@ -139,6 +139,8 @@ The words of `docs/design/bridge-profile.md` (`bridge_profile.py`, `<name>.bridg
 | **axis** (of a bridge) | one chain of OSM road ways on the deck between two branch points, the reference line of `(s, t)`. A bridge with ramps has more than one (`a1`, `a2`, ...) |
 | **vertical profile** | the height of the deck top along an axis, as points `(s, z)`, linear between the points; `z` above the profile's `z_datum` |
 | **section** (of a bridge axis) | a length of the axis, `s0` to `s1`, where its bands do not change: a new one starts at each end of a GMNS link. Not the street's section container |
+| **station (LiDAR)** | a point every 10 m along a bridge's axis where `bridge-measure` reads the deck top and the ground from the LiDAR returns; `vertical.stations` lists each one with its returns, its heights (CGVD28) and its method (`measured`, or `chosen` with fewer than 20 returns) |
+| **CGVD28** | the vertical datum of the City of Vancouver LiDAR 2022 (Canadian Geodetic Vertical Datum of 1928, Metro Vancouver geoid): the heights in `vertical.stations` |
 | **band** | one strip across a section: a lane (with its GMNS `lane_id`), a cycleway or a footway, at offset `t` (left of the axis positive) with its width |
 | **z_datum** | what `z` is measured from: now "ground at the ends" (chosen); a LiDAR measurement gives a survey datum |
 

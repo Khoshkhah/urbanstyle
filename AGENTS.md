@@ -67,7 +67,10 @@ The order of work: `docs/plan.md`.
   bridge (`docs/design/bridge-profile.md`): deck outline, axes, vertical profiles, sections, bands (lanes from duckOSM's GMNS export:
   `duckosm gmns OSM --out GMNS -m driving`), piers, each value with its source and method. `bridge3d.py` draws the 3D model from the
   profile only: `urbanstyle dashboard DB OUT --bridge PROFILE` (`docs/design/bridges-3d.md`).
-- `src/urbanstyle/cli.py`: the `urbanstyle build | check | quality | dashboard | layers | mapillary | unit | bridge` command.
+- `src/urbanstyle/bridge_lidar.py`: `urbanstyle bridge-measure PROFILE OUT --lidar TILE.parquet ...` replaces a profile's chosen deck heights
+  with the ones measured from airborne LiDAR (ducklidar's Parquet tiles; run it in the conda env `lidar` with `../ducklidar/src` on the
+  path): the deck top above the ground every 10 m along each axis, each station in `vertical.stations` (`docs/design/bridge-profile.md`).
+- `src/urbanstyle/cli.py`: the `urbanstyle build | check | quality | dashboard | layers | mapillary | unit | bridge | bridge-measure` command.
 - `docs/`: the MkDocs site (`mkdocs.yml`); `docs/design/` the design notes. `docs/img/sodermalm.jpg` and `section.jpg` are screenshots of the dashboard
   (`viz/sodermalm-rs0.18.1.html` and `#c=s0-1277220079715399641`, 1600 × 1000): pictures in the docs come from the
   dashboard, never from a separate drawing script.

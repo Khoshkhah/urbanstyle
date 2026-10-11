@@ -117,6 +117,47 @@ chain of road ways with `bridge=*` that has no outline.
 
 The OSM database must hold all of the bridge: the clip of one unit holds only the ramps of the Granville Bridge.
 
+## Heights from LiDAR (measured)
+
+Status: built 2026-10-11 (`bridge_lidar.py`), on the Granville Bridge. This is rule 6: a script replaces the chosen heights and says
+where they come from.
+
+```bash
+PYTHONPATH=src:../ducklidar/src ~/miniconda3/envs/lidar/bin/python -m urbanstyle bridge-measure \
+    data/bridges/granville-bridge.bridge.json data/bridges-measured/ --lidar <ducklidar Parquet tiles>
+```
+
+**The survey.** City of Vancouver LiDAR 2022 (open data portal, dataset `lidar-2022`; Open Government Licence – Vancouver). It was flown on
+7–9 September 2022, at about 49 points per m², with a vertical accuracy of 0.081 m (95 %). The horizontal datum is NAD83(CSRS) UTM zone
+10N (EPSG:26910); the vertical datum is CGVD28 (GVRD). The tiles are 1 km × 1 km. The classes are unclassified, ground, low and high
+vegetation, water, building, other and noise; there is no bridge class, so the deck is mostly in the class "unclassified". The
+Granville Bridge needs four tiles: 489000_5456000, 489000_5457000, 490000_5457000 and 490000_5458000. The portal does not let a script
+download them, so they come from tiles that are already on the disk, converted to ducklidar's Parquet sidecars.
+
+**The rule.** At a station every 10 m along each axis:
+
+1. The window is 10 m along the axis and as wide as the axis's lane bands there. Vegetation, water and noise returns are left out.
+2. Where gaps of 2 m or more split the heights in the window, only the cluster with the most returns is kept: that is the deck seen from
+   above. The street or the water under it, seen past the deck's edge, and a lamp post on the deck, are other clusters.
+3. The deck top is the 25 % quantile of that cluster, so the cars on the deck lie above it.
+4. The ground is the median of the ground and water returns within 30 m.
+5. The profile stores the deck top above that ground, because the dashboard's map is flat (its ground is z = 0). A station with fewer
+   than 20 returns keeps the chosen value; the profile says which stations are measured (`vertical.stations`, with the deck and the
+   ground in CGVD28) and keeps the chosen points (`vertical.chosen_before`).
+
+The deck thickness and the piers stay chosen: from above, the survey does not see the deck's underside.
+
+**Result on the Granville Bridge.** All 311 stations of the 12 axes are measured. The main span's road is at 40.2 m (CGVD28) at its
+highest point, 41.3 m above the water under it (−1.1 m during the survey); the chosen value was at most 27 m. The bridge is a deck truss
+with 27.4 m of navigational clearance under the truss, so the road on top is higher than the clearance. The south ramp w35354210 is
+35.0 m high where it crosses West 5th Avenue, about 8 m above that street (the chosen 5 % ramp gave 1 m to 2.5 m). Where OSM ends that
+ramp (node 4846077906), the deck is still 6.8 m above the street beside it: the survey sees a structure there, not ground, so the ramp
+reaches the ground farther south than OSM's bridge way says.
+
+**Steps in the measured height.** The deck top is smooth along each axis, but the ground under it is not: the main span passes from
+Granville Island (3.6 m) to the water (−1.1 m), so its height above the ground increases by about 4 m there. On a flat map this shows as
+a step in the deck.
+
 ## urbanstyle's own values (chosen)
 
 No source gives these values yet (`bridge_profile.py`). Each one is in the profile with method `chosen` and the rule that sets it.
@@ -132,6 +173,5 @@ No source gives these values yet (`bridge_profile.py`). Each one is in the profi
 ## Not in version 1
 
 - The cross slope of the deck (OpenDRIVE `lateralProfile`): the deck is flat across.
-- The measurement scripts (LiDAR, aerial photo). Version 1 makes the format and the chosen values, so that the measurements have a
-  place to go.
+- The lane widths from the aerial photo. (The heights from LiDAR: see above.)
 - The piers' real positions. They stay every 50 m (`chosen`) until a source gives them.

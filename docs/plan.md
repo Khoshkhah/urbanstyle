@@ -56,7 +56,11 @@ In order; each item is a general rule, checked on Broadway x Granville before an
 - [x] **Bridge profiles** ([Bridge profile](design/bridge-profile.md), agreed and built 2026-10-11): one file per bridge (axes,
       vertical profile, sections, bands, piers), each value with its source and method; the lanes from duckOSM's GMNS export (from SUMO);
       `urbanstyle bridge` writes them (Vancouver: 81 bridges), the dashboard draws the 3D model from them only.
-- [ ] **Measured bridges:** the deck's height and the piers from LiDAR, the lane widths from the aerial photo, into the profile.
+- [x] **Measured bridge heights** (built 2026-10-11, `urbanstyle bridge-measure`): the deck's height above the ground from the City of
+      Vancouver LiDAR 2022, every 10 m along each axis (Granville Bridge: 311 of 311 stations; the main span 41 m above the water, the
+      south ramp 8 m above West 5th Avenue).
+- [ ] **Measured bridges, the rest:** the piers and the deck thickness (the survey does not see under the deck), the lane widths from
+      the aerial photo; where OSM ends a ramp that the survey still sees in the air (w35354210), the level of the road after it.
 - [ ] **Slanted lanes** west of West Broadway's 4 -> 6 joint; **West Broadway's north kerb east of Hemlock** still about 8 m short.
 - [ ] Then the gaps of [What the sources hold](design/source-inventory.md): crossing and kerb details, every Mapillary class, the city's
       turn rules as automatic checks, land cover and lidar; then the W 4th Ave unit; then the recipe.

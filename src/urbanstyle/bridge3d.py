@@ -11,7 +11,8 @@
     lines      an edge line at the outer edge of each run of lanes, a lane line between two lanes of one direction, the centre line
                between the two directions
     piers      a wall across the deck at each pier, down to the ground
-Coordinates: metres east and north of the model's origin (the middle of its outline's bounds), and up.
+Coordinates: metres east and north of the model's origin (the middle of its outline's bounds) in the map's own projection (Web
+Mercator scaled to true metres at the origin), and up.
 """
 import json
 import math
@@ -37,11 +38,24 @@ def _h(vertical, s):
     return height(vertical, s)
 
 
-def surface(P, x0=0.0, y0=0.0):
+def grid(poly, step):
+    """The pieces of poly in a square grid of `step` metres."""
+    import numpy as np
+    import shapely
+    x0, y0, x1, y1 = poly.bounds
+    xs, ys = np.meshgrid(np.arange(x0, x1, step), np.arange(y0, y1, step))
+    cells = shapely.box(xs.ravel(), ys.ravel(), xs.ravel() + step, ys.ravel() + step)
+    shapely.prepare(poly)
+    cells = cells[shapely.intersects(poly, cells)]
+    return [c for c in shapely.intersection(cells, poly) if not c.is_empty]
+
+
+def surface(P, x0=0.0, y0=0.0, edges_of=None):
     """The deck of profile P, in metres east and north of (x0, y0): `axes` [(line, axis)], `deck` (OSM's outline and a strip along each
     measured landing), `fill` (the landings: past OSM's bridge way, the road on fill; None if no landing),
     `z(x, y)` the deck's top and `frame(line, s)`. A landing starts as wide as the outline where OSM's bridge way ends and narrows to its
-    lanes on the ground, so the deck has no step there."""
+    lanes on the ground, so the deck has no step there; `edges_of(axis id, end)`: the (left, right) edges of its lanes there as functions
+    of s, where they move to the street's lane (model), else the bands' own."""
     import shapely
 
     rel = lambda ps: [(x - x0, y - y0) for x, y in ps]
@@ -74,11 +88,13 @@ def surface(P, x0=0.0, y0=0.0):
             n = max(2, int(d // STEP_M) + 1)
             ss = [s0 + (s1 - s0) * i / n for i in range(n + 1)]
             ss = ([max(s0 - 2.0, 0.0)] + ss) if end else (ss + [min(s1 + 2.0, L)])      # 2 m into the outline
+            fe = edges_of(a["id"], end) if edges_of else None
             left, right = [], []
             for s in ss:
                 u = min(1.0, max(0.0, (s - s0) / d if end else (s1 - s) / d))     # 0 where the bridge way ends, 1 on the ground
                 x, y, nx, ny = frame(ln, s)
-                tl, tr = hi0 + (hi - hi0) * u, lo0 + (lo - lo0) * u
+                eh, el = (fe[0](s), fe[1](s)) if fe else (hi, lo)
+                tl, tr = hi0 + (eh - hi0) * u, lo0 + (el - lo0) * u
                 left.append((x + nx * tl, y + ny * tl))
                 right.append((x + nx * tr, y + ny * tr))
             pieces.append(shapely.Polygon(left + right[::-1]).buffer(0))
@@ -145,9 +161,87 @@ def model(path, parts=None, marks=None, ground=None):
     rel = lambda ps: [(x - x0, y - y0) for x, y in ps]
     by_id = {a["id"]: (ln, a) for ln, a in axes}
 
-    # the deck's top: the outline densified, triangulated inside it
+    # a bridge lane that lands on a ground lane (the street's own, level 0): its edges move to that lane's over the last LAND_BLEND_M
+    gl = [shapely.affinity.translate(g, -x0, -y0) for g in (ground or [])]
+    gtree = shapely.STRtree(gl) if gl else None
+    land = {}       # (axis id, section index, band index) -> [(end, the ground lane's edges at s, s_full)]
+
+    def cross(ln, g, s):
+        """The ground lane g's (left, right) edge offsets across the axis at s, or None where it does not cross."""
+        x, y, nx, ny = frame(ln, s)
+        cut = shapely.LineString([(x - nx * 20, y - ny * 20), (x + nx * 20, y + ny * 20)]).intersection(g)
+        ts = [(q[0] - x) * nx + (q[1] - y) * ny for g_ in shapely.get_parts(cut) if g_.geom_type == "LineString" for q in g_.coords]
+        return (max(ts), min(ts)) if len(ts) >= 2 and max(ts) - min(ts) > 1.0 else None
+    for ln, a in axes:
+        for e in (0, 1):
+            if gtree is None or not a["ends"][e].get("ground") or not a["sections"]:
+                continue
+            si = len(a["sections"]) - 1 if e else 0
+            x, y, nx, ny = frame(ln, ln.length if e else 0.0)
+            for bi, b in enumerate(a["sections"][si]["bands"]):
+                if b["type"] != "lane":
+                    continue
+                pt = shapely.Point(x + nx * b["t"], y + ny * b["t"])
+                near = [k for k in gtree.query(pt.buffer(2.0)) if gl[k].distance(pt) <= 2.0]
+                if not near:
+                    continue
+                g = gl[min(near, key=lambda k: gl[k].distance(pt))]
+                c0 = cross(ln, g, ln.length if e else 0.0)
+                if c0 is None:
+                    continue
+                # the ground lane lies under the landing as far as it is (nearly) full width: there the bridge lane takes its edges
+                full = c0[0] - c0[1]
+                sf, step = (ln.length, -1.0) if e else (0.0, 1.0)
+                while 0.0 <= sf + step <= ln.length:
+                    c = cross(ln, g, sf + step)
+                    if c is None or c[0] - c[1] < 0.8 * full:
+                        break
+                    sf += step
+                land.setdefault((a["id"], si, bi), []).append((e, (lambda ln_, g_: lambda s_: cross(ln_, g_, s_))(ln, g), sf))
+
+    def edges(a, ln, si, bi, b):
+        """The band's left and right edge offsets, functions of s (on a ground lane at a landing, moving to it before)."""
+        w = b["width"]["value"]
+        L0, R0 = b["t"] + w / 2, b["t"] - w / 2
+        tg = land.get((a["id"], si, bi), [])
+        if not tg:
+            return L0, R0
+
+        def blend(base, k):
+            def f(s):
+                v = base
+                for e, on, sf in tg:
+                    d = (sf - s) if e else (s - sf)         # how far before the ground lane's full width
+                    c = on(s) if d <= 0 else on(sf)
+                    if c is None:
+                        c = on(sf)
+                    u = 1.0 if d <= 0 else 0.0 if d >= LAND_BLEND_M else 0.5 * (1 + math.cos(math.pi * d / LAND_BLEND_M))
+                    v = v * (1 - u) + c[k] * u
+                return v
+            return f
+        return blend(L0, 0), blend(R0, 1)
+
+    def edges_of(aid, end):
+        """The left edge of the leftmost lane and the right edge of the rightmost at axis aid's landing (end: its last section)."""
+        ln, a = by_id[aid]
+        si = len(a["sections"]) - 1 if end else 0
+        bs = [(bi, b) for bi, b in enumerate(a["sections"][si]["bands"]) if b["type"] == "lane"]
+        if not bs or not any((aid, si, bi) in land for bi, _ in bs):
+            return None
+        val = lambda t, s_: t(s_) if callable(t) else t
+        es = [edges(a, ln, si, bi, b) for bi, b in bs]
+        return (lambda s_: max(val(e[0], s_) for e in es)), (lambda s_: min(val(e[1], s_) for e in es))
+    S = surface(P, x0, y0, edges_of)       # the landings narrow to where their lanes meet the street's
+    deck = S["deck"]
+
+    # the deck's top: the outline densified, cut by a STEP_M grid and triangulated inside it, so the top follows z() inside the deck too
+    # (triangles from edge to edge across a sloped deck were up to 0.2 m off: a path 0.1 m above the deck sank into it in a saw-tooth)
     dense = deck.segmentize(STEP_M)
-    tris = [t for t in shapely.get_parts(shapely.constrained_delaunay_triangles(dense)) if t.representative_point().within(deck.buffer(0.01))]
+    tris = []
+    for cell in grid(dense, STEP_M):
+        for pc in shapely.get_parts(cell):
+            if pc.geom_type == "Polygon" and pc.area > 1e-4:
+                tris += [t for t in shapely.get_parts(shapely.constrained_delaunay_triangles(pc)) if t.representative_point().within(pc.buffer(0.01))]
     verts, index = [], {}
 
     def vid(x, y, zz):
@@ -194,48 +288,6 @@ def model(path, parts=None, marks=None, ground=None):
                 px, py = x + nx * sg * w / 2, y + ny * sg * w / 2
                 e_.append([round(px, 2), round(py, 2), round(z(px, py) + lift, 2)])
         return l_, r_
-    # a bridge lane that lands on a ground lane (the street's own, level 0): its edges move to that lane's over the last LAND_BLEND_M
-    gl = [shapely.affinity.translate(g, -x0, -y0) for g in (ground or [])]
-    gtree = shapely.STRtree(gl) if gl else None
-    land = {}       # (axis id, band index in its section, section index) -> [(end, left, right)]
-    for ln, a in axes:
-        for e in (0, 1):
-            if gtree is None or not a["ends"][e].get("ground") or not a["sections"]:
-                continue
-            si = len(a["sections"]) - 1 if e else 0
-            sv = ln.length if e else 0.0
-            x, y, nx, ny = frame(ln, sv)
-            across = shapely.LineString([(x - nx * 20, y - ny * 20), (x + nx * 20, y + ny * 20)])
-            for bi, b in enumerate(a["sections"][si]["bands"]):
-                if b["type"] != "lane":
-                    continue
-                pt = shapely.Point(x + nx * b["t"], y + ny * b["t"])
-                near = [k for k in gtree.query(pt.buffer(2.0)) if gl[k].distance(pt) <= 2.0]
-                if not near:
-                    continue
-                cut = across.intersection(gl[min(near, key=lambda k: gl[k].distance(pt))])
-                ts = [(q[0] - x) * nx + (q[1] - y) * ny for g_ in shapely.get_parts(cut) if g_.geom_type == "LineString" for q in g_.coords]
-                if len(ts) >= 2 and max(ts) - min(ts) > 1.0:
-                    land.setdefault((a["id"], si, bi), []).append((e, max(ts), min(ts)))
-
-    def edges(a, ln, si, bi, b):
-        """The band's left and right edge offsets, functions of s (moving to a ground lane near a landing)."""
-        w = b["width"]["value"]
-        L0, R0 = b["t"] + w / 2, b["t"] - w / 2
-        tg = land.get((a["id"], si, bi), [])
-        if not tg:
-            return L0, R0
-
-        def blend(base, k):
-            def f(s):
-                v = base
-                for e, gl_, gr_ in tg:
-                    d = (ln.length - s) if e else s
-                    u = 0.0 if d >= LAND_BLEND_M else 0.5 * (1 + math.cos(math.pi * d / LAND_BLEND_M))
-                    v = v * (1 - u) + (gl_ if k == 0 else gr_) * u
-                return v
-            return f
-        return blend(L0, 0), blend(R0, 1)
     lanes, lines = [], []
     for ln, a in axes:
         height = f"{a['vertical']['source']}, {a['vertical']['method']}"
@@ -331,7 +383,8 @@ def model(path, parts=None, marks=None, ground=None):
             if pg.geom_type != "Polygon" or pg.area < 0.05:
                 continue
             dense = pg.segmentize(STEP_M / 2)
-            tris = [t for t in shapely.get_parts(shapely.constrained_delaunay_triangles(dense)) if t.representative_point().within(pg.buffer(0.01))]
+            tris = [t for c in grid(dense, STEP_M) for pc in shapely.get_parts(c) if pc.geom_type == "Polygon" and pc.area > 1e-4
+                    for t in shapely.get_parts(shapely.constrained_delaunay_triangles(pc)) if t.representative_point().within(pc.buffer(0.01))]
             v, f, ix = [], [], {}
 
             def vi(x, y, zz):
@@ -391,11 +444,15 @@ def model(path, parts=None, marks=None, ground=None):
                 bar = shapely.LineString([(c_.x - ty * CROSSWALK_M / 2, c_.y + tx * CROSSWALK_M / 2), (c_.x + ty * CROSSWALK_M / 2, c_.y - tx * CROSSWALK_M / 2)])
                 mesh(bar.buffer(ZEBRA_BAR_M / 2, cap_style="flat"), "mark zebra", LINE_LIFT_M, props)
                 d_ += ZEBRA_BAR_M + ZEBRA_GAP_M
+    # a path never lies on a vehicle lane: its width is chosen (urbanstyle), the lanes' are SUMO's; where they overlapped the two
+    # surfaces fought and the lane showed through the path in teeth
+    veh_ = shapely.union_all([shapely.Polygon([p[:2] for p in l["l"]] + [p[:2] for p in l["r"]][::-1]).buffer(0) for l in lanes
+                              if l["props"]["type"] in ("lane", "junction lane")]) if lanes else shapely.Polygon()
     for pc, w, props in shared:             # one lane for walking and cycling, a concrete barrier on its side towards the vehicle lanes
         if not covered.is_empty and pc.intersection(covered).length > 0.5 * pc.length:
             continue
         l_, r_ = ribbon(pc, w, LIFT[False])
-        mesh(shapely.Polygon([q[:2] for q in l_] + [q[:2] for q in r_][::-1]).buffer(0), "cycle lane", LIFT[False], props)
+        mesh(shapely.Polygon([q[:2] for q in l_] + [q[:2] for q in r_][::-1]).buffer(0).difference(veh_), "cycle lane", LIFT[False], props)
         lt, rt = pc.offset_curve(w / 2 + BARRIER_SEP_M[0]), pc.offset_curve(-(w / 2 + BARRIER_SEP_M[0]))
         dl = road_.distance(lt) if not lt.is_empty else 1e9
         dr = road_.distance(rt) if not rt.is_empty else 1e9
@@ -409,6 +466,8 @@ def model(path, parts=None, marks=None, ground=None):
         if pg.is_empty or (not covered.is_empty and pg.intersection(covered).area > 0.5 * pg.area):
             continue
         ty = l["props"]["type"]
+        if ty not in ("lane", "junction lane"):
+            pg = pg.difference(veh_)
         key = {"lane": f"lane {l['props'].get('direction') or ''}".strip(), "junction lane": "lane", "footway": "sidewalk",
                "cycleway": "cycle lane"}.get(ty, ty)
         mesh(pg, key, 0.03, l["props"], RAISED.get(key, 0.0))
@@ -436,6 +495,28 @@ def model(path, parts=None, marks=None, ground=None):
             mesh(p_.buffer(0.05, cap_style="square"), "railing", BARRIER_M[0], None, RAILING_M[0] - BARRIER_M[0])
     rails = []        # (the guards above replace the plain parapet)
     v = lambda d: f"{d['source']}, {d['method']}"
+    # the page places the model in the map's metres (Web Mercator, scaled to true metres at the origin): UTM's north is turned from the
+    # map's by the meridian convergence (0.1 degrees at Vancouver) and its scale differs, so a point 600 m from the origin was 1 m off its
+    # street; every point goes through the map's projection
+    import numpy as np
+    merc = pyproj.Transformer.from_crs(P["crs"], "EPSG:3857", always_xy=True).transform
+    mx0, my0 = merc(x0, y0)
+    k = math.cos(math.radians(to_ll(x0, y0)[1]))
+
+    def to_map(pts):
+        """[[x, y, ...]] in metres east and north of the origin in UTM, to the map's metres (in place)."""
+        if not pts:
+            return pts
+        a = np.asarray([q[:2] for q in pts], dtype=float)
+        X, Y = merc(a[:, 0] + x0, a[:, 1] + y0)
+        for q, xm, ym in zip(pts, (X - mx0) * k, (Y - my0) * k):
+            q[0], q[1] = round(float(xm), 2), round(float(ym), 2)
+        return pts
+    to_map(verts)
+    for sf in surf:
+        to_map(sf["v"])
+    for q in piers:
+        to_map([q["a"], q["b"]])
     return {"name": P["name"], "origin": list(to_ll(x0, y0)), "outline": [list(to_ll(x, y)) for x, y in ol], "verts": verts,
             "deck": top + bottom, "sides": sides, "rails": rails, "lines": lines, "lanes": lanes, "piers": piers, "surf": surf,
             "sources": {"outline": v(P["deck"]["outline"]), "heights": "; ".join(sorted({v(a["vertical"]) for _, a in axes})),

@@ -32,5 +32,5 @@ def test_a_landing_meets_the_street():
     showed as a block standing on the street."""
     m = model(_profile())
     assert min(v[2] for v in m["verts"]) == 0.0
-    ends = [v for v in m["verts"] if abs(v[0] + 50) < 0.01]          # the deck's start, where the vertical profile is 0
+    ends = [v for v in m["verts"] if abs(v[0] + 50) < 0.1]           # the deck's start (map metres: UTM scale 0.9996 here)
     assert ends and max(v[2] for v in ends) == 0.0

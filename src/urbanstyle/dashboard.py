@@ -986,10 +986,11 @@ function brLayer(M){const o=maplibregl.MercatorCoordinate.fromLngLat(M.origin,0)
       mesh(M.deck,BC.deck); mesh(M.sides,BC.girder); mesh(M.rails,BC.rail);
       // the surface, as the street: each part (or the model's own lane or path where the street has none) and each painted line on the
       // deck, in the street's colours; a part keeps its fields for the popup (paint shares one material per colour)
-      const mats={}, paint=c=>mats[c]||(mats[c]=new THREE.MeshLambertMaterial({color:hex(c),side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2}));
+      // (a strong depth offset over the deck: seen from far, the depth buffer cannot tell 0.1 m apart and the deck showed through in teeth)
+      const mats={}, paint=c=>mats[c]||(mats[c]=new THREE.MeshLambertMaterial({color:hex(c),side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:-4,polygonOffsetUnits:-16}));
       M.surf.forEach(sf=>{const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(new Float32Array(sf.v.flat()),3));
         g.setIndex(sf.f.flat()); g.computeVertexNormals(); const c=BC.parts[sf.key]||BC.parts[sf.key.split(' ')[0]]||'#999999';
-        const m=new THREE.Mesh(g,sf.props?new THREE.MeshLambertMaterial({color:hex(c),side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:-1,polygonOffsetUnits:-1}):paint(c));
+        const m=new THREE.Mesh(g,sf.props?new THREE.MeshLambertMaterial({color:hex(c),side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-8}):paint(c));
         if(sf.props){m.userData=sf.props; pick.push(m)} scene.add(m)});
       M.piers.forEach(q=>{const [ax,ay]=q.a,[bx,by]=q.b, m=new THREE.Mesh(new THREE.BoxGeometry(Math.hypot(bx-ax,by-ay),q.t,q.h),new THREE.MeshLambertMaterial({color:hex(BC.girder)}));
         m.position.set((ax+bx)/2,(ay+by)/2,q.h/2); m.rotation.z=Math.atan2(by-ay,bx-ax); scene.add(m)});

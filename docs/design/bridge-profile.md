@@ -234,3 +234,17 @@ The end of a2 had three more faults:
    a2 (block 19) stand 3.7 to 4.5 m to each side of the axis, on a deck 9.0 to 9.8 m wide, with nothing on the ground under most of
    them: they are on the deck's edges. In 3D, a pole or a sign inside a deck now stands on the deck, at its height. A tree, a manhole
    or a drain stays on the ground (`dashboard.bridge_decks`, `furniture_3d`).
+
+## The model on the map, and the paths on the deck (2026-10-11)
+
+1. **The model was up to 1 m off its street.** The model was in UTM metres around the middle of the bridge, and the page puts it on the
+   map in Web Mercator metres. UTM's north is turned 0.1 degrees from the map's north at Vancouver, and its scale is different. So at
+   the end of a2, 600 m from the middle, the ramp's lane lay about 1 m beside the street's lane. Now every point of the model goes
+   through the map's projection (`bridge3d.model`). As the page draws it, the landing lane of a2 is now within 0.01 m of the street's lane.
+2. **On the landing, the bridge lane is the street's lane.** Where the street's lane lies under the landing at nearly its full width,
+   the bridge lane takes its edges at each point. Before that, the bridge lane moves to them over LAND_BLEND_M. The landing deck
+   narrows to those edges.
+3. **The green paths showed the lanes through them in teeth.** A path is drawn along its OSM line at a width that we chose, so it
+   overlapped the lanes next to it, at the same height. A path is now cut where it overlaps a vehicle lane (the lanes' widths come from
+   SUMO). The deck's top and every surface on it are also cut by a 4 m grid. Before, long triangles across a sloped deck were up to
+   0.2 m off the deck's height.

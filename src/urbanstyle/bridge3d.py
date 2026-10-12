@@ -22,6 +22,7 @@ BLEND_M = 40.0      # the heights of two axes are blended where the second neare
 MEET_M = 1.5        # ... and only where their heights differ by less than this (they meet at a fork)
 FADE_M = 2.0        # an arm's weight fades to 0 over this to the edge of its lanes
 END_FADE_M = 10.0   # ... and over this to its end
+LAND_PAST_M = 3.0   # ... a ground lane it lands on reaches this far past the bridge's end (it continues it)
 LAND_BLEND_M = 30.0 # a bridge lane moves to the street's lane it lands on over this
 LIFT = {True: 0.05, False: 0.10}   # above the deck: a lane (True), a path (False); clear of each other, no flicker
 LINE_LIFT_M = 0.15  # a painted line above both
@@ -43,6 +44,7 @@ EDGE_CLOSE_M = 30.0  # (long: the deck filled as one gentle taper, "add a long b
 EDGE_OPEN_M = 4.0
 KEEP_BIT_M2 = 20.0  # a deck bit beside a kept path, smaller than this, is drawn with it
 KEEP_HOLE_M2 = 400.0  # a hole a kept path closes in the deck, smaller than this, is deck
+PAIR_TANGENT_M = 20.0  # a pair's centre line leaves the trunk's node in the trunk's way, onto the middle of their lines over this
 GORE_CLOSE_M = 4.0  # a gore filled as a path (gore_paths): the gap between the two branches closed up to twice this wide
 GUARD_MIN_M = 3.0   # a guard piece shorter than this is left out
 NO_GUARD_REACH_M = 15.0  # a side with no guard: this far out from its axis
@@ -80,6 +82,7 @@ NO_TURN_DEG = 90.0  # on a bridge a move turning more than this joins the two di
 JOIN_ANGLE = 30.0   # a node where every SUMO move turns less than this (degrees) is a fork or a join, no junction
 SPLIT_MAX_M = 200.0 # a branch splits off within this of the node, at most
 DIVIDER_M = 0.5     # a branch leaves the main road where its lanes fit beside it with this between
+TAPER_CLEAR_M = 0.5 # ... and at a fork it opens where it is this clear of the other axes' lanes
 TAPER_M = 30.0      # a lane added at a landing widens from nothing over this
 RAMP_BLEND_M = 70.0 # a branch beside the main road goes onto its own line over this past where its lanes fit there (5 m kinked a5's footway; "more smoother")
 JOIN_BLEND_M = 40.0 # at a divided road's join, its carriageways' lanes move to the single road's over this
@@ -296,7 +299,7 @@ def model_checks(surf, deck, road_ends, S, axes):
 def correct_sections(P):
     """P with the lane counts that corrections/lanes.json gives a landing's way (its own section: bridge_lidar) laid out: the extra lanes on
     the right of the travel, each widening from nothing over TAPER_M where the section with fewer lanes ends (ramp a2: 1 lane on the
-    bridge, 2 on its landing)."""
+    bridge, 2 on its landing), or from the fork where an axis starts on the bridge."""
     from .corrections import SOURCE, lanes as corrected, per_direction
     corr = corrected()
     for a in P["axes"]:
@@ -318,15 +321,21 @@ def correct_sections(P):
                 o = -1 if dr == "forward" else 1            # the travel's right, across the axis
                 outer = grp[0] if o < 0 else grp[-1]
                 count = lambda sc: sum(1 for x in sc["bands"] if x["type"] == "lane" and x["direction"] == dr)
-                at_start = si > 0 and count(secs[si - 1]) < want
+                # (or the axis's first section where it leaves another road on the bridge, not the ground: a2 one lane at its fork
+                # with a4, two very fast; Kaveh, 2026-10-12)
+                at_start_prev = si > 0 and count(secs[si - 1]) < want
+                at_start = at_start_prev or (si == 0 and not a["ends"][0].get("ground"))
                 at_end = si + 1 < len(secs) and count(secs[si + 1]) < want
                 for k in range(want - len(grp)):
                     w = outer["width"]["value"]
                     inner = outer["t"] + o * (w / 2 + k * w)
+                    s_open = sec["s0"]
+                    # (from the fork: it opens where it is clear of the other axes' lanes, open_tapers(), once the lines are drawn)
+                    clear_ = si == 0 and not at_start_prev
                     nb = json.loads(json.dumps(outer))
                     nb.update(lane_id=f"{outer['lane_id']}+{k + 1}", lane=len(grp) + k + 1, t=round(inner + o * w / 2, 2),
                               source=f"{SOURCE}: {note}", method="corrected",
-                              taper={"s0": sec["s0"], "s1": min(sec["s0"] + TAPER_M, sec["s1"]), "inner": inner, "out": o} if at_start else
+                              taper={"s0": s_open, "s1": min(s_open + TAPER_M, sec["s1"]), "inner": inner, "out": o, "clear": clear_} if at_start else
                               {"s0": sec["s1"], "s1": max(sec["s1"] - TAPER_M, sec["s0"]), "inner": inner, "out": o} if at_end else None)
                     sec["bands"].append(nb)
             sec["bands"].sort(key=lambda b: -b["t"])
@@ -699,6 +708,8 @@ def fillets(P):
                 for key in ("s_from", "s_to"):
                     if b.get(key) is not None:
                         b[key] = remap(b[key])
+                if b.get("taper"):          # (a lane that opens over a taper: its metres move too)
+                    b["taper"] = dict(b["taper"], s0=remap(b["taper"]["s0"]), s1=remap(b["taper"]["s1"]))
         if at_end:          # (the ends of the line exactly)
             a["sections"][-1]["s1"] = round(nln.length, 2)
         else:
@@ -718,6 +729,42 @@ def fillets(P):
         a["length_m"] = round(nln.length, 2)
         a["_node"], a["_node_at"] = list(pts[0][:2]), at_end
         P["_fitted"][a["id"]] = at_end
+    # OSM's corners rounded (before the pairs: a pair leaves its trunk in the way the trunk is drawn, a10) (Chaikin, ROUND_PASSES times; the ends stay): a3 as one smooth line near OSM's (Kaveh, 2026-10-12: "a nice
+    # strips version for a3, close to the geometry from OSM")
+    for a in P["axes"]:
+        if a["id"] not in corr.get("round", []):
+            continue
+        pts_ = [list(p_[:2]) for p_ in a["line"]["value"]]
+        old = shapely.LineString(pts_)
+        pts_ = [list(c_) for c_ in old.segmentize(ROUND_STEP_M).coords]      # (short pieces first: each corner cut only near it)
+        for _ in range(ROUND_PASSES):
+            q_ = [pts_[0]]
+            for p0_, p1_ in zip(pts_, pts_[1:]):
+                q_ += [[0.75 * p0_[0] + 0.25 * p1_[0], 0.75 * p0_[1] + 0.25 * p1_[1]], [0.25 * p0_[0] + 0.75 * p1_[0], 0.25 * p0_[1] + 0.75 * p1_[1]]]
+            pts_ = q_ + [pts_[-1]]
+        nln = shapely.LineString(pts_)
+        remap = lambda s_: round(nln.project(old.interpolate(s_)), 2)
+        for sc in a["sections"]:
+            sc["s0"], sc["s1"] = remap(sc["s0"]), remap(sc["s1"])
+            for b in sc["bands"]:
+                for key in ("s_from", "s_to"):
+                    if b.get(key) is not None:
+                        b[key] = remap(b[key])
+                if b.get("taper"):          # (a lane that opens over a taper: its metres move too)
+                    b["taper"] = dict(b["taper"], s0=remap(b["taper"]["s0"]), s1=remap(b["taper"]["s1"]))
+        a["sections"][0]["s0"], a["sections"][-1]["s1"] = 0.0, round(nln.length, 2)
+        v = a.get("vertical")
+        if isinstance(v, dict):
+            for key in ("points", "samples", "chosen_before"):
+                if isinstance(v.get(key), list):
+                    v[key] = [[remap(q2[0])] + list(q2[1:]) for q2 in v[key]]
+            if isinstance(v.get("stations"), list):
+                for st_ in v["stations"]:
+                    st_["s"] = remap(st_["s"])
+        for e in a.get("ends", []):
+            e["s"] = remap(e["s"])
+        a["line"] = dict(a["line"], value=[[round(x, 2), round(y, 2)] for x, y in pts_], method=a["line"]["method"] + "; corners rounded")
+        a["length_m"] = round(nln.length, 2)
     # two roads of one divided road built on one line ("pair": [[a, b, trunk]]): their centre line, from the node with the trunk (a10)
     # the middle of their OSM lines, corners rounded; each road beside it, its lanes at the node on the trunk's lanes they continue
     # (a11 and a12: Kaveh, 2026-10-12, "strips based on one geometry")
@@ -741,12 +788,29 @@ def fillets(P):
             for p0_, p1_ in zip(C, C[1:]):
                 q_ += [[0.75 * p0_[0] + 0.25 * p1_[0], 0.75 * p0_[1] + 0.25 * p1_[1]], [0.25 * p0_[0] + 0.75 * p1_[0], 0.25 * p0_[1] + 0.75 * p1_[1]]]
             C = q_ + [C[-1]]
+        # (out of the node in the trunk's way, onto the middle line over PAIR_TANGENT_M: a12's lane ends crossed a10's at an angle, a
+        # wedge of overlap on one side and a gap on the other; Kaveh, 2026-10-12, "a12 has many glitches ... not fit and smooth")
+        tT_ = shapely.LineString(pT if math.dist(pT[-1], node) < math.dist(pT[0], node) else pT[::-1])
+        # (a strip axis within RECT_STRAIGHT_M of straight is drawn straight from end to end, rectangles(): its way is its chord's, a10)
+        ch_ = shapely.LineString([tT_.coords[0], tT_.coords[-1]])
+        if idt in corr.get("rectangle", []) and max(ch_.distance(shapely.Point(c_)) for c_ in tT_.coords) <= RECT_STRAIGHT_M:
+            tT_ = ch_
+        u0_, u1_ = tT_.interpolate(tT_.length - 1.0), tT_.interpolate(tT_.length)
+        hu_ = math.dist(u0_.coords[0], u1_.coords[0]) or 1.0
+        ux_, uy_ = (u1_.x - u0_.x) / hu_, (u1_.y - u0_.y) / hu_
+        Cl0 = shapely.LineString(C)
+        C2 = []
+        for c_ in C:
+            s_c = Cl0.project(shapely.Point(c_))
+            w_ = (lambda u: u * u * (3 - 2 * u))(min(s_c / PAIR_TANGENT_M, 1.0))
+            C2.append([c_[0] * w_ + (node[0] + ux_ * s_c) * (1 - w_), c_[1] * w_ + (node[1] + uy_ * s_c) * (1 - w_)])
+        C = C2
         Cl = shapely.LineString(C)
         P.setdefault("_median_lines", []).append([list(c_) for c_ in C])     # (the guardrail between the two directions on it, model())
         c0, c1 = Cl.interpolate(0), Cl.interpolate(1.0)
         hc = math.dist(c0.coords[0], c1.coords[0]) or 1.0
         ncx, ncy = -(c1.y - c0.y) / hc, (c1.x - c0.x) / hc          # (the centre line's left, going out from the node)
-        tT = shapely.LineString(pT if math.dist(pT[-1], node) < math.dist(pT[0], node) else pT[::-1])      # (the trunk into the node)
+        tT = tT_      # (the trunk into the node, as drawn)
         t0, t1 = tT.interpolate(tT.length - 1.0), tT.interpolate(tT.length)
         ht = math.dist(t0.coords[0], t1.coords[0]) or 1.0
         ntx, nty = -(t1.y - t0.y) / ht, (t1.x - t0.x) / ht
@@ -766,6 +830,14 @@ def fillets(P):
                         ds.append((tx - node[0]) * ncx + (ty - node[1]) * ncy)
             if not ds:
                 continue
+            # (its other sections with the same lanes keep the node section's offsets: a12's two OSM ways put its lanes 0.25 m apart,
+            # a jog at their joint; Kaveh, 2026-10-12, "a12 has many glitches")
+            lanes_n = [b for b in sec["bands"] if b["type"] == "lane"]
+            for sc2 in X_["sections"]:
+                l2 = [b for b in sc2["bands"] if b["type"] == "lane"]
+                if sc2 is not sec and len(l2) == len(lanes_n) and all(abs(b2["width"]["value"] - bn["width"]["value"]) < 0.01 for b2, bn in zip(l2, lanes_n)):
+                    for b2, bn in zip(sorted(l2, key=lambda b_: b_["t"]), sorted(lanes_n, key=lambda b_: b_["t"])):
+                        b2["t"] = bn["t"]
             d_ = sum(ds) / len(ds)
             ox = Cl.offset_curve(d_) if abs(d_) > 0.01 else Cl
             new = [list(c_) for c_ in ox.coords]
@@ -781,6 +853,8 @@ def fillets(P):
                     for key in ("s_from", "s_to"):
                         if b.get(key) is not None:
                             b[key] = remap(b[key])
+                    if b.get("taper"):          # (a lane that opens over a taper: its metres move too)
+                        b["taper"] = dict(b["taper"], s0=remap(b["taper"]["s0"]), s1=remap(b["taper"]["s1"]))
             X_["sections"][0]["s0"], X_["sections"][-1]["s1"] = 0.0, round(nln.length, 2)
             v = X_.get("vertical")
             if isinstance(v, dict):
@@ -840,40 +914,33 @@ def fillets(P):
                     mid = a0 >= lo_ - 0.01 and a1 <= hi_ + 0.01
                     out_.append(dict(sc, s0=a0, s1=a1, bands=[dict(b) for b in sc["bands"]] + ([dict(new_b)] if mid else [])))
         B_["sections"] = out_
-    # OSM's corners rounded (Chaikin, ROUND_PASSES times; the ends stay): a3 as one smooth line near OSM's (Kaveh, 2026-10-12: "a nice
-    # strips version for a3, close to the geometry from OSM")
+    return P
+
+
+def open_tapers(P):
+    """P with each lane that opens at its axis's fork (a taper with "clear", correct_sections()) opening where it is clear of the other
+    axes' lanes on their drawn lines: a2's second lane past the gore with a7, not on a7's lane at the node (Kaveh, 2026-10-12, "you
+    started to convert to two lanes too soon")."""
+    import shapely
+    lines = {a["id"]: shapely.LineString([q[:2] for q in a["line"]["value"]]) for a in P["axes"]}
     for a in P["axes"]:
-        if a["id"] not in corr.get("round", []):
-            continue
-        pts_ = [list(p_[:2]) for p_ in a["line"]["value"]]
-        old = shapely.LineString(pts_)
-        pts_ = [list(c_) for c_ in old.segmentize(ROUND_STEP_M).coords]      # (short pieces first: each corner cut only near it)
-        for _ in range(ROUND_PASSES):
-            q_ = [pts_[0]]
-            for p0_, p1_ in zip(pts_, pts_[1:]):
-                q_ += [[0.75 * p0_[0] + 0.25 * p1_[0], 0.75 * p0_[1] + 0.25 * p1_[1]], [0.25 * p0_[0] + 0.75 * p1_[0], 0.25 * p0_[1] + 0.75 * p1_[1]]]
-            pts_ = q_ + [pts_[-1]]
-        nln = shapely.LineString(pts_)
-        remap = lambda s_: round(nln.project(old.interpolate(s_)), 2)
         for sc in a["sections"]:
-            sc["s0"], sc["s1"] = remap(sc["s0"]), remap(sc["s1"])
             for b in sc["bands"]:
-                for key in ("s_from", "s_to"):
-                    if b.get(key) is not None:
-                        b[key] = remap(b[key])
-        a["sections"][0]["s0"], a["sections"][-1]["s1"] = 0.0, round(nln.length, 2)
-        v = a.get("vertical")
-        if isinstance(v, dict):
-            for key in ("points", "samples", "chosen_before"):
-                if isinstance(v.get(key), list):
-                    v[key] = [[remap(q2[0])] + list(q2[1:]) for q2 in v[key]]
-            if isinstance(v.get("stations"), list):
-                for st_ in v["stations"]:
-                    st_["s"] = remap(st_["s"])
-        for e in a.get("ends", []):
-            e["s"] = remap(e["s"])
-        a["line"] = dict(a["line"], value=[[round(x, 2), round(y, 2)] for x, y in pts_], method=a["line"]["method"] + "; corners rounded")
-        a["length_m"] = round(nln.length, 2)
+                tp = b.get("taper")
+                if b["type"] != "lane" or not tp or not tp.get("clear"):
+                    continue
+                ln = lines[a["id"]]
+                oth = shapely.union_all([lines[o["id"]].buffer(max((abs(b2["t"]) + b2["width"]["value"] / 2 for sc2 in o["sections"]
+                                                                     for b2 in sc2["bands"] if b2["type"] == "lane"), default=3.0))
+                                         for o in P["axes"] if o is not a])
+                t_in, t_out = tp["inner"], tp["inner"] + tp["out"] * (b["width"]["value"] + TAPER_CLEAR_M)
+                for s_ in range(int(sc["s0"]), int(sc["s1"])):
+                    p_, q_ = ln.interpolate(s_), ln.interpolate(min(s_ + 1.0, ln.length))
+                    h_ = math.dist(p_.coords[0], q_.coords[0]) or 1.0
+                    nx_, ny_ = -(q_.y - p_.y) / h_, (q_.x - p_.x) / h_
+                    if not oth.intersects(shapely.LineString([(p_.x + nx_ * t_in, p_.y + ny_ * t_in), (p_.x + nx_ * t_out, p_.y + ny_ * t_out)])):
+                        b["taper"] = dict(tp, s0=float(s_), s1=min(s_ + TAPER_M, sc["s1"]))
+                        break
     return P
 
 
@@ -900,7 +967,8 @@ def rectangles(P):
             continue
         pts = a["line"]["value"]
         chord = shapely.LineString([pts[0], pts[-1]])
-        if max(chord.distance(shapely.Point(c)) for c in pts) <= RECT_STRAIGHT_M:
+        # (not a line fillets() fitted to its node: a11 and a12 lost the trunk's way at a10's node, 8.6 degrees off)
+        if a["id"] not in P.get("_fitted", {}) and max(chord.distance(shapely.Point(c)) for c in pts) <= RECT_STRAIGHT_M:
             a["line"] = {"value": [pts[0], pts[-1]], "source": a["line"]["source"] + "; urbanstyle corrections (corrections/bridges.json)",
                          "method": "mapped, then straight from end to end (a rectangle)"}
         ln = shapely.LineString(a["line"]["value"])
@@ -920,16 +988,19 @@ def rectangles(P):
         ground_s = [e["s"] for e in a.get("ends", []) if e.get("ground")]
         landing = [sc for sc in a["sections"] if any(min(abs(sc["s0"] - g_), abs(sc["s1"] - g_)) < 0.5 for g_ in ground_s)]
         body_ = [sc for sc in a["sections"] if not any(sc is l_ for l_ in landing)] or a["sections"]
-        bands = [b for sc in body_ for b in sc["bands"] if b["type"] == "lane"]
+        # (nor does a lane that opens over a taper, correct_sections(): the strips move out with it, wide_; a2's second lane)
+        bands = [b for sc in body_ for b in sc["bands"] if b["type"] == "lane" and not b.get("taper")] or \
+            [b for sc in body_ for b in sc["bands"] if b["type"] == "lane"]
         hi = max(b["t"] + b["width"]["value"] / 2 for b in bands)
         lo = min(b["t"] - b["width"]["value"] / 2 for b in bands)
-        wide_ = []      # (side, s0, s1): a landing section wider than the strips' place on that side, in the axis's own s
-        for sc in landing:
-            lb_ = [b for b in sc["bands"] if b["type"] == "lane"]
-            if lb_ and max(b["t"] + b["width"]["value"] / 2 for b in lb_) > hi + 0.01:
-                wide_.append((1, sc["s0"], sc["s1"]))
-            if lb_ and min(b["t"] - b["width"]["value"] / 2 for b in lb_) < lo - 0.01:
-                wide_.append((-1, sc["s0"], sc["s1"]))
+        wide_ = []      # (side, from s, to s, by): where the lanes widen on that side past the strips' place, in the axis's own s
+        for sc in a["sections"]:
+            for b in sc["bands"]:
+                tp_ = b.get("taper") if b["type"] == "lane" else None
+                if tp_ and b["t"] + b["width"]["value"] / 2 > hi + 0.01:
+                    wide_.append((1, tp_["s0"], tp_["s1"], b["width"]["value"]))
+                elif tp_ and b["t"] - b["width"]["value"] / 2 < lo - 0.01:
+                    wide_.append((-1, tp_["s0"], tp_["s1"], b["width"]["value"]))
         others, runs_on, runs_ids, run_nodes, all_nodes, sibs = [], [], set(), [], [], []
         pa = a["line"]["value"]
         for o in P["axes"]:
@@ -1082,16 +1153,15 @@ def rectangles(P):
         e1_, e2_ = reach_of(g0, 1) + BARRIER_M[1], reach_of(g0, -1) + BARRIER_M[1]
         # each side on its own: its strips run back to where the next branch leaves on that side (Kaveh, 2026-10-12: "before reaching
         # the next branch, the rectangle")
-        sg, se = {}, {}
+        sg, se, land_cuts = {}, {}, {}
         for side, (t0_, t1_) in ((1, (hi, e1_)), (-1, (-e2_, lo))):
             sg[side], se[side] = span(t0_, t1_)
-            for w_side, w0_, w1_ in wide_:      # (a wider landing on this side: the strips stop where it starts)
-                x0_, x1_ = (L - w1_, L - w0_) if rev else (w0_, w1_)
+            # (a wider landing on this side: the strips move out by its extra width as its added lane opens, over TAPER_M; a2's
+            # footway beside its second lane to its end, Kaveh, 2026-10-12 "the end part of a2 is messed")
+            land_cuts[side] = []
+            for w_side, w0_, w1_, by_ in wide_:
                 if (-w_side if rev else w_side) == side:
-                    if x1_ >= L - 0.5:
-                        se[side] = min(se[side], x0_)
-                    elif x0_ <= 0.5:
-                        sg[side] = max(sg[side], x1_)
+                    land_cuts[side].append(((L - w0_) if rev else w0_, (L - w1_) if rev else w1_, -by_))
         groups = find(sg, se)
         edge = {1: hi, -1: -lo}
         side_cuts = {1: [], -1: []}
@@ -1115,7 +1185,7 @@ def rectangles(P):
                 same = [e for e in ends_ if e["kind"] == "path" and e["axis"] in runs_ids and e["node"] and e["way"] == f"{f_['type']} {f_['way']}"]
                 if same and min(e["rank"] for e in same) < len(gs_) and min(e["rank"] for e in same) not in fixed_.values():
                     fixed_[i_g] = min(e["rank"] for e in same)
-            cuts_ = []      # (from s, to s, width): past the end of a path that ends where OSM's does, the paths outside it move in by its width
+            cuts_ = list(land_cuts[side])      # (from s, to s, width): past the end of a path that ends where OSM's does, the paths outside it move in by its width
             free_ = iter(r_ for r_ in range(len(gs_)) if r_ not in fixed_.values())
             place_ = {i_g: fixed_[i_g] if i_g in fixed_ else next(free_) for i_g in range(len(gs_))}
             for (_, kind), mem in [gs_[i_g] for i_g in sorted(place_, key=place_.get)]:
@@ -1187,7 +1257,7 @@ def rectangles(P):
                 edge[side] = reach
                 # its barrier a strip too, between the lanes and the first path, drawn as they are (model: P["_bars"])
                 tb_ = side * ((hi if side == 1 else -lo) + BARRIER_SEP_M[0] / 2)
-                P["_bars"].append(joined(spec(sg[side], se[side], tb_), "bar", [(sg[side], tb_), (se[side], tb_)], side=side))
+                P["_bars"].append(joined(shifted(spec(sg[side], se[side], tb_), "t", land_cuts[side], side), "bar", [(sg[side], tb_), (se[side], tb_)], side=side))
         P["paths"] = [f for f in P.get("paths", []) if len(f["line"]) >= 2]
         e1, e2 = edge[1] + BARRIER_M[1], edge[-1] + BARRIER_M[1]
         # (past a free end the zone reaches 1 m further: OSM's outline there is cut too)
@@ -1229,7 +1299,7 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False):
     import shapely.affinity
     from shapely.ops import substring
 
-    P = fit_lanes(rectangles(fillets(correct_sections(json.load(open(path)) if isinstance(path, str) else json.loads(json.dumps(path))))))
+    P = fit_lanes(rectangles(open_tapers(fillets(correct_sections(json.load(open(path)) if isinstance(path, str) else json.loads(json.dumps(path)))))))
     # on a bridge no move joins the two directions (Kaveh, 2026-10-11: "only merge and fork"): SUMO's moves that turn more than 90 degrees
     # (U-turns and left turns across the guardrail, e.g. a3 into a10 southbound) are dropped; every node is then a merge or a fork
     P["connectors"] = [c for c in P.get("connectors", []) if len(c["line"]) < 2 or abs(_turn(c["line"])) <= NO_TURN_DEG]
@@ -1267,6 +1337,13 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False):
                     continue
                 pt = shapely.Point(x + nx * b["t"], y + ny * b["t"])
                 near = [k for k in gtree.query(pt.buffer(2.0)) if gl[k].distance(pt) <= 2.0]
+                if not near:
+                    continue
+                # (only a ground lane that runs on past the end, the lane it continues: not one beside the landing; a2's added lane took
+                # the street's lane beside it and opened a wedge with a barrier in it, Kaveh, 2026-10-12 "the end part of a2 is messed")
+                ex_, ey_ = (ny, -nx) if e else (-ny, nx)        # (out of the axis's end)
+                past_ = shapely.Point(pt.x + ex_ * LAND_PAST_M, pt.y + ey_ * LAND_PAST_M)
+                near = [k for k in near if gl[k].distance(past_) <= 0.5]
                 if not near:
                     continue
                 g = gl[min(near, key=lambda k: gl[k].distance(pt))]
@@ -1645,6 +1722,19 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False):
             if abs(tj - t) * math.hypot(dx_, dy_) > 0.3:        # (only where they do not meet already: a5 met a1, the tie kinked it)
                 t0_ = t
                 t = lambda s, tj=tj, t0_=t0_, s_end=s_end: tj + (t0_ - tj) * (lambda u: u * u * (3 - 2 * u))(min(abs(s - s_end) / RECT_BLEND_M, 1.0))
+        # (beside a lane that moves to the street's lane it lands on, edges(): the same move, so the guard and the barrier stay beside
+        # it; a3's ground end, Kaveh, 2026-10-12 "fix barrier ending issue barrier @-117,-325")
+        t_num = sp[which]
+        for si_ in {0, len(a_["sections"]) - 1}:
+            near_ = [(abs(b_["t"] - t_num), bi_, b_) for bi_, b_ in enumerate(a_["sections"][si_]["bands"])
+                     if b_["type"] == "lane" and (a_["id"], si_, bi_) in land]
+            for _, bi_, b_ in sorted(near_, key=lambda x_: x_[0])[:1]:
+                if True:
+                    Lf_, Rf_ = edges(a_, ln_, si_, bi_, b_)
+                    vv_ = lambda f_, s: f_(s) if callable(f_) else f_
+                    base_l = t
+                    t = lambda s, base_l=base_l, Lf_=Lf_, Rf_=Rf_, b_=b_, vv_=vv_: (base_l(s) if callable(base_l) else base_l) + \
+                        (vv_(Lf_, s) + vv_(Rf_, s)) / 2 - b_["t"]
         sh_ = sp.get("shift_" + which)
         if sh_:         # (moved in past the end of a path inside it, rectangles(): a4's footway past its shared path's end)
             base_ = t
@@ -2350,6 +2440,9 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False):
         cl_ = deck.buffer(EDGE_CLOSE_M, join_style="round").buffer(-EDGE_CLOSE_M, join_style="round")
         cl_ = cl_.buffer(-EDGE_OPEN_M, join_style="round").buffer(EDGE_OPEN_M, join_style="round")
         sm_ = shapely.make_valid(deck.difference(zone_s).union(cl_.intersection(zone_s)).difference(veh_.buffer(-0.01).difference(deck)))
+        # (the hairline left where the two meet on the zone's edge, closed: the guards ran into it across footway w871038559 #4,
+        # Kaveh, 2026-10-12 "barrier @-526,-258 and barrier @97,207 have wrong tails")
+        sm_ = shapely.make_valid(sm_.buffer(0.05, join_style="mitre").buffer(-0.05, join_style="mitre"))
         deck = max(shapely.get_parts(sm_), key=lambda g_: g_.area) if sm_.geom_type != "Polygon" else sm_
     # (a hole beside a kept path, between it and the lanes beside it, is deck: a guard ran round one beside shared path w1417439065)
     kept_g = shapely.union_all([own[k_] for k_ in own if (shared[k_[1]][2] if k_[0] == "s" else lanes[k_[1]]["props"]).get("osm") in keep_w])

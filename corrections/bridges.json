@@ -40,7 +40,8 @@
     "lane_links_note": "a3's outer lane runs on into a9's outer lane at the a10 node (Kaveh, 2026-10-12); SUMO links a3's inner lane there",
     "round": [
       "a3",
-      "a10"
+      "a10",
+      "a2"
     ],
     "smooth_to_end": [
       "a9"
@@ -60,12 +61,6 @@
         "a4",
         "4865609269725927722_2",
         "a9"
-      ]
-    ],
-    "no_guard": [
-      [
-        "a2",
-        "left"
       ]
     ],
     "smooth_ends": [

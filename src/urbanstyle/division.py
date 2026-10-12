@@ -1413,6 +1413,12 @@ def build(con, epsg):
         add(iid, "sidewalk", walkway, width_m=None, width_method="derived", direction=None, lane=None, road=None, road_class=None,
             road_lanes=None, oneway=None, **PV("urbanstyle", "derived", "where two arms' kerbs meet at a block"), **POS(a_pv))
         k_ = roadway.boundary.intersection(walkway.buffer(0.02)) if not roadway.is_empty and not walkway.is_empty else shapely.LineString()
+        # (no kerb across an arm's roadway where it enters: a hairline of walkway left by the rounding drew one across the ends of the
+        # lanes, at i0-616471133 across lane s0-w48524371r.2~w48524377r/3#9 and its cycle lane, at 40 more junctions too; Kaveh, 2026-10-12)
+        arm_road = [r_["geom"] for r_ in parts if r_["type"] in ROADWAY and r_["unit_id"] in {a_[0] for a_ in arms} and r_["geom"].distance(X) < 0.5]
+        mouths = [g_.boundary.intersection(X.buffer(0.3)) for g_ in arm_road]       # (each one's end edge where it enters the junction)
+        if mouths and not k_.is_empty:
+            k_ = k_.difference(shapely.union_all(mouths).buffer(0.4))
         if not k_.is_empty and k_.length > 0.5:
             mark(iid, "kerb", lines(k_.intersection(X.buffer(0.01))), a_pv[0], "derived", a_pv[2])
         widths.append((iid, None, None, None, None, None, None, None, None, None, "urbanstyle", None))

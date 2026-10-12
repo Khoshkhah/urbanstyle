@@ -2532,7 +2532,17 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False):
     # the guards on both sides of the deck: a concrete barrier and a metal railing on posts; none across a road where it leaves the bridge
     # (every edge of the bridge has its guard: the deck reaches a guard's width past every lane, a lane at the deck's edge had none;
     # Kaveh, 2026-10-12, "all boundary of the bridge must have barrier")
-    grown_g = shapely.make_valid(deck.union(lanes_only.buffer(BARRIER_M[1] + 0.05, join_style="mitre")))
+    grow_ = lanes_only.buffer(BARRIER_M[1] + 0.05, join_style="mitre")
+    for ln_e, a_e in axes:          # (not past a road's end where it reaches the ground: a path there and a barrier across a2's end)
+        for e_ in a_e.get("ends", []):
+            if not e_.get("ground"):
+                continue
+            x_, y_, nx_, ny_ = frame(ln_e, e_["s"])
+            ox_, oy_ = (ny_, -nx_) if e_["s"] > ln_e.length / 2 else (-ny_, nx_)      # (out of the end)
+            grow_ = grow_.difference(shapely.Polygon([(x_ + nx_ * 40, y_ + ny_ * 40), (x_ - nx_ * 40, y_ - ny_ * 40),
+                                                      (x_ - nx_ * 40 + ox_ * 20, y_ - ny_ * 40 + oy_ * 20),
+                                                      (x_ + nx_ * 40 + ox_ * 20, y_ + ny_ * 40 + oy_ * 20)]))
+    grown_g = shapely.make_valid(deck.union(grow_))
     deck = max(shapely.get_parts(grown_g), key=lambda g_: g_.area) if grown_g.geom_type != "Polygon" else grown_g
     ends_ = []
     # (not at every lane's end: a section's lanes end where the bridge meets its landing too, and the guard had a gap there)
@@ -2597,7 +2607,12 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False):
                                 and sf_["key"] != "railing"])
     free_ = shapely.make_valid(deck.difference(cover_))
     fillable_ = [sf_ for sf_ in surf if sf_.get("poly") is not None and sf_["key"] in ("sidewalk", "cycle lane", "median", "buffer", "junction area")]
-    for g_ in shapely.get_parts(free_.buffer(-0.02).buffer(0.02)):
+    # (its thin parts and its wide parts each on their own: a 5 cm strip along a2's lane, joined to a wide piece far away, went to a shared
+    # path, and a barrier closed a2's end against it)
+    free_ = free_.buffer(-0.02).buffer(0.02)
+    wide_f = free_.buffer(-FREE_THIN_M / 2, join_style="mitre").buffer(FREE_THIN_M / 2, join_style="mitre").intersection(free_)
+    pieces_f = list(shapely.get_parts(wide_f)) + list(shapely.get_parts(free_.difference(wide_f)))
+    for g_ in pieces_f:
         if g_.geom_type != "Polygon" or g_.area < FREE_MIN_M2:
             continue
         g_ = g_.intersection(deck)
@@ -2684,7 +2699,7 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False):
         for q, xm, ym in zip(pts, (X - mx0) * k, (Y - my0) * k):
             q[0], q[1] = round(float(xm), 2), round(float(ym), 2)
         return pts
-    deck_ll = shapely.ops.transform(lambda x, y: to_ll(x + x0, y + y0), deck)       # (the deck's final outline, for the checks)
+    deck_ll = json.loads(shapely.to_geojson(shapely.ops.transform(lambda x, y: to_ll(x + x0, y + y0), deck)))   # (the final outline, GeoJSON, for checks)
     flat = []           # the 2D layer (dashboard "Bridge 2D"): each surface's outline in lon / lat, with its id and fields
     for sf_ in surf:
         if sf_.get("poly") is not None and sf_["props"] and sf_["props"].get("id"):

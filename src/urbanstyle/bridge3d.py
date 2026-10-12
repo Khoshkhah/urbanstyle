@@ -462,6 +462,11 @@ def fillets(P):
         pT = [list(p_[:2]) for p_ in T["line"]["value"]]
         pT = pT[::-1] if t_rev else pT                  # (the trunk towards the node)
         (xa, ya), (xb, yb) = pT[-2][:2], pT[-1][:2]
+        # (a trunk that rectangles() draws straight from end to end, a1: its chord's way, not OSM's last segment; a5 and a6 left a1's
+        # node at an angle to its drawn lanes, a kink in their edges; Kaveh, 2026-10-12)
+        ch_t = shapely.LineString([pT[0], pT[-1]])
+        if T["id"] not in P["_fitted"] and max(ch_t.distance(shapely.Point(c_)) for c_ in pT) <= RECT_STRAIGHT_M:
+            (xa, ya), (xb, yb) = pT[0][:2], pT[-1][:2]
         h = math.hypot(xb - xa, yb - ya)
         ux, uy = (xb - xa) / h, (yb - ya) / h               # (the trunk's way into the node, the branch's way out of it)
         nx, ny = -uy, ux
@@ -1642,19 +1647,26 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False):
             lnO, aO = by_id[tp["by"]]
             scO = aO["sections"][-1] if math.dist(lnO.coords[-1], ln.interpolate(tp["s0"]).coords[0]) < math.dist(lnO.coords[0], ln.interpolate(tp["s0"]).coords[0]) else aO["sections"][0]
             bO = [b2 for b2 in scO["bands"] if b2["type"] == "lane"]
-            cands = [lnO.offset_curve(max(b2["t"] + b2["width"]["value"] / 2 for b2 in bO)), lnO.offset_curve(min(b2["t"] - b2["width"]["value"] / 2 for b2 in bO))]
-            mid_ = ln.interpolate((tp["s0"] + tp["s1"]) / 2)
-            edgeO = min([c_ for c_ in cands if c_.geom_type == "LineString"], key=lambda c_: c_.distance(mid_))
+            # (that axis's lanes as an area, carried a little past its line's ends: at the node its line starts beside it, and a line along
+            # its lane edge found nothing there, a8's lane kept its width on a6's: Kaveh, 2026-10-12)
+            lnO_x = extend(lnO, 6.0)
+            hiO = max(b2["t"] + b2["width"]["value"] / 2 for b2 in bO)
+            loO = min(b2["t"] - b2["width"]["value"] / 2 for b2 in bO)
+            areaO = lnO_x.buffer(hiO, single_sided=True, cap_style="flat").union(lnO_x.buffer(loO, single_sided=True, cap_style="flat")) \
+                if hiO > 0 > loO else lnO_x.buffer((hiO - loO) / 2, cap_style="flat")
             inner, out = tp["inner"], tp["out"]
 
-            def squeezed(s, inner=inner, out=out, w=w, edgeO=edgeO):
+            def squeezed(s, inner=inner, out=out, w=w, areaO=areaO):
                 x, y, nx, ny = frame(ln, s)
                 full = inner + out * w
-                hit = shapely.LineString([(x + nx * inner, y + ny * inner), (x + nx * full, y + ny * full)]).intersection(edgeO)
+                p_in = shapely.Point(x + nx * inner, y + ny * inner)
+                if areaO.contains(p_in):
+                    return inner
+                hit = shapely.LineString([(p_in.x, p_in.y), (x + nx * full, y + ny * full)]).intersection(areaO)
                 if hit.is_empty:
                     return full
-                ts = [(q[0] - x) * nx + (q[1] - y) * ny for g_ in shapely.get_parts(hit) for q in g_.coords]
-                return min(ts, key=lambda t_: abs(t_ - inner))
+                ts = [(q[0] - x) * nx + (q[1] - y) * ny for g_ in shapely.get_parts(hit) for q in getattr(g_, "coords", [])]
+                return min(ts, key=lambda t_: abs(t_ - inner)) if ts else full
             return (squeezed, inner) if out > 0 else (inner, squeezed)
         if tp:          # an added lane widening from nothing (correct_sections): its inner edge stays, its outer one moves out
             def g(s, tp=tp):

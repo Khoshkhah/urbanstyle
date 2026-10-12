@@ -2539,14 +2539,23 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False):
     if median:
         for ml_ in P.get("_median_lines", []):
             strip(shapely.LineString(rel(ml_)), BARRIER_SEP_M[0], "barrier median", 0.0, None, BARRIER_M[0])
+    # (no painted line through a lane's inside: the edge line of the lane joining a4's lane _1 to a9 lay on 4747140365369135178_1;
+    # Kaveh, 2026-10-12, "there is a line on lane 4747140365369135178_1")
+    lane_in_ = shapely.union_all([shapely.Polygon([p[:2] for p in l["l"]] + [p[:2] for p in l["r"]][::-1]).buffer(0).buffer(-0.4)
+                                  for l in lanes if l["props"]["type"] == "lane"])
     for ln_ in lines:
         g = shapely.LineString([p[:2] for p in ln_["pts"]])
         if g.length < 0.5 or (not covered.is_empty and g.intersection(covered).length > 0.5 * g.length):
             continue
-        if median and ln_["kind"] == "centre line":      # (its own key: the checks' guard is the deck's edge)
-            strip(g, BARRIER_SEP_M[0], "barrier median", 0.0, None, BARRIER_M[0])
+        g = g.difference(lane_in_)
+        g = shapely.line_merge(g) if g.geom_type == "MultiLineString" else g
+        if g.is_empty or g.length < 0.5:
             continue
-        strip(g, LINE.get(ln_["kind"], 0.12), f"mark {ln_['kind']}", PAINT_LIFT_M, (3.0, 6.0) if ln_["kind"] == "lane line" else None)
+        for g in [g_ for g_ in shapely.get_parts(g) if g_.geom_type == "LineString" and g_.length >= 0.5]:
+            if median and ln_["kind"] == "centre line":      # (its own key: the checks' guard is the deck's edge)
+                strip(g, BARRIER_SEP_M[0], "barrier median", 0.0, None, BARRIER_M[0])
+                continue
+            strip(g, LINE.get(ln_["kind"], 0.12), f"mark {ln_['kind']}", PAINT_LIFT_M, (3.0, 6.0) if ln_["kind"] == "lane line" else None)
     # guide lines through the junctions on the deck (SUMO's moves: the profile's connectors), as the street's; an arrow in every lane,
     # one each ARROW_EVERY_M (one in the middle of a shorter lane) and, before a junction, one with a head for each way SUMO lets it go
     from .division import arrow_shape
@@ -2593,8 +2602,10 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False):
             d = L * (k + 0.5) / n + ARROW_M / 2
             if not out_ or d < L - 2.0 - 2 * ARROW_M:
                 tips.append((d, {"straight"}))
+        # (a lane that gives way to another, a joining lane "from>to": no arrow where it still lies on the lane it leaves)
+        src_l = shapely.union_all(by_lane_.get(pr["lane_id"].split(">")[0], [])) if ">" in (pr.get("lane_id") or "") else None
         for d, ways in tips:
-            if ARROW_M <= d <= L:
+            if ARROW_M <= d <= L and (src_l is None or not src_l.buffer(-0.3).contains(ctr.interpolate(d))):
                 tp = ctr.interpolate(d)
                 for pc in shapely.get_parts(arrow_shape((tp.x, tp.y), head(ctr, d), ways)):
                     strip(pc, LINE["arrow"], "mark arrow", LINE_LIFT_M)

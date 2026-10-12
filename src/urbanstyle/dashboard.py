@@ -1052,6 +1052,11 @@ function brLayer(M){const o=maplibregl.MercatorCoordinate.fromLngLat(M.origin,0)
         if(sf.props){m.userData=sf.props; m.baseHex=hex(c); pick.push(m)} scene.add(m)});
       M.piers.forEach(q=>{const [ax,ay]=q.a,[bx,by]=q.b, m=new THREE.Mesh(new THREE.BoxGeometry(Math.hypot(bx-ax,by-ay),q.t,q.h),new THREE.MeshLambertMaterial({color:hex(BC.girder)}));
         m.position.set((ax+bx)/2,(ay+by)/2,q.h/2); m.rotation.z=Math.atan2(by-ay,bx-ax); scene.add(m)});
+      // the steel truss under a span (bridge3d: truss): each member a box from a to b, in the photos' blue-grey
+      const steel=new THREE.MeshLambertMaterial({color:hex(BC.truss||'#8b9aa5')});
+      (M.truss||[]).forEach(q=>{const A=new THREE.Vector3(...q.a), B=new THREE.Vector3(...q.b), d=B.clone().sub(A), L=d.length(); if(L<0.05) return;
+        const m=new THREE.Mesh(new THREE.BoxGeometry(L,q.w,q.w),steel); m.position.copy(A.clone().add(B).multiplyScalar(0.5));
+        m.quaternion.setFromUnitVectors(new THREE.Vector3(1,0,0),d.normalize()); scene.add(m)});
       scene.traverse(o=>{o.frustumCulled=false});   // the map's matrix is the camera: three.js's own culling dropped the parts far from the origin
       renderer=new THREE.WebGLRenderer({canvas:map.getCanvas(),context:gl,antialias:true}); renderer.autoClear=false},
     render(gl,args){const mm=args&&args.defaultProjectionData?args.defaultProjectionData.mainMatrix:args;

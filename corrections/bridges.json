@@ -136,6 +136,43 @@
       ]
     ],
     "lane_ends_note": "at the a9/a10/a3 node: a10's third northbound lane ends before a3 comes in beside it; a3's two lanes become one, into a9's lane 3 (SUMO's link); Kaveh, 2026-10-12, option 1; at the north fork, a8's outer lanes with no SUMO link to a1 give way: southbound to a6, northbound to a5 (Kaveh, 2026-10-12)",
-    "smooth_ends_note": "a4's end: 35 m round, closed by 30 m (Kaveh: a long buffer); a10's end at the a9 node, west: 20 m round, closed by 2 m (the step in barrier @-386,-385, Kaveh, 2026-10-12)"
+    "smooth_ends_note": "a4's end: 35 m round, closed by 30 m (Kaveh: a long buffer); a10's end at the a9 node, west: 20 m round, closed by 2 m (the step in barrier @-386,-385, Kaveh, 2026-10-12)",
+    "truss": [
+      {
+        "axis": "a1",
+        "s0": 180,
+        "s1": 270,
+        "panel": 11,
+        "depth": 6.5
+      },
+      {
+        "axis": "a1",
+        "s0": 270,
+        "s1": 400,
+        "panel": 11,
+        "spring_z": 10.5,
+        "crown_gap": 6.2,
+        "legs": [
+          [
+            270,
+            10.5,
+            229
+          ],
+          [
+            400,
+            10.5,
+            443
+          ]
+        ]
+      },
+      {
+        "axis": "a1",
+        "s0": 400,
+        "s1": 450,
+        "panel": 11,
+        "depth": 6.5
+      }
+    ],
+    "truss_note": "a1's steel deck truss (Kaveh, 2026-10-12; photos on Wikimedia Commons, 2011-07-21 Vancouver 06 and others): the arched main span over False Creek springs at s 270 and 400 (shores in the 2018 orthophoto, the side photo scaled by the LiDAR deck height), z 10.5; its bottom chord 8 m under the deck top at the crown; approach trusses 6.5 m deep at s 180-270 and 400-450; anchor legs to the deck at s 229 and 443; panels about 11 m. Measured from photos: about +-10 m in s, +-15 % in depth"
   }
 }

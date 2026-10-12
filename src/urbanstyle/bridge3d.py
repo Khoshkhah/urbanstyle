@@ -44,6 +44,10 @@ EDGE_CLOSE_M = 30.0  # (long: the deck filled as one gentle taper, "add a long b
 EDGE_OPEN_M = 4.0
 KEEP_BIT_M2 = 20.0  # a deck bit beside a kept path, smaller than this, is drawn with it
 KEEP_HOLE_M2 = 400.0  # a hole a kept path closes in the deck, smaller than this, is deck
+TRUSS_PANEL_M = 12.0  # a steel truss under a span: its panel length (chosen, from the photos)
+TRUSS_CROWN_M = 1.5   # ... its bottom chord's crown this far under the deck (chosen)
+TRUSS_IN_M = 1.0      # ... each side's plane this far in from the deck's edge
+TRUSS_M = (0.8, 0.5)  # ... a chord's width, a vertical's or a diagonal's (chosen)
 TANGENT_M = 20.0    # an axis's end turned into the trunk's way at their node over this (tangent_ends)
 PAIR_TANGENT_M = 20.0  # a pair's centre line leaves the trunk's node in the trunk's way, onto the middle of their lines over this
 FREE_THIN_M = 1.0   # ... but a sliver of it narrower than this, beside a lane, is that lane
@@ -2041,6 +2045,59 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False):
                     d0 = min(max(d - COLUMN_M / 2, 0.0), seg.length - COLUMN_M)
                     (ax, ay), (bx, by) = seg.interpolate(d0).coords[0], seg.interpolate(d0 + COLUMN_M).coords[0]
                     piers.append({"a": [round(ax, 2), round(ay, 2)], "b": [round(bx, 2), round(by, 2)], "t": COLUMN_M, "h": round(h, 2)})
+    # the steel truss under a span, corrections/bridges.json "truss": [{axis, s0, s1, panel, spring_z, crown_gap}] (Kaveh, 2026-10-12: "it
+    # has some steel parts with a special pattern between its legs"; the pattern from the city's photos, 2011-07-21 Vancouver 06, the
+    # heights from the profile): on each side, under the deck's edge, a top chord under the deck, a bottom chord arched from its springing
+    # points to crown_gap under the deck mid-span, a vertical at each panel point and a diagonal in each panel, in a V pattern
+    truss = []
+    from .corrections import bridge as bridge_corr_tr
+    for tr_ in bridge_corr_tr(P["name"]).get("truss", []):
+        if tr_.get("axis") not in by_id:
+            continue
+        ln, a = by_id[tr_["axis"]]
+        s0_, s1_ = tr_["s0"], min(tr_["s1"], ln.length)
+        n_ = max(2, round((s1_ - s0_) / tr_.get("panel", TRUSS_PANEL_M)))
+        mid_, half_ = (s0_ + s1_) / 2, (s1_ - s0_) / 2
+        z_top = lambda s_: _h(a["vertical"], s_) - DECK_M
+        if "depth" in tr_:          # (a span of one depth, the approach truss over Granville Island)
+            z_bot = lambda s_, d_=tr_["depth"]: z_top(s_) - d_
+        else:                       # (the arched main span: from its springing points to crown_gap under the deck)
+            z_crown = z_top(mid_) - tr_.get("crown_gap", TRUSS_CROWN_M)
+            z_bot = lambda s_, zc=z_crown, zs=tr_["spring_z"]: zs + (zc - zs) * (1 - ((s_ - mid_) / half_) ** 2)
+        sides_t = {1: [], -1: []}           # each side's panel points: (top, bottom), 1 m in from the deck's edge
+        for k in range(n_ + 1):
+            s_ = s0_ + (s1_ - s0_) * k / n_
+            x, y, nx, ny = frame(ln, s_)
+            cut_ = shapely.LineString([(x - nx * 40, y - ny * 40), (x + nx * 40, y + ny * 40)]).intersection(deck)
+            ts_ = [(q[0] - x) * nx + (q[1] - y) * ny for g_ in shapely.get_parts(cut_) if g_.geom_type == "LineString" for q in g_.coords]
+            if not ts_:
+                continue
+            for sd, t_ in ((1, max(ts_) - TRUSS_IN_M), (-1, min(ts_) + TRUSS_IN_M)):
+                px, py = x + nx * t_, y + ny * t_
+                sides_t[sd].append(([px, py, z_top(s_)], [px, py, z_bot(s_)]))
+        # an anchor leg on each side, from a springing point up to the deck ("legs": [[s at its foot, z at its foot, s at the deck]])
+        for s_f, z_f, s_d in tr_.get("legs", []):
+            for sd in (1, -1):
+                ends_ = []
+                for s_, z_ in ((s_f, z_f), (s_d, None)):
+                    x, y, nx, ny = frame(ln, s_)
+                    cut_ = shapely.LineString([(x - nx * 40, y - ny * 40), (x + nx * 40, y + ny * 40)]).intersection(deck)
+                    ts_ = [(q[0] - x) * nx + (q[1] - y) * ny for g_ in shapely.get_parts(cut_) if g_.geom_type == "LineString" for q in g_.coords]
+                    if ts_:
+                        t_ = max(ts_) - TRUSS_IN_M if sd == 1 else min(ts_) + TRUSS_IN_M
+                        ends_.append([x + nx * t_, y + ny * t_, z_ if z_ is not None else z_top(s_)])
+                if len(ends_) == 2:
+                    truss.append({"a": ends_[0], "b": ends_[1], "w": TRUSS_M[0]})
+        for pts_ in sides_t.values():
+            for k, (top_, bot_) in enumerate(pts_):
+                truss.append({"a": top_, "b": bot_, "w": TRUSS_M[1]})                  # the vertical
+                if k + 1 < len(pts_):
+                    nt_, nb_ = pts_[k + 1]
+                    truss.append({"a": top_, "b": nt_, "w": TRUSS_M[0]})               # the chords
+                    truss.append({"a": bot_, "b": nb_, "w": TRUSS_M[0]})
+                    truss.append({"a": bot_ if k % 2 == 0 else top_, "b": nt_ if k % 2 == 0 else nb_, "w": TRUSS_M[1]})   # the V
+    for q in truss:
+        q["a"], q["b"] = [round(v_, 2) for v_ in q["a"]], [round(v_, 2) for v_ in q["b"]]
     # the surface the page draws: every item as a mesh on the deck, in the street's types (its colours, raised sidewalks, kerbs, lines)
     from .parts import CROSSWALK_M, KERB_TOP_M, LINE, RAISED, ZEBRA_BAR_M, ZEBRA_GAP_M
     surf = []
@@ -2711,8 +2768,10 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False):
         to_map(sf["v"])
     for q in piers:
         to_map([q["a"], q["b"]])
+    for q in truss:
+        to_map([q["a"], q["b"]])
     return {"name": P["name"], "origin": list(to_ll(x0, y0)), "outline": [list(to_ll(x, y)) for x, y in ol], "verts": verts,
-            "deck": top + bottom, "axes": [[list(to_ll(x, y)) for x, y in a["line"]["value"]] for a in P["axes"]], "sides": sides, "rails": rails, "lines": lines, "lanes": lanes, "piers": piers, "surf": surf, "checks": checks, "flat": flat, "deck_ll": deck_ll,
+            "deck": top + bottom, "axes": [[list(to_ll(x, y)) for x, y in a["line"]["value"]] for a in P["axes"]], "sides": sides, "rails": rails, "lines": lines, "lanes": lanes, "piers": piers, "truss": truss, "surf": surf, "checks": checks, "flat": flat, "deck_ll": deck_ll,
             "sources": {"outline": v(P["deck"]["outline"]), "heights": "; ".join(sorted({v(a["vertical"]) for _, a in axes})),
                         "deck": v(P["deck"]["thickness"]), "parapet": v(P["deck"]["parapet"]),
                         "piers": v(P["piers"][0]) if P["piers"] else "none"}}

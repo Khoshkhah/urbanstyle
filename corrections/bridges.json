@@ -31,13 +31,6 @@
     "smooth_beside": {
       "a9": "straight"
     },
-    "lane_links": [
-      [
-        "7783013650305663093_2",
-        "7563496326637953498_3"
-      ]
-    ],
-    "lane_links_note": "a3's outer lane runs on into a9's outer lane at the a10 node (Kaveh, 2026-10-12); SUMO links a3's inner lane there",
     "round": [
       "a3",
       "a10",
@@ -68,6 +61,13 @@
         "a4",
         "end",
         "right"
+      ],
+      [
+        "a10",
+        "end",
+        "left",
+        20,
+        2
       ]
     ],
     "pair": [
@@ -106,6 +106,26 @@
     "strip_osm_end_note": "a4's shared path w1383685288 runs on as OSM's w1417439070 to the cycle crossing w1417439066 and ends there; w1417439070 is in its strip (dropped); footway w871038559 moves in past it (Kaveh, 2026-10-12)",
     "drop_paths": [
       "w1417439070"
-    ]
+    ],
+    "tangent_ends": [
+      [
+        "a10",
+        "a9"
+      ]
+    ],
+    "tangent_ends_note": "a10's last 20 m turn into a9's way at their node, so their lane ends meet square; the rest keeps OSM's curve (Kaveh, 2026-10-12)",
+    "lane_ends": [
+      [
+        "5189800690465899850_3",
+        "clear",
+        "a3"
+      ],
+      [
+        "7783013650305663093_2",
+        "node"
+      ]
+    ],
+    "lane_ends_note": "at the a9/a10/a3 node: a10's third northbound lane ends before a3 comes in beside it; a3's two lanes become one, into a9's lane 3 (SUMO's link); Kaveh, 2026-10-12, option 1",
+    "smooth_ends_note": "a4's end: 35 m round, closed by 30 m (Kaveh: a long buffer); a10's end at the a9 node, west: 20 m round, closed by 2 m (the step in barrier @-386,-385, Kaveh, 2026-10-12)"
   }
 }

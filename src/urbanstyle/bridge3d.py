@@ -44,7 +44,10 @@ EDGE_CLOSE_M = 30.0  # (long: the deck filled as one gentle taper, "add a long b
 EDGE_OPEN_M = 4.0
 KEEP_BIT_M2 = 20.0  # a deck bit beside a kept path, smaller than this, is drawn with it
 KEEP_HOLE_M2 = 400.0  # a hole a kept path closes in the deck, smaller than this, is deck
+TANGENT_M = 20.0    # an axis's end turned into the trunk's way at their node over this (tangent_ends)
 PAIR_TANGENT_M = 20.0  # a pair's centre line leaves the trunk's node in the trunk's way, onto the middle of their lines over this
+FREE_THIN_M = 1.0   # ... but a sliver of it narrower than this, beside a lane, is that lane
+FREE_MIN_M2 = 0.2   # deck no part covers, this big or bigger, is the path beside it (no free space on the bridge)
 GORE_CLOSE_M = 4.0  # a gore filled as a path (gore_paths): the gap between the two branches closed up to twice this wide
 GUARD_MIN_M = 3.0   # a guard piece shorter than this is left out
 NO_GUARD_REACH_M = 15.0  # a side with no guard: this far out from its axis
@@ -765,6 +768,58 @@ def fillets(P):
             e["s"] = remap(e["s"])
         a["line"] = dict(a["line"], value=[[round(x, 2), round(y, 2)] for x, y in pts_], method=a["line"]["method"] + "; corners rounded")
         a["length_m"] = round(nln.length, 2)
+    # an axis that runs straight on into another at a node ("tangent_ends": [[axis, trunk]]): its last TANGENT_M turn into the trunk's way,
+    # the rest keeps OSM's line; their lane ends met at an angle, a wedge between a10's and a9's (Kaveh, 2026-10-12)
+    axd_t = {a["id"]: a for a in P["axes"]}
+    for ida, idt in corr.get("tangent_ends", []):
+        A_, T_ = axd_t.get(ida), axd_t.get(idt)
+        if not (A_ and T_):
+            continue
+        la = [list(p_[:2]) for p_ in A_["line"]["value"]]
+        lt = [list(p_[:2]) for p_ in T_["line"]["value"]]
+        ea, et = min(((i, j) for i in (0, 1) for j in (0, 1)), key=lambda e: math.dist(la[-1 if e[0] else 0], lt[-1 if e[1] else 0]))
+        node = lt[-1 if et else 0]
+        if math.dist(la[-1 if ea else 0], node) > 1.0:
+            continue
+        lT = shapely.LineString(lt if not et else lt[::-1])          # (the trunk, out of the node)
+        q1 = lT.interpolate(1.0)
+        hq = math.dist(node, q1.coords[0]) or 1.0
+        ux, uy = -(q1.x - node[0]) / hq, -(q1.y - node[1]) / hq      # (the way back along the axis, straight on from the trunk)
+        old = shapely.LineString(la)
+        pts_ = [list(c_) for c_ in old.segmentize(1.0).coords]
+        pts_ = pts_[::-1] if ea else pts_                              # (from the node out)
+        lo_ = shapely.LineString(pts_)
+        new_ = []
+        for c_ in pts_:
+            d_ = lo_.project(shapely.Point(c_))
+            w_ = (lambda u: u * u * (3 - 2 * u))(min(d_ / TANGENT_M, 1.0))
+            new_.append([c_[0] * w_ + (node[0] + ux * d_) * (1 - w_), c_[1] * w_ + (node[1] + uy * d_) * (1 - w_)])
+        new_ = new_[::-1] if ea else new_
+        nln = shapely.LineString(new_)
+        remap = lambda s_, old=old, nln=nln: round(nln.project(old.interpolate(s_)), 2)
+        for sc in A_["sections"]:
+            sc["s0"], sc["s1"] = remap(sc["s0"]), remap(sc["s1"])
+            for b in sc["bands"]:
+                for key in ("s_from", "s_to"):
+                    if b.get(key) is not None:
+                        b[key] = remap(b[key])
+                if b.get("taper"):
+                    b["taper"] = dict(b["taper"], s0=remap(b["taper"]["s0"]), s1=remap(b["taper"]["s1"]))
+        A_["sections"][0]["s0"], A_["sections"][-1]["s1"] = 0.0, round(nln.length, 2)
+        v = A_.get("vertical")
+        if isinstance(v, dict):
+            for key in ("points", "samples", "chosen_before"):
+                if isinstance(v.get(key), list):
+                    v[key] = [[remap(q2[0])] + list(q2[1:]) for q2 in v[key]]
+            if isinstance(v.get("stations"), list):
+                for st_ in v["stations"]:
+                    st_["s"] = remap(st_["s"])
+        for e in A_.get("ends", []):
+            e["s"] = remap(e["s"])
+        A_["line"] = dict(A_["line"], value=[[round(x, 2), round(y, 2)] for x, y in new_],
+                          method=A_["line"]["method"] + f"; its last {TANGENT_M:.0f} m turned into {idt}'s way at their node")
+        A_["length_m"] = round(nln.length, 2)
+        P["_fitted"][A_["id"]] = ea
     # two roads of one divided road built on one line ("pair": [[a, b, trunk]]): their centre line, from the node with the trunk (a10)
     # the middle of their OSM lines, corners rounded; each road beside it, its lanes at the node on the trunk's lanes they continue
     # (a11 and a12: Kaveh, 2026-10-12, "strips based on one geometry")
@@ -941,6 +996,40 @@ def open_tapers(P):
                     if not oth.intersects(shapely.LineString([(p_.x + nx_ * t_in, p_.y + ny_ * t_in), (p_.x + nx_ * t_out, p_.y + ny_ * t_out)])):
                         b["taper"] = dict(tp, s0=float(s_), s1=min(s_ + TAPER_M, sc["s1"]))
                         break
+    # a lane that ends at a node, corrections/bridges.json "lane_ends": [[lane id, "node"]] narrows to nothing at the node over TAPER_M,
+    # [[lane id, "clear", axis]] before it, where that axis's lanes come beside it (Kaveh, 2026-10-12, option 1 at the a9/a10/a3 node:
+    # a10's third northbound lane ends before a3 comes in, a3's two lanes become one)
+    from .corrections import bridge as bridge_corr
+    ends_ = {e[0]: e[1:] for e in bridge_corr(P["name"]).get("lane_ends", [])}
+    for a in P["axes"]:
+        ln = lines[a["id"]]
+        for si, sc in enumerate(a["sections"]):
+            for b in sc["bands"]:
+                if b["type"] != "lane" or b.get("lane_id") not in ends_:
+                    continue
+                how = ends_[b["lane_id"]]
+                at_end = si == len(a["sections"]) - 1
+                s_n = sc["s1"] if at_end else sc["s0"]
+                back = -1.0 if at_end else 1.0                 # (from the node, into the axis)
+                w = b["width"]["value"]
+                out = -1 if b["t"] < 0 else 1                  # (it narrows to its inner edge, beside its neighbour)
+                inner = b["t"] - out * w / 2
+                if how[0] == "clear" and len(how) > 1 and how[1] in lines:
+                    o_ = next(o for o in P["axes"] if o["id"] == how[1])
+                    oth = lines[o_["id"]].buffer(max((abs(b2["t"]) + b2["width"]["value"] / 2 for sc2 in o_["sections"] for b2 in sc2["bands"]
+                                                       if b2["type"] == "lane"), default=3.0))
+                    s_ = s_n
+                    while (s_ - sc["s0"]) * (sc["s1"] - s_) >= 0:
+                        p_, q_ = ln.interpolate(s_), ln.interpolate(min(s_ + 1.0, ln.length))
+                        h_ = math.dist(p_.coords[0], q_.coords[0]) or 1.0
+                        nx_, ny_ = -(q_.y - p_.y) / h_, (q_.x - p_.x) / h_
+                        t_out = inner + out * (w + TAPER_CLEAR_M)
+                        if not oth.intersects(shapely.LineString([(p_.x + nx_ * inner, p_.y + ny_ * inner), (p_.x + nx_ * t_out, p_.y + ny_ * t_out)])):
+                            break
+                        s_ += back
+                    s_n = s_
+                b["taper"] = {"s0": s_n, "s1": s_n + back * TAPER_M, "inner": inner, "out": out, "ends": how[0],
+                              "by": how[1] if how[0] == "clear" and len(how) > 1 else None}
     return P
 
 
@@ -1001,6 +1090,12 @@ def rectangles(P):
                     wide_.append((1, tp_["s0"], tp_["s1"], b["width"]["value"]))
                 elif tp_ and b["t"] - b["width"]["value"] / 2 < lo - 0.01:
                     wide_.append((-1, tp_["s0"], tp_["s1"], b["width"]["value"]))
+                # (the outer lane ending, "lane_ends": the strips move in with its edge, from where it narrows to where it is gone; a3's
+                # barrier @-127,-307 stayed out while barrier @-208,-164 followed the lane in, Kaveh, 2026-10-12)
+                elif tp_ and tp_.get("ends") and abs(b["t"] + b["width"]["value"] / 2 - hi) < 0.01:
+                    wide_.append((1, tp_["s1"], tp_["s0"], -b["width"]["value"]))
+                elif tp_ and tp_.get("ends") and abs(b["t"] - b["width"]["value"] / 2 - lo) < 0.01:
+                    wide_.append((-1, tp_["s1"], tp_["s0"], -b["width"]["value"]))
         others, runs_on, runs_ids, run_nodes, all_nodes, sibs = [], [], set(), [], [], []
         pa = a["line"]["value"]
         for o in P["axes"]:
@@ -1536,6 +1631,27 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False):
         w = b["width"]["value"]
         L0, R0 = b["t"] + w / 2, b["t"] - w / 2
         tp = b.get("taper")
+        if tp and tp.get("by") in by_id:
+            # a lane that ends where another axis's lanes come in beside it (lane_ends "clear"): its outer edge on that axis's nearest
+            # lane edge wherever it comes nearer than a lane, so the two meet with no gap (a10's third lane and a3 at the a9 node:
+            # Kaveh, 2026-10-12, "they shouldn't have a gap")
+            lnO, aO = by_id[tp["by"]]
+            scO = aO["sections"][-1] if math.dist(lnO.coords[-1], ln.interpolate(tp["s0"]).coords[0]) < math.dist(lnO.coords[0], ln.interpolate(tp["s0"]).coords[0]) else aO["sections"][0]
+            bO = [b2 for b2 in scO["bands"] if b2["type"] == "lane"]
+            cands = [lnO.offset_curve(max(b2["t"] + b2["width"]["value"] / 2 for b2 in bO)), lnO.offset_curve(min(b2["t"] - b2["width"]["value"] / 2 for b2 in bO))]
+            mid_ = ln.interpolate((tp["s0"] + tp["s1"]) / 2)
+            edgeO = min([c_ for c_ in cands if c_.geom_type == "LineString"], key=lambda c_: c_.distance(mid_))
+            inner, out = tp["inner"], tp["out"]
+
+            def squeezed(s, inner=inner, out=out, w=w, edgeO=edgeO):
+                x, y, nx, ny = frame(ln, s)
+                full = inner + out * w
+                hit = shapely.LineString([(x + nx * inner, y + ny * inner), (x + nx * full, y + ny * full)]).intersection(edgeO)
+                if hit.is_empty:
+                    return full
+                ts = [(q[0] - x) * nx + (q[1] - y) * ny for g_ in shapely.get_parts(hit) for q in g_.coords]
+                return min(ts, key=lambda t_: abs(t_ - inner))
+            return (squeezed, inner) if out > 0 else (inner, squeezed)
         if tp:          # an added lane widening from nothing (correct_sections): its inner edge stays, its outer one moves out
             def g(s, tp=tp):
                 q = min(max((s - tp["s0"]) / ((tp["s1"] - tp["s0"]) or 1e-9), 0.0), 1.0)
@@ -2070,8 +2186,18 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False):
         path_draw[("s", i)] = ("cycle lane", LIFT[False], props, 0.0)    # (drawn below, with what joins it; its barrier: as every path's)
     # the model's own items where the street has no part: lanes, connectors and paths in the street's types, its lines as paint
     jun = []
+    # a lane that corrections/bridges.json adds from one lane into another ("join_lanes", id "from>to") gives way to the lane it leaves:
+    # it opens as that lane moves away (both started on one lane, 93 m2 on each other: Kaveh, 2026-10-12, "need to fix overlapping")
+    by_lane_ = {}
+    for l in lanes:
+        if l["props"]["type"] == "lane" and l["props"].get("lane_id"):
+            by_lane_.setdefault(l["props"]["lane_id"], []).append(shapely.Polygon([p[:2] for p in l["l"]] + [p[:2] for p in l["r"]][::-1]).buffer(0))
     for i, l in enumerate(lanes):
         pg = shapely.Polygon([p[:2] for p in l["l"]] + [p[:2] for p in l["r"]][::-1]).buffer(0)
+        src_ = (l["props"].get("lane_id") or "").split(">")[0] if ">" in (l["props"].get("lane_id") or "") else None
+        if src_ and src_ in by_lane_:
+            pg = pg.difference(shapely.union_all(by_lane_[src_]))
+            pg = shapely.union_all([g_ for g_ in shapely.get_parts(pg) if g_.geom_type == "Polygon" and g_.area > 0.5]) if not pg.is_empty else pg
         if pg.is_empty or (not covered.is_empty and pg.intersection(covered).area > 0.5 * pg.area):
             continue
         ty = l["props"]["type"]
@@ -2404,6 +2530,10 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False):
                 for pc in shapely.get_parts(arrow_shape((tp.x, tp.y), head(ctr, d), ways)):
                     strip(pc, LINE["arrow"], "mark arrow", LINE_LIFT_M)
     # the guards on both sides of the deck: a concrete barrier and a metal railing on posts; none across a road where it leaves the bridge
+    # (every edge of the bridge has its guard: the deck reaches a guard's width past every lane, a lane at the deck's edge had none;
+    # Kaveh, 2026-10-12, "all boundary of the bridge must have barrier")
+    grown_g = shapely.make_valid(deck.union(lanes_only.buffer(BARRIER_M[1] + 0.05, join_style="mitre")))
+    deck = max(shapely.get_parts(grown_g), key=lambda g_: g_.area) if grown_g.geom_type != "Polygon" else grown_g
     ends_ = []
     # (not at every lane's end: a section's lanes end where the bridge meets its landing too, and the guard had a gap there)
     # where an axis reaches the ground, the deck's whole end edge (the lanes' ends left guard pieces between the lanes and the paths):
@@ -2432,12 +2562,14 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False):
     for ax_s, end_s, *side_s in bridge_corr_s(P["name"]).get("smooth_ends", []):
         if ax_s not in by_id:
             continue
+        # (its own reach and closing when given, [axis, end, side, reach, closing]: a10's end at the a9 node, a small step only)
+        r_s = side_s[1] if len(side_s) > 1 else EDGE_SMOOTH_R_M
+        c_s = side_s[2] if len(side_s) > 2 else EDGE_CLOSE_M
         ln_s = by_id[ax_s][0]
-        zone_s = ln_s.interpolate(0.0 if end_s == "start" else ln_s.length).buffer(EDGE_SMOOTH_R_M)
+        zone_s = ln_s.interpolate(0.0 if end_s == "start" else ln_s.length).buffer(r_s)
         if side_s:      # (on that side of its line, carried on past its ends, only: a4's footway side)
-            zone_s = zone_s.intersection(extend(ln_s, EDGE_SMOOTH_R_M).buffer(EDGE_SMOOTH_R_M if side_s[0] == "left" else -EDGE_SMOOTH_R_M,
-                                                                                 single_sided=True))
-        cl_ = deck.buffer(EDGE_CLOSE_M, join_style="round").buffer(-EDGE_CLOSE_M, join_style="round")
+            zone_s = zone_s.intersection(extend(ln_s, r_s).buffer(r_s if side_s[0] == "left" else -r_s, single_sided=True))
+        cl_ = deck.buffer(c_s, join_style="round").buffer(-c_s, join_style="round")
         cl_ = cl_.buffer(-EDGE_OPEN_M, join_style="round").buffer(EDGE_OPEN_M, join_style="round")
         sm_ = shapely.make_valid(deck.difference(zone_s).union(cl_.intersection(zone_s)).difference(veh_.buffer(-0.01).difference(deck)))
         # (the hairline left where the two meet on the zone's edge, closed: the guards ran into it across footway w871038559 #4,
@@ -2459,6 +2591,61 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False):
     rim_ = rim(0.0, BARRIER_M[1])
     rim_ = shapely.union_all([q_ for q_ in shapely.get_parts(rim_) if q_.area >= GUARD_MIN_M * BARRIER_M[1]]) if not rim_.is_empty else rim_
     mesh(rim_, "barrier", 0.0, None, BARRIER_M[0])
+    # no free space on the bridge: deck that no part covers is the path or fill it shares the longest edge with (in 2D one shape with
+    # it), else footway; Kaveh, 2026-10-12, "the bridge can't have free space, all parts must be covered with something"
+    cover_ = shapely.union_all([sf_["poly"] for sf_ in surf if sf_.get("poly") is not None and not sf_["key"].startswith("mark")
+                                and sf_["key"] != "railing"])
+    free_ = shapely.make_valid(deck.difference(cover_))
+    fillable_ = [sf_ for sf_ in surf if sf_.get("poly") is not None and sf_["key"] in ("sidewalk", "cycle lane", "median", "buffer", "junction area")]
+    for g_ in shapely.get_parts(free_.buffer(-0.02).buffer(0.02)):
+        if g_.geom_type != "Polygon" or g_.area < FREE_MIN_M2:
+            continue
+        g_ = g_.intersection(deck)
+        # (a sliver between lanes, under FREE_THIN_M wide, is the lane beside it: footway there put a path between two lanes)
+        lanes_s = [sf_ for sf_ in surf if sf_.get("poly") is not None and sf_["key"].startswith("lane")]
+        if 2 * shapely.maximum_inscribed_circle(g_).length < FREE_THIN_M and lanes_s:
+            # (each part of it to the lane right beside it: one long sliver along a3 went whole to a lane 300 m away)
+            near_l = sorted([sf_ for sf_ in lanes_s if sf_["poly"].distance(g_) < 0.05],
+                            key=lambda sf_: -g_.boundary.intersection(sf_["poly"].buffer(0.05)).length)
+            rem_ = g_
+            for lb_ in near_l:
+                part_ = rem_.intersection(lb_["poly"].buffer(FREE_THIN_M))
+                if part_.is_empty or part_.area < 0.01:
+                    continue
+                rem_ = rem_.difference(part_)
+                if flat_only:
+                    lb_["poly"] = shapely.make_valid(lb_["poly"].union(part_.buffer(0.01)))
+                else:
+                    mesh(part_, lb_["key"], SURF_LIFT_M, lb_["props"])
+            if near_l:
+                continue
+        by_ = [(g_.boundary.intersection(sf_["poly"].buffer(0.05)).length, i_) for i_, sf_ in enumerate(fillable_)]
+        by_ = [x_ for x_ in by_ if x_[0] > 0.3]
+        if by_:
+            sf_a = fillable_[max(by_)[1]]
+            if flat_only:
+                sf_a["poly"] = shapely.make_valid(sf_a["poly"].union(g_.buffer(0.01)))
+            else:
+                mesh(g_, sf_a["key"], SURF_LIFT_M if sf_a["key"] != "sidewalk" else LIFT[False], sf_a["props"], RAISED.get(sf_a["key"], 0.0))
+        else:
+            mesh(g_, "sidewalk", LIFT[False], {"type": "footway", "name": P["name"], "source": "urbanstyle",
+                                                "method": "derived: deck no other part covers"}, RAISED.get("sidewalk", 0.0))
+    # a barrier wherever a driving lane meets a path (footway, cycle lane, shared path) and none stands yet, but not where a crosswalk
+    # crosses: Kaveh, 2026-10-12, "between driving lane and other lanes must have barrier on bridge"
+    lanes_f = shapely.union_all([sf_["poly"] for sf_ in surf if sf_.get("poly") is not None and sf_["key"].startswith("lane")])
+    paths_f = shapely.union_all([sf_["poly"] for sf_ in surf if sf_.get("poly") is not None and sf_["key"] in ("sidewalk", "cycle lane")])
+    bars_f = shapely.union_all([sf_["poly"] for sf_ in surf if sf_.get("poly") is not None and sf_["key"].startswith("barrier")])
+    no_x = shapely.union_all([fl_.buffer(CROSSWALK_M / 2 + 1.0) for fl_, _, _ in crossings]) if crossings else shapely.Polygon()
+    shut_ = lanes_f.buffer(0.2, join_style="mitre").buffer(-0.2, join_style="mitre")
+    miss_ = shut_.boundary.intersection(paths_f.buffer(0.15)).difference(bars_f.buffer(0.35)).difference(no_x)
+    for ln_m in shapely.get_parts(shapely.line_merge(miss_) if not miss_.is_empty else miss_):
+        if ln_m.geom_type != "LineString" or ln_m.length < 1.0:
+            continue
+        off = ln_m.offset_curve(BARRIER_SEP_M[0] / 2)
+        if off.is_empty or off.geom_type != "LineString" or lanes_f.contains(off.interpolate(0.5, normalized=True)):
+            off = ln_m.offset_curve(-BARRIER_SEP_M[0] / 2)
+        if off.geom_type == "LineString" and not off.is_empty:
+            strip(off, BARRIER_SEP_M[0], "barrier", 0.0, None, BARRIER_SEP_M[1])
     mesh(rim(0.1, 0.2), "railing", RAILING_M[0] - 0.08, None, 0.08)
     in_ = shapely.make_valid(deck.buffer(-BARRIER_M[1] / 2))       # (its area parts only: a thin spot gave lines too, a9)
     mid = shapely.MultiPolygon([q_ for g_ in shapely.get_parts(in_) for q_ in shapely.get_parts(g_) if q_.geom_type == "Polygon"]).boundary.difference(gaps)
@@ -2489,6 +2676,7 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False):
         for q, xm, ym in zip(pts, (X - mx0) * k, (Y - my0) * k):
             q[0], q[1] = round(float(xm), 2), round(float(ym), 2)
         return pts
+    deck_ll = shapely.ops.transform(lambda x, y: to_ll(x + x0, y + y0), deck)       # (the deck's final outline, for the checks)
     flat = []           # the 2D layer (dashboard "Bridge 2D"): each surface's outline in lon / lat, with its id and fields
     for sf_ in surf:
         if sf_.get("poly") is not None and sf_["props"] and sf_["props"].get("id"):
@@ -2501,7 +2689,7 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False):
     for q in piers:
         to_map([q["a"], q["b"]])
     return {"name": P["name"], "origin": list(to_ll(x0, y0)), "outline": [list(to_ll(x, y)) for x, y in ol], "verts": verts,
-            "deck": top + bottom, "axes": [[list(to_ll(x, y)) for x, y in a["line"]["value"]] for a in P["axes"]], "sides": sides, "rails": rails, "lines": lines, "lanes": lanes, "piers": piers, "surf": surf, "checks": checks, "flat": flat,
+            "deck": top + bottom, "axes": [[list(to_ll(x, y)) for x, y in a["line"]["value"]] for a in P["axes"]], "sides": sides, "rails": rails, "lines": lines, "lanes": lanes, "piers": piers, "surf": surf, "checks": checks, "flat": flat, "deck_ll": deck_ll,
             "sources": {"outline": v(P["deck"]["outline"]), "heights": "; ".join(sorted({v(a["vertical"]) for _, a in axes})),
                         "deck": v(P["deck"]["thickness"]), "parapet": v(P["deck"]["parapet"]),
                         "piers": v(P["piers"][0]) if P["piers"] else "none"}}

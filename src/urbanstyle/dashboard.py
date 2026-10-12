@@ -38,7 +38,7 @@ KIND_COLORS = {
     "roadway": "#6b7280", "pedestrian realm": "#e5e7eb", "median": "#84cc16", "verge": "#86efac", "garden": "#4caf50", "lawn": "#a7d7a0",
     "play": "#f472b6", "track bed": "#64748b", "under bridge": "#8b5e3c", "paved": "#fbcfe8",
     # layer 3: parts (the roadway's darker greys, the pedestrian realm's light ones)
-    "lane": "#4b5563", "shoulder": "#9ca3af", "junction area": "#374151", "island": "#84cc16", "furnishing": "#a8a29e", "sidewalk": "#e5e7eb",
+    "lane": "#4b5563", "shoulder": "#9ca3af", "junction area": "#374151", "island": "#84cc16", "barrier": "#cfc8bd", "furnishing": "#a8a29e", "sidewalk": "#e5e7eb",
     "frontage": "#fde4cf",
 }
 BLOCK_COLOR = KIND_COLORS["block"]
@@ -481,7 +481,7 @@ function bind3d(){if(bound3d||!map.getLayer('u3d-furn'))return; bound3d=true;
   const groundPop=(OVERLAYS.find(o=>o.label==='Parts')||{}).popup||[];
   let took=0;     // the topmost layer under the mouse takes the click: an object before the ground under it
   Object.entries(L3D).forEach(([id,[prop,key,base,fields]])=>{
-    map.on('mousemove',id,e=>{const f=e.features&&e.features[0]; if(!f)return; map.getCanvas().style.cursor='pointer';
+    map.on('mousemove',id,e=>{const f=e.features&&e.features[0]; if(!f||(window.brAt&&window.brAt(e.point)))return; map.getCanvas().style.cursor='pointer';
       const top=map.queryRenderedFeatures(e.point,{layers:Object.keys(L3D).filter(x=>map.getLayer(x))})[0];
       if(!top||top.layer.id!==id)return;
       const k=f.properties[key], ll=e.lngLat, t=f.properties.type;
@@ -489,7 +489,7 @@ function bind3d(){if(bound3d||!map.getLayer('u3d-furn'))return; bound3d=true;
       if(hov3d!==null){hov3d=null; paint3d(); tip3d.remove()}          // another thing: the last one off at once
       clearTimeout(hovT); hovT=setTimeout(()=>{hov3d=k; paint3d(); tip3d.setLngLat(ll).setText(t).addTo(map)},HOVER_MS)});  // lit once the mouse rests
     map.on('mouseleave',id,()=>{clearTimeout(hovT); hov3d=null; map.getCanvas().style.cursor=''; paint3d(); tip3d.remove()});
-    map.on('click',id,e=>{if(Date.now()-took<50)return; took=Date.now(); const p=e.features[0].properties;
+    map.on('click',id,e=>{if(Date.now()-took<50||(window.brAt&&window.brAt(e.point)))return; took=Date.now(); const p=e.features[0].properties;
       if(sel3d===p[key]){deselect3d(); return}          // a click on the selected one deselects it
       sel3d=p[key]; paint3d(); pop3d(e,p,fields||groundPop,p[key])})});
   map.on('click',e=>{if(!in3d)return; const hit=map.queryRenderedFeatures(e.point,{layers:Object.keys(L3D).filter(x=>map.getLayer(x))});
@@ -501,13 +501,16 @@ map.on('pitchend',()=>{setView(); apply()});   // the view follows the tilt: 3D'
 let downAt=null; map.on('mousedown',e=>downAt=e.lngLat); map.on('touchstart',e=>downAt=e.lngLat);
 function svHere(name){const w=document.querySelector('.rs-svw'); if(!w||w.hidden||!downAt)return;
   // the road nearest the spot, from the map's road data (the roads need not be drawn: the overview hides them), looking along it
-  const src=map.getSource('roads'), data=src&&src.serialize&&src.serialize().data; if(!data||!data.features)return;
+  // and a bridge model's own roads (its axes, window.brAxes): the map's roads need not reach the bridge
+  const src=map.getSource('roads'), data=src&&src.serialize&&src.serialize().data, lines=(window.brAxes||[]).slice();
+  ((data&&data.features)||[]).forEach(f=>{const g=f.geometry; if(!g)return;
+    (g.type==='LineString'?[g.coordinates]:g.type==='MultiLineString'?g.coordinates:[]).forEach(cs=>lines.push({cs,name:(f.properties||{}).name}))});
   const k=Math.cos(downAt.lat*Math.PI/180), X=downAt.lng*k, Y=downAt.lat;
   let best=null;
-  data.features.forEach(f=>{const g=f.geometry; if(!g)return; (g.type==='LineString'?[g.coordinates]:g.type==='MultiLineString'?g.coordinates:[]).forEach(cs=>{
+  lines.forEach(({cs,name})=>{
     for(let i=0;i<cs.length-1;i++){const ax=cs[i][0]*k, ay=cs[i][1], bx=cs[i+1][0]*k, by=cs[i+1][1], dx=bx-ax, dy=by-ay, L=dx*dx+dy*dy||1e-18;
       const t=Math.max(0,Math.min(1,((X-ax)*dx+(Y-ay)*dy)/L)), px=ax+t*dx, py=ay+t*dy, d=(X-px)**2+(Y-py)**2;
-      if(!best||d<best.d)best={d,x:px/k,y:py,h:(Math.atan2(dx,dy)*180/Math.PI+360)%360,name:(f.properties||{}).name}}})});
+      if(!best||d<best.d)best={d,x:px/k,y:py,h:(Math.atan2(dx,dy)*180/Math.PI+360)%360,name}}});
   if(!best||Math.sqrt(best.d)*111320>40)return;      // no road within 40 m
   if(window.rsSetStreetViewMarkerAt)rsSetStreetViewMarkerAt(best.x,best.y,best.h);
   const url=`https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${best.y.toFixed(6)},${best.x.toFixed(6)}&heading=${Math.round(best.h)}`;
@@ -558,7 +561,12 @@ let tries=0;   // overlay data loads after the map's own load event: wait until 
 // start once the data is in: the buildings and the roads (filtering the roads before they are loaded would hide them all)
 (function start(){ if((rsQuery(()=>true,'Buildings').length===0||rsQuery(()=>true).length===0)&&tries++<100){setTimeout(start,200);return} apply(); fromHash() })();
 // direct link: viz/<area>.html?c=<container id> (or #c=<container id>) focuses that container; ?c= survives link openers that drop the #
-function fromHash(){const m=location.hash.match(/^#c=(.+)$/)||location.search.match(/[?&]c=([^&]+)/); if(!m)return;
+function fromHash(){
+  // ?at=lon,lat,zoom,pitch,bearing opens the map there (the issue list's links: a pitch over 0 is the 3D view)
+  const at=location.search.match(/[?&]at=([^&]+)/);
+  if(at){const [x,y,z,p,b]=decodeURIComponent(at[1]).split(',').map(Number); map.jumpTo({center:[x,y],zoom:z||19,pitch:p||0,bearing:b||0});
+    setView(); apply(); return}
+  const m=location.hash.match(/^#c=(.+)$/)||location.search.match(/[?&]c=([^&]+)/); if(!m)return;
   const id=decodeURIComponent(m[1]); if(byId[id])return focusOn(id);
   // a new space (a subsection, an intersection) or one of its parts (<space>#<n>): the space in focus, then the part
   const go=()=>{focusUnit({unit_id:id.split('#')[0]});
@@ -600,6 +608,7 @@ from urbanstyle.mapillary import CLASS_OF as _CLASS_OF
 SEEN_CLASS = {g: c for g, c in _CLASS_OF.items() if c.startswith("furniture.")}     # the observations that are street objects
 SIGN_COLOR = {"give way": "#dc2626", "stop": "#b91c1c", "parking": "#1d4ed8", "no parking": "#2563eb"}
 KERB_BACK_M = 0.5     # a pole moved off the roadway stands this far behind the kerb
+ALLEY_BACK_M = 0.3    # a pole moved out of an alley stands this far beside it
 FACADE_SNAP_M = 3.0   # a point this far inside a building is at its facade (mapped a little off); deeper is indoors
 
 
@@ -607,14 +616,36 @@ FACADE_SNAP_M = 3.0   # a point this far inside a building is at its facade (map
 DOT_COLORS = {"furniture": "#4f46e5", "vegetation": "#16a34a", "utility": "#6b7280", "transit": "#0891b2", "access": "#db2777", "barrier": "#78350f"}
 # layer 0, the ground (space.ground): its kinds' colours; unknown in red, to be found
 GROUND_COLORS = {k: KIND_COLORS[k] for k in ("street", "alley", "building", "yard", "car park", "construction site", "square", "rail", "plot", "green", "water", "path", "structure", "unknown")}
-GROUND_POPUP = ["ground_id", "type", "name", "source", "method", "ref", "area_m2"]
+GROUND_POPUP = ["ground_id", "type", "name", "width_m", "width_method", "source", "method", "ref", "area_m2"]
+# an alley's width: twice its area over its perimeter (a long strip's mean width; no source measures it)
+ALLEY_W = ("CASE WHEN {t} = 'alley' THEN round(2 * ST_Area({g}) / ST_Perimeter({g}), 1) END AS width_m, "
+           "CASE WHEN {t} = 'alley' THEN 'urbanstyle, derived: twice its area over its perimeter' END AS width_method")
 LOT_POPUP = ["type", "name", "operator", "parking", "access", "fee", "id"]     # an off-street car park (space.lot), 2D and 3D
 BLD_POPUP = ["type", "name", "use", "ground_floor", "evidence", "class", "floors", "height_m", "level_src", "source", "id"]     # a building's popup, the same in 2D and 3D
 DOOR_WALL_M = 3.0   # an entrance this near a building's wall is a door in that wall (turned along it)
+BR_POPUP = ["id", "type", "direction", "lane", "lane_id", "edge_id", "osm", "name", "use", "turn", "width_m", "width_source", "width_method",
+            "source", "method", "landing", "axis", "section_m", "height", "connector", "from_lane", "to_lane", "marked"]   # a bridge item's 3D popup
+DECK_EDGE_M = 0.5   # a street light on a bridge deck stands this far inside its edge (on the barrier)
+DECK_NEAR_M = 1.0   # ... also one this near outside the edge
+DECK_EDGE_CLS = ("furniture.lamp", "furniture.sign", "furniture.signal")   # (what stands at a deck's edge)
 OBJ_POPUP, OBJ_TIP = ["type", "width_m", "height_m", "size_from", "details", "sources", "method", "refs", "space"], ["type"]
 TYPE_NAME = {"crossing.zebra": "zebra crossing", "crossing.signalised": "signalised crossing", "crossing.other": "crossing", "kerb.node": "kerb",
              "transit.stop": "transit stop", "access.entrance": "entrance", "access.parking_entrance": "parking entrance", "barrier.other": "barrier",
              "utility.junction_box": "electrical box"}     # a street-lighting junction box: a lid in the pavement, not the junction area
+
+
+def sign_kind(cls, details):
+    """A sign's or a signal's type as people say it, from what its sources say (details: "osm: highway: stop | mapillary:
+    regulatory--stop--g1; seen ..."): "stop sign", "no left turn sign"; any other class as type_of says."""
+    import re
+    t = type_of(cls)
+    if cls not in ("furniture.sign", "furniture.signal") or not details:
+        return t
+    m = re.search(r"traffic_sign: ([^;|]+)", details) or re.search(r"highway: (stop|give_way)", details)
+    if m:
+        return f"{m.group(1).strip().replace('_', ' ')} {t}"
+    m = re.search(r"(regulatory|warning|information|complementary)--([a-z0-9-]+?)--g\d", details)     # Mapillary's value
+    return f"{m.group(2).replace('-', ' ')} {t}" if m else t
 
 
 def type_of(cls):
@@ -638,7 +669,13 @@ def placer(con, epsg):
         pass
     for lv, w in con.execute(f"SELECT l, {to_m} FROM space.element, generate_series(level_min, level_max) t(l) WHERE type = 'building'").fetchall():
         bld.setdefault(lv, []).append(shapely.from_wkb(bytes(w)))
-    trees = {k: {lv: (shapely.STRtree(v), v) for lv, v in d.items()} for k, d in (("road", road), ("walk", walk), ("bld", bld))}
+    alley = {}          # the alleys (space.ground): a pole mapped in one stands just beside it (city lamps stood in their middle)
+    try:
+        for lv, w in con.execute(f"SELECT level, {to_m} FROM space.ground WHERE type = 'alley'").fetchall():
+            alley.setdefault(lv, []).append(shapely.from_wkb(bytes(w)))
+    except duckdb.CatalogException:
+        pass
+    trees = {k: {lv: (shapely.STRtree(v), v) for lv, v in d.items()} for k, d in (("road", road), ("walk", walk), ("bld", bld), ("alley", alley))}
 
     def hit(kind, p, lv):
         t = trees[kind].get(lv)
@@ -650,7 +687,7 @@ def placer(con, epsg):
             return trunk[0]
         if cls not in SNAP:
             return p
-        for kind, gap, near in (("road", KERB_BACK_M, "walk"), ("bld", 0.3, None)):
+        for kind, gap, near in (("road", KERB_BACK_M, "walk"), ("alley", ALLEY_BACK_M, None), ("bld", 0.3, None)):
             inside = hit(kind, p, lv)
             if not inside:
                 continue
@@ -660,9 +697,9 @@ def placer(con, epsg):
                 if not cand:
                     return p
                 q = nearest_points(shapely.union_all(cand), p)[0]
-            else:               # out to the facade, if just inside it (deeper is indoors: it stays)
+            else:               # out to the facade, if just inside it (deeper is indoors: it stays); out of an alley to its side
                 q = nearest_points(inside[0].exterior, p)[0]
-                if q.distance(p) > FACADE_SNAP_M:
+                if kind == "bld" and q.distance(p) > FACADE_SNAP_M:
                     return p
             dx, dy = q.x - p.x, q.y - p.y
             h = (dx * dx + dy * dy) ** 0.5 or 1.0
@@ -701,11 +738,11 @@ def matched_objects(con, epsg, db):
             info[str(oid)] = _fields(attrs)
     seen = {}
     try:
-        for fid, grp, a, b, w in con.execute(f"SELECT feature_id, grp, first_seen, last_seen, {to_m()} FROM space.observed").fetchall():
+        for fid, val, grp, a, b, w in con.execute(f"SELECT feature_id, class, grp, first_seen, last_seen, {to_m()} FROM space.observed").fetchall():
             if grp in SEEN_CLASS:
                 items.append((fid, SEEN_CLASS[grp], 0, grp, "mapillary", shapely.from_wkb(bytes(w)), None, "observed", None))
                 seen[fid] = (a, b)
-                info[str(fid)] = f"seen {a:%Y-%m-%d} .. {b:%Y-%m-%d}" if a and b else ""
+                info[str(fid)] = f"{val}; " * bool(val) + (f"seen {a:%Y-%m-%d} .. {b:%Y-%m-%d}" if a and b else "")
     except duckdb.CatalogException:
         pass
     dos, city = db.replace(".space.duckdb", ".duckdb"), db.replace(".space.duckdb", ".vancouver.json")
@@ -795,13 +832,33 @@ def furniture_3d(con, epsg, place, objs, decks=()):
         W, H = (mwidth or (W0, None))[0], (measured or (H0, None))[0]
         sizes[refs] = (W, H, f"width {W:.2f} m: {mwidth[1] if mwidth else 'urbanstyle (chosen)'}; "
                              f"height {H:.2f} m: {measured[1] if measured else 'urbanstyle (chosen)'}")
-        on = None if cls.startswith(("utility.", "vegetation.")) else next((d for d in decks if d["deck"].contains(p)), None)
+        # on a deck: what no source puts at a level (a city's survey, Mapillary) and lies on one; what OSM maps keeps OSM's level (a stop
+        # sign on West 7th Avenue's cycleway under ramp a2 went up onto the bridge)
+        ground_ = cls.startswith(("utility.", "vegetation.")) or (sources.split(", ")[0] == "osm" and lv <= 0)
+        on = None if ground_ else next((d for d in decks if d["deck"].contains(p)), None)
+        if on is None and not ground_ and cls in DECK_EDGE_CLS:    # a street light (sign, signal) just outside a deck's edge: on its barrier
+            on = next((d for d in decks if d["deck"].exterior.distance(p) < DECK_NEAR_M), None)
+        if on is not None and cls in DECK_EDGE_CLS and (not on["deck"].contains(p) or on["deck"].exterior.distance(p) > DECK_EDGE_M):
+            # a street light, a sign or a signal on a deck stands at its edge: a city's survey places a pole roughly (on Granville
+            # Bridge's ramps two fell on the roadway, where the aerial photo shows them on the barrier) and OSM maps a stop sign on the
+            # road's line (n12797102124, in the middle of the lane)
+            q_ = on["deck"].exterior.interpolate(on["deck"].exterior.project(p))
+            h_ = math.hypot(p.x - q_.x, p.y - q_.y) or 1
+            k_ = 1 if on["deck"].contains(p) else -1            # (from outside: inwards)
+            p = shapely.Point(q_.x + k_ * (p.x - q_.x) / h_ * DECK_EDGE_M, q_.y + k_ * (p.y - q_.y) / h_ * DECK_EDGE_M)
+            sizes[refs] = (*sizes[refs][:2], sizes[refs][2] + "; position: moved to the deck's edge (urbanstyle, derived)")
         dz = on["z"](p.x, p.y) if on else 0.0
         if not cls.startswith("utility.") and not on:       # a manhole, a drain, a lid lies in the ground where it is mapped (a roadway too)
             p = place(p, lv, cls, refs)
         cand = [k for k in rtree.query(p.buffer(25)) if roads[k][0] == lv]
         ux, uy = 0.0, 1.0           # towards the road
-        if cand:
+        if on is not None:          # on a deck: towards the bridge's own nearest road (its axis), not a street on the ground
+            ln_ = min((a_ for a_, _ in on["axes"]), key=lambda a_: a_.distance(p))
+            q = ln_.interpolate(ln_.project(p))
+            h = math.hypot(q.x - p.x, q.y - p.y)
+            if h > 0.1:
+                ux, uy = (q.x - p.x) / h, (q.y - p.y) / h
+        elif cand:
             q = rg[min(cand, key=lambda k: rg[k].distance(p))].interpolate(rg[min(cand, key=lambda k: rg[k].distance(p))].project(p))
             h = math.hypot(q.x - p.x, q.y - p.y)
             if h > 0.1:
@@ -879,7 +936,7 @@ def furniture_3d(con, epsg, place, objs, decks=()):
         top = tops[refs]
         hits = [units[k][0] for k in utree.query(g.centroid) if units[k][1] == lv and ug[k].distance(g.centroid) < 0.5]
         W, H, size_from = sizes[refs]
-        rows.append((cls, type_of(cls), b, t, col, lv, hits[0] if hits else "", refs, sources, methods, round(H, 2), round(W, 2), size_from, details,
+        rows.append((cls, sign_kind(cls, details), b, t, col, lv, hits[0] if hits else "", refs, sources, methods, round(H, 2), round(W, 2), size_from, details,
                      transform(back, g)))
     return gpd.GeoDataFrame([r[:14] for r in rows], columns=["class", "type", "base", "height", "color", "level", "space", "refs", "sources",
                                                              "method", "height_m", "width_m", "size_from", "details"], geometry=[r[14] for r in rows], crs=4326)
@@ -974,6 +1031,7 @@ BRIDGE_JS = """<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128
 <label id=br3dbox style="position:absolute;right:10px;bottom:40px;z-index:5;background:#fff;padding:3px 8px;border-radius:4px;font:12px sans-serif;
   box-shadow:0 1px 3px #0003"><input type=checkbox id=br3don checked> bridges in 3D (__BRNAMES__)</label>
 <script>(()=>{const BR=__BRIDGES__, BC=__BRCOL__; window.brUnits=__BRUNITS__;   // brUnits: the old level-1 spaces the models replace (draw3d)
+window.brAxes=BR.flatMap(M=>M.axes.map(cs=>({cs,name:M.name})));     // the bridges' roads, for Street View (svHere)
 const hex=c=>parseInt(c.slice(1),16);
 function brLayer(M){const o=maplibregl.MercatorCoordinate.fromLngLat(M.origin,0), s=o.meterInMercatorCoordinateUnits();
   const T=new THREE.Matrix4().makeTranslation(o.x,o.y,o.z).scale(new THREE.Vector3(s,-s,s)); let renderer,scene,camera; const pick=[];
@@ -991,7 +1049,7 @@ function brLayer(M){const o=maplibregl.MercatorCoordinate.fromLngLat(M.origin,0)
       M.surf.forEach(sf=>{const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(new Float32Array(sf.v.flat()),3));
         g.setIndex(sf.f.flat()); g.computeVertexNormals(); const c=BC.parts[sf.key]||BC.parts[sf.key.split(' ')[0]]||'#999999';
         const m=new THREE.Mesh(g,sf.props?new THREE.MeshLambertMaterial({color:hex(c),side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-8}):paint(c));
-        if(sf.props){m.userData=sf.props; pick.push(m)} scene.add(m)});
+        if(sf.props){m.userData=sf.props; m.baseHex=hex(c); pick.push(m)} scene.add(m)});
       M.piers.forEach(q=>{const [ax,ay]=q.a,[bx,by]=q.b, m=new THREE.Mesh(new THREE.BoxGeometry(Math.hypot(bx-ax,by-ay),q.t,q.h),new THREE.MeshLambertMaterial({color:hex(BC.girder)}));
         m.position.set((ax+bx)/2,(ay+by)/2,q.h/2); m.rotation.z=Math.atan2(by-ay,bx-ax); scene.add(m)});
       scene.traverse(o=>{o.frustumCulled=false});   // the map's matrix is the camera: three.js's own culling dropped the parts far from the origin
@@ -1007,19 +1065,32 @@ function brHit(pt){const c=map.getCanvas(), x=pt.x/c.clientWidth*2-1, y=1-pt.y/c
     ray.set(a,b.sub(a).normalize()); const h=ray.intersectObjects(L.pick)[0]; if(h&&(!best||h.distance<best.distance))best=h});
   return best&&best.object}
 const brName=p=>p.part_id?`${p.type}${p.direction?' · '+p.direction:''} · ${p.part_id}`:p.type==='lane'?`lane ${p.lane} · ${p.direction} · ${p.name||p.osm}`:`${p.type} · ${p.name||p.osm}`;
-const brTip=new maplibregl.Popup({closeButton:false,closeOnClick:false,offset:12}); let brLit=null, brSel=null, brPop=null;
-const brShow=(m,on)=>{if(m)m.material.emissive.setHex(on?0x555555:0)};
+// hover and selection as on the street (bind3d): a lane, a path or a crosswalk lights up yellow once the mouse rests on it HOVER_MS and
+// names its type; a click selects it (orange) and opens its popup (BR_POPUP: its duckOSM edge_id and lane_id, OSM way, widths and their
+// sources); a second click, a click on nothing, Esc or closing the popup deselects. The street under a bridge takes no hover or click
+// there (window.brAt)
+const BR_POPUP=__BRPOPUP__;
+const brTip=new maplibregl.Popup({closeButton:false,closeOnClick:false,offset:12,className:'u3d-tip'}); let brLit=null, brSel=null, brPop=null, brT=0;
+function brPaint(){Object.values(LAYERS).forEach(L=>(L.pick||[]).forEach(m=>m.material.color.setHex(m===brSel?0xf97316:m===brLit?0xfacc15:m.baseHex)));
+  map.triggerRepaint()}
+window.brAt=pt=>brOn()&&!!brHit(pt);
 let brQ=false, brLast=null;
-map.on('mousemove',e=>{brLast=e; if(brQ)return; brQ=true; requestAnimationFrame(()=>{brQ=false; const m=brHit(brLast.point);
-  if(m!==brLit){if(brLit!==brSel)brShow(brLit,false); brLit=m; brShow(m,true); map.triggerRepaint()}
-  if(m){brTip.setLngLat(brLast.lngLat).setHTML(`<b>${brName(m.userData)}</b>`).addTo(map)}else brTip.remove()})});
-map.on('click',e=>{const m=brHit(e.point); if(!m)return;
-  if(brSel&&brSel!==m)brShow(brSel,false); brSel=m; brShow(m,true); map.triggerRepaint(); if(brPop)brPop.remove();
-  const rows=Object.entries(m.userData).filter(([k,v])=>v!=null&&v!=='').map(([k,v])=>`<tr><td style="color:#64748b;padding-right:6px">${k}</td><td>${v}</td></tr>`).join('');
-  brPop=new maplibregl.Popup({maxWidth:'340px'}).setLngLat(e.lngLat).setHTML(`<b>${brName(m.userData)}</b><table style="font-size:12px">${rows}</table>`).addTo(map);
-  brPop.on('close',()=>{if(brSel){brShow(brSel,false); brSel=null; map.triggerRepaint()}})});
+map.on('mousemove',e=>{brLast=e; if(brQ)return; brQ=true; requestAnimationFrame(()=>{brQ=false; const m=brOn()?brHit(brLast.point):null;
+  if(m)map.getCanvas().style.cursor='pointer';
+  if(m&&m===brLit){brTip.setLngLat(brLast.lngLat); return}                  // lit already: the tooltip follows the mouse
+  clearTimeout(brT); if(brLit){brLit=null; brPaint(); brTip.remove()}       // another thing: the last one off at once
+  if(m)brT=setTimeout(()=>{brLit=m; brPaint(); brTip.setLngLat(brLast.lngLat).setText(m.userData.type).addTo(map)},HOVER_MS)})});
+const brDeselect=()=>{if(!brSel)return false; brSel=null; brPaint(); if(brPop){const p_=brPop; brPop=null; p_.remove()} return true};
+map.on('click',e=>{const m=brOn()?brHit(e.point):null; if(!m||m===brSel){brDeselect(); return}
+  deselect3d(); brSel=m; brPaint(); if(brPop){const p_=brPop; brPop=null; p_.remove()}
+  const p=m.userData, rows=BR_POPUP.filter(k=>p[k]!==undefined&&p[k]!==null&&p[k]!=='').map(k=>`<tr><td><b>${k}</b></td><td>${p[k]}</td></tr>`).join('');
+  const pp=new maplibregl.Popup({closeButton:true,maxWidth:'320px'}).setLngLat(e.lngLat).setHTML('<table>'+rows+'</table>');
+  pp.on('close',()=>{if(brPop===pp){brPop=null; brSel=null; brPaint()}}); brPop=pp; pp.addTo(map)});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')brDeselect()});
 // (added again whenever the style is rebuilt: a basemap or a view switch drops custom layers)
-const brOn=()=>document.getElementById('br3don').checked;
+// (in the 3D view only: in 2D the bridges are the flat "Bridge 2D" layer, every part with its id)
+const brOn=()=>document.getElementById('br3don').checked&&(typeof in3d==='undefined'||in3d);
+map.on('pitchend',()=>Object.keys(LAYERS).forEach(id=>{if(map.getLayer(id))map.setLayoutProperty(id,'visibility',brOn()?'visible':'none')}));
 // the bridge stays the top layer: a flat layer drawn after it (the street, the ground) has no depth test and painted over it, and the page
 // adds its layers after this one
 const brAdd=()=>{if(!map.isStyleLoaded())return; BR.forEach(M=>{const id='br3d-'+M.name; if(!map.getLayer(id)){
@@ -1030,6 +1101,36 @@ const brGo=()=>{if(typeof map==='undefined'||!map.isStyleLoaded||!map.isStyleLoa
   document.getElementById('br3don').onchange=()=>{BR.forEach(M=>{if(map.getLayer('br3d-'+M.name))map.setLayoutProperty('br3d-'+M.name,'visibility',brOn()?'visible':'none')});
     window.brUnits=brOn()?__BRUNITS__:[]; if(typeof draw3d==='function'&&document.body.classList.contains('u3d'))draw3d()}};
 brGo()})();</script>"""
+
+
+def bridge_models(con, bridges):
+    """Each bridge profile's 3D model (bridge3d.model) with the street around it: (models, the level > 0 units they replace)."""
+    import shapely
+    from .bridge3d import model
+    ms, under = [], set()
+    for b in bridges:
+        P_ = json.load(open(b))
+        ol = shapely.Polygon(P_["deck"]["outline"]["value"])
+        to_crs = f"ST_Transform(geometry, 'EPSG:4326', '{P_['crs']}', always_xy := true)"
+        # the street spaces above level 0 on this bridge: their parts and marks lie on the deck; their flat 3D drawing is hidden
+        us = [u for u, w in con.execute(f"SELECT unit_id, ST_AsWKB({to_crs}) FROM space.unit WHERE level > 0").fetchall()
+              if shapely.from_wkb(bytes(w)).intersects(ol)]
+        under |= set(us)
+        pf = ["part_id", "unit_id", "level", "type", "direction", "lane", "lane_id", "width_m", "road", "source", "method", "ref", "rule"]
+        have = {r[0] for r in con.execute("SELECT column_name FROM information_schema.columns WHERE table_schema = 'space' AND table_name = 'part'").fetchall()}
+        sel = ", ".join(c if c in have else f"NULL AS {c}" for c in pf)
+        parts_ = [(dict(zip(pf, r[:-1])), shapely.from_wkb(bytes(r[-1]))) for r in con.execute(
+            f"SELECT {sel}, ST_AsWKB({to_crs}) FROM space.part WHERE unit_id IN (SELECT unnest(?::VARCHAR[]))", [us]).fetchall()]
+        marks_ = [(t, shapely.from_wkb(bytes(w))) for t, w in con.execute(
+            f"SELECT type, ST_AsWKB({to_crs}) FROM space.mark WHERE unit_id IN (SELECT unnest(?::VARCHAR[]))", [us]).fetchall()]
+        # the street's lanes at level 0 near the bridge: a bridge lane that lands on one meets it exactly
+        ground_ = [shapely.from_wkb(bytes(w)) for (w,) in con.execute(
+            f"SELECT ST_AsWKB({to_crs}) FROM space.part WHERE level = 0 AND type = 'lane'").fetchall()]
+        ground_ = [g for g in ground_ if g.distance(ol) < 50]
+        # (the level-1 parts are not laid on the deck: parts.py makes them from rules OSM does not support there, e.g. a "no parking"
+        # strip from parking:both=no, a sidewalk OSM says is not there; the model's lanes and paths follow GMNS and OSM)
+        ms.append(model(P_, None, None, ground_))
+    return ms, under
 
 
 def main(db, out, bridges=None):
@@ -1048,8 +1149,9 @@ def main(db, out, bridges=None):
         "use" || ' (' || use_source || ', ' || use_method || ')' AS "use", ground_use || ' (' || ground_source || ', ' || ground_method || ')' AS ground_floor,
         uses AS evidence FROM space.element WHERE type = 'building'""")
     try:    # layer 0: every piece of the area, by kind
+        gm_ = f"ST_Transform(geometry, 'EPSG:4326', '{epsg_of(con)}', always_xy := true)"
         ground = frame(con, f"""SELECT ST_AsWKB(geometry) AS geometry, ground_id, type, name, source, method, ref, level,
-            round(ST_Area(ST_Transform(geometry, 'EPSG:4326', '{epsg_of(con)}', always_xy := true)), 1) AS area_m2 FROM space.ground""")
+            round(ST_Area({gm_}), 1) AS area_m2, {ALLEY_W.format(t='type', g=gm_)} FROM space.ground""")
         ground["color"] = ground["type"].map(GROUND_COLORS).fillna("#9ca3af")
     except duckdb.CatalogException:     # built before the ground layer
         ground = None
@@ -1185,12 +1287,20 @@ def main(db, out, bridges=None):
             ("connection", "Other level change", "#ec4899", "ways on different layers meet, no ramp, stairs or lift tagged")]
     defs = [d for d in defs if (links["type"] == d[0]).any()]
     o = lambda g, **kw: rs.Overlay(g, placement="under", **kw)
+    ms, under = bridge_models(con, bridges) if bridges else ([], set())
+    # the bridges in 2D (Kaveh, 2026-10-12: "a 2D version of the bridge, everything with an id"): every part of each model, flat, with its id
+    bridge2d = gpd.GeoDataFrame([{**{k: (v if isinstance(v, (str, int, float)) or v is None else str(v)) for k, v in pr.items()},
+                                  "color": PART_COLORS.get(key) or PART_COLORS.get(key.split(" ")[0]) or {"barrier median": "#cfc8bd", "median": "#6b7280",
+                                  "buffer": "#c4b5a0"}.get(key, "#9ca3af"), "geometry": g} for mm in ms for pr, key, g in mm["flat"]],
+                                geometry="geometry", crs=4326) if ms else None
     m = rs.render_edges(
         edges, palette="mono", basemap="voyager", name="urbanstyle", filter_control=False,   # no road-class filter window
         street_view_key=os.environ.get("GOOGLE_MAPS_KEY"),
         settings={"config": {"fill_opacity": 0.35, "casing_opacity": 0.2}}, road_popup=["edge_id", "container_id", "name", "type", "highway", "level", "width_m", "width_src"],   # Street View's linked panorama (the key is written into the page: restrict it in Google Cloud)
         color_options={"Roads": {"color_by": "type", "colors": {"road": "#555", "walkway": "#a16207", "cycleway": "#16a34a"}}},
-        overlays=([o(ground, color=GROUND_COLORS["plot"], color_col="color", opacity=0.55, outline="#94a3b8", width=0.5, label="Ground", popup=GROUND_POPUP,
+        overlays=([rs.Overlay(bridge2d, placement="over", color="#9ca3af", color_col="color", opacity=0.95, outline="#334155", width=0.6,
+                              label="Bridge 2D", popup=BR_POPUP, tooltip=["id", "type"])] if bridge2d is not None and len(bridge2d) else []) +
+                 ([o(ground, color=GROUND_COLORS["plot"], color_col="color", opacity=0.55, outline="#94a3b8", width=0.5, label="Ground", popup=GROUND_POPUP,
                      tooltip=["type", "name"])] if ground is not None and len(ground) else []) +
                  ([rs.Overlay(blocks, placement="over", color=BLOCK_COLOR, opacity=0.25, outline="#7c4a1e", width=1.5, label="Blocks", visible=False,
                               popup=BLOCK_POPUP, tooltip=["block_id"])] if blocks is not None and len(blocks) else []) +
@@ -1296,38 +1406,13 @@ def main(db, out, bridges=None):
     panel = (PANEL.replace("__PCOL__", json.dumps(PART_COLORS)).replace("__RAISED__", json.dumps(RAISED)).replace("__KERBTOP__", json.dumps(KERB_TOP_M)).replace("__OBJPOPUP__", json.dumps(OBJ_POPUP)).replace("__BLDPOPUP__", json.dumps(BLD_POPUP)).replace("__LOTPOPUP__", json.dumps(LOT_POPUP)).replace("__GROUNDPOPUP__", json.dumps(GROUND_POPUP)).replace("__NEWU__", json.dumps(newu)).replace("__MARKS__", json.dumps([t for t, *_ in MARKS if len(marks) and (marks["type"] == t).any()])).replace("__TREE__", json.dumps(tree_data(con, epsg)).replace("</", "<\\/"))
              .replace("__LEVELS__", json.dumps(list(range(LEVELS[0], LEVELS[1] + 1)))).replace("__LINKDEF__", json.dumps([{"t": t, "lab": n, "c": c, "d": d} for t, n, c, d in defs]))
              .replace("__KINDS__", json.dumps([{"k": k, "lab": lab, "c": c} for k, lab, c in kinds])).replace("__OBJDEF__", json.dumps([{"g": g, "c": c} for g, c in ogroups])).replace("__OBJCOLORS__", json.dumps({k: v[2] for k, v in OBJ_SHAPES.items()})).replace("__STRIPS__", json.dumps([{"t": t, "lab": lab, "c": c} for t, lab, c, _ in sdefs])).replace("__HAS__", json.dumps(has)).replace("__LEVELBTNS__", "".join(f'<button data-l="{l}">{l}</button>' for l in range(LEVELS[0], LEVELS[1] + 1))))
-    if bridges:     # [bridge profile]: each as a 3D model (bridge3d.py), its surface drawn as the street (the level's own parts on its deck)
-        import shapely
-        from .bridge3d import model
-        ms, under = [], set()
-        for b in bridges:
-            P_ = json.load(open(b))
-            ol = shapely.Polygon(P_["deck"]["outline"]["value"])
-            to_crs = f"ST_Transform(geometry, 'EPSG:4326', '{P_['crs']}', always_xy := true)"
-            # the street spaces above level 0 on this bridge: their parts and marks lie on the deck; their flat 3D drawing is hidden
-            us = [u for u, w in con.execute(f"SELECT unit_id, ST_AsWKB({to_crs}) FROM space.unit WHERE level > 0").fetchall()
-                  if shapely.from_wkb(bytes(w)).intersects(ol)]
-            under |= set(us)
-            pf = ["part_id", "unit_id", "level", "type", "direction", "lane", "lane_id", "width_m", "road", "source", "method", "ref", "rule"]
-            have = {r[0] for r in con.execute("SELECT column_name FROM information_schema.columns WHERE table_schema = 'space' AND table_name = 'part'").fetchall()}
-            sel = ", ".join(c if c in have else f"NULL AS {c}" for c in pf)
-            parts_ = [(dict(zip(pf, r[:-1])), shapely.from_wkb(bytes(r[-1]))) for r in con.execute(
-                f"SELECT {sel}, ST_AsWKB({to_crs}) FROM space.part WHERE unit_id IN (SELECT unnest(?::VARCHAR[]))", [us]).fetchall()]
-            marks_ = [(t, shapely.from_wkb(bytes(w))) for t, w in con.execute(
-                f"SELECT type, ST_AsWKB({to_crs}) FROM space.mark WHERE unit_id IN (SELECT unnest(?::VARCHAR[]))", [us]).fetchall()]
-            # the street's lanes at level 0 near the bridge: a bridge lane that lands on one meets it exactly
-            ground_ = [shapely.from_wkb(bytes(w)) for (w,) in con.execute(
-                f"SELECT ST_AsWKB({to_crs}) FROM space.part WHERE level = 0 AND type = 'lane'").fetchall()]
-            ground_ = [g for g in ground_ if g.distance(ol) < 50]
-            # (the level-1 parts are not laid on the deck: parts.py makes them from rules OSM does not support there, e.g. a "no parking"
-            # strip from parking:both=no, a sidewalk OSM says is not there; the model's lanes and paths follow GMNS and OSM)
-            ms.append(model(P_, None, None, ground_))
+    if bridges:     # [bridge profile]: each as a 3D model (bridge3d.py), its surface drawn as the street
         under = sorted(under)
-        col = {"deck": PART_COLORS["lane"], "girder": "#8f8b86", "rail": "#cfc8bd",      # the deck's top is roadway; its sides concrete
+        col = {"deck": "#a8a29e", "girder": "#8f8b86", "rail": "#cfc8bd",      # the deck: bare concrete, not a lane's colour (it looked like lanes)
                "parts": {**PART_COLORS, **{f"mark {t}": c for t, c, *_ in MARKS}, "mark kerb": "#8f8b86", "barrier": "#cfc8bd", "railing": "#6b7280"}}
-        page_ms = [{k: v for k, v in mm.items() if k not in ("lanes", "lines")} for mm in ms]     # (the page draws `surf`)
+        page_ms = [{k: v for k, v in mm.items() if k not in ("lanes", "lines", "flat")} for mm in ms]     # (the page draws `surf`)
         panel += (BRIDGE_JS.replace("__BRIDGES__", json.dumps(page_ms, separators=(",", ":"))).replace("__BRNAMES__", ", ".join(mm["name"] for mm in ms))
-                  .replace("__BRCOL__", json.dumps(col)).replace("__BRUNITS__", json.dumps(under)))
+                  .replace("__BRCOL__", json.dumps(col)).replace("__BRPOPUP__", json.dumps(BR_POPUP)).replace("__BRUNITS__", json.dumps(under)))
     open(out, "w").write(m.html.replace("</body>", panel + "</body>"))
 
 
@@ -1520,7 +1605,8 @@ def layers(db, out):
     # a building is drawn whole: its own outline, even where it reaches over the block's edge (the ground item stops at the edge)
     whole = """CASE WHEN g.type = 'building' AND e.geometry IS NOT NULL THEN e.geometry ELSE {col} END"""
     land = frame(con, f"""SELECT ST_AsWKB({whole.format(col='g.geometry')}) AS geometry, g.ground_id, g.type, g.type AS node, 'block' AS p0,
-        g.name, g.source, g.method, g.ref, {a('g.geometry')} AS area_m2
+        g.name, g.source, g.method, g.ref, {a('g.geometry')} AS area_m2,
+        {ALLEY_W.format(t='g.type', g=f"ST_Transform(g.geometry, 'EPSG:4326', '{ep}', always_xy := true)")}
         FROM space.ground g LEFT JOIN space.element e ON e.type = 'building' AND e.source_id = g.ref WHERE g.type <> 'street'""")
     land["color"] = land["type"].map(LAYER_COLORS[0]).fillna("#9ca3af")
     surf = frame(con, f"""SELECT ST_AsWKB(CASE WHEN s.type = 'building' AND g.type = 'building' AND e.geometry IS NOT NULL THEN e.geometry

@@ -407,3 +407,24 @@ Before (cuts from the road network, last version): 120 sections, 54 intersection
 - **Levels.** Only level 0. Bridges and tunnels (levels 1, -1) have their own street, without blocks: their spaces follow the deck.
 - **Stable ids** as above, and the move into the pipeline: `blocks.py` (step 1), the cutting in `spaces.py` from the blocks (steps 2-4),
   then subsections (step 5); `urbanstyle check` before and after.
+
+## A barrier through a junction (2026-10-11)
+
+**Problem.** Intersection i0-616471133 (Fir Street × West 8th Avenue) is one area across three roads: Fir Street northbound
+(w48524379), the Granville Bridge ramp's road (w473319095) and Fir Street southbound (w48524371). No block lies between them, so the
+division makes one junction from all the street space there. But OSM has two junctions: W 8th Ave from the east meets Fir Street
+northbound at n4707734005, and W 8th Ave to the west meets Fir Street southbound at n616471133. On the page, the joined area connected
+W 8th Ave east to W 8th Ave west, and that move does not exist.
+
+**Rule** (`division.py`, "barriers").
+
+1. Two carriageways have an island between them (`island`, "two carriageways apart") on both sides of an intersection.
+2. OSM gives the two ways no node in common in that intersection.
+3. Then a barrier (part type `barrier`, `BARRIER_W_M` = 0.5 m wide, 0.8 m high in 3D) joins the facing ends of the two islands across
+   the intersection. The parts that it crosses are cut to give it room.
+4. A SUMO move that crosses a barrier is not drawn, and it is not a head of a turn arrow.
+
+**Result on Broadway × Granville.** Two barriers: i0-616471133 (w473319095 and w48524379) and i0-255687224 (w48524371 and w48524379,
+at West 7th Avenue). 4 moves are not drawn: the move from W 8th Ave east to W 8th Ave west, and U-turns across the space between the
+two Fir Street roads. Checks before and after: U12 2 → 6 (approaches with no straight move: those moves were false). R1 0 → 1, R4 5 → 7
+and U11 7 → 8 come from the lane corrections (`corrections/lanes.json`), not from the barriers.

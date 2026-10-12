@@ -1,0 +1,116 @@
+{
+  "Granville Bridge": {
+    "median": "barrier",
+    "note": "a guardrail between the two directions (checked by hand on 2026-10-11; OSM maps none)",
+    "rectangle": [
+      "a8",
+      "a6",
+      "a5",
+      "a1",
+      "a4",
+      "a9",
+      "a3",
+      "a11",
+      "a12",
+      "a10",
+      "a7",
+      "a2"
+    ],
+    "rectangle_note": "a8, a6, a5, a1, a4, a9, a3 drawn as strips of one width each along their lines, the paths OSM maps (Kaveh, 2026-10-12); a7 added (2026-10-12); a2 added (2026-10-12)",
+    "smooth": [
+      "a5",
+      "a3",
+      "a4",
+      "a7",
+      "a2"
+    ],
+    "smooth_note": "a5: a1's straight line, one curve, its own line; a6: one curve from a1 to OSM's smooth footway w871038559; a9: a1's line straight on while OSM's a9 is near it; a4: beside a9 on a1's west lanes while OSM's a4 is there, then one curve to its OSM line (Kaveh, 2026-10-12); a4 back to its own OSM line, separate from a9 (Kaveh, 2026-10-12)",
+    "smooth_follow": {
+      "a6": "w871038559"
+    },
+    "smooth_beside": {
+      "a9": "straight"
+    },
+    "lane_links": [
+      [
+        "7783013650305663093_2",
+        "7563496326637953498_3"
+      ]
+    ],
+    "lane_links_note": "a3's outer lane runs on into a9's outer lane at the a10 node (Kaveh, 2026-10-12); SUMO links a3's inner lane there",
+    "round": [
+      "a3",
+      "a10"
+    ],
+    "smooth_to_end": [
+      "a9"
+    ],
+    "smooth_beside_max": {
+      "a9": 20
+    },
+    "split_at": {
+      "a4": [
+        52
+      ]
+    },
+    "split_note": "a4's first section split at 52 m, where its lane _1 leaves a9's lanes (measured on the page; Kaveh, 2026-10-12)",
+    "join_lanes": [
+      [
+        "4747140365369135178_1",
+        "a4",
+        "4865609269725927722_2",
+        "a9"
+      ]
+    ],
+    "no_guard": [
+      [
+        "a2",
+        "left"
+      ]
+    ],
+    "smooth_ends": [
+      [
+        "a4",
+        "end",
+        "right"
+      ]
+    ],
+    "pair": [
+      [
+        "a11",
+        "a12",
+        "a10"
+      ]
+    ],
+    "strip_paths": {
+      "a10": [
+        "w538616397"
+      ]
+    },
+    "keep_paths": [
+      "w1417439065",
+      "w1417439069"
+    ],
+    "straight_from_node": [
+      "a4"
+    ],
+    "straight_from_node_note": "a4: one straight line from its start on a1's lanes to OSM's straight part, no curve (Kaveh, 2026-10-12)",
+    "gore_paths": [
+      [
+        "a7",
+        "a2",
+        "w871038545"
+      ]
+    ],
+    "gore_paths_note": "the gore between a7 and a2 is footway w871038545, one shape with its strip, where the zebra w871038540 lands (Kaveh, 2026-10-12)",
+    "strip_osm_end": {
+      "a4": {
+        "w1383685288": "w1417439066"
+      }
+    },
+    "strip_osm_end_note": "a4's shared path w1383685288 runs on as OSM's w1417439070 to the cycle crossing w1417439066 and ends there; w1417439070 is in its strip (dropped); footway w871038559 moves in past it (Kaveh, 2026-10-12)",
+    "drop_paths": [
+      "w1417439070"
+    ]
+  }
+}

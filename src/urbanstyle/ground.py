@@ -205,7 +205,7 @@ def build(con, epsg):
 STREET_SURFACE = {**dict.fromkeys(("lane", "bus lane", "cycle lane", "carriageway", "junction area", "ring", "shoulder", "parking", "no parking",
                                    "bus zone", "crosswalk", "cycle crossing"), "roadway"),
                   **dict.fromkeys(("sidewalk", "furnishing", "frontage", "open", "bus stop", "tree pit", "driveway"), "pedestrian realm"),
-                  "island": "median"}
+                  "island": "median", "barrier": "median"}       # (a barrier between two carriageways stands where a median would)
 VERGE_LAND = ("grass", "flowerbed", "planting")       # OSM green mapped inside a street: a verge
 GARDEN_LAND = ("garden", "grass", "allotments", "flowerbed")
 PLAY_LAND = ("playground", "pitch", "dog_park")

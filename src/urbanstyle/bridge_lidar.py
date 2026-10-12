@@ -21,10 +21,13 @@ MIN_PTS = 20        # fewer returns than this in a window: no measurement there
 REF_SIGMA_M = 60.0  # the bridge's reference ground: the ground samples weighted over this (a Gaussian)
 LAND_SIGMA_M = 30.0 # ... and each landing's deck, over this
 LAND_W = 25.0       # ... with this weight against one ground sample, so a landing is at 0
-LAND_M = 0.5        # the deck meets the ground: less than this above it
 LAND_TAPER_M = 60.0 # a landing's last metres: the height left by the reference ground goes to 0 over this
-EXT_STEP_M = 5.0    # a ramp that OSM ends in the air runs on in steps of this
-EXT_MAX_M = 150.0   # ... at most this far
+EXT_MAX_M = 150.0   # a ramp runs on along the road that continues it to the next junction, at most this far
+CLOSE_M = 3.0       # a landing's deck is closed across gaps narrower than twice this
+PATH_NEAR_M = 4.0   # a landing takes OSM's paths along it this far beyond its lanes
+NEAR_M = 12.0       # ... a junction of other roads this near beside it counts too (the ramp passes between two, e.g. Fir Street x W 8th)
+NOT_ROADS = ("footway", "cycleway", "path", "steps", "pedestrian", "track", "corridor", "bridleway", "construction", "proposed",
+             "elevator", "platform", "service")     # a way of these does not make a junction (a driveway, an alley: blocks.py's too)
 SKIP = (3, 4, 5, 7, 9, 18)      # ASPRS low, medium, high vegetation, low noise, water, high noise: not the deck
 GROUND = (2, 9)                 # ground, water
 
@@ -76,10 +79,13 @@ def _shift(a, d):
         e["s"] = round(e["s"] + d, 2) if e["s"] else 0.0
 
 
+from .bridge_profile import PATH_W, SHARED_W      # noqa: E402  (the paths' chosen widths, as on the bridge)
+
+
 def measure(profile, tiles, survey="City of Vancouver LiDAR 2022", osm_db=None):
     """The profile with each axis's vertical points measured where the LiDAR has returns (a new dict; `profile` is not changed):
-    - a ramp whose OSM bridge way ends above the ground (the deck there more than LAND_M over it) runs on along the OSM road that continues
-      it, while the LiDAR still sees the deck above the ground, to where they meet (at most EXT_MAX_M; needs osm_db);
+    - the footprint is OSM's, the LiDAR gives heights only: where an axis's OSM bridge way ends on the ground, the ramp runs on (on
+      fill) along the OSM road that continues it to the next junction (at most EXT_MAX_M; needs osm_db);
     - each height is the measured deck (in the survey's datum) above one reference ground for the whole bridge: the measured ground
       samples weighted over REF_SIGMA_M and pinned to the deck at every landing, so the deck stays as smooth as measured (the ground
       under it jumps: a street, an island, the water) and every landing is at 0 on the flat map."""
@@ -95,6 +101,7 @@ def measure(profile, tiles, survey="City of Vancouver LiDAR 2022", osm_db=None):
     P = copy.deepcopy(profile)
     # ponytail: NAD83(CSRS) and WGS84 taken as one (no grid shift): about 1 m sideways, less than a lane; add a grid when it matters
     to_l = pyproj.Transformer.from_crs(P["crs"], "EPSG:26910", always_xy=True).transform
+    to_ll_ = pyproj.Transformer.from_crs("EPSG:26910", "EPSG:4326", always_xy=True).transform     # the survey's frame to lon / lat
     unit = lambda ln, s: (lambda a0, b0: (lambda h: ((b0.x - a0.x) / h, (b0.y - a0.y) / h))(
         ((b0.x - a0.x) ** 2 + (b0.y - a0.y) ** 2) ** .5 or 1))(ln.interpolate(max(s - 1, 0)), ln.interpolate(min(s + 1, ln.length)))
     osm = None
@@ -114,13 +121,17 @@ def measure(profile, tiles, survey="City of Vancouver LiDAR 2022", osm_db=None):
         if ax.length - rows[-1][0] > 1.0:       # the last station at the very end
             p = ax.interpolate(ax.length)
             rows.append((ax.length, p.x, p.y, *_sample(dl, tiles, p.x, p.y, *unit(ax, ax.length), *_bands_at(a, ax.length))))
-        # a landing that OSM puts too early: run on along the road that continues it, to where the deck meets the ground
+        # the footprint is OSM's, the LiDAR gives heights only: where OSM's bridge way ends, the ramp runs on (on fill) along the OSM road
+        # that continues it, to the next junction (a node where another road meets it)
         for e in (0, 1):
             end = a["ends"][e]
-            st = rows[-1] if e else rows[0]
-            if osm is None or not end.get("ground") or not end.get("node") or st[3] is None or st[4] is None or st[3] - st[4] <= LAND_M:
+            if osm is None or not end.get("ground") or not end.get("node"):
                 continue
             node = int(end["node"][1:])
+            if len([w_ for (w_,) in osm.execute("SELECT osm_id FROM raw.ways WHERE list_contains(refs, ?) AND tags['highway'] IS NOT NULL "
+                                                 "AND tags['highway'] NOT IN (SELECT unnest(?::VARCHAR[]))", [node, list(NOT_ROADS)]).fetchall()
+                    if f"w{w_}" not in a["ways"]]) >= 2:
+                continue            # the bridge way ends at a junction already
             out = ax.coords[-1] if e else ax.coords[0]
             back = ax.interpolate(ax.length - 5.0 if e else 5.0)
             ox, oy = out[0] - back.x, out[1] - back.y
@@ -141,66 +152,148 @@ def measure(profile, tiles, survey="City of Vancouver LiDAR 2022", osm_db=None):
                         continue
                     cos = ((pts[1][0] - pts[0][0]) * dx_ + (pts[1][1] - pts[0][1]) * dy_) / (math.dist(pts[0], pts[1]) * math.hypot(dx_, dy_) or 1)
                     if cos > 0.7 and (best is None or cos > best[0]):
-                        best = (cos, wid, pts, rs[-1])
+                        best = (cos, wid, pts, rs)
                 if best is None:
                     break
-                _, wid, pts, nd = best
+                _, wid, pts, rs_ = best
+                # the first node of the way (after its start) where another road meets it: the junction, the ramp's end
+                k_ = next((i for i, r in enumerate(rs_[1:], 1) if osm.execute(
+                    "SELECT count(*) FROM raw.ways WHERE list_contains(refs, ?) AND osm_id <> ? AND tags['highway'] IS NOT NULL "
+                    "AND tags['highway'] NOT IN (SELECT unnest(?::VARCHAR[]))", [r, wid, list(NOT_ROADS)]).fetchone()[0]), None)
                 wids.append(wid)
                 starts.append(sum(math.dist(p_, q_) for p_, q_ in zip(chain, chain[1:])))
+                pts = pts[:k_ + 1] if k_ is not None else pts
                 chain = chain + (pts if not chain else pts[1:])
                 dx_, dy_ = chain[-1][0] - chain[-2][0], chain[-1][1] - chain[-2][1]
+                nd = rs_[-1]
+                if k_ is not None:
+                    nd = rs_[k_]
+                    break
             if len(chain) < 2:
                 continue
             road = shapely.LineString(chain)
             lo, hi = _bands_at(a, ax.length if e else 0.0)
-            reach = 0.0
-            d_ = EXT_STEP_M
-            while d_ <= min(EXT_MAX_M, road.length):
-                p = road.interpolate(d_)
-                top, ground, n = _sample(dl, tiles, p.x, p.y, *unit(road, d_), lo, hi)
-                if top is None or ground is None:
-                    break
-                reach = d_
-                if top - ground <= LAND_M:
-                    break
-                d_ += EXT_STEP_M
-            if reach < EXT_STEP_M:
+            # it ends where the junction space begins: before each junction node on it or within NEAR_M beside it, by the crossing
+            # street's half right-of-way (blocks.HALF_ROW) and the junction's reach into each arm (division.ARM_M), as the street is cut
+            from .blocks import HALF_ROW
+            from .division import ARM_M
+            bx0, by0, bx1, by1 = road.buffer(NEAR_M).bounds
+            (lo0, la0), (lo1, la1) = to_ll_(bx0, by0), to_ll_(bx1, by1)
+            reach = min(road.length, EXT_MAX_M)
+            for nid, lat, lon in osm.execute("SELECT osm_id, lat, lon FROM raw.nodes WHERE lat BETWEEN ? AND ? AND lon BETWEEN ? AND ?",
+                                             [min(la0, la1), max(la0, la1), min(lo0, lo1), max(lo0, lo1)]).fetchall():
+                q = shapely.Point(to_l(*from_ll(lon, lat)))
+                if road.distance(q) > NEAR_M:
+                    continue
+                others = [(w_, t_, r_) for w_, t_, r_ in osm.execute(
+                    "SELECT osm_id, tags['highway'], refs FROM raw.ways WHERE list_contains(refs, ?) AND tags['highway'] IS NOT NULL "
+                    "AND tags['highway'] NOT IN (SELECT unnest(?::VARCHAR[]))", [nid, list(NOT_ROADS)]).fetchall()
+                    if w_ not in wids and f"w{w_}" not in a["ways"]]
+                if len(others) < (1 if road.distance(q) < 0.5 else 2):      # a junction: another road meets the ramp's road, or two meet
+                    continue
+                sq = road.project(q)
+                ux, uy = unit(road, sq)
+                # the crossing street: the other road there that runs most across the ramp
+                def across_(r_):
+                    k = r_.index(nid)
+                    nb = r_[k + 1] if k + 1 < len(r_) else r_[k - 1]
+                    ll_ = osm.execute("SELECT lat, lon FROM raw.nodes WHERE osm_id = ?", [nb]).fetchone()
+                    if ll_ is None:
+                        return 0.0
+                    px, py = to_l(*from_ll(ll_[1], ll_[0]))
+                    h_ = math.hypot(px - q.x, py - q.y) or 1
+                    return abs((px - q.x) / h_ * uy - (py - q.y) / h_ * ux)
+                cls = max(others, key=lambda o_: across_(o_[2]))[1]
+                reach = min(reach, sq - HALF_ROW.get(cls.replace("_link", ""), 10) - ARM_M)
+            if reach < 1.0:
                 continue
             wid = "+w".join(str(w_) for w_, s_ in zip(wids, starts) if s_ < reach)      # the ways the landing reaches
             piece = shapely.ops.substring(road, 0, reach)
+            land_end_ = "end" if e else "start"
             ext = [to_back for to_back in piece.coords][1:]
             back_ll = pyproj.Transformer.from_crs("EPSG:26910", P["crs"], always_xy=True).transform
             ext_p = [[round(c, 2) for c in back_ll(x, y)] for x, y in ext]
-            # the deck goes on under it: the outline grows by the piece, as wide as the lanes there (OSM's outline stops where OSM's bridge
-            # way stops, so the measured landing had lanes and no deck)
-            corridor = shapely.LineString([a["line"]["value"][-1 if e else 0]] + ext_p).buffer(max(abs(lo), abs(hi)), cap_style="flat")
+            # the sidewalks and cycle paths along the landing (OSM's, at ground level: no bridge tag) go on with it: the bridge's paths
+            # stopped where OSM's bridge way stops, and the landing had none
+            pc = shapely.LineString([a["line"]["value"][-1 if e else 0]] + ext_p)
+            reach_p = max(abs(lo), abs(hi))
+            side_r = {1: reach_p, -1: reach_p}      # how far the deck reaches on each side of the landing's line (its paths' far edge)
+            have = {f["way"] for f in P.get("paths", [])}
+            bb = shapely.LineString([to_ll_(*to_l(x, y)) for x, y in pc.coords]).buffer(0.0003).bounds
+            near_n = [n for (n,) in osm.execute("SELECT osm_id FROM raw.nodes WHERE lon BETWEEN ? AND ? AND lat BETWEEN ? AND ?",
+                                                 [bb[0], bb[2], bb[1], bb[3]]).fetchall()]
+            for wid_p, t_p, rs_p in osm.execute(
+                    """SELECT osm_id, tags, refs FROM raw.ways WHERE tags['highway'] IN ('footway', 'cycleway', 'path')
+                       AND coalesce(tags['footway'], '') <> 'crossing' AND coalesce(tags['cycleway'], '') <> 'crossing'
+                       AND list_has_any(refs, ?::BIGINT[])""", [near_n]).fetchall():
+                ll_p = dict(((i, (x, y)) for i, y, x in osm.execute("SELECT osm_id, lat, lon FROM raw.nodes WHERE osm_id IN (SELECT unnest(?::BIGINT[]))",
+                                                                     [rs_p]).fetchall()))
+                gp = shapely.LineString([from_ll(*ll_p[r]) for r in rs_p if r in ll_p]) if sum(r in ll_p for r in rs_p) > 1 else None
+                if gp is None or f"w{wid_p}" in have:
+                    continue
+                gp = gp.intersection(pc.buffer(reach_p + PATH_NEAR_M, cap_style="flat"))
+                for piece_p in shapely.get_parts(gp):
+                    if piece_p.geom_type != "LineString" or piece_p.length < 5.0:
+                        continue
+                    (ax_, ay_), (bx_, by_) = piece_p.coords[0], piece_p.coords[-1]
+                    q0, q1 = pc.interpolate(pc.project(shapely.Point(ax_, ay_))), pc.interpolate(pc.project(shapely.Point(bx_, by_)))
+                    if math.hypot(q1.x - q0.x, q1.y - q0.y) < 0.8 * piece_p.length:
+                        continue        # (not along the landing: a crossing or a path that leaves it)
+                    hw = t_p.get("highway")
+                    shared = t_p.get("foot") == "designated" and t_p.get("bicycle") == "designated"
+                    P.setdefault("paths", []).append({
+                        "way": f"w{wid_p}", "type": "shared path" if shared else "cycleway" if hw == "cycleway" else "footway",
+                        "name": t_p.get("name"), "line": [[round(x, 2), round(y, 2)] for x, y in piece_p.coords],
+                        "width": {"value": SHARED_W if shared else PATH_W.get(hw, 2.0), "source": "urbanstyle", "method": "chosen"},
+                        "source": f"osm w{wid_p}", "method": "mapped", "footway": t_p.get("footway"), "crossing": None, "markings": None,
+                        "foot": t_p.get("foot"), "bicycle": t_p.get("bicycle"), "segregated": t_p.get("segregated"), "cycleway": t_p.get("cycleway"),
+                        "landing": f"{a['id']} {land_end_}"})
+                    mp = piece_p.interpolate(0.5, normalized=True)
+                    sm_ = pc.project(mp)
+                    ta, tb = pc.interpolate(max(sm_ - 1, 0)), pc.interpolate(min(sm_ + 1, pc.length))
+                    sd = 1 if (tb.x - ta.x) * (mp.y - ta.y) - (tb.y - ta.y) * (mp.x - ta.x) > 0 else -1
+                    side_r[sd] = max(side_r[sd], piece_p.distance(pc) + 0.5 * (SHARED_W if shared else PATH_W.get(hw, 2.0)) + 0.3)
+            # the deck goes on under it: the outline grows by the piece, as wide as the lanes and paths there (OSM's outline stops where
+            # OSM's bridge way stops, so the measured landing had lanes and no deck)
+            corridor = shapely.union_all([pc.buffer(side_r[1], cap_style="flat", single_sided=True),
+                                          pc.buffer(-side_r[-1], cap_style="flat", single_sided=True)])
+            # (a one-sided buffer leaves a wedge open on the outside of each bend of the line: the deck, its sidewalk and its guard had a
+            # gap at each one; closed here, the ends kept square)
+            corridor = corridor.buffer(CLOSE_M, join_style="mitre").buffer(-CLOSE_M, join_style="mitre").intersection(
+                pc.buffer(max(side_r.values()) + 0.01, cap_style="flat"))
             grown = shapely.union_all([shapely.Polygon(P["deck"]["outline"]["value"]).buffer(0), corridor])
             grown = max(shapely.get_parts(grown), key=lambda g_: g_.area)
             P["deck"]["outline"]["value"] = [[round(x, 2), round(y, 2)] for x, y in grown.exterior.coords]
             if "measured landings" not in P["deck"]["outline"]["source"]:
                 P["deck"]["outline"]["source"] += "; urbanstyle: the measured landings, as wide as their lanes"
                 P["deck"]["outline"]["method"] += "+derived"
+            # the landing is a section of its own: the bridge's lanes going on, on the OSM way it follows (a correction of that way's
+            # lane count then applies to it: ramp a2 has 1 lane on the bridge, 2 on its landing w473319095)
+            land_way = f"w{wids[0]}"
             if e:
                 a["line"]["value"] += ext_p
-                for sec in a["sections"][-1:]:
-                    old = sec["s1"]
-                    sec["s1"] = round(old + reach, 2)
-                    for b in sec["bands"]:
-                        if "s_to" in b and abs(b["s_to"] - old) < 1.0:
-                            b["s_to"] = sec["s1"]
+                last = a["sections"][-1]
+                old = last["s1"]
+                new_sec = json.loads(json.dumps(last))
+                new_sec.update(s0=old, s1=round(old + reach, 2))
+                for b in new_sec["bands"]:
+                    b.update(way=land_way, s_from=old, s_to=new_sec["s1"])
+                a["sections"].append(new_sec)
                 end["s"] = round(a["length_m"] + reach, 2)
             else:
                 a["line"]["value"] = ext_p[::-1] + a["line"]["value"]
                 _shift(a, reach)
-                a["sections"][0]["s0"] = 0.0
-                for b in a["sections"][0]["bands"]:
-                    if "s_from" in b and b["s_from"] - reach < 1.0:
-                        b["s_from"] = 0.0
+                first = a["sections"][0]
+                new_sec = json.loads(json.dumps(first))
+                new_sec.update(s0=0.0, s1=round(reach, 2))
+                for b in new_sec["bands"]:
+                    b.update(way=land_way, s_from=0.0, s_to=new_sec["s1"])
+                a["sections"].insert(0, new_sec)
             a["length_m"] = round(a["length_m"] + reach, 2)
             a.setdefault("landings", []).append({"end": "end" if e else "start", "way": f"w{wid}", "length_m": round(reach, 1),
                                                  "source": survey, "method": "measured",
-                                                 "rule": f"OSM's bridge way ends {st[3] - st[4]:.1f} m above the ground; the deck runs on along w{wid} "
-                                                         f"until it is within {LAND_M} m of the ground"})
+                                                 "rule": f"OSM's bridge way ends; the road runs on (on fill) along w{wid} to where the next junction's "
+                                                         f"space begins; the LiDAR measures its heights only"})
             end["node"] = None
             ax = shapely.LineString([to_l(x, y) for x, y in a["line"]["value"]])
             rows = []

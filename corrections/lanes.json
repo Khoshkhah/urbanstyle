@@ -1,0 +1,10 @@
+{
+  "w473319095": {"lanes": 2, "note": "the same ramp on the ground to Fir Street: 2 lanes on the 2018 aerial photo; OSM has no lanes tag"},
+  "w1316244492": {"lanes": 4, "lanes:forward": 2, "lanes:backward": 2, "note": "Granville Bridge arm a8 (edges 3928960611192915185, 3150630999811029611): 2 lanes each way; OSM says 2 in all"},
+  "w37226820": {"lanes": 2, "note": "Granville Bridge axis a3, last part (edge 7783013650305663093): 2 lanes, checked by hand; OSM says 1"},
+  "w1419040137": {"lanes": 5, "lanes:forward": 3, "lanes:backward": 2, "note": "Granville Bridge axis a9 (edge 4865609269725927722): 2 lanes backward, checked by hand; OSM says lanes:backward=1"},
+  "w1419040132": {"lanes": 5, "lanes:forward": 3, "lanes:backward": 2, "note": "Granville Bridge (edges 1740108642237212104, 5189800690465899850): 3 forward, 2 backward, checked by hand; OSM says 2 and 1"},
+  "w1285848467": {"lanes": 3, "note": "Granville Bridge (edge 4147826010470322749): 3 lanes, checked by hand; OSM says 2"},
+  "w1419040133": {"lanes": 5, "lanes:forward": 3, "lanes:backward": 2, "note": "Granville Bridge (edge 4643876958042171767): 3 lanes forward, checked by hand; OSM says 4 in all"},
+  "w1419040138": {"lanes": 5, "lanes:forward": 3, "lanes:backward": 2, "note": "Granville Bridge a10, the 19 m between w1419040133 and w1419040132 (both corrected to 3 forward): 3 forward too, so no lane drops for 19 m (assumed from its neighbours)"}
+}

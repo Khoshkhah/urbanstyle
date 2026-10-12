@@ -247,3 +247,29 @@ def run(path):
         print(f"  {cid:3s} {status:5s} {value:6d}  {what}")
     return failed
 
+
+
+def bridge(profile, db=None):
+    """The bridge model's checks (bridge3d.model_checks) for a bridge profile, as the page draws it: with a unit's `db`, its street's
+    lanes near the bridge for the landings (as the dashboard passes them)."""
+    import json
+    import shapely
+    from .bridge3d import model
+    P = json.load(open(profile))
+    ground = None
+    if db:
+        c = duckdb.connect(db, read_only=True)
+        c.execute("LOAD spatial")
+        ol = shapely.Polygon(P["deck"]["outline"]["value"])
+        to_crs = f"ST_Transform(geometry, 'EPSG:4326', '{P['crs']}', always_xy := true)"
+        ground = [g for (w,) in c.execute(f"SELECT ST_AsWKB({to_crs}) FROM space.part WHERE level = 0 AND type = 'lane'").fetchall()
+                  for g in [shapely.from_wkb(bytes(w))] if g.distance(ol) < 50]
+    print(f"\n== {profile}  (bridge model: {P['name']})")
+    failed = False
+    for cid, what, value, hard, at in model(P, None, None, ground)["checks"]:
+        status = "PASS" if value == 0 else ("FAIL" if hard else "INFO")
+        failed |= status == "FAIL"
+        print(f"  {cid:3s} {status:5s} {value:6d}  {what}")
+        for x, y in at[:5]:         # where: a page link opens there in 3D (dashboard ?at=)
+            print(f"            ?at={x:.6f},{y:.6f},20,60,0")
+    return failed

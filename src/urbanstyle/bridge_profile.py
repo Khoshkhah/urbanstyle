@@ -291,6 +291,8 @@ def _offset(ax, s, geom):
 def _sections(ax, ways, links, lanes, lines):
     """The axis cut where the bands change: at each end of a GMNS link along it. Each section's bands from left to right: the lanes of
     the links over its middle (the paths are the profile's `paths`, each along its own line)."""
+    from .corrections import SOURCE as CORR_SRC, lanes as corrected, per_direction
+    CORR = corrected()
     import shapely
     import shapely.ops
     width_src = {}      # the ways whose lane widths OSM gives (width:lanes)
@@ -312,11 +314,24 @@ def _sections(ax, ways, links, lanes, lines):
                 continue
             d = "forward" if b > a else "backward"
             src, how = _lane_count(lines[osm][2])
-            for lane_id, num, use, width, turn, lg, cut in lanes.get(lk, []):
+            gl = [(lane_id, num, use, width, turn, _offset(ax, sm, lg), cut) for lane_id, num, use, width, turn, lg, cut in lanes.get(lk, [])]
+            if osm in CORR and gl:      # a corrected count: GMNS's lanes laid again, as many as the correction says, from its first
+                src, how = f"{CORR_SRC}: {CORR[osm][1]}", "corrected"
+                ow = lines[osm][2].get("oneway") in ("yes", "-1", "true", "1")
+                wl = lines[osm][0]          # the link along its way (forward) or against it (backward)
+                along_way = wl.project(shapely.Point(gm.coords[0])) <= wl.project(shapely.Point(gm.coords[-1]))
+                n_c = per_direction(CORR[osm][0], ow)[0 if along_way else 1]
+                gl.sort(key=lambda q: q[1])
+                w_ = gl[0][3]
+                o = -1 if d == "forward" else 1       # the travel's right, across the axis
+                t1 = (sum(q[5] for q in gl) / len(gl) - o * (n_c - 1) / 2 * w_) if ow else gl[0][5]
+                gl = [(gl[k][0] if k < len(gl) else f"{lk}_{k + 1}", k + 1, gl[k][2] if k < len(gl) else None, w_,
+                       gl[k][4] if k < len(gl) else None, round(t1 + o * k * w_, 2), gl[min(k, len(gl) - 1)][6]) for k in range(n_c)]
+            for lane_id, num, use, width, turn, t_, cut in gl:
                 # where SUMO ends the lane at a junction (GMNS geom_cut): the band stops there, a connector goes on
                 ca, cb = sorted((ax.project(shapely.Point(cut.coords[0])), ax.project(shapely.Point(cut.coords[-1])))) if cut else (s0, s1)
                 bands.append({"type": "lane", "lane_id": lane_id, "link": str(lk), "way": f"w{osm}", "direction": d, "lane": num, "use": use,
-                              "turn": turn, "t": _offset(ax, sm, lg), "source": src, "method": how,
+                              "turn": turn, "t": t_, "source": src, "method": how,
                               "s_from": round(max(s0, ca), 2), "s_to": round(min(s1, cb), 2),
                               "width": _val(width, "osm width:lanes" if width_src.get(osm) else "duckOSM GMNS (road class)",
                                             "mapped" if width_src.get(osm) else "chosen")})

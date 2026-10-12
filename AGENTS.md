@@ -58,6 +58,8 @@ The order of work: `docs/plan.md`.
   U1-U10 test them; U11-U13 report the lanes entering each junction (`space.approach`),
   G1-G2 the ground (`space.ground`), L1-L2 the surfaces (`space.surface`), B1 and B6 the blocks (`space.block`); R1-R4 the roadway at
   level 0: R1 its edges at the joints, R4 the lanes that meet their continuation there (`division.join_lanes`, tapers).
+  `urbanstyle check DB --bridge PROFILE` adds BR1-BR8, the bridge model's own checks (`bridge3d.model_checks`: guard on a lane,
+  holes, guard gaps, paths on paths, slivers, lanes of two axes overlapping, lanes with no arrow, steps at landings), each with `?at=` links.
 - `src/urbanstyle/mapillary.py`: `urbanstyle mapillary DB [--osm OSM]` fetches Mapillary's features and photos into `DB.mapillary.json`
   (token: `$MAPILLARY_TOKEN` or `~/.config/mapillary/token`, never in the repo) and loads `space.observed` / `space.photo`; `build`
   loads that file when present (`docs/design/mapillary.md`). CC BY-SA: the data stays local. Mapillary is for validation only
@@ -126,7 +128,7 @@ mkdocs build --strict                                  # needs pip install ".[do
   object (`matched_objects`: OSM, Mapillary and a city's survey matched by `unit.match`; `furniture_3d`). In 3D a hover lights a lane,
   kerb, building or object and names its type; a click selects it and opens its popup (the same fields as in 2D: OBJ_POPUP,
   BLD_POPUP, the Parts popup); Esc, a second click or closing the popup deselects. A hover lights a thing only once the mouse rests on it
-  300 ms (HOVER_MS; in 2D roadstyle's `hover_delay_ms`). Street View in 3D: every click moves an open window to the nearest road (svHere),
+  300 ms (HOVER_MS; in 2D roadstyle's `hover_delay_ms`). Street View in 3D: every click moves an open window to the nearest road or bridge axis (svHere, `window.brAxes`),
   because 3D hides the road lines roadstyle's Street View follows. 2D overlays' wanted visibility is roadstyle's
   `ov.visible`; a 3D layer is never drawn in 2D. Terrain only when "rough terrain" is ticked: the public AWS Terrain Tiles (~30 m) are
   too coarse for Monaco and broke the map; needs a 1-5 m terrain.

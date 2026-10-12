@@ -9,7 +9,9 @@ def main(argv=None):
     b = sub.add_parser("build", help="build the space schema from a duckOSM database")
     b.add_argument("osm", help="duckOSM .duckdb (a copy with features is made next to OUT if it has none)")
     b.add_argument("out", help="output .duckdb")
-    sub.add_parser("check", help="conformance checks; exit 1 if a hard check fails").add_argument("db", nargs="+")
+    ck = sub.add_parser("check", help="conformance checks; exit 1 if a hard check fails")
+    ck.add_argument("db", nargs="+")
+    ck.add_argument("--bridge", nargs="+", default=[], help="bridge profiles: the bridge model's checks too (BR1-BR8)")
     sub.add_parser("quality", help="shape quality of the sections").add_argument("db", nargs="+")
     d = sub.add_parser("dashboard", help="an offline HTML map with the hierarchy tree (needs roadstyle)")
     d.add_argument("db")
@@ -42,6 +44,10 @@ def main(argv=None):
     bm.add_argument("out", help="the measured profile: a .json file or a directory")
     bm.add_argument("--lidar", nargs="+", required=True, help="ducklidar Parquet tiles that cover the bridge")
     bm.add_argument("--osm", help="the duckOSM .duckdb of the profile: a ramp that OSM ends in the air runs on along the road that continues it")
+    b2 = sub.add_parser("bridge2d", help="the bridge model in 2D, every part with its id, as GeoJSON for viz/bridge2d.html (seconds)")
+    b2.add_argument("profile", help="a <name>.bridge.json (measured)")
+    b2.add_argument("out", help="the GeoJSON file, e.g. viz/bridge2d.geojson")
+    b2.add_argument("--db", help="a unit's space db: its street's lanes for the landings")
     a = p.parse_args(argv)
 
     if a.cmd == "build":
@@ -53,8 +59,8 @@ def main(argv=None):
         print("links:", c.execute("SELECT type, level_a, level_b, count(*) FROM space.link GROUP BY ALL ORDER BY ALL").fetchall())
         print("next: urbanstyle dashboard", a.out, "viz/<area>.html")
     elif a.cmd == "check":
-        from .checks import run
-        return 1 if any([run(x) for x in a.db]) else 0
+        from .checks import bridge, run
+        return 1 if any([run(x) for x in a.db] + [bridge(b, a.db[0]) for b in a.bridge]) else 0
     elif a.cmd == "quality":
         from .quality import run
         for x in a.db:
@@ -68,6 +74,9 @@ def main(argv=None):
     elif a.cmd == "bridge-measure":
         from .bridge_lidar import write as measure
         print(measure(a.profile, a.out, a.lidar, a.osm))
+    elif a.cmd == "bridge2d":
+        from .bridge2d import write as write2d
+        print(write2d(a.profile, a.out, a.db), "parts ->", a.out)
     elif a.cmd == "bridge":
         from .bridge_profile import write
         print("\n".join(write(a.osm, a.gmns, a.name, a.out_dir)))

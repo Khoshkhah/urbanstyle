@@ -20,6 +20,7 @@ import json
 import math
 import os
 import statistics
+import re
 
 STEP_M, SAMPLE_M, RAY_M, FACE_DEG = 1.0, 0.5, 80.0, 30.0   # shares: points along outlines; facing tested every; how far; along within
 MAX_POINTS = 60000       # the shares from at most this many points
@@ -52,6 +53,8 @@ FRONTAGE_MIN_M = 0.75    # a frontage or buffer zone narrower than this is the c
 ROADWAY = ("lane", "shoulder", "parking", "bus zone", "cycle lane", "junction area")
 PIECE_MIN_M2 = 5.0       # a strip smaller than this (in a very short subsection) joins the neighbouring strip it shares the most edge with
 STOP_BACK_M = 1.0        # a stop line stands this far before the section's end at an intersection
+BARRIER_W_M = 0.5        # a barrier between two carriageways through a junction (chosen)
+BARRIER_SPAN_M = 60.0    # ... joining two islands at most this far apart
 STREET = ("motorway", "trunk", "primary", "secondary", "tertiary", "unclassified", "residential", "living_street", "pedestrian")
 from .parts import (ARROW_M, BUS_ZONE_M, CROSS_ON_M, CROSSWALK_M, DRIVEWAY_M, GTFS_M, LINE, SAME_CROSSING_M,  # noqa: E402  (as
                     STOP_KERB_M, ZEBRA_BAR_M, ZEBRA_GAP_M)                                                  #  parts.py paints them)                                            #  paints it and the dashboard draws it)
@@ -75,6 +78,27 @@ SCHEMA = {
     "approach": dict(unit_id=V, level=I, from_edge=V, lane=I, moves=I, ways=V, arrow="BOOLEAN", no_arrow_because=V),
 }
 
+
+def arrow_shape(tip, h, ways):
+    """A painted lane arrow (parts.py's shape): a shaft ARROW_M long to `tip` along unit h, a head for each of `ways` (straight, left,
+    right)."""
+    import shapely
+    hx, hy = h
+    tail = (tip[0] - hx * ARROW_M, tip[1] - hy * ARROW_M)
+    fork = (tail[0] + hx * ARROW_M * 0.45, tail[1] + hy * ARROW_M * 0.45)
+    pieces, heads = [[tail, tip if "straight" in ways else fork]], []
+    if "straight" in ways:
+        heads.append((tip, (hx, hy)))
+    for w in ("left", "right"):
+        if w in ways:
+            sx, sy = (-hy, hx) if w == "left" else (hy, -hx)
+            end = (fork[0] + hx * 0.7 + sx * 1.0, fork[1] + hy * 0.7 + sy * 1.0)
+            pieces.append([fork, end])
+            d = math.hypot(end[0] - fork[0], end[1] - fork[1])
+            heads.append((end, ((end[0] - fork[0]) / d, (end[1] - fork[1]) / d)))
+    for (px, py), (dx, dy) in heads:
+        pieces.append([(px - dx * 0.8 - dy * 0.4, py - dy * 0.8 + dx * 0.4), (px, py), (px - dx * 0.8 + dy * 0.4, py - dy * 0.8 - dx * 0.4)])
+    return shapely.MultiLineString(pieces)
 
 def build(con, epsg):
     import duckdb
@@ -254,9 +278,18 @@ def build(con, epsg):
     lanes = {}
     for oid, rev, ln in rows("SELECT osm_id, is_reverse, median(lanes) FROM osm.driving.edges WHERE lanes IS NOT NULL GROUP BY 1, 2"):
         lanes[(oid, bool(rev))] = int(ln)
+    from .corrections import SOURCE as CORR_SRC, lanes as corrected, per_direction
+    CORR = corrected()      # corrections to OSM's lane counts replace the driving network's
+    for oid, (tg_c, _) in CORR.items():
+        f_c, b_c = per_direction(tg_c, (oid, True) not in lanes)
+        lanes[(oid, False)] = f_c
+        if b_c:
+            lanes[(oid, True)] = b_c
     # the streets' roads: at level 0, and on a deck at level 1 where nothing at ground level passes under it (works, not a bridge), as
     # for the blocks: such a deck is the street at ground level
-    cand = [(oid, n, cl, bool(ow), wd, src, dst, g(w), lv) for oid, n, cl, ow, wd, src, dst, w, lv in rows(f"""SELECT osm_id, name, class,
+    # (a corrected way's carriageway is at least as wide as its corrected lanes: its width came from OSM's count, before the correction)
+    cw_min = lambda oid, wd: max(wd or 0.0, LANE_M * sum(per_direction(CORR[oid][0], (oid, True) not in lanes))) if oid in CORR else wd
+    cand = [(oid, n, cl, bool(ow), cw_min(oid, wd), src, dst, g(w), lv) for oid, n, cl, ow, wd, src, dst, w, lv in rows(f"""SELECT osm_id, name, class,
                coalesce(oneway, false), width_m, src, dst, {m()}, level_min FROM space.element WHERE type IN ('road', 'walkway')
                AND level_min IN (0, 1) AND replace(class, '_link', '') IN {STREET}""")]
     ground_lines = [c[7] for c in cand if c[8] == 0] + [g(w) for (w,) in rows(f"SELECT {m()} FROM space.element WHERE type = 'rail' AND level_min = 0")]
@@ -283,6 +316,13 @@ def build(con, epsg):
     unmarked = {oid for (oid,) in rows("""SELECT osm_id FROM osm.raw.ways WHERE tags['crossing'] = 'unmarked' OR tags['crossing:markings'] = 'no'""")}
     cross_pts = [(oid, cl, g(w)) for oid, cl, w in rows(f"""SELECT object_id, class, {m()} FROM space.object WHERE level = 0
                                                          AND class IN ('crossing.zebra', 'crossing.signalised')""")]
+    # zebra bars only where OSM's crossing:markings says so (zebra, ladder, yes) or says nothing: a cycle crossing of dots, pictograms
+    # and a green surface (n3438718321, the Granville Connector over Fir Street x West 5th Avenue) has none
+    zebra_ok = lambda mk: mk is None or bool({"zebra", "ladder", "yes"} & set(str(mk).split(";")))
+    unmarked |= {oid for oid, mk in rows("SELECT osm_id, tags['crossing:markings'] FROM osm.raw.ways WHERE tags['crossing:markings'] IS NOT NULL")
+                 if not zebra_ok(mk)}
+    node_mk = {f"n{n}": mk for n, mk in rows("SELECT osm_id, tags['crossing:markings'] FROM osm.raw.nodes WHERE tags['crossing:markings'] IS NOT NULL")}
+    cross_pts = [c for c in cross_pts if zebra_ok(node_mk.get(str(c[0])))]
     # roads inside the blocks (alleys, driveways, parking aisles) and OSM's parking entrances: where the street opens to them
     services = [(oid, wd, g(w)) for oid, wd, w in rows(f"""SELECT osm_id, width_m, {m()} FROM space.element WHERE type = 'road'
                                                          AND level_min = 0 AND replace(class, '_link', '') NOT IN {STREET}""")]
@@ -346,6 +386,9 @@ def build(con, epsg):
     bike_t = tree_of([x for _, x in bikeways])
     osm_tags = {oid: dict(t or {}) for oid, t in rows("SELECT osm_id, tags FROM osm.raw.ways WHERE osm_id IN (SELECT DISTINCT osm_id FROM space.element "
                                                      "WHERE type IN ('road', 'walkway') AND level_min IN (0, 1))")}
+    for oid, (tg_c, _) in CORR.items():       # (and their tags OSM's)
+        if oid in osm_tags:
+            osm_tags[oid].update(tg_c)
     otree = shapely.STRtree(objs) if objs else None
 
     def objects_in(ax, Q, sg):
@@ -1046,7 +1089,9 @@ def build(con, epsg):
                                  1.5 if osm_n else 0.8, fixed=bool(osm_n)), dict(park_pv), dict(bike_pv))
             (sc, n, pk, bk), park_pv, bike_pv = fits[key]
             # what the lanes are: OSM's count where the width holds it, else the count the width holds (the fit)
-            if osm_n and n == osm_n:
+            if rd[0] in CORR:
+                lane_pv = (CORR_SRC, "corrected", f"w{rd[0]} lanes={osm_n}: {CORR[rd[0]][1]}")
+            elif osm_n and n == osm_n:
                 lane_pv = ("osm", "mapped", f"w{rd[0]} lanes={tg.get('lanes') or osm_n}")
             elif osm_n:
                 lane_pv = ("urbanstyle", "derived", f"w{rd[0]} lanes={osm_n}; the width kerb to kerb holds {n}")
@@ -1073,7 +1118,7 @@ def build(con, epsg):
                 n_al = min(max(round(n * c["al"] / (c["al"] + c["ag"])), 1), n - 1) if n > 1 else 1
             al_dir, ag_dir = ("forward", "backward") if fwd else ("backward", "forward")     # relative to the OSM way
             shared = n == 1 and c["al"] > 0 and c["ag"] > 0     # a two-way street one lane wide: one lane both ways (a yield street)
-            rule = f"fit: {n} lanes" + (f" (OSM: {osm_n})" if osm_n else " (OSM: none)") + \
+            rule = f"fit: {n} lanes" + (f" (corrected: {osm_n})" if rd[0] in CORR else f" (OSM: {osm_n})" if osm_n else " (OSM: none)") + \
                    "".join(f", parking {('left' if sd > 0 else 'right')}" for sd in (1, -1) if pk[sd]) + \
                    "".join(f", bike lane {('left' if sd > 0 else 'right')}" for sd in (1, -1) if bk[sd])
             ie, t = [], lo + gut
@@ -1372,6 +1417,37 @@ def build(con, epsg):
             mark(iid, "kerb", lines(k_.intersection(X.buffer(0.01))), a_pv[0], "derived", a_pv[2])
         widths.append((iid, None, None, None, None, None, None, None, None, None, "urbanstyle", None))
 
+    # ---- barriers: two carriageways that OSM never joins (no node in common) stay apart through a junction too: where islands between
+    # the same two ways lie on both sides of an intersection, a barrier joins their facing ends across it, and no move crosses it (Fir
+    # Street northbound and the Granville Bridge ramp at West 8th Avenue: no way from one to the other there; Kaveh, 2026-10-11)
+    import shapely.ops
+    isles = [p for p in parts if p["type"] == "island" and str(p.get("ref") or "").endswith("two carriageways apart")]
+    pair_ids = {int(w) for p in isles for w in re.findall(r"w(\d+)", p["ref"])}
+    way_refs = {o: set(r) for o, r in rows("SELECT osm_id, refs FROM osm.raw.ways WHERE osm_id IN (SELECT unnest(?::BIGINT[]))", [sorted(pair_ids)])}
+    bars = []
+    for i, p in enumerate(isles):
+        for q in isles[i + 1:]:
+            if p["ref"] != q["ref"] or p["unit_id"] == q["unit_id"]:
+                continue
+            wa, wb = (int(w) for w in re.findall(r"w(\d+)", p["ref"]))
+            a_, b_ = shapely.ops.nearest_points(p["geom"], q["geom"])
+            link = shapely.LineString([a_, b_])
+            if link.length > BARRIER_SPAN_M or not any(link.intersection(x).length > 0.5 * link.length for x in inter):
+                continue
+            if any(x.buffer(1.0).contains(nodes[n]) for x in inter for n in (way_refs.get(wa, set()) & way_refs.get(wb, set())) if n in nodes):
+                continue            # OSM joins the two ways at a node in that junction: a real junction between them
+            bars.append((link.buffer(BARRIER_W_M / 2, cap_style="flat"), f"w{wa}, w{wb}: no node in common in this junction"))
+    BAR = shapely.union_all([b for b, _ in bars]) if bars else None
+    if bars:
+        for p in parts:             # each space the barrier crosses gives it room: its parts cut, the barrier one of them
+            if p["geom"].intersects(BAR):
+                p["geom"] = p["geom"].difference(BAR)
+        for b, ref_ in bars:
+            for uid, U in [(i_, x) for i_, x in zip(inter_ids, inter)] + [(u_[0], u_[3]) for u_ in units if u_[1] != "intersection"]:
+                if U.intersects(b):
+                    add(uid, "barrier", b.intersection(U), width_m=BARRIER_W_M, width_method="chosen", direction=None, lane=None,
+                        **PV("urbanstyle", "derived", ref_), **POS(("urbanstyle", "derived", ref_)))
+
     # ---- SUMO on our lanes: duckOSM's driving network to SUMO (sumo.network) with the lanes fitted here (count and width of each
     # direction of each OSM way, where its edge runs); SUMO decides which lane goes on to which. Its connections are drawn as guide lines
     # from our in-lane's end to our out-lane's start (space.turn), and give the turn arrows (space.approach)
@@ -1531,6 +1607,10 @@ def build(con, epsg):
             if turn_ is None:
                 miss_["no turn" + (" (through)" if dr is None else "")] = miss_.get("no turn" + (" (through)" if dr is None else ""), 0) + 1
                 continue
+            if BAR is not None and lin_ is not None and lout_ is not None and \
+                    shapely.LineString([lane_end(lin_, False)[0], lane_end(lout_, True)[0]]).intersects(BAR):
+                miss_["across a barrier"] = miss_.get("across a barrier", 0) + 1
+                continue
             if lin_ is not None and jin is not None:
                 moves.setdefault(lin_["key"], set())
                 lane_edge[lin_["key"]] = f
@@ -1625,24 +1705,7 @@ def build(con, epsg):
     xw = shapely.union_all([b for b, _, _ in bands]) if bands else shapely.Polygon()
     painted = set()     # lanes with an arrow
 
-    # ---- arrows: a shaft ARROW_M long to its tip and a head for each way the lane may go (parts.py's shape)
-    def arrow_shape(tip, h, ways):
-        hx, hy = h
-        tail = (tip[0] - hx * ARROW_M, tip[1] - hy * ARROW_M)
-        fork = (tail[0] + hx * ARROW_M * 0.45, tail[1] + hy * ARROW_M * 0.45)
-        pieces, heads = [[tail, tip if "straight" in ways else fork]], []
-        if "straight" in ways:
-            heads.append((tip, (hx, hy)))
-        for w in ("left", "right"):
-            if w in ways:
-                sx, sy = (-hy, hx) if w == "left" else (hy, -hx)
-                end = (fork[0] + hx * 0.7 + sx * 1.0, fork[1] + hy * 0.7 + sy * 1.0)
-                pieces.append([fork, end])
-                d = math.hypot(end[0] - fork[0], end[1] - fork[1])
-                heads.append((end, ((end[0] - fork[0]) / d, (end[1] - fork[1]) / d)))
-        for (px, py), (dx, dy) in heads:
-            pieces.append([(px - dx * 0.8 - dy * 0.4, py - dy * 0.8 + dx * 0.4), (px, py), (px - dx * 0.8 + dy * 0.4, py - dy * 0.8 - dx * 0.4)])
-        return shapely.MultiLineString(pieces)
+    # ---- arrows: a shaft ARROW_M long to its tip and a head for each way the lane may go (arrow_shape)
 
     for sub, ax, mid, sgn, ways, said, ref, key_ in arrow_req:
         L_ = ax.length

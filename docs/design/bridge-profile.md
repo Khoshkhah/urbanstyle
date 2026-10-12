@@ -181,8 +181,8 @@ No source gives these values yet (`bridge_profile.py`). Each one is in the profi
 - **One reference ground for the whole bridge.** The measured deck is smooth, but the ground under it jumps (a street, Granville
   Island, the water). Each height is now the measured deck above one smooth reference ground: the ground and water samples weighted
   over 60 m and pinned to the deck at each landing. A landing's last 60 m go to 0 smoothly. The axes agree where they meet.
-- **A ramp that OSM ends in the air runs on to its measured landing**, along the OSM road that continues it, while the LiDAR still
-  sees the deck above the ground (at most 150 m). Granville Bridge: a2 45 m, a8 70 m, a5, a6, a11, a12 5-10 m (`landings` on the axis).
+- **A ramp runs on to the next junction** (changed on 2026-10-11, see "The footprint comes from OSM" below). Before, the LiDAR
+  decided where a ramp ends.
 - **The lanes and lines follow their own axis.** The deck blends two axes only where their heights agree within 1.5 m (a fork).
 - **Piers along every axis** (`place_piers`), every 50 m where the deck is 3 m or more above the ground, none within 15 m of another;
   made again from the measured heights; each pier only as wide as its own road. Granville Bridge: 52 on 11 axes (before: 11, on the
@@ -248,3 +248,30 @@ The end of a2 had three more faults:
    overlapped the lanes next to it, at the same height. A path is now cut where it overlaps a vehicle lane (the lanes' widths come from
    SUMO). The deck's top and every surface on it are also cut by a 4 m grid. Before, long triangles across a sloped deck were up to
    0.2 m off the deck's height.
+
+## The footprint comes from OSM; corrections to the model (2026-10-11)
+
+- **The footprint comes from OSM. The LiDAR gives heights only.** Where OSM's bridge way ends, the ramp continues on fill along
+  the OSM road that continues it, to the next junction: the first node where another road meets it (`NOT_ROADS`: footways and
+  similar ways do not count). This is 150 m at most (`EXT_MAX_M`). If the bridge way ends at a junction, the ramp does not continue.
+  The LiDAR measures the heights along the ramp. Granville Bridge: a2 102 m (to OSM node n414553083, where it meets Fir Street),
+  a3 3.8 m, a5 37 m, a6 48 m, a7 32 m, a8 71 m, a11 56 m, a12 82 m.
+- **Lanes end at a mapped path beside them** (`fit_lanes`). GMNS chooses a lane width of 3.25 m from the road class. Where these
+  widths reach over a path that OSM maps beside the lanes, each lane edge on that side moves in by one factor. Then the lanes end
+  at the edge of the path. The lane count does not change. The width's method says this. Granville Bridge a9: the 3 forward lanes
+  are 2.3 m to 2.5 m wide, and sidewalk w538616396 is visible again.
+- **A path is not drawn on top of another path.** The paths are drawn longest first. A path is not drawn where a longer path is,
+  and pieces narrower than 0.5 m are not drawn (`PATH_MIN_M`). Before, OSM's short links and the ends of paths that join another
+  path made a second surface at the same height. This caused the "tails" (w871038539, w1417439068), the flicker on shared path
+  w1417439065, and the U-shaped pieces of sidewalk between two lanes.
+- **No guard on a lane.** A guard is not drawn more than 0.5 m inside a lane (`GUARD_ON_LANE_M`). It is also not drawn across the
+  end of the deck where an axis reaches the ground.
+- **Arrows and guide lines.** Each lane has a direction arrow every 100 m (`ARROW_EVERY_M`), or one in its middle if it is shorter.
+  Before a junction on the deck, the lane has a turn arrow with one head for each direction that SUMO's connectors let it go.
+  Each connector has a guide line, as on the street. The arrow shape is `division.arrow_shape`, the same as on the street.
+- **The bare deck is concrete grey.** Before, it had a lane's colour, so the deck beside a lane looked like more lanes.
+- **Street lights on a deck stand at its edge.** The city's survey gives approximate positions. A street light inside a deck, or
+  less than 1 m outside its edge, moves to 0.5 m inside the edge, and its popup says so. The aerial photo shows the poles of ramp
+  a2 on its barrier.
+- **Street View** in 3D also follows the bridge's axes (`window.brAxes`), because the map's roads do not go onto the bridge.
+

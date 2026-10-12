@@ -34,3 +34,32 @@ def test_a_landing_meets_the_street():
     assert min(v[2] for v in m["verts"]) == 0.0
     ends = [v for v in m["verts"] if abs(v[0] + 50) < 0.1]           # the deck's start (map metres: UTM scale 0.9996 here)
     assert ends and max(v[2] for v in ends) == 0.0
+
+
+def test_no_guard_across_a_road_that_reaches_the_ground():
+    """Where an axis reaches the ground, no guard stands across the deck's end, also outside its lanes (pieces were left between the
+    lanes and the deck's corners, as blocks on the road)."""
+    P = _profile()
+    P["axes"][0]["ends"] = [{"s": 0.0, "ground": True}, {"s": 100.0, "ground": True}]
+    guard = [v for sf in model(P)["surf"] if sf["key"] in ("barrier", "railing") for v in sf["v"]]
+    assert guard and not [v for v in guard if abs(v[0]) > 49.0 and abs(v[1]) < 9.0]
+
+
+def test_lanes_end_at_a_mapped_path_and_carry_arrows():
+    """Lanes whose chosen widths reach over a footway OSM maps beside them narrow to end at it (the count stays); every lane has an
+    arrow."""
+    P = _profile()
+    P["paths"] = [{"way": "w1", "type": "footway", "line": [[X, Y - 3.5], [X + 100, Y - 3.5]], "footway": "sidewalk",
+                   "width": {"value": 2.0, "source": "test", "method": "chosen"}, "source": "test", "method": "mapped"}]
+    m = model(P)
+    fwd = [l["props"] for l in m["lanes"] if l["props"].get("direction") == "forward"][0]
+    assert fwd["width_m"] == 2.75 and "narrowed" in fwd["width_method"]          # to the path's inner edge (2.5 m), but not under LANE_MIN_M
+    assert [l["props"] for l in m["lanes"] if l["props"].get("direction") == "backward"][0]["width_m"] == 3.25
+    assert sum(sf["key"] == "mark arrow" for sf in m["surf"]) >= 2 * 2     # a shaft and a head in each of the two lanes
+
+
+def test_model_checks_pass_on_a_plain_bridge():
+    """The bridge checks (BR1-BR8) find nothing wrong on a plain deck, and say where they look."""
+    rows = model(_profile())["checks"]
+    assert [r[0] for r in rows] == [f"BR{i}" for i in range(1, 9)]
+    assert not [r for r in rows if r[3] and r[2]]

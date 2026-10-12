@@ -748,11 +748,30 @@ def matched_objects(con, epsg, db):
     return out
 
 
-def furniture_3d(con, epsg, place, objs):
+def bridge_decks(bridges, epsg):
+    """Each bridge profile's deck (bridge3d.surface), in `epsg` metres."""
+    from .bridge3d import surface
+    out = []
+    for b in bridges:
+        P = json.load(open(b))
+        if P["crs"] != epsg:            # the profile in the dashboard's metres
+            import pyproj
+            f = pyproj.Transformer.from_crs(P["crs"], epsg, always_xy=True).transform
+            P = json.loads(json.dumps(P))
+            P["deck"]["outline"]["value"] = [list(f(x, y)) for x, y in P["deck"]["outline"]["value"]]
+            for a in P["axes"]:
+                a["line"]["value"] = [list(f(*q[:2])) for q in a["line"]["value"]]
+        out.append(surface(P))
+    return out
+
+
+def furniture_3d(con, epsg, place, objs, decks=()):
     """The 3D view's street furniture, each a few stacked blocks turned to its road: a street light (pole, arm over the road, lamp), a
     traffic light (pole, signal head), a sign (pole, plate in its colour), a tree (trunk, crown), a bench (seat, back), a bin, a bollard.
     one per real object (`objs`: matched_objects), where it stands (place). Polygons in lon/lat: base, height, colour, level, and the
-    object they draw in OBJ_POPUP's fields (type, sources, refs: every source's id, space), the same as in 2D."""
+    object they draw in OBJ_POPUP's fields (type, sources, refs: every source's id, space), the same as in 2D. `decks`: each bridge's
+    deck (bridge3d.surface, in `epsg`): a pole or a sign that stands inside one stands on it, at its height (a city's survey gives no
+    level: its lamps along a ramp's edges are on the ramp); a tree, a manhole or a drain stays on the ground under it."""
     import math
     import shapely
     from shapely.ops import transform
@@ -776,7 +795,9 @@ def furniture_3d(con, epsg, place, objs):
         W, H = (mwidth or (W0, None))[0], (measured or (H0, None))[0]
         sizes[refs] = (W, H, f"width {W:.2f} m: {mwidth[1] if mwidth else 'urbanstyle (chosen)'}; "
                              f"height {H:.2f} m: {measured[1] if measured else 'urbanstyle (chosen)'}")
-        if not cls.startswith("utility."):       # a manhole, a drain, a lid lies in the ground where it is mapped (a roadway too)
+        on = None if cls.startswith(("utility.", "vegetation.")) else next((d for d in decks if d["deck"].contains(p)), None)
+        dz = on["z"](p.x, p.y) if on else 0.0
+        if not cls.startswith("utility.") and not on:       # a manhole, a drain, a lid lies in the ground where it is mapped (a roadway too)
             p = place(p, lv, cls, refs)
         cand = [k for k in rtree.query(p.buffer(25)) if roads[k][0] == lv]
         ux, uy = 0.0, 1.0           # towards the road
@@ -804,7 +825,7 @@ def furniture_3d(con, epsg, place, objs):
         def blk(off, L, W, b, t, col):     # a block centred `off` m towards the road, L along it, W across
             cx, cy = p.x + ux * off, p.y + uy * off
             pts = [(cx + ax * a * L / 2 + ux * c * W / 2, cy + ay * a * L / 2 + uy * c * W / 2) for a, c in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
-            out.append((shapely.Polygon(pts), b, t, col, cls, lv, refs, sources, None, details, methods))
+            out.append((shapely.Polygon(pts), b + dz, t + dz, col, cls, lv, refs, sources, None, details, methods))
         if cls == "furniture.lamp":             # pole W wide, H high; its arm and lamp over the road
             blk(0, W, W, 0, H, "#52525b"); blk(0.8, 0.12, 1.6, H - 0.25, H - 0.1, "#52525b"); blk(1.6, 0.35, 0.6, H - 0.55, H - 0.25, "#fde68a")
         elif cls == "furniture.signal":         # pole W wide; its signal head the top metre
@@ -1059,7 +1080,7 @@ def main(db, out, bridges=None):
     shapes = object_shapes(con, epsg_of(con), place)
     try:
         mobjs = matched_objects(con, epsg_of(con), db)
-        furn = furniture_3d(con, epsg_of(con), place, mobjs)
+        furn = furniture_3d(con, epsg_of(con), place, mobjs, bridge_decks(bridges or [], epsg_of(con)))
         # 2D: one dot per real object, where its model stands (its smallest block: the pole, the trunk, the cover), coloured by kind
         dots = furn.assign(a=furn.to_crs(epsg_of(con)).area).sort_values("a").drop_duplicates("refs").drop(columns=["a"])
         dots = dots.set_geometry(dots.to_crs(epsg_of(con)).centroid.to_crs(4326))

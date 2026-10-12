@@ -37,39 +37,58 @@ def _h(vertical, s):
     return height(vertical, s)
 
 
-def model(path, parts=None, marks=None, ground=None):
-    """The 3D model of the bridge profile at `path` (or the profile itself). `parts`, `marks`: the street's own parts and marks that lie
-    on the bridge (a unit's level > 0 spaces: [(props, polygon)], [(type, line)], in the profile's crs), laid on the deck so the bridge
-    is drawn as its street; elsewhere the model's lanes and paths in the street's types. `ground`: the street's lanes at level 0 near
-    the bridge ([polygon], same crs): a bridge lane that lands on one moves to its place and width over the last LAND_BLEND_M."""
-    import pyproj
+def surface(P, x0=0.0, y0=0.0):
+    """The deck of profile P, in metres east and north of (x0, y0): `axes` [(line, axis)], `deck` (OSM's outline and a strip along each
+    measured landing), `fill` (the landings: past OSM's bridge way, the road on fill; None if no landing),
+    `z(x, y)` the deck's top and `frame(line, s)`. A landing starts as wide as the outline where OSM's bridge way ends and narrows to its
+    lanes on the ground, so the deck has no step there."""
     import shapely
-    import shapely.affinity
-    from shapely.ops import substring
 
-    P = json.load(open(path)) if isinstance(path, str) else path
-    to_ll = pyproj.Transformer.from_crs(P["crs"], "EPSG:4326", always_xy=True).transform
-    ol = P["deck"]["outline"]["value"]
-    xs_, ys_ = [x for x, _ in ol], [y for _, y in ol]
-    x0, y0 = (min(xs_) + max(xs_)) / 2, (min(ys_) + max(ys_)) / 2       # the middle of the bridge: every part near the origin
     rel = lambda ps: [(x - x0, y - y0) for x, y in ps]
-    DECK_M, RAIL_M = P["deck"]["thickness"]["value"], P["deck"]["parapet"]["value"]
     axes = [(shapely.LineString(rel(a["line"]["value"])), a) for a in P["axes"]]
-    # the deck: OSM's outline, and under each measured landing (an axis run on past OSM's bridge way) a strip as wide as its bands
-    pieces = [shapely.make_valid(shapely.Polygon(rel(ol)))]
+    outline = shapely.make_valid(shapely.Polygon(rel(P["deck"]["outline"]["value"])))
+
+    def frame(ln, s):
+        """The point on the axis at s and its unit normal to the left."""
+        p, a, b = ln.interpolate(s), ln.interpolate(max(s - 1, 0)), ln.interpolate(min(s + 1, ln.length))
+        dx, dy = b.x - a.x, b.y - a.y
+        h = (dx * dx + dy * dy) ** .5 or 1
+        return p.x, p.y, -dy / h, dx / h
+    pieces, fill = [outline], []
     for ln, a in axes:
         for land in a.get("landings", []):
             L, d = ln.length, land["length_m"]
-            s0, s1 = (L - d, L) if land["end"] == "end" else (0.0, d)
-            sec = a["sections"][-1] if land["end"] == "end" else a["sections"][0]
+            end = land["end"] == "end"
+            s0, s1 = (L - d, L) if end else (0.0, d)
+            if d < 0.5:
+                continue
+            sec = a["sections"][-1] if end else a["sections"][0]
             lo = min((b["t"] - b["width"]["value"] / 2 for b in sec["bands"]), default=-4.0)
             hi = max((b["t"] + b["width"]["value"] / 2 for b in sec["bands"]), default=4.0)
-            piece = substring(ln, max(s0 - 2.0, 0.0), s1)
-            if piece.length > 0.5:
-                pieces.append(shapely.Polygon(list(piece.offset_curve(hi).coords) + list(piece.offset_curve(lo).coords)[::-1]).buffer(0))
+            # the outline's extent across the axis where OSM's bridge way ends
+            x, y, nx, ny = frame(ln, s0 if end else s1)
+            cut = shapely.LineString([(x - nx * 30, y - ny * 30), (x + nx * 30, y + ny * 30)]).intersection(outline.buffer(0.05))
+            ts = [(q[0] - x) * nx + (q[1] - y) * ny for g in shapely.get_parts(cut) if g.geom_type == "LineString"
+                  and g.distance(shapely.Point(x, y)) < 0.5 for q in g.coords]
+            lo0, hi0 = (min(ts), max(ts)) if ts else (lo, hi)
+            n = max(2, int(d // STEP_M) + 1)
+            ss = [s0 + (s1 - s0) * i / n for i in range(n + 1)]
+            ss = ([max(s0 - 2.0, 0.0)] + ss) if end else (ss + [min(s1 + 2.0, L)])      # 2 m into the outline
+            left, right = [], []
+            for s in ss:
+                u = min(1.0, max(0.0, (s - s0) / d if end else (s1 - s) / d))     # 0 where the bridge way ends, 1 on the ground
+                x, y, nx, ny = frame(ln, s)
+                tl, tr = hi0 + (hi - hi0) * u, lo0 + (lo - lo0) * u
+                left.append((x + nx * tl, y + ny * tl))
+                right.append((x + nx * tr, y + ny * tr))
+            pieces.append(shapely.Polygon(left + right[::-1]).buffer(0))
+            k = slice(1, None) if end else slice(None, -1)          # (without the 2 m into the bridge)
+            fill.append(shapely.Polygon(left[k] + right[k][::-1]).buffer(0))
     deck = shapely.make_valid(shapely.union_all(pieces).buffer(0.01).buffer(-0.01))
     deck = max(shapely.get_parts(deck), key=lambda p: p.area) if deck.geom_type != "Polygon" else deck
-    by_id = {a["id"]: (ln, a) for ln, a in axes}
+    fill = shapely.union_all(fill).buffer(0.05) if fill else None
+    if fill is not None:
+        shapely.prepare(fill)
 
     def reach(a, s):
         """The extent across axis a at s that its lanes cover (right edge, left edge), a metre more each side."""
@@ -102,6 +121,30 @@ def model(path, parts=None, marks=None, ground=None):
         use = [(w, hz) for w, hz in cand if abs(hz - top) <= MEET_M]
         return sum(w * hz for w, hz in use) / sum(w for w, _ in use)
 
+    return {"axes": axes, "deck": deck, "fill": fill, "z": z, "frame": frame}
+
+
+def model(path, parts=None, marks=None, ground=None):
+    """The 3D model of the bridge profile at `path` (or the profile itself). `parts`, `marks`: the street's own parts and marks that lie
+    on the bridge (a unit's level > 0 spaces: [(props, polygon)], [(type, line)], in the profile's crs), laid on the deck so the bridge
+    is drawn as its street; elsewhere the model's lanes and paths in the street's types. `ground`: the street's lanes at level 0 near
+    the bridge ([polygon], same crs): a bridge lane that lands on one moves to its place and width over the last LAND_BLEND_M."""
+    import pyproj
+    import shapely
+    import shapely.affinity
+    from shapely.ops import substring
+
+    P = json.load(open(path)) if isinstance(path, str) else path
+    to_ll = pyproj.Transformer.from_crs(P["crs"], "EPSG:4326", always_xy=True).transform
+    ol = P["deck"]["outline"]["value"]
+    xs_, ys_ = [x for x, _ in ol], [y for _, y in ol]
+    x0, y0 = (min(xs_) + max(xs_)) / 2, (min(ys_) + max(ys_)) / 2       # the middle of the bridge: every part near the origin
+    DECK_M, RAIL_M = P["deck"]["thickness"]["value"], P["deck"]["parapet"]["value"]
+    S = surface(P, x0, y0)
+    axes, deck, z, frame = S["axes"], S["deck"], S["z"], S["frame"]
+    rel = lambda ps: [(x - x0, y - y0) for x, y in ps]
+    by_id = {a["id"]: (ln, a) for ln, a in axes}
+
     # the deck's top: the outline densified, triangulated inside it
     dense = deck.segmentize(STEP_M)
     tris = [t for t in shapely.get_parts(shapely.constrained_delaunay_triangles(dense)) if t.representative_point().within(deck.buffer(0.01))]
@@ -116,24 +159,19 @@ def model(path, parts=None, marks=None, ground=None):
     top = [[vid(x, y, z(x, y)) for x, y in t.exterior.coords[:3]] for t in tris]
     # the deck's bottom never under the ground: near a landing the deck gets thinner and meets the street flush (the bridge is drawn over
     # the flat map, which has no depth: a slab under the ground showed as a block standing on it)
-    under = lambda zz: max(zz - DECK_M, 0.0)
-    bottom = [[vid(x, y, under(z(x, y))) for x, y in t.exterior.coords[:3]][::-1] for t in tris]
+    # on a landing (OSM maps no bridge there: the road on fill between walls) the sides reach the ground
+    fill = S["fill"]
+    under = lambda x, y, zz: 0.0 if fill is not None and shapely.contains_xy(fill, x, y) else max(zz - DECK_M, 0.0)
+    bottom = [[vid(x, y, under(x, y, z(x, y))) for x, y in t.exterior.coords[:3]][::-1] for t in tris]
     sides, rails = [], []
     for ring in [dense.exterior] + list(dense.interiors):
         c = list(ring.coords)
         for (ax, ay), (bx, by) in zip(c, c[1:]):
             za, zb = z(ax, ay), z(bx, by)
-            a0, b0, a1, b1 = vid(ax, ay, under(za)), vid(bx, by, under(zb)), vid(ax, ay, za), vid(bx, by, zb)
+            a0, b0, a1, b1 = vid(ax, ay, under(ax, ay, za)), vid(bx, by, under(bx, by, zb)), vid(ax, ay, za), vid(bx, by, zb)
             sides += [[a0, b0, b1], [a0, b1, a1]]
             r0, r1 = vid(ax, ay, za + min(RAIL_M, za)), vid(bx, by, zb + min(RAIL_M, zb))     # a parapet ends where the deck lands
             rails += [[a1, b1, r1], [a1, r1, r0]]
-
-    def frame(ln, s):
-        """The point on the axis at s and its unit normal to the left."""
-        p, a, b = ln.interpolate(s), ln.interpolate(max(s - 1, 0)), ln.interpolate(min(s + 1, ln.length))
-        dx, dy = b.x - a.x, b.y - a.y
-        h = (dx * dx + dy * dy) ** .5 or 1
-        return p.x, p.y, -dy / h, dx / h
 
     def along(ln, a, s0, s1, t, lift):
         """Points at offset t along the axis from s0 to s1, at the deck's height plus lift."""

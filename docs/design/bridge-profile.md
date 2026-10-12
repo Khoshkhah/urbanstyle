@@ -212,9 +212,25 @@ height (five junctions: 27.0, 22.7, 18.2, 11.7 and 11.6 m). The landings had thr
    and their decks ended 4.0 m and 8.5 m above the ground.
 
 At every landing the LiDAR deck is now 0.0 to 0.5 m above the ground, and every lane has deck under it.
+
 - **The bridge is drawn as its street** (2026-10-11). The deck's top is roadway colour; the street's own parts on the bridge (a unit's
   level-1 spaces: lanes, sidewalks, furnishing, kerbs, painted lines) lie on the deck at the model's heights, with their ids and
   popups, and their flat 3D drawing is hidden there; elsewhere the model's lanes, connectors and paths are drawn in the street's types
   (`PART_COLORS`, raised sidewalks, dashed lane lines, yellow centre lines). The model's output `surf` holds these meshes.
 - **Each path is drawn once, along its own OSM line**: a sidewalk or cycleway was a band at a fixed offset of a section, so a path
   that curves away from an axis broke into pieces (w538616396: 6 bands on 2 axes). Bands are now only lanes.
+
+## A landing is one deck, on fill (2026-10-11)
+
+The end of a2 had three more faults:
+
+1. **The deck stopped in two blunt blocks.** Where OSM's bridge way ends, OSM's outline is 10.4 m wide, but the landing strip was only as
+   wide as its lane (3.9 m). Now a landing starts as wide as the outline there and narrows to its lanes on the ground
+   (`bridge3d.surface`).
+2. **The landing had no support.** Its sides were only the deck's thickness, so from 4 m above the ground down there was a gap under
+   it. OSM maps no bridge past its bridge way (w473319095 has no `bridge` tag): the road is on fill. Now the sides of a landing go down
+   to the ground, as walls.
+3. **The ramp's street lights stood on the ground and went through the deck.** The city's survey gives no level. Its lights along
+   a2 (block 19) stand 3.7 to 4.5 m to each side of the axis, on a deck 9.0 to 9.8 m wide, with nothing on the ground under most of
+   them: they are on the deck's edges. In 3D, a pole or a sign inside a deck now stands on the deck, at its height. A tree, a manhole
+   or a drain stays on the ground (`dashboard.bridge_decks`, `furniture_3d`).

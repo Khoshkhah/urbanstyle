@@ -123,9 +123,19 @@
       [
         "7783013650305663093_2",
         "node"
+      ],
+      [
+        "3928960611192915185_2",
+        "clear",
+        "a6"
+      ],
+      [
+        "3150630999811029611_2",
+        "clear",
+        "a5"
       ]
     ],
-    "lane_ends_note": "at the a9/a10/a3 node: a10's third northbound lane ends before a3 comes in beside it; a3's two lanes become one, into a9's lane 3 (SUMO's link); Kaveh, 2026-10-12, option 1",
+    "lane_ends_note": "at the a9/a10/a3 node: a10's third northbound lane ends before a3 comes in beside it; a3's two lanes become one, into a9's lane 3 (SUMO's link); Kaveh, 2026-10-12, option 1; at the north fork, a8's outer lanes with no SUMO link to a1 give way: southbound to a6, northbound to a5 (Kaveh, 2026-10-12)",
     "smooth_ends_note": "a4's end: 35 m round, closed by 30 m (Kaveh: a long buffer); a10's end at the a9 node, west: 20 m round, closed by 2 m (the step in barrier @-386,-385, Kaveh, 2026-10-12)"
   }
 }

@@ -2617,6 +2617,12 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False):
                     lb_["poly"] = shapely.make_valid(lb_["poly"].union(part_.buffer(0.01)))
                 else:
                     mesh(part_, lb_["key"], SURF_LIFT_M, lb_["props"])
+            if near_l and not rem_.is_empty and rem_.area > 0.01:     # (what is left of it, further than that: the nearest lane's)
+                lb_ = min(near_l, key=lambda sf_: sf_["poly"].distance(rem_))
+                if flat_only:
+                    lb_["poly"] = shapely.make_valid(lb_["poly"].union(rem_.buffer(0.01)))
+                else:
+                    mesh(rem_, lb_["key"], SURF_LIFT_M, lb_["props"])
             if near_l:
                 continue
         by_ = [(g_.boundary.intersection(sf_["poly"].buffer(0.05)).length, i_) for i_, sf_ in enumerate(fillable_)]
@@ -2639,11 +2645,13 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False):
     shut_ = lanes_f.buffer(0.2, join_style="mitre").buffer(-0.2, join_style="mitre")
     miss_ = shut_.boundary.intersection(paths_f.buffer(0.15)).difference(bars_f.buffer(0.35)).difference(no_x)
     for ln_m in shapely.get_parts(shapely.line_merge(miss_) if not miss_.is_empty else miss_):
-        if ln_m.geom_type != "LineString" or ln_m.length < 1.0:
+        if ln_m.geom_type != "LineString" or ln_m.length < 0.5:
             continue
         off = ln_m.offset_curve(BARRIER_SEP_M[0] / 2)
         if off.is_empty or off.geom_type != "LineString" or lanes_f.contains(off.interpolate(0.5, normalized=True)):
             off = ln_m.offset_curve(-BARRIER_SEP_M[0] / 2)
+        if off.is_empty or off.geom_type != "LineString" or lanes_f.contains(off.interpolate(0.5, normalized=True)):
+            off = ln_m          # (a path's tip between two lanes, a3 and a10: on the lanes' edge itself)
         if off.geom_type == "LineString" and not off.is_empty:
             strip(off, BARRIER_SEP_M[0], "barrier", 0.0, None, BARRIER_SEP_M[1])
     mesh(rim(0.1, 0.2), "railing", RAILING_M[0] - 0.08, None, 0.08)

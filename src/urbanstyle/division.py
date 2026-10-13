@@ -42,7 +42,8 @@ BIKE_M = (1.5, 2.0)
 GUTTER_M = 0.3
 JOIN_M = 1.0             # at a joint, a lane shifted sideways by less than this still matches its continuation (join_lanes)
 JOIN_EDGE_M = 2.0        # two sections whose spaces share this much edge (no intersection between them) meet at a joint
-JOIN_COS = 0.85          # ... when their axes there are this near in line (cos of the angle)
+JOIN_COS = 0.7           # ... when their axes there are this near in line (cos of the angle: 45°; 0.85 left Monaco's Avenue de
+                         # Monte-Carlo, 0.848 at s0-w4097656r~w4224972r.16/1, with a step in its roadway, Kaveh 2026-10-13)
 FOLLOW_MAX_M = 30.0      # a section's axis runs on along its main road past the middle between the blocks by at most this
 FOLLOW_MIN_M = 5.0       # ... where the middle between the blocks stops at least this short of the section's end
 BASIN_BACK_M = 0.3       # a catch basin sits in the gutter: the kerb is this far behind it

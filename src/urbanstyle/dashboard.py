@@ -57,6 +57,22 @@ def blocks_frame(con):
         return None
 
 
+BLOCK_PALETTE = ["#e6a157", "#7fb3d5", "#82c99a", "#d98cb3", "#c9b458", "#9e8fd1", "#e08a7a", "#6fc2bf"]
+
+
+def block_colors(blocks):
+    """Each block a colour of BLOCK_PALETTE that no block touching it has (greedy, in id order), so neighbours tell apart in 2D (one
+    colour for all read as one area: Kaveh, 2026-10-13, "I can't distinguish different blocks")."""
+    import shapely
+    gs = list(blocks.geometry)
+    tree = shapely.STRtree(gs)
+    col = {}
+    for k in sorted(range(len(gs)), key=lambda k: str(blocks["block_id"].iloc[k])):
+        near = {col[j] for j in tree.query(gs[k].buffer(1e-6)) if j in col}
+        col[k] = next((c for c in BLOCK_PALETTE if c not in near), BLOCK_PALETTE[k % len(BLOCK_PALETTE)])
+    return blocks.assign(color=[col[k] for k in range(len(gs))])
+
+
 def tree_data(con, epsg):
     q = lambda sql: con.execute(sql).fetchall()
     by_level = dict(q("""SELECT l, count(*) FROM space.element, generate_series(level_min, level_max) t(l)
@@ -1433,7 +1449,7 @@ def main(db, out, bridges=None):
                               label="Bridge 2D", popup=BR_POPUP, tooltip=["id", "type"])] if bridge2d is not None and len(bridge2d) else []) +
                  ([o(ground, color=GROUND_COLORS["plot"], color_col="color", opacity=0.55, outline="#94a3b8", width=0.5, label="Ground", popup=GROUND_POPUP,
                      tooltip=["type", "name"])] if ground is not None and len(ground) else []) +
-                 ([rs.Overlay(blocks, placement="over", color=BLOCK_COLOR, opacity=0.25, outline="#7c4a1e", width=1.5, label="Blocks", visible=False,
+                 ([rs.Overlay(block_colors(blocks), placement="over", color=BLOCK_COLOR, color_col="color", opacity=0.45, outline="#5b3410", width=2.0, label="Blocks", visible=False,
                               popup=BLOCK_POPUP, tooltip=["block_id"])] if blocks is not None and len(blocks) else []) +
                  [o(streets[streets.kind == k], color=c, opacity=0.8, outline=dark, width=1.2, label=lab, popup=POP, tooltip=["cid", "name"])
                   for k, lab, c, dark in KINDS if (streets.kind == k).any()] + [
@@ -1804,7 +1820,7 @@ def layers(db, out):
     # no map popups here: a click pins every layer's item in the panel (the map's own popup took the lowest layer)
     o = lambda g, **kw: rs.Overlay(g, placement="under", visible=False, popup=[], **kw)
     ovs = [o(street, color=KIND_COLORS["street"], opacity=0.85, outline="#475569", width=1.0, label=OV["street"]),
-           o(blocks, color=BLOCK_COLOR, opacity=0.6, outline="#7c4a1e", width=1.2, label=OV["blocks"]),
+           o(block_colors(blocks), color=BLOCK_COLOR, color_col="color", opacity=0.6, outline="#5b3410", width=2.0, label=OV["blocks"]),
            o(spaces, color=KIND_COLORS["subsection"], color_col="color", opacity=0.85, outline="#1e3a8a", width=1.2, label=OV["spaces"]),
            o(land, color=LAYER_COLORS[0]["plot"], color_col="color", opacity=0.85, outline="#475569", width=0.6, label=OV["land"]),
            o(surf, color=LAYER_COLORS[1]["building"], color_col="color", opacity=0.9, outline="#334155", width=0.4, label=OV["surf"]),

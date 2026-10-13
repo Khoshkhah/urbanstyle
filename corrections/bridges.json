@@ -152,6 +152,10 @@
         "panel": 11,
         "spring_z": 10.5,
         "crown_gap": 6.2,
+        "piers": [
+          270,
+          400
+        ],
         "legs": [
           [
             270,
@@ -173,6 +177,6 @@
         "depth": 6.5
       }
     ],
-    "truss_note": "a1's steel deck truss (Kaveh, 2026-10-12; photos on Wikimedia Commons, 2011-07-21 Vancouver 06 and others): the arched main span over False Creek springs at s 270 and 400 (shores in the 2018 orthophoto, the side photo scaled by the LiDAR deck height), z 10.5; its bottom chord 8 m under the deck top at the crown; approach trusses 6.5 m deep at s 180-270 and 400-450; anchor legs to the deck at s 229 and 443; panels about 11 m. Measured from photos: about +-10 m in s, +-15 % in depth"
+    "truss_note": "a1's steel deck truss (Kaveh, 2026-10-12; photos on Wikimedia Commons, 2011-07-21 Vancouver 06 and others): the arched main span over False Creek springs at s 270 and 400 (shores in the 2018 orthophoto, the side photo scaled by the LiDAR deck height), z 10.5; its bottom chord 8 m under the deck top at the crown; approach trusses 6.5 m deep at s 180-270 and 400-450; anchor legs to the deck at s 229 and 443; panels about 11 m. Measured from photos: about +-10 m in s, +-15 % in depth. A concrete pier under each springing point (s 270, 400): the photos show a concrete block from the ground to the springing point, the 2018 orthophoto puts the shores there; its size (4 m along the axis, 2 m out past each truss plane) is chosen from the photos"
   }
 }

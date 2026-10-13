@@ -48,6 +48,7 @@ TRUSS_PANEL_M = 12.0  # a steel truss under a span: its panel length (chosen, fr
 TRUSS_CROWN_M = 1.5   # ... its bottom chord's crown this far under the deck (chosen)
 TRUSS_IN_M = 1.0      # ... each side's plane this far in from the deck's edge
 TRUSS_M = (0.8, 0.5)  # ... a chord's width, a vertical's or a diagonal's (chosen)
+TRUSS_PIER_M = (4.0, 2.0)  # ... a concrete pier under a springing point: along the axis, out past each truss plane (photos)
 TANGENT_M = 20.0    # an axis's end turned into the trunk's way at their node over this (tangent_ends)
 PAIR_TANGENT_M = 20.0  # a pair's centre line leaves the trunk's node in the trunk's way, onto the middle of their lines over this
 FREE_THIN_M = 1.0   # ... but a sliver of it narrower than this, beside a lane, is that lane
@@ -2038,8 +2039,13 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False):
             r0, r1 = vid(ax, ay, za + min(RAIL_M, za)), vid(bx, by, zb + min(RAIL_M, zb))     # a parapet ends where the deck lands
             rails += [[a1, b1, r1], [a1, r1, r0]]
 
+    from .corrections import bridge as bridge_corr_tr
+    trusses_ = bridge_corr_tr(P["name"]).get("truss", [])
     piers = []
     for q in P["piers"]:
+        # none where a steel truss stands: the truss and its own piers replace these rule-made ones (Kaveh, 2026-10-12)
+        if any(q["axis"] == tr_.get("axis") and tr_["s0"] <= q["s"] <= tr_["s1"] for tr_ in trusses_):
+            continue
         ln, a = by_id[q["axis"]]
         x, y, nx, ny = frame(ln, q["s"])
         # across its own road only (its bands at s), inside the deck
@@ -2062,11 +2068,26 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False):
     # heights from the profile): on each side, under the deck's edge, a top chord under the deck, a bottom chord arched from its springing
     # points to crown_gap under the deck mid-span, a vertical at each panel point and a diagonal in each panel, in a V pattern
     truss = []
-    from .corrections import bridge as bridge_corr_tr
-    for tr_ in bridge_corr_tr(P["name"]).get("truss", []):
+
+    def planes_(ln, s_):
+        """The axis's frame at s_ and the two truss planes' t, TRUSS_IN_M in from the deck's edges (None off the deck)."""
+        x, y, nx, ny = frame(ln, s_)
+        cut_ = shapely.LineString([(x - nx * 40, y - ny * 40), (x + nx * 40, y + ny * 40)]).intersection(deck)
+        ts_ = [(q[0] - x) * nx + (q[1] - y) * ny for g_ in shapely.get_parts(cut_) if g_.geom_type == "LineString" for q in g_.coords]
+        return (x, y, nx, ny, {1: max(ts_) - TRUSS_IN_M, -1: min(ts_) + TRUSS_IN_M}) if ts_ else None
+    for tr_ in trusses_:
         if tr_.get("axis") not in by_id:
             continue
         ln, a = by_id[tr_["axis"]]
+        # a concrete pier under each springing point ("piers": [s]): one block across the deck from the ground to the springing
+        # height, wider than the two truss planes (Kaveh, 2026-10-12; photos 2011-07-21 Vancouver 06, the orthophoto's shores)
+        for s_ in tr_.get("piers", []):
+            f_ = planes_(ln, s_)
+            if f_:
+                x, y, nx, ny, t_ = f_
+                lo_, hi_ = t_[-1] - TRUSS_PIER_M[1], t_[1] + TRUSS_PIER_M[1]
+                piers.append({"a": [round(x + nx * lo_, 2), round(y + ny * lo_, 2)], "b": [round(x + nx * hi_, 2), round(y + ny * hi_, 2)],
+                              "t": TRUSS_PIER_M[0], "h": tr_["spring_z"]})
         s0_, s1_ = tr_["s0"], min(tr_["s1"], ln.length)
         n_ = max(2, round((s1_ - s0_) / tr_.get("panel", TRUSS_PANEL_M)))
         mid_, half_ = (s0_ + s1_) / 2, (s1_ - s0_) / 2
@@ -2079,25 +2100,22 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False):
         sides_t = {1: [], -1: []}           # each side's panel points: (top, bottom), 1 m in from the deck's edge
         for k in range(n_ + 1):
             s_ = s0_ + (s1_ - s0_) * k / n_
-            x, y, nx, ny = frame(ln, s_)
-            cut_ = shapely.LineString([(x - nx * 40, y - ny * 40), (x + nx * 40, y + ny * 40)]).intersection(deck)
-            ts_ = [(q[0] - x) * nx + (q[1] - y) * ny for g_ in shapely.get_parts(cut_) if g_.geom_type == "LineString" for q in g_.coords]
-            if not ts_:
+            f_ = planes_(ln, s_)
+            if not f_:
                 continue
-            for sd, t_ in ((1, max(ts_) - TRUSS_IN_M), (-1, min(ts_) + TRUSS_IN_M)):
-                px, py = x + nx * t_, y + ny * t_
+            x, y, nx, ny, t_ = f_
+            for sd in (1, -1):
+                px, py = x + nx * t_[sd], y + ny * t_[sd]
                 sides_t[sd].append(([px, py, z_top(s_)], [px, py, z_bot(s_)]))
         # an anchor leg on each side, from a springing point up to the deck ("legs": [[s at its foot, z at its foot, s at the deck]])
         for s_f, z_f, s_d in tr_.get("legs", []):
             for sd in (1, -1):
                 ends_ = []
                 for s_, z_ in ((s_f, z_f), (s_d, None)):
-                    x, y, nx, ny = frame(ln, s_)
-                    cut_ = shapely.LineString([(x - nx * 40, y - ny * 40), (x + nx * 40, y + ny * 40)]).intersection(deck)
-                    ts_ = [(q[0] - x) * nx + (q[1] - y) * ny for g_ in shapely.get_parts(cut_) if g_.geom_type == "LineString" for q in g_.coords]
-                    if ts_:
-                        t_ = max(ts_) - TRUSS_IN_M if sd == 1 else min(ts_) + TRUSS_IN_M
-                        ends_.append([x + nx * t_, y + ny * t_, z_ if z_ is not None else z_top(s_)])
+                    f_ = planes_(ln, s_)
+                    if f_:
+                        x, y, nx, ny, t_ = f_
+                        ends_.append([x + nx * t_[sd], y + ny * t_[sd], z_ if z_ is not None else z_top(s_)])
                 if len(ends_) == 2:
                     truss.append({"a": ends_[0], "b": ends_[1], "w": TRUSS_M[0]})
         for pts_ in sides_t.values():

@@ -519,7 +519,14 @@ def build(con, epsg):
             shut = gm.buffer(CRACK_M, join_style="mitre").buffer(-CRACK_M, join_style="mitre")
             others = [final[o][3] for o in neighbours.get(uid, ())]
             if others:      # the closing fills this space's own cracks, never ground a neighbour holds (a concave corner on a shared edge)
-                shut = shapely.union_all([gm, shut.difference(shapely.union_all(others))])
+                try:
+                    shut = shapely.union_all([gm, shut.difference(shapely.union_all(others))])
+                except shapely.errors.GEOSException:        # (the shapes repaired, on the 1 cm grid: "Ring edge missing", Vancouver,
+                    try:                                    # 2026-10-13; else this space's cracks stay open)
+                        rest_ = shapely.make_valid(shut).difference(shapely.make_valid(shapely.union_all(others)), grid_size=0.01)
+                        shut = shapely.union_all([gm, rest_], grid_size=0.01)
+                    except shapely.errors.GEOSException:
+                        shut = gm
             gm = _one(shapely.set_precision(shut.buffer(-0.01, join_style="mitre").buffer(0.01, join_style="mitre"), 0.01))
             if others and not gm.is_empty:      # and gives up what its neighbours hold (the 1 cm grid can push a shared edge across)
                 try:

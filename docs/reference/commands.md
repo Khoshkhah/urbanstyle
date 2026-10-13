@@ -21,15 +21,16 @@ All commands use positional arguments for the input and output paths. The exampl
 `build` makes the `space` schema in a new DuckDB database from a duckOSM database.
 
 ```text
-urbanstyle build osm out
+urbanstyle build osm out [--from division]
 ```
 
-| Argument | Meaning | Default |
+| Argument or option | Meaning | Default |
 |---|---|---|
 | `osm` | The duckOSM `.duckdb`. If it has no `features` schema, `build` copies it to `<out without .duckdb>.osm.duckdb` and builds the features in the copy. | required |
 | `out` | The output `.duckdb`. | required |
+| `--from division` | Run only the street division and the steps after it (the ground, the surfaces, the paths), from the copy that the last full build kept, `<out>.before-division`. Use it after a change to `division.py` or `ground.py`. | none: all steps |
 
-Output: the database `out` with the `space` schema. `build` prints the number of elements for each level and type, the links by type and level pair, and the next command (`urbanstyle dashboard`). If `<out>.mapillary.json` exists, `build` loads it.
+Output: the database `out` with the `space` schema. `build` prints the number of elements for each level and type, the links by type and level pair, and the next command (`urbanstyle dashboard`). If `<out>.mapillary.json` exists, `build` loads it. `build` prints the time of each step, and a full build keeps `<out>.before-division`.
 
 Code: `container.build`, `container.with_features`, `container.counts`.
 

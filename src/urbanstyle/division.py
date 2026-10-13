@@ -29,6 +29,7 @@ ARM_M = 3.0              # an intersection reaches into each arm past the block 
 SUB_MIN_M = 12.0         # a subsection is at least this long: changes closer together are one cut
 LANES_MIN_M = 5.0        # ... but where OSM's lane count changes (a turn lane before a junction), at least this long
 LANE_M = 3.25            # a lane's width where nothing measures it
+CORNER_ROAD_M = 2.0      # a road's line running this far through an intersection's pedestrian corner: the corner is wrong there
 LANE_RANGE = (2.75, 4.0)     # a lane measured kerb to kerb, if it falls in this range; else LANE_M and a shoulder
 SIDEWALK_HALF_M = 1.0    # a sidewalk is drawn along its middle: the kerb is about this far before its line
 OBJECT_BACK_M = 0.5      # a tree or a pole stands at least this far behind the kerb
@@ -332,6 +333,7 @@ def build(con, epsg):
                      ST_AsWKB(ST_Union_Agg(ST_Transform(e.geometry, 'EPSG:4326', '{epsg}', always_xy := true))) FROM osm.driving.edges e
                      JOIN osm.raw.ways w USING (osm_id) WHERE w.tags['service'] IN ('driveway', 'parking_aisle')
                      AND coalesce(w.tags['layer'], '0') = '0' AND coalesce(w.tags['tunnel'], 'no') = 'no' GROUP BY e.osm_id""")]
+    services.sort(key=lambda r: str(r[0]))      # (one order in every build: the driveways' numbers, #12, #13, came out swapped)
     lots = [g(w) for (w,) in rows(f"SELECT {m()} FROM space.lot")]
     parcel_g = [g(w) for (w,) in rows(f"SELECT {m()} FROM space.parcel")]
     parcel_u = shapely.union_all(parcel_g) if parcel_g else None
@@ -471,13 +473,17 @@ def build(con, epsg):
         return shapely.line_merge(shapely.union_all(ls)) if ls else None
 
     units, parts, marks, cut_rows, sub_rows, widths, junction = [], [], [], [], [], [], []
-    names = {}
     section_ids = {}
     for i in sorted(secgeo, key=lambda i: (short(secs[i]["left"]), short(secs[i]["right"]))):
         s = secs[i]
         base = f"s0-{min(short(s['left']), short(s['right']))}~{max(short(s['left']), short(s['right']))}"
-        names[base] = names.get(base, 0) + 1
-        section_ids[i] = base + (f".{names[base]}" if names[base] > 1 else "")
+        # (another section between the same blocks: .2, .3, ... the next number not taken; a block's own id can end in .2 too, and
+        # two sections had one id: Monaco's s0-edge~w4224972r.2, 2026-10-13)
+        sid, k = base, 1
+        while sid in section_ids.values():
+            k += 1
+            sid = f"{base}.{k}"
+        section_ids[i] = sid
 
     def straight(line):
         c = line.coords
@@ -1294,23 +1300,38 @@ def build(con, epsg):
                     B = band2(ax, t, t_, Q)
                     if typ == "parking":    # where a bus stops at this kerb (behind its stop pole, in the travel direction): a bus zone
                         go = (1 if n_al == n else -1) if sd_ > 0 else (1 if n_al > 0 else -1)
-                        zs = []
+                        zs = []          # [zone, its stops]
                         for st in stops:
                             if st["pt"].distance(B) <= STOP_KERB_M:
                                 sp = ax.project(st["pt"])
                                 a0, a1 = sorted((sp - go * BUS_ZONE_M, sp + go * 2.0))
                                 cut_ = substring(extend(ax, 60.0), max(a0, -60) + 60, min(a1, ax.length + 60) + 60).buffer(60.0, cap_style="flat")
                                 z = poly(B.intersection(cut_, grid_size=0.01))
-                                if z.area < 1.0:
-                                    continue
-                                nm = st["tags"].get("name") or (st["tt"] or {}).get("name") or "bus stop"
-                                when = gt.describe(st["tt"])
-                                add(sub, "bus zone", z, width_m=round(w_m, 2), width_method="derived", direction=None, lane=None, **common,
-                                    rule="no parking: buses stop here" + (f"; {when}" if when else ""),
-                                    **PV(st["source"], "mapped", f"{st['id']} {nm}" + (f" (stop {st['tags']['ref']})" if st["tags"].get("ref") else "")),
-                                    **POS(k_both))
-                                zs.append(z)
-                        B = poly(B.difference(shapely.union_all(zs), grid_size=0.01)) if zs else B
+                                if z.area >= 1.0:
+                                    zs.append([z, [st]])
+                        # (two stops near each other at one kerb: one bus zone that names both; their own zones overlapped, Monaco
+                        # 2026-10-13, U9)
+                        joined = True
+                        while joined:
+                            joined = False
+                            for i in range(len(zs)):
+                                for j in range(i + 1, len(zs)):
+                                    if zs[i][0].intersection(zs[j][0]).area > 0.5:
+                                        zs[i] = [poly(zs[i][0].union(zs[j][0])), zs[i][1] + zs[j][1]]
+                                        del zs[j]
+                                        joined = True
+                                        break
+                                if joined:
+                                    break
+                        for z, sts in zs:
+                            name_ = lambda st: f"{st['id']} " + (st["tags"].get("name") or (st["tt"] or {}).get("name") or "bus stop") + \
+                                (f" (stop {st['tags']['ref']})" if st["tags"].get("ref") else "")
+                            when = "; ".join(w for w in (gt.describe(st["tt"]) for st in sts) if w)
+                            add(sub, "bus zone", z, width_m=round(w_m, 2), width_method="derived", direction=None, lane=None, **common,
+                                rule="no parking: buses stop here" + (f"; {when}" if when else ""),
+                                **PV(", ".join(sorted({st["source"] for st in sts})), "mapped", "; ".join(name_(st) for st in sts)),
+                                **POS(k_both))
+                        B = poly(B.difference(shapely.union_all([z for z, _ in zs]), grid_size=0.01)) if zs else B
                     add(sub, typ, B, width_m=round(w_m, 2), width_method="derived", direction=None, lane=None,
                         **common, rule=rule_, **PV(*side_pv(typ, sd_)), **POS(k_both))
                     # its line on the side of the travel lanes: after them its near edge, before them its far edge
@@ -1400,6 +1421,14 @@ def build(con, epsg):
                 c = c.intersection(bgeo[k].buffer(RAY_M / 2))
             corners.append(poly(c))
         walkway = poly(shapely.union_all(corners)) if corners else shapely.Polygon()
+        # (a corner never covers a road OSM maps: a road whose line runs through a corner for more than CORNER_ROAD_M takes its
+        # carriageway back, as wide as the road, as junction area. At Monaco's Place Sainte-Dévote, a roundabout and 24 nodes, the
+        # corners' half-planes ran across the roads: 4609 m2 of "sidewalk" on the roadway, i0-25193377; Kaveh, 2026-10-13. Every road
+        # in the intersection took 2230 m2 of Vancouver's real corners: OSM's widths are wider than the kerbs)
+        cw = [roads[k][7].buffer(max(roads[k][4] or LANE_M, LANE_M) / 2, cap_style="flat") for k in road_tree.query(X)
+              if roads[k][2] != "pedestrian" and roads[k][7].intersection(walkway).length > CORNER_ROAD_M]
+        if cw and not walkway.is_empty:
+            walkway = poly(walkway.difference(shapely.union_all(cw), grid_size=0.01))
         roadway = poly(X.difference(walkway, grid_size=0.01))
         if not roadway.is_empty:    # the kerb's corner rounded
             roadway = poly(roadway.buffer(KERB_RADIUS_M, quad_segs=4, join_style="round").buffer(-KERB_RADIUS_M, quad_segs=4, join_style="round")

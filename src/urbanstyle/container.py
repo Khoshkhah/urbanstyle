@@ -900,15 +900,37 @@ def intersection_shapes(con):
     con.execute("CREATE OR REPLACE TEMP TABLE ishape AS SELECT cid::VARCHAR AS cid, shape::VARCHAR AS shape, n_arms::INT AS n_arms FROM sh")
 
 
-def build(osm, out):
+FROM = ("division",)        # where `build --from` can start: the steps before it are kept in OUT.before-<step>
+
+
+def build(osm, out, start=None):
+    """The space container of `osm` in `out`. start="division": the street division and the steps after it only, from the copy the
+    last full build kept before it (OUT.before-division): a fix in division.py or ground.py takes minutes, not a full build (Monaco 27
+    min; Kaveh, 2026-10-13: "consider I want to fix 100 issues"). Each step prints its time."""
+    import shutil
+    import time
+    if start is not None:
+        if start not in FROM:
+            raise ValueError(f"build --from: one of {', '.join(FROM)}")
+        shutil.copy(f"{out}.before-{start}", out)        # (the steps before it, exactly as the full build left them)
+        if os.path.exists(out + ".wal"):
+            os.remove(out + ".wal")
     con = duckdb.connect(out)
     con.execute("INSTALL spatial; LOAD spatial")
     con.execute(f"ATTACH '{osm}' AS osm (READ_ONLY)")
+    t0 = [time.time()]
+
+    def done(step):
+        print(f"build: {step} {time.time() - t0[0]:.0f} s", flush=True)
+        t0[0] = time.time()
     # the area's boundary with its outline in `geometry`: an older duckOSM names it `geom` (Monaco's file; the build failed at the
     # blocks, 2026-10-13); blocks, ground and buildings read this view
     cols = {c for (c,) in con.execute("SELECT column_name FROM duckdb_columns() WHERE database_name = 'osm' AND table_name = 'boundary'").fetchall()}
     if cols:
         con.execute(f"CREATE OR REPLACE TEMP VIEW osm_boundary AS SELECT {'geometry' if 'geometry' in cols else 'geom'} AS geometry FROM osm.main.boundary")
+    if start is not None:
+        lon = con.execute("SELECT avg(ST_X(ST_Centroid(geometry))) FROM space.element").fetchone()[0]
+        return _from_division(con, f"EPSG:{32600 + int((lon + 180) // 6) + 1}", done)
     con.execute(BUILD)
     con.execute(ROADS)
     from . import buildings
@@ -934,22 +956,38 @@ def build(osm, out):
     con.execute(STATIONS)
     con.execute(LINKS.format(name_m=ENTRANCE_NAME_M, near_m=ENTRANCE_NEAR_M))
     con.execute(OBJECTS.format(lo=LEVELS[0], hi=LEVELS[1], epsg=epsg, near_m=OBJECT_NEAR_M, attrs=list(OBJECT_ATTRS)))
+    done("containers")
     from . import buildings, parts, spaces, strips, subsections  # lazy: shapely
     strips.build(con, epsg)
+    done("strips")
     buildings.build(con, epsg)     # what each building is used for, its ground floor too
+    done("buildings")
     subsections.build(con, epsg)   # the network-first partition (preview): roads divided into subsections, then one space each
+    done("subsections")
     spaces.build(con, epsg)
+    done("spaces")
     if os.path.exists(out + ".mapillary.json"):     # street-level observations fetched earlier (`urbanstyle mapillary`)
         from . import mapillary
         mapillary.load(con, out + ".mapillary.json")
     parts.build(con, epsg)         # ... and the inside of each space: parts, marks, widths
-    from . import blocks, ground
+    done("parts")
+    from . import blocks
     blocks.build(con, epsg)        # the blocks: the land between the streets (docs/design/blocks.md, step 1)
-    from . import division
+    done("blocks")
+    con.execute("CHECKPOINT")      # (the file as it is before the division, for `build --from division`)
+    shutil.copy(out, out + ".before-division")
+    return _from_division(con, epsg, done)
+
+
+def _from_division(con, epsg, done):
+    """The steps from the street division on: they rewrite the level-0 rows the steps before them made, so they start from those."""
+    from . import division, ground
     division.build(con, epsg)      # the street divided between the blocks, and the inside of each piece, at level 0 (steps 2-5)
+    done("division")
     ground.build(con, epsg)        # layer 0: every piece of the area is street, plot, green, ... (docs/design/space-layers.md)
     ground.surfaces(con, epsg)     # layer 1: the surfaces inside each ground item
     ground.paths(con, epsg)        # every footpath whole, lying on the ground (not cut by the blocks)
+    done("ground")
     return con
 
 

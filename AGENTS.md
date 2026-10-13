@@ -105,6 +105,9 @@ URBANSTYLE_BRIDGE_TESTS=1 $P -m pytest -q tests/test_bridge_rules.py   # the bri
 PYTHONPATH=src $P -m urbanstyle build ../duckOSM/monaco.duckdb data/monaco.duckdb
 PYTHONPATH=src $P -m urbanstyle build ../duckOSM/data/db/sodermalm.duckdb data/sodermalm.duckdb
 PYTHONPATH=src $P -m urbanstyle check data/monaco.duckdb data/sodermalm.duckdb
+# a fix in division.py or ground.py: only those steps, from the copy the last full build kept (OUT.before-division): Monaco minutes,
+# not 27 min; the build prints each step's time
+PYTHONPATH=src $P -m urbanstyle build ../duckOSM/monaco.duckdb data/monaco.duckdb --from division
 
 # dashboard: system python3 (roadstyle 0.13.1 from PyPI), then serve it; Street View needs http
 PYTHONPATH=src python3 -m urbanstyle dashboard data/monaco.duckdb viz/monaco.html

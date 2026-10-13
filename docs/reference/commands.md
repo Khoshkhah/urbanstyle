@@ -314,3 +314,30 @@ Code: `serve.serve`.
 ```bash
 urbanstyle serve data/units/broadway-granville.space.duckdb viz/broadway-granville.html --bridge data/bridges-measured/granville-bridge.bridge.json
 ```
+
+## publish
+
+`publish` writes the dashboard as static files, for a web site with no server. In the browser, Find and Filter use DuckDB-WASM on the
+area's Parquet files, and Ask calls Gemini.
+
+```text
+urbanstyle publish db out_dir [--bridge BRIDGE]
+```
+
+| Argument or option | Meaning | Default |
+|---|---|---|
+| `db` | The space database of a unit. | required |
+| `out_dir` | The folder to write. | required |
+| `--bridge` | A bridge profile. You can give the option more than one time. | none |
+
+Output: `out_dir/index.html` (the page with the panel), `static.js`, `bridge3d.json`, and `data/`: `meta.json`, `tree.json`,
+`focus.json` and one Parquet file per `space` table. Mapillary's tables are left out (CC BY-SA). The keys are placeholders:
+`__CARTO_DEMO_KEY__`, `__GOOGLE_MAPS_DEMO_KEY__` and `__GEMINI_DEMO_KEY__`. The site's deploy replaces them with its secrets
+(`.github/workflows/docs.yml`). A visitor can also give their own Gemini key in the Ask tab.
+
+Code: `publish.publish`. Design: [The dashboard online](../design/online-dashboard.md).
+
+```bash
+urbanstyle publish data/units/broadway-granville.space.duckdb demo --bridge data/bridges-measured/granville-bridge.bridge.json
+tar -czf demo.tar.gz -C demo . && gh release upload demo-data demo.tar.gz --clobber
+```

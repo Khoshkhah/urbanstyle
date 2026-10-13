@@ -82,6 +82,9 @@ The order of work: `docs/plan.md`.
   or tree group in focus in 3D: the buildings that frame it (`Area.bounding`: seen from it within 10 m) solid, the other buildings
   see-through (`bldFade`), painted lines and crosswalks never faint. A street object selected in 3D: the camera along its street (`nearRoad`). The server reads the space db read-only, adds `space.bridge_part` and `space.street_object` (every
   source, as 3D draws them); the panel's names start with `xp`, inside one function (roadstyle's globals).
+- `src/urbanstyle/publish.py` and `static.js`: `urbanstyle publish DB OUT_DIR [--bridge PROFILE]`, the dashboard as static files for the
+  docs site (`docs/design/online-dashboard.md`): Parquet files, DuckDB-WASM and Gemini in the browser; no Mapillary; the keys as
+  placeholders that `.github/workflows/docs.yml` fills from the repository's secrets, from the release `demo-data` (`demo.tar.gz`).
 - The format and the standards: `docs/design/standards-comparison.md` (research), `docs/design/format.md` (requirements: a CityGML 3.0
   profile as a CityJSON Extension; ids from profiles).
 - `src/urbanstyle/cli.py`: the `urbanstyle build | check | quality | dashboard | layers | mapillary | unit | bridge | bridge-measure | bridge-heights | bridge3d | serve` command.

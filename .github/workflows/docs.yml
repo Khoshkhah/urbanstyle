@@ -45,6 +45,22 @@ jobs:
       - name: Build site (strict - fail on any broken link or nav reference)
         run: mkdocs build --strict
 
+      # the dashboard online (docs/design/online-dashboard.md): `urbanstyle publish` writes it, it goes up as the asset demo.tar.gz of
+      # the release demo-data, and here into site/demo/ with the keys from the repository's secrets (never in the repository)
+      - name: The dashboard online
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CARTO: ${{ secrets.CARTO_DEMO_KEY }}
+          GMAPS: ${{ secrets.GOOGLE_MAPS_DEMO_KEY }}
+          GEMINI: ${{ secrets.GEMINI_DEMO_KEY }}
+        run: |
+          if gh release download demo-data --repo "$GITHUB_REPOSITORY" -p demo.tar.gz -D "$RUNNER_TEMP"; then
+            mkdir -p site/demo && tar -xzf "$RUNNER_TEMP/demo.tar.gz" -C site/demo
+            sed -i "s|__CARTO_DEMO_KEY__|$CARTO|g; s|__GOOGLE_MAPS_DEMO_KEY__|$GMAPS|g; s|__GEMINI_DEMO_KEY__|$GEMINI|g" site/demo/index.html
+          else
+            echo "no release demo-data: the site goes without the dashboard"
+          fi
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site

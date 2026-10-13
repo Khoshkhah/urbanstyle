@@ -60,6 +60,8 @@ A bridge is drawn from its profile: its axes and lanes, its paths and barriers, 
 
 ## Try it
 
+- **Online, with no install:** [the dashboard of West Broadway × Granville Street](https://khoshkhah.github.io/urbanstyle/demo/). Find, Filter and Ask run in your
+  browser.
 - Open an area: [Use the dashboard](how-to/use-the-dashboard.md).
 - Ask questions: [Ask questions](how-to/ask-questions.md).
 - More pictures: [Gallery](gallery.md).

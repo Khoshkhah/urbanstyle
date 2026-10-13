@@ -1,6 +1,6 @@
 # The dashboard online
 
-Status: proposed, 2026-10-13. To be agreed before coding.
+Status: agreed and built, 2026-10-13 (`urbanstyle publish`, `static.js`). Online at <https://khoshkhah.github.io/urbanstyle/demo/>.
 
 ## Goal
 

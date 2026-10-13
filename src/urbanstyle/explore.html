@@ -218,7 +218,9 @@ function show(fc,title){
   $('xplist').innerHTML=fc.features.slice(0,300).map((f,i)=>`<div data-i=${i}>${esc(f.properties._label)}<small>${esc(f.properties._layer)} · ${esc(f.properties._id??'')}</small></div>`).join('');
   if(s)fly(fc.features)}
 $('xplist').onclick=e=>{const d=e.target.closest('[data-i]'); if(d&&last)select(last.features[+d.dataset.i])};
-const get=u=>fetch(u).then(r=>r.json()), post=(u,b)=>fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}).then(r=>r.json());
+// (on a web site with no server, the page's own /api/: XP_STATIC, urbanstyle publish)
+const S=window.XP_STATIC;
+const get=u=>S?S.api(u):fetch(u).then(r=>r.json()), post=(u,b)=>S?S.api(u,b):fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}).then(r=>r.json());
 // (a result list from the newest request only: a slow answer to an older one is dropped)
 let rq=0; const latest=pr=>{const n=++rq; return pr.then(r=>{if(n!==rq)throw 'stale'; return r})}, stale=e=>{if(e!=='stale')throw e};
 const wait=t=>{$('xpsum').innerHTML=`<span class=xpwait>${t}</span>`; $('xpkinds').innerHTML=''; $('xplist').innerHTML=''};
@@ -255,7 +257,7 @@ function ask(){const q=$('xpask').value.trim(); if(!q)return; $('xpask').value='
     a.innerHTML=esc(r.answer||r.error||'')+(r.queries&&r.queries.length?`<details><summary>${r.queries.length} ${r.queries.length===1?'query':'queries'} used</summary>${
       r.queries.map(x=>`<pre>${x.title?esc(x.title)+' (on the map)\n':''}${esc(x.sql)}</pre>`).join('')}</details>`:'');
     if(r.fresh&&chat.querySelectorAll('.xpq').length>1)a.insertAdjacentHTML('afterbegin','<div style="font-size:11px;color:#b45309;margin-bottom:4px">'+
-      'The server has no memory of the questions above (it was restarted): this one was answered on its own.</div>');
+      'The agent has no memory of the questions above (the page was reloaded, or the server restarted): this one was answered on its own.</div>');
     store.set('xp-chat',chat.innerHTML); if(r.map)show(r.map,r.map.title); chat.scrollTop=chat.scrollHeight})
   .catch(e=>{a.textContent='Error: '+e})}
 $('xpnew').onclick=()=>{post('/api/forget',{session}); session=newId(); store.set('xp-session',session); store.set('xp-chat','');

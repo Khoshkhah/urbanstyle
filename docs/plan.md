@@ -67,7 +67,7 @@ In order; each item is a general rule, checked on Broadway x Granville before an
 - [x] **The dashboard, local** ([its design](design/dashboard.md), built 2026-10-13): `urbanstyle serve`, one panel (Find with the
       tree and tick boxes, Filter, Ask), levels full / faded / hidden in 2D and 3D, a street space, block or group in focus, the AI agent
       (Claude, else Gemini).
-- [ ] **The dashboard online** (`docs/design/online-dashboard.md`, proposed 2026-10-13): Find, Filter and Ask on the documentation
+- [x] **The dashboard online** (`docs/design/online-dashboard.md`, built 2026-10-13): Find, Filter and Ask on the documentation
       site with no server: DuckDB-WASM on Parquet files, Gemini from the browser with a restricted free-tier key from a GitHub secret.
 - [ ] **Routes in Ask:** the agent also reads the area's duckOSM database (read-only: its networks, POIs, transit stops, streets), and a
       `route` tool: from and to as a place name, an id or a map point; walk, cycle or drive; fastest or shortest. The server runs duckOSM's

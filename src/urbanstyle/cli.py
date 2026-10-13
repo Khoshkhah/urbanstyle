@@ -1,4 +1,4 @@
-"""The `urbanstyle` command: build, check, quality, dashboard, layers, mapillary, unit."""
+"""The `urbanstyle` command: build, check, quality, dashboard, layers, mapillary, unit, bridge, serve, publish, ..."""
 import argparse
 import sys
 
@@ -61,6 +61,10 @@ def main(argv=None):
     sv.add_argument("page", help="a page `urbanstyle dashboard` built, e.g. viz/broadway-granville-v92.html (its folder is served)")
     sv.add_argument("--bridge", action="append", default=[], help="a bridge profile: its parts can be searched too")
     sv.add_argument("--port", type=int, default=8784, help="8784: the port Street View's key allows")
+    pb = sub.add_parser("publish", help="the dashboard as static files for a web site with no server (docs/design/online-dashboard.md)")
+    pb.add_argument("db", help="the unit's space db")
+    pb.add_argument("out_dir", help="the folder to write: index.html, static.js, bridge3d.json, data/")
+    pb.add_argument("--bridge", action="append", default=[], help="a bridge profile, as for the dashboard")
     a = p.parse_args(argv)
 
     if a.cmd == "build":
@@ -96,6 +100,10 @@ def main(argv=None):
     elif a.cmd == "serve":
         from .serve import serve
         serve(a.db, a.page, a.bridge, a.port)
+    elif a.cmd == "publish":
+        from .publish import publish
+        fs = publish(a.db, a.out_dir, a.bridge)
+        print(f"{len(fs)} files -> {a.out_dir}")
     elif a.cmd == "bridge3d":
         import duckdb
         from .dashboard import bridge_models, write_bridge3d

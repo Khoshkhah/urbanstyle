@@ -18,6 +18,7 @@
 <p align="center">
   <a href="https://khoshkhah.github.io/urbanstyle/"><b>Documentation</b></a> ·
   <a href="https://khoshkhah.github.io/urbanstyle/get-started/">Get started</a> ·
+  <a href="https://khoshkhah.github.io/urbanstyle/demo/"><b>Try the dashboard online</b></a> ·
   <a href="https://khoshkhah.github.io/urbanstyle/dashboard/">The dashboard</a> ·
   <a href="https://khoshkhah.github.io/urbanstyle/gallery/">Gallery</a>
 </p>

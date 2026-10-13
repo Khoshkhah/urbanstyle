@@ -20,7 +20,7 @@
   boundaries, and the order of work.
 - [Objects, step 1](street-objects-step1.md): the point-object taxonomy and `space.object`.
 - [Strips, first version](street-strips-v1.md): how each container is filled with typed bands.
-- [The dashboard online](online-dashboard.md): proposed. Find, Filter and Ask on the documentation site, in the browser, with
+- [The dashboard online](online-dashboard.md): Find, Filter and Ask on the documentation site, in the browser, with
   no server; the rules for a public Gemini key.
 - [Glossary](glossary.md): every word, column and id in one place.
 

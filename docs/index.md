@@ -37,7 +37,7 @@ urbanstyle dashboard data/monaco.duckdb viz/monaco.html
 urbanstyle serve data/monaco.duckdb viz/monaco.html
 ```
 
-Then open <http://localhost:8784/>. [Get started](get-started.md) goes through these steps one at a time.
+Then open <http://localhost:8784/>. To try the dashboard with no install, open [the dashboard online](https://khoshkhah.github.io/urbanstyle/demo/). [Get started](get-started.md) goes through these steps one at a time.
 
 ## Status
 

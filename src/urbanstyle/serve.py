@@ -37,7 +37,7 @@ KIND_COLS = ("type", "class", "kind", "use")      # a result's label: its type, 
 NAME_COLS = ("name", "road")
 # a query the agent writes: one SELECT or WITH, nothing that writes, loads or reads files
 NOT_READ_ONLY = re.compile(r"\b(attach|detach|copy|install|load|pragma|create|insert|update|delete|drop|alter|export|import|call|set|"
-                           r"checkpoint|vacuum|use)\b|\bread_\w+|\bglob\s*\(|\bst_read\w*|\bsniff_csv", re.I)
+                           r"checkpoint|vacuum)\b|\bread_\w+|\bglob\s*\(|\bst_read\w*|\bsniff_csv", re.I)
 
 
 class Area:

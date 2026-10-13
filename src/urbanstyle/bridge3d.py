@@ -21,6 +21,7 @@ STEP_M = 4.0        # the outline and the bands are sampled this often, so their
 BLEND_M = 40.0      # the heights of two axes are blended where the second nearest is this near
 MEET_M = 1.5        # ... and only where their heights differ by less than this (they meet at a fork)
 FADE_M = 2.0        # an arm's weight fades to 0 over this to the edge of its lanes
+OUT_FADE_M = 10.0   # ... and to nothing over this beyond its lanes and past its end (smooth: no step)
 END_FADE_M = 10.0   # ... and over this to its end
 LAND_PAST_M = 3.0   # ... a ground lane it lands on reaches this far past the bridge's end (it continues it)
 LAND_BLEND_M = 30.0 # a bridge lane moves to the street's lane it lands on over this
@@ -226,29 +227,47 @@ def surface(P, x0=0.0, y0=0.0, edges_of=None):
         return (min((b["t"] - b["width"]["value"] / 2 for b in bs), default=-3.0) - 1.0,
                 max((b["t"] + b["width"]["value"] / 2 for b in bs), default=3.0) + 1.0)
 
+    ground_end = {a["id"]: [bool(len(a.get("ends", [])) > k and a["ends"][k].get("ground")) for k in (0, 1)] for _, a in axes}
+    sm = lambda u: (lambda c: c * c * (3 - 2 * c))(min(max(u, 0.0), 1.0))
+
     def z(x, y):
-        """The deck's top at (x, y): the heights of the arms whose lanes cover the point, each weighted by how far inside its lanes the point
-        is (fading over FADE_M to their edge, and over END_FADE_M to the arm's end) and by its nearness, among the arms that meet there
-        (heights within MEET_M of the strongest's); where no arm's lanes reach, the nearest arm's height. No step and no kink at a fork."""
+        """The deck's top at (x, y): the heights of the arms near it, each weighted by its nearness and by smooth fades: to nothing over
+        OUT_FADE_M beyond its lanes and past its end, and over END_FADE_M to an end on the ground; then each weighted again by how near its
+        height is to the mean (MEET_M: an arm passing above or below has little say). Every weight changes smoothly, so the deck has no
+        step anywhere: hard switches (the nearest arm's height off the lanes, a cut-off between heights, a weight of nothing at an arm's
+        end) made steps of up to 0.7 m across the deck at the forks, seen as steps in the guards (Kaveh, 2026-10-12)."""
         p = shapely.Point(x, y)
-        cand, near = [], []
+        ws, near = [], []
         for ln, a in axes:
-            sv = ln.project(p)
             d = ln.distance(p)
+            sv = ln.project(p)
             hz = _h(a["vertical"], sv)
             near.append((d, hz))
-            if d < BLEND_M:
-                q_, a_, b_ = ln.interpolate(sv), ln.interpolate(max(sv - 1, 0)), ln.interpolate(min(sv + 1, ln.length))
-                t = ((b_.x - a_.x) * (y - q_.y) - (b_.y - a_.y) * (x - q_.x)) / (math.hypot(b_.x - a_.x, b_.y - a_.y) or 1)
-                lo, hi = reach(a, sv)
-                w = min(1.0, min(t - lo, hi - t) / FADE_M) * min(1.0, sv / END_FADE_M, (ln.length - sv) / END_FADE_M)
-                if w > 0:
-                    cand.append((w / (d + 1.0), hz))
-        if not cand:
+            if d >= BLEND_M:
+                continue
+            q_, a_, b_ = ln.interpolate(sv), ln.interpolate(max(sv - 1, 0)), ln.interpolate(min(sv + 1, ln.length))
+            h_ = math.hypot(b_.x - a_.x, b_.y - a_.y) or 1
+            ux, uy = (b_.x - a_.x) / h_, (b_.y - a_.y) / h_
+            t = ux * (y - q_.y) - uy * (x - q_.x)
+            lo, hi = reach(a, sv)
+            f_lane = sm((min(t - lo, hi - t) + OUT_FADE_M) / (OUT_FADE_M + FADE_M))
+            along = ux * (x - q_.x) + uy * (y - q_.y)        # (past an end, how far along its way)
+            past = max(0.0, -along) if sv < 0.01 else max(0.0, along) if sv > ln.length - 0.01 else 0.0
+            f_end = sm(1.0 - past / OUT_FADE_M)
+            ge = ground_end[a["id"]]
+            if ge[0]:
+                f_end *= sm(sv / END_FADE_M)
+            if ge[1]:
+                f_end *= sm((ln.length - sv) / END_FADE_M)
+            w = f_lane * f_end / (d + 1.0)
+            if w > 0:
+                ws.append((w, hz))
+        if not ws:
             return min(near)[1]
-        top = max(cand)[1]
-        use = [(w, hz) for w, hz in cand if abs(hz - top) <= MEET_M]
-        return sum(w * hz for w, hz in use) / sum(w for w, _ in use)
+        m0 = sum(w * hz for w, hz in ws) / sum(w for w, _ in ws)
+        use = [(w * math.exp(-((hz - m0) / MEET_M) ** 2), hz) for w, hz in ws]
+        tot = sum(w for w, _ in use)
+        return sum(w * hz for w, hz in use) / tot if tot > 1e-12 else m0
 
     return {"axes": axes, "deck": deck, "fill": fill, "z": z, "frame": frame}
 
@@ -2816,13 +2835,14 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False):
         dense_f = deck.segmentize(STEP_M)
         tris_f = [t for cell in grid(dense_f, STEP_M) for pc in shapely.get_parts(cell) if pc.geom_type == "Polygon" and pc.area > 1e-4
                   for t in shapely.get_parts(shapely.constrained_delaunay_triangles(pc)) if t.representative_point().within(pc.buffer(0.01))]
-        top_f = [[vid(x, y, z(x, y)) for x, y in t.exterior.coords[:3]] for t in tris_f]
-        bottom_f = [[vid(x, y, under(x, y, z(x, y))) for x, y in t.exterior.coords[:3]][::-1] for t in tris_f]
+        # (at the heights the lanes and paths stand on, zd: with z's own heights the deck rose through the lanes in grey patches)
+        top_f = [[vid(x, y, zd(x, y)) for x, y in t.exterior.coords[:3]] for t in tris_f]
+        bottom_f = [[vid(x, y, under(x, y, zd(x, y))) for x, y in t.exterior.coords[:3]][::-1] for t in tris_f]
         sides_f = []
         for ring in [dense_f.exterior] + list(dense_f.interiors):
             c = list(ring.coords)
             for (ax, ay), (bx, by) in zip(c, c[1:]):
-                za, zb = z(ax, ay), z(bx, by)
+                za, zb = zd(ax, ay), zd(bx, by)
                 a0, b0, a1, b1 = vid(ax, ay, under(ax, ay, za)), vid(bx, by, under(bx, by, zb)), vid(ax, ay, za), vid(bx, by, zb)
                 sides_f += [[a0, b0, b1], [a0, b1, a1]]
     deck_ll = json.loads(shapely.to_geojson(shapely.ops.transform(lambda x, y: to_ll(x + x0, y + y0), deck)))   # (the final outline, GeoJSON, for checks)

@@ -66,7 +66,7 @@ nav:
   - Design notes:
       - design/index.md
       - "Our format and the standards (research)": design/standards-comparison.md
-      - "Dashboard v2": design/dashboard-v2.md
+      - "The dashboard: its design": design/dashboard.md
       - "The dashboard online": design/online-dashboard.md
       - One unit in full: design/unit-dossier.md
       - What the sources hold: design/source-inventory.md

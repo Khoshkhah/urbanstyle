@@ -83,4 +83,4 @@ Closing the card, or **Clear**, brings everything back.
 ## Related
 
 - [Ask questions](ask-questions.md) with the AI agent.
-- The design of the panel: [Dashboard v2](../design/dashboard-v2.md).
+- The design of the panel: [The dashboard: its design](../design/dashboard.md).

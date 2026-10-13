@@ -1,4 +1,4 @@
-"""`urbanstyle serve DB [--bridge PROFILE] [--page PAGE] [--port 8784]` (docs/design/dashboard-v2.md): the dashboard page on a local web
+"""`urbanstyle serve DB [--bridge PROFILE] [--page PAGE] [--port 8784]` (docs/design/dashboard.md): the dashboard page on a local web
 server, with an Explore panel: search, filters, a results list and questions to an AI agent (Claude), in 2D and 3D. The page's folder
 (viz/) is served as it is; the page gets the panel, and the panel gets its data from /api/."""
 import json

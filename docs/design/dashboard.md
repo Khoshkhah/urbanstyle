@@ -1,4 +1,4 @@
-# Dashboard v2: explore the street space
+# The dashboard: its design
 
 Status: step 1, local only (2026-10-13). Agreed with Kaveh: cities first, a local version first.
 

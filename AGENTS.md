@@ -76,7 +76,7 @@ The order of work: `docs/plan.md`.
 - `src/urbanstyle/bridge_heights.py`: `urbanstyle bridge-heights PROFILE HEIGHTS OUT` sets a profile's heights from a small heights file where
   there is no LiDAR: points per axis, a ramp from another axis down to the ground, or the default rule (`docs/design/bridge-heights.md`).
 - `src/urbanstyle/serve.py` and `explore.html`: `urbanstyle serve DB PAGE [--bridge PROFILE] [--port 8784]` serves `viz/` with one panel
-  (`docs/design/dashboard-v2.md`): Find (search, an exact id, the area's tree with tick boxes), Filter, Ask (an AI agent: Claude with
+  (`docs/design/dashboard.md`): Find (search, an exact id, the area's tree with tick boxes), Filter, Ask (an AI agent: Claude with
   `ANTHROPIC_API_KEY` or `~/.config/anthropic/key`, else Gemini with `GEMINI_API_KEY`, never keys in the repo); results orange,
   the selected thing deep purple with its card (no popup); levels full / faded / hidden in 2D and 3D; a street space, block
   or tree group in focus in 3D: the buildings that frame it (`Area.bounding`: seen from it within 10 m) solid, the other buildings

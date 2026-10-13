@@ -64,7 +64,7 @@ In order; each item is a general rule, checked on Broadway x Granville before an
 - [ ] **Slanted lanes** west of West Broadway's 4 -> 6 joint; **West Broadway's north kerb east of Hemlock** still about 8 m short.
 - [ ] Then the gaps of [What the sources hold](design/source-inventory.md): crossing and kerb details, every Mapillary class, the city's
       turn rules as automatic checks, land cover and lidar; then the W 4th Ave unit; then the recipe.
-- [x] **Dashboard v2, local** ([Dashboard v2](design/dashboard-v2.md), built 2026-10-13): `urbanstyle serve`, one panel (Find with the
+- [x] **The dashboard, local** ([its design](design/dashboard.md), built 2026-10-13): `urbanstyle serve`, one panel (Find with the
       tree and tick boxes, Filter, Ask), levels full / faded / hidden in 2D and 3D, a street space, block or group in focus, the AI agent
       (Claude, else Gemini).
 - [ ] **The dashboard online** (`docs/design/online-dashboard.md`, proposed 2026-10-13): Find, Filter and Ask on the documentation

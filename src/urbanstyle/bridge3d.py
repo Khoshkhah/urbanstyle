@@ -286,7 +286,8 @@ def model_checks(surf, deck, road_ends, S, axes):
     of = lambda pred: [(sf, poly(sf)) for sf in surf if pred(sf)]
     lanes_ = of(lambda sf: sf["key"].startswith("lane") and sf["props"] and sf["props"].get("type") == "lane")
     veh = shapely.union_all([g for sf, g in of(lambda sf: sf["key"].startswith("lane"))])
-    inner = veh.buffer(GUARD_ON_LANE_M).buffer(-2 * GUARD_ON_LANE_M)
+    # (only hairline gaps between lanes closed: closing 1 m gaps took a gore for lane, and its barrier's nose for a guard on a lane)
+    inner = veh.buffer(0.05).buffer(-0.05 - GUARD_ON_LANE_M)
     guard = shapely.union_all([g for _, g in of(lambda sf: sf["key"] in ("barrier", "railing"))])
     bar = shapely.union_all([g for _, g in of(lambda sf: sf["key"] == "barrier")])
     paths = {}
@@ -315,7 +316,11 @@ def model_checks(surf, deck, road_ends, S, axes):
     thin = [p for g in paths.values() for p in shapely.get_parts(g) if p.area >= 0.05 and p.buffer(-PATH_MIN_M / 2 + 0.01).is_empty]   # (mesh's own limit)
     ll = [g.intersection(h) for i, (sf, g) in enumerate(lanes_) for tf, h in lanes_[i + 1:]
           if sf["props"].get("axis") != tf["props"].get("axis") and g.intersection(h).area > 1.0]
-    bare = [g for _, g in lanes_ if not g.intersects(arrows)]
+    # (a lane is all its pieces, "<id> #2" ...: the deck the free-deck fill gives a lane is a piece of it with no arrow of its own)
+    lane_g = {}
+    for sf, g in lanes_:
+        lane_g.setdefault(sf["props"]["id"].split(" #")[0], []).append(g)
+    bare = [shapely.union_all(gs) for gs in lane_g.values() if not any(g.intersects(arrows) for g in gs)]
     # the rules of 2026-10-12 (Kaveh: "the bridge can't have free space", "all boundary of the bridge must have barrier", "between driving
     # lane and other lanes must have barrier", the steps in the guards): no deck that no part covers; a barrier wherever a lane meets a path,
     # but at a crosswalk; no step in the deck's height
@@ -2842,6 +2847,15 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False):
             off = ln_m          # (a path's tip between two lanes, a3 and a10: on the lanes' edge itself)
         if off.geom_type == "LineString" and not off.is_empty:
             strip(off, BARRIER_SEP_M[0], "barrier", 0.0, None, BARRIER_SEP_M[1])
+    # the tip of a path between two lanes, narrower than a barrier, is the barrier's nose: footway w538616397's tip ran on 1.4 m past its
+    # barrier between a3 and a10 (BR10)
+    tips_ = paths_f.difference(paths_f.buffer(-BARRIER_SEP_M[0] / 2).buffer(BARRIER_SEP_M[0] / 2 + 0.01))
+    bars_f = shapely.union_all([sf_["poly"] for sf_ in surf if sf_.get("poly") is not None and sf_["key"].startswith("barrier")])
+    for t_ in shapely.get_parts(tips_):
+        if t_.geom_type == "Polygon" and t_.boundary.intersection(lanes_f.buffer(0.05)).length > 0.7 * t_.length:
+            # (and back to the barriers near it: with a strip's slanted end a wedge of path stayed between them)
+            nose_ = paths_f.intersection(shapely.union_all([t_, bars_f.intersection(t_.buffer(2.0))]).convex_hull)
+            mesh(nose_, "barrier", 0.0, None, BARRIER_SEP_M[1])
     mesh(rim(0.1, 0.2), "railing", RAILING_M[0] - 0.08, None, 0.08)
     in_ = shapely.make_valid(deck.buffer(-BARRIER_M[1] / 2))       # (its area parts only: a thin spot gave lines too, a9)
     mid = shapely.MultiPolygon([q_ for g_ in shapely.get_parts(in_) for q_ in shapely.get_parts(g_) if q_.geom_type == "Polygon"]).boundary.difference(gaps)

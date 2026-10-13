@@ -8,8 +8,7 @@ import pytest
 PROFILE = "data/bridges-measured/granville-bridge.bridge.json"
 DB = "data/units/broadway-granville.space.duckdb"
 # faults the checks find that are not fixed yet (2026-10-12): they are reported, but do not fail the run
-KNOWN = {"BR1": "guards from the lane-path barrier pass on lane edges", "BR7": "lanes with no arrow (small pieces at landings and forks)",
-         "BR10": "the a3/a10 gore tip"}
+KNOWN = {}
 
 pytestmark = pytest.mark.skipif(not (os.environ.get("URBANSTYLE_BRIDGE_TESTS") and os.path.exists(PROFILE) and os.path.exists(DB)),
                                 reason="slow: set URBANSTYLE_BRIDGE_TESTS=1 (needs the local data/)")

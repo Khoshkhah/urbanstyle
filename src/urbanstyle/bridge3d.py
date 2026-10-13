@@ -2723,7 +2723,9 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False):
     for g_ in pieces_f:
         if g_.geom_type != "Polygon" or g_.area < FREE_MIN_M2:
             continue
-        g_ = g_.intersection(deck)
+        g_ = shapely.union_all([q_ for q_ in shapely.get_parts(g_.intersection(deck)) if q_.geom_type in ("Polygon", "MultiPolygon")])
+        if g_.is_empty or g_.area < FREE_MIN_M2:
+            continue
         # (a sliver between lanes, under FREE_THIN_M wide, is the lane beside it: footway there put a path between two lanes)
         lanes_s = [sf_ for sf_ in surf if sf_.get("poly") is not None and sf_["key"].startswith("lane")]
         if 2 * shapely.maximum_inscribed_circle(g_).length < FREE_THIN_M and lanes_s:

@@ -57,6 +57,7 @@ def blocks_frame(con):
         return None
 
 
+ON_PARTS = ("crosswalk", "cycle crossing", "bus zone", "driveway")     # on the parts, not between them (docs/design/space-layers.md, layer 3)
 BLOCK_PALETTE = ["#e6a157", "#7fb3d5", "#82c99a", "#d98cb3", "#c9b458", "#9e8fd1", "#e08a7a", "#6fc2bf"]
 
 
@@ -229,7 +230,7 @@ function apply(){
   const ownSec=sid=>!focused||cs.has(sid)||(tree.secarms[sid]||[]).some(i=>cs.has(i));
   if(HAS.includes('Spaces')){setOv('Spaces',!ALL); rsFilter(rsQuery(p=>p.level===l&&(IX?p.unit_id===IX:ownSec(p.section_id)),'Spaces'),'Spaces')}
   const inside=IX||(focused&&!sel.gid&&HAS.includes('Parts')&&NEWU.sec[cid]);   // a space shown with its parts: its painted lines, not the subsection lines
-  ['Subsections','Subsection breaks'].forEach(lab=>{if(HAS.includes(lab)){setOv(lab,!inside&&!ALL); if(!inside&&!ALL)rsFilter(rsQuery(p=>p.level===l&&ownSec(p.section_id),lab),lab)}});
+  ['Subsection axes','Subsection breaks'].forEach(lab=>{if(HAS.includes(lab)){setOv(lab,!inside&&!ALL); if(!inside&&!ALL)rsFilter(rsQuery(p=>p.level===l&&ownSec(p.section_id),lab),lab)}});
   if(HAS.includes('Cuts')){setOv('Cuts',!ALL); rsFilter(rsQuery(p=>p.level===l&&(IX?p.intersection_id===IX:(!focused||cs.has(p.intersection_id)||[...cs].some(s=>(tree.secarms[s]||[]).includes(p.intersection_id)))),'Cuts'),'Cuts')}
   if(HAS.includes('Junction roads')){const jr=!!IX&&!HAS.includes('Parts');   // with its parts shown, the lanes and markings draw the roads
     setOv('Junction roads',jr); if(jr)rsFilter(rsQuery(p=>p.unit_id===IX,'Junction roads'),'Junction roads')}
@@ -586,7 +587,7 @@ document.addEventListener('rs:select',e=>{const d=e.detail||{}, p=d.properties||
   if(d.overlay==='Cuts'&&p.intersection_id){focusUnit({unit_id:p.intersection_id,section_id:p.intersection_id});return}   // a cut opens its intersection
   if([...KD.map(k=>k.lab),'Travelway','Pedestrian realm','Track'].includes(d.overlay)&&p.cid&&!(sel.cids&&sel.cids.has(p.cid)))focusOn(p.cid);
   else if(!d.overlay&&p.container_id&&!(sel.cids&&sel.cids.has(p.container_id)))focusOn(p.container_id)   // a centerline click (Street View) focuses its street space too
-  else if(['Spaces','Subsections','Subsection breaks'].includes(d.overlay))focusUnit(p)});
+  else if(['Spaces','Sections','Intersections','Subsections','Subsection axes','Subsection breaks'].includes(d.overlay))focusUnit(p)});
 // a new space (space.unit) or a subsection line: focus its section (or its intersection); a section only the new division has: zoom to the space
 function focusUnit(p){const id=[p.section_id,p.unit_id].find(x=>x&&byId[x]);
   if(id){if(!(sel.cids&&sel.cids.has(id)))focusOn(id);return}
@@ -637,8 +638,8 @@ window.addEventListener('hashchange',fromHash);
 """
 
 
-KINDS = [("section", "Sections", "#a78bfa", "#6d28d9"), ("intersection", "Intersections", "#fbbf24", "#b45309"),
-         ("path", "Path spaces", "#6ee7b7", "#047857"), ("rail", "Rail spaces", "#f9a8d4", "#be185d"), ("plaza", "Plazas", "#f43f5e", "#9f1239")]   # kind, overlay label, fill, outline
+KINDS = [("section", "Old: sections", "#a78bfa", "#6d28d9"), ("intersection", "Old: intersections", "#fbbf24", "#b45309"),
+         ("path", "Old: path spaces", "#6ee7b7", "#047857"), ("rail", "Old: rail spaces", "#f9a8d4", "#be185d"), ("plaza", "Old: plazas", "#f43f5e", "#9f1239")]   # kind, overlay label, fill, outline
 POP = ["cid", "name", "kind", "shape", "level", "n_buildings", "width_m", "narrow_half_m", "wide_half_m", "open_share", "one_side_open", "kerb_share",
        "n_road", "n_walkway", "n_cycleway"]
 
@@ -1422,7 +1423,7 @@ def main(db, out, bridges=None):
     dobjs, dmatch = dossier_layers(con, db)
     shapes["unit"] = shapes["object_id"].map(unit_of)
     objects["unit"] = objects["object_id"].map(unit_of)
-    has = [lab for lab, df in (("Track", track), ("Rail", rails), ("Station", stations), ("Spaces", units), ("Parts", pts_), ("Cuts", cuts), ("Junction roads", jroads), ("Subsections", subs),
+    has = [lab for lab, df in (("Track", track), ("Rail", rails), ("Station", stations), ("Spaces", units), ("Parts", pts_), ("Cuts", cuts), ("Junction roads", jroads), ("Subsection axes", subs),
                                ("Subsection breaks", brk), ("Street objects", dots), ("Mapillary", seen)) if len(df)]   # overlays present in this area
     links = frame(con, "SELECT ST_AsWKB(geometry) AS geometry, node_id, level_a, level_b, type, assumed, station_id, match, round(dist_m) AS dist_m FROM space.link")
     # type, name shown, colour, what it is. Colours differ from every other layer's on purpose.
@@ -1470,12 +1471,22 @@ def main(db, out, bridges=None):
                                popup=["id", "name", "kind", "level"], tooltip=["id", "name"])] * (len(stations) > 0)
                  + [rs.Overlay(links[links["type"] == t], kind="circle", placement="over", color=c, radius=6, label=f"Link: {name}",
                                popup=["node_id", "type", "level_a", "level_b", "assumed", "station_id", "match", "dist_m"], tooltip=["node_id", "type"]) for t, name, c, _ in defs]
+                 # (blocks, sections and intersections cover the area; a section is its subsections, each a space: Kaveh, 2026-10-13)
+                 + ([o(units[units.kind == "subsection"].dissolve(by=["section_id", "level"], as_index=False)[["section_id", "level", "geometry"]],
+                       color="#a78bfa", opacity=0.35, outline="#4c1d95", width=2.2, label="Sections", popup=["section_id", "level"], tooltip=["section_id"]),
+                     o(units[units.kind != "subsection"], color="#fbbf24", opacity=0.45, outline="#b45309", width=2.2, label="Intersections",
+                       popup=["unit_id", "kind", "level", "area_m2"], tooltip=["unit_id", "kind"]),
+                     o(units[units.kind == "subsection"], color="#a78bfa", color_col="color", opacity=0.25, outline="#6d28d9", width=0.8,
+                       label="Subsections", popup=["unit_id", "section_id", "level", "area_m2"], tooltip=["unit_id"])] if len(units) else [])
                  + [o(units, color="#a78bfa", color_col="color", opacity=0.45, outline="#1f2937", width=1.2, label="Spaces",
                       popup=["unit_id", "kind", "section_id", "level"], tooltip=["unit_id", "kind"])] * (len(units) > 0)
                  + [o(pts_, color="#999999", color_col="color", opacity=0.95, outline="#475569", width=0, label="Parts", visible=False,
                       popup=["part_id", "type", "holds", "rule", "road", "road_class", "direction", "lane", "lane_id", "width_m", "length_m", "speed", "surface", "lit", "road_lanes", "oneway",
                               "area_m2", "source", "method", "ref", "width_source", "width_method", "position_source", "position_method", "position_ref"],
                       tooltip=["type", "direction", "arm"])] * (len(pts_) > 0)
+                 + [o(pts_[pts_["type"].isin(ON_PARTS)], color="#f97316", color_col="color", opacity=0.85, outline="#7c2d12", width=0.8,
+                      label="On the parts", visible=False, popup=["part_id", "type", "rule", "unit_id", "source", "method", "ref"],
+                      tooltip=["type"])] * bool(len(pts_) and pts_["type"].isin(ON_PARTS).any())
                  + [rs.Overlay(marks[marks["type"] == t], kind="line", placement="over", color=c, width_m=w, dash=dash, label=f"Mark: {t}", visible=False,
                                popup=["unit_id", "type", "arm", "length_m", "width_m", "width_source", "width_method", "source", "method", "ref"], tooltip=["type", "arm"]) for t, c, w, dash in MARKS if (marks["type"] == t).any()]
                  # the street objects, one per real object, from the same data in both views: in 2D a dot where it stands, coloured by kind;
@@ -1492,7 +1503,7 @@ def main(db, out, bridges=None):
                                popup=["unit_id", "name", "class"], tooltip=["name", "class"])] * (len(jroads) > 0)
                  + [rs.Overlay(cuts, kind="line", placement="over", color="#6b7280", color_col="color", width=4, label="Cuts",
                                popup=["intersection_id", "edge_id", "how", "length_m"], tooltip=["how", "length_m"])] * (len(cuts) > 0)
-                 + [rs.Overlay(subs, kind="line", placement="over", color="#e6194b", color_col="color", width=5, label="Subsections",
+                 + [rs.Overlay(subs, kind="line", placement="over", color="#e6194b", color_col="color", width=5, label="Subsection axes",
                                popup=["subsection_id", "section_id", "class", "width_m", "oneway", "length_m", "left", "right", "starts_at"],
                                tooltip=["subsection_id", "length_m"])] * (len(subs) > 0)
                  + [rs.Overlay(brk, kind="circle", placement="over", color="#111827", radius=5, label="Subsection breaks",

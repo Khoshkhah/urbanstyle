@@ -74,6 +74,12 @@ a surface, a street space) shows only in 2D and in the list.
 
 ## Layers
 
+The Layers panel is a tree, in the order of `docs/design/space-layers.md` (agreed 2026-10-13): Blocks (Buildings, Car parks);
+Street: Sections (Subsections), Intersections, Parts (Crosswalks, bus zones, driveways; Painted lines; Street objects); Between
+levels: Bridges, Links; Land use: Ground; How it was cut: Subsection axes, Subsection breaks, Cuts; Sources: Road centre lines, Track,
+Rail, Stations. The old model (containers by cross-section rays, its travelway, pedestrian realm and strips) is not in it.
+
+The tables the panel reads:
 Street parts (`space.part`), painted lines (`space.mark`), street objects (`space.object`), buildings (`space.element`), car parks
 (`space.lot`), ground (`space.ground`), surfaces (`space.surface`), blocks (`space.block`), street spaces (`space.unit`) and bridge
 parts (`space.bridge_part`). The server makes `space.bridge_part` when it starts, from the bridge model (`bridge3d.model`, cached).

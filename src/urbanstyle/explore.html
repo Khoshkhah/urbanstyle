@@ -27,6 +27,8 @@ body.xp-off #xp{display:none}
 #xplayers summary{cursor:pointer;font:600 12px system-ui;color:#475569;padding:2px 0}
 #xplayers h5{margin:8px 0 3px;font:600 11px system-ui;letter-spacing:.04em;text-transform:uppercase;color:#94a3b8}
 #xplayers label{display:block;font-size:12px;padding:1px 0;cursor:pointer}
+#xplys .lt{margin-left:14px;border-left:1px solid #e2e8f0;padding-left:6px}#xplys small{color:#94a3b8;margin-left:4px}
+#xplys .lg{font-size:12px;font-weight:600;color:#475569;padding:2px 0}#xplys details>summary{font:600 12px system-ui;color:#94a3b8;cursor:pointer;margin-top:6px}
 /* the layers draw in 2D only (body.u3d: the 3D view): there they rest, greyed (Kaveh, 2026-10-13: "just inactive in 3D"); the
    terrain is 3D's own and rests in 2D */
 body.u3d #xplys,body.u3d #xpopts label:has(#allparts),body.u3d #xpopts label:has(#mlybox),body:not(.u3d) #xpopts label:has(#terrain3d)
@@ -281,9 +283,10 @@ B.classList.add('xp','xp-city');
 // the map: quiet at first (the basemap, the blocks, the buildings in grey, the spaces, the subsections and the bridge: Kaveh,
 // 2026-10-13), then what Layers ticks (allow): the old page's own logic
 // shows its layers again at times (hush hides what is not allowed)
-const allow=new Set(['Blocks','Buildings','Spaces','Subsections','Bridge 2D']), hid=new Set(), GREY={'fill-color':'#efede9','line-color':'#cdc8c1'}; let oldPaint=null;
+const allow=new Set(['Blocks','Buildings','Sections','Intersections','Subsections','Bridge 2D']), hid=new Set(), GREY={'fill-color':'#efede9','line-color':'#cdc8c1'}; let oldPaint=null;
 const roadsOn=on=>{const m=M(); if(m&&!(typeof in3d!=='undefined'&&in3d))m.getStyle().layers.forEach(l=>{if(/^roads-/.test(l.id))m.setLayoutProperty(l.id,'visibility',on?'visible':'none')})};
-const HIDE_LY=l=>l==='Bridge 2D'||/3D/.test(l);     // (not in Layers: the bridge goes by the levels; 3D layers are 3D's)
+const HIDE_LY=l=>/3D/.test(l)||/^(Old: |Strip: )/.test(l)||['Spaces','Travelway','Pedestrian realm','Junction roads','Mark: kerb'].includes(l);   // (3D layers are 3D's; the old model and
+// the spaces all in one (Sections, Intersections, Subsections show them) are not in Layers: Kaveh, 2026-10-13)
 function hush(){if(!B.classList.contains('xp')||typeof OVERLAYS==='undefined'||!M())return;
   OVERLAYS.forEach(o=>{if(o.visible&&!allow.has(o.label)){hid.add(o.label); rsSetOverlay(o.label,false)}});
   // (and what Layers ticked on again: the old page works its layers out anew at a view switch and turned them off, "Travelway" after
@@ -303,11 +306,37 @@ quiet(true);
 $('xpfold').onclick=()=>{const off=!B.classList.toggle('xp-off'); $('xpfold').innerHTML=off?'&laquo;':'&raquo;';
   $('xpfold').title=off?'hide the panel':'show the panel'; resize()};
 // Layers: the data's own layers (the old panel's), each ticked on its own, by group; and its options (terrain, road surface, Mapillary)
-function layersList(){if(typeof OVERLAYS==='undefined')return; const groups={};
-  [{label:'Roads'},...OVERLAYS].filter(o=>!HIDE_LY(o.label)).forEach(o=>{const g=o.label.includes(': ')?o.label.split(': ')[0]:'Street space data';
-    (groups[g]=groups[g]||[]).push(o.label)});
-  $('xplys').innerHTML=Object.entries(groups).map(([g,ls])=>`<h5>${esc(g)}</h5>`+ls.map(l=>`<label><input type=checkbox data-ly="${esc(l)}" ${allow.has(l)?'checked':''}>${
-    esc(l.includes(': ')?l.split(': ').slice(1).join(': '):l==='Roads'?'Road centre lines':l)}</label>`).join('')).join('')}
+// (the layers as a tree, each under the one it is part of: blocks, sections and intersections cover the area (docs/design/space-layers.md);
+// agreed with Kaveh, 2026-10-13. A group with ▸ opens to its types; its own box turns them all on or off)
+const LYTREE=[
+  ['Blocks','Blocks','the land between the streets',[['Buildings','Buildings',''],['Car parks','Parking lots','']]],
+  ['Street',null,'',[
+    ['Sections','Sections','a stretch of street between two intersections',[['Subsections','Subsections','a stretch with one cross-section']]],
+    ['Intersections','Intersections','where streets meet'],
+    ['Parts','Parts','inside both: lanes, sidewalks, junction areas, corners',[
+      ['Crosswalks, bus zones, driveways','On the parts',''],
+      ['Painted lines','Mark: ',''],
+      ['Street objects','Street objects','lamps, trees, signs']]]]],
+  ['Between levels',null,'',[['Bridges','Bridge 2D',''],['Links','Link: ','ramps, stairs, elevators']]],
+  ['Land use',null,'another cut of the same area',[['Ground','Ground','street, plot, green, water']]],
+  ['How it was cut',null,'helper lines',[['Subsection axes','Subsection axes',''],['Subsection breaks','Subsection breaks',''],['Cuts','Cuts','']]],
+  ['Sources',null,'the input, not our model',[['Road centre lines (OSM)','Roads',''],['Track','Track',''],['Rail','Rail',''],['Stations','Station','']]]];
+function layersList(){if(typeof OVERLAYS==='undefined')return; const all=['Roads',...OVERLAYS.map(o=>o.label)].filter(l=>!HIDE_LY(l)), used=new Set();
+  const take=k=>k.endsWith(': ')?all.filter(l=>l.startsWith(k)):all.filter(l=>l===k);
+  const sm=note=>note?`<small>${esc(note)}</small>`:'';
+  const box=(l,txt,note,grp)=>{used.add(l); return `<label><input type=checkbox data-ly="${esc(l)}" ${grp?`data-grp="${esc(grp)}"`:''} ${allow.has(l)?'checked':''}>${esc(txt)}${sm(note)}</label>`};
+  const node=([txt,k,note,kids])=>{const sub=(kids||[]).map(node).join('');
+    if(k&&k.endsWith(': ')){const ls=take(k); if(!ls.length)return ''; const on=ls.every(l=>allow.has(l));
+      return `<details><summary><input type=checkbox data-all="${esc(k)}" ${on?'checked':''}> ${esc(txt)}${sm(note)}</summary><div class=lt>`+
+        ls.map(l=>box(l,l.slice(k.length),'',k)).join('')+'</div></details>'}
+    const head=k&&take(k).length?box(k,txt,note):(k?'':`<div class=lg>${esc(txt)}${sm(note)}</div>`);
+    if(!head&&!sub)return ''; return (head||`<div class=lg>${esc(txt)}${sm(note)}</div>`)+(sub?`<div class=lt>${sub}</div>`:'')};
+  let html=LYTREE.map(node).join('');
+  const rest=all.filter(l=>!used.has(l)); if(rest.length)html+=`<div class=lg>Other</div><div class=lt>`+rest.map(l=>box(l,l,'')).join('')+'</div>';
+  $('xplys').innerHTML=html}
+// (a group's own box: all its types on or off)
+$('xplys').addEventListener('click',e=>{const a=e.target.dataset&&e.target.dataset.all; if(!a)return; e.stopPropagation();
+  const on=e.target.checked; $('xplys').querySelectorAll(`input[data-grp="${a}"]`).forEach(c=>{if(c.checked!==on){c.checked=on; c.dispatchEvent(new Event('change',{bubbles:true}))}})},true);
 $('xplys').onchange=e=>{const l=e.target.dataset.ly; if(!l)return; const on=e.target.checked; if(on)allow.add(l); else allow.delete(l);
   if(l==='Roads')roadsOn(on); else rsSetOverlay(l,on); applyLooks()};
 // (the options keep their own code; what they switch on is allowed)
@@ -393,7 +422,7 @@ get('/api/meta').then(m=>{meta=m; $('xparea').textContent='· '+m.area; branch($
 // mouse resting HOVER2D ms on a result, a building, a bridge part or a ticked layer lights it (light purple); a click selects it (deep
 // purple, its card) in place of the map's own popup
 const HOVER2D=300, OVMAP={'Buildings':['Buildings','id'],'Bridge 2D':['Bridge parts','id'],'Spaces':['Street spaces','unit_id'],
-  'Parts':['Street parts','part_id'],'Ground':['Ground','ground_id'],'Parking lots':['Car parks','id'],'Subsections':['Street spaces','subsection_id'],
+  'Parts':['Street parts','part_id'],'Ground':['Ground','ground_id'],'Parking lots':['Car parks','id'],'Subsections':['Street spaces','unit_id'],'Intersections':['Street spaces','unit_id'],'Sections':['Street spaces','section_id'],'Subsection axes':['Street spaces','subsection_id'],
   'Blocks':['Blocks','block_id']};
 const is3d=()=>typeof in3d!=='undefined'&&in3d;
 function live2d(){const m=M(); if(!m||typeof OVERLAYS==='undefined')return [];

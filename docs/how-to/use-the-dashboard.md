@@ -32,8 +32,12 @@ The panel is on the left. The « button folds it away, and the map then takes th
 
 - **Level and view.** Each level that has streets has a button. A click moves it to the next look: full (deep purple), faded (light
   purple), hidden (white). The levels combine. **2D** and **3D** switch the view.
-- **Layers.** The data's own layers for 2D (street space data, strips, links, painted lines, survey objects), and the options
-  (terrain for 3D, the road surface in 2D, Mapillary). All are off at first, so the map starts quiet.
+- **Layers.** The data's own layers for 2D, as a tree: each layer under the one it is part of. Blocks, sections and intersections
+  cover the area. Under the blocks are buildings and car parks. A section holds its subsections. The parts are inside both
+  sections and intersections, and on the parts lie the crosswalks, the painted lines and the street objects. Then come the layers
+  between levels (bridges, links), land use (ground), the helper lines (subsection axes, cuts) and the sources (OSM's road centre
+  lines, rail). Blocks, buildings, sections, subsections and intersections are on at first. Options: terrain for 3D, the road
+  surface in 2D, Mapillary.
 - **Find, Filter, Ask.** Three ways to get a list of things. The list shows below the tabs, and on the map in orange.
 
 ## Find a thing

@@ -70,8 +70,7 @@ urbanstyle serve data/monaco.duckdb viz/monaco.html      # then open http://loca
 ## Status
 
 Alpha. The pilot area is West Broadway × Granville Street in Vancouver, with Granville Bridge. The format is a set of agreed
-requirements: a profile of CityGML 3.0, written as a CityJSON Extension. Its first specification and an export come next, then a
-second city.
+requirements: a profile of CityGML 3.0, written as a CityJSON Extension.
 
 ## The family
 

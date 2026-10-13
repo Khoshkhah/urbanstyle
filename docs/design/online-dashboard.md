@@ -52,12 +52,3 @@ The page is about 9 MB and the Parquet files about 10-20 MB. If they go into the
 history. Instead, a new command, `urbanstyle publish DB OUT_DIR`, writes them, and they go up as the assets of a GitHub release,
 `demo-data`. The Pages workflow downloads them into `site/demo/`. The documentation links to
 `https://khoshkhah.github.io/urbanstyle/demo/`.
-
-## Work
-
-1. `urbanstyle publish`: the page without the Google key and Mapillary, `meta.json`, `tree.json`, `focus.json`, the Parquet files.
-2. The panel's `api()`, and the browser side of `search`, `query` and `focus` with DuckDB-WASM.
-3. Ask in the browser: the agent's loop and its tools in JavaScript, with Gemini's REST API.
-4. The Pages workflow, the release, and the link in the documentation.
-
-About 1-2 days. Steps 1 and 2 give Find and Filter online. Step 3 adds Ask.

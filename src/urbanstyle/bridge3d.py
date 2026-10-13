@@ -49,6 +49,7 @@ TRUSS_PANEL_M = 12.0  # a steel truss under a span: its panel length (chosen, fr
 TRUSS_CROWN_M = 1.5   # ... its bottom chord's crown this far under the deck (chosen)
 TRUSS_IN_M = 1.0      # ... each side's plane this far in from the deck's edge
 TRUSS_M = (0.8, 0.5)  # ... a chord's width, a vertical's or a diagonal's (chosen)
+BENT_LEG_M = 1.2      # ... a steel bent's leg: its width (chosen, from the photos)
 TRUSS_PIER_M = (4.0, 2.0)  # ... a concrete pier under a springing point: along the axis, out past each truss plane (photos)
 TANGENT_M = 20.0    # an axis's end turned into the trunk's way at their node over this (tangent_ends)
 PAIR_TANGENT_M = 20.0  # a pair's centre line leaves the trunk's node in the trunk's way, onto the middle of their lines over this
@@ -2139,6 +2140,17 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False):
                         ends_.append([x + nx * t_[sd], y + ny * t_[sd], z_ if z_ is not None else z_top(s_)])
                 if len(ends_) == 2:
                     truss.append({"a": ends_[0], "b": ends_[1], "w": TRUSS_M[0]})
+        # a steel bent under the truss at each s of "bents": a lattice leg under each truss plane, from the ground up to the bottom
+        # chord, and an X brace between the two legs, all in the plane across the axis (Kaveh, 2026-10-12; photos p1, p0)
+        for s_ in tr_.get("bents", []):
+            f_ = planes_(ln, s_)
+            if not f_:
+                continue
+            x, y, nx, ny, t_ = f_
+            n_x = [round(ny, 3), round(-nx, 3)]
+            (l1b, l1t), (l2b, l2t) = [([x + nx * t_[sd], y + ny * t_[sd], 0.0], [x + nx * t_[sd], y + ny * t_[sd], z_bot(s_)]) for sd in (1, -1)]
+            truss += [{"a": l1b, "b": l1t, "w": BENT_LEG_M, "n": n_x}, {"a": l2b, "b": l2t, "w": BENT_LEG_M, "n": n_x},
+                      {"a": l1b, "b": l2t, "w": TRUSS_M[1], "n": n_x}, {"a": l2b, "b": l1t, "w": TRUSS_M[1], "n": n_x}]
         for pts_ in sides_t.values():
             for k, (top_, bot_) in enumerate(pts_):
                 truss.append({"a": top_, "b": bot_, "w": TRUSS_M[1], "n": nrm_[k]})    # the vertical

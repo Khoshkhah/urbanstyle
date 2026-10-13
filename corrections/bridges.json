@@ -140,6 +140,18 @@
     "truss": [
       {
         "axis": "a1",
+        "s0": 0,
+        "s1": 180,
+        "panel": 11,
+        "depth": 6.5,
+        "bents": [
+          4,
+          92,
+          180
+        ]
+      },
+      {
+        "axis": "a1",
         "s0": 180,
         "s1": 270,
         "panel": 11,
@@ -172,11 +184,14 @@
       {
         "axis": "a1",
         "s0": 400,
-        "s1": 450,
+        "s1": 550,
         "panel": 11,
-        "depth": 6.5
+        "depth": 6.5,
+        "bents": [
+          490
+        ]
       }
     ],
-    "truss_note": "a1's steel deck truss (Kaveh, 2026-10-12; photos on Wikimedia Commons, 2011-07-21 Vancouver 06 and others): the arched main span over False Creek springs at s 270 and 400 (shores in the 2018 orthophoto, the side photo scaled by the LiDAR deck height), z 10.5; its bottom chord 8 m under the deck top at the crown; approach trusses 6.5 m deep at s 180-270 and 400-450; anchor legs to the deck at s 229 and 443; panels about 11 m. Measured from photos: about +-10 m in s, +-15 % in depth. A concrete pier under each springing point (s 270, 400): the photos show a concrete block from the ground to the springing point, the 2018 orthophoto puts the shores there; its size (4 m along the axis, 2 m out past each truss plane) is chosen from the photos"
+    "truss_note": "a1's steel deck truss (Kaveh, 2026-10-12; photos on Wikimedia Commons, 2011-07-21 Vancouver 06 and others): the arched main span over False Creek springs at s 270 and 400 (shores in the 2018 orthophoto, the side photo scaled by the LiDAR deck height), z 10.5; its bottom chord 8 m under the deck top at the crown; approach trusses 6.5 m deep at s 180-270 and 400-450; anchor legs to the deck at s 229 and 443; panels about 11 m. Measured from photos: about +-10 m in s, +-15 % in depth. A concrete pier under each springing point (s 270, 400): the photos show a concrete block from the ground to the springing point, the 2018 orthophoto puts the shores there; its size (4 m along the axis, 2 m out past each truss plane) is chosen from the photos; the approach trusses go on, 6.5 m deep, over Granville Island to s 0 (photo GranvilleStreetBridge.JPG: the same truss from the south springing point past the Public Market, its bottom chord straight; Cement mixers on Granville Island 01: the same truss on to the south) and past the north anchor leg to s 550 (photo p0, Granville Bridge 2018.jpg: the bottom chord straight to the picture's edge). Steel bents under them (photo p1 under the deck on Granville Island: lattice legs, X braces): two lattice legs and an X brace across the axis at s 180 and 92 (GranvilleStreetBridge.JPG: a heavy vertical down to the ground every 8 panels, about 88 m, the first one 8 panels south of the springing point), at s 490 (p0: 8 panels north of the springing point, measured with the anchor leg's 43 m as the scale), and at s 4 (not seen: the 88 m span repeated to the fork, so that the truss does not end free). Measured from photos: about +-10 m in s. The legs' width (1.2 m) is chosen from p1"
   }
 }

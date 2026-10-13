@@ -454,8 +454,9 @@ function setView(){const t=map.getPitch()>5; document.body.classList.toggle('u3d
 // in 3D a 2D overlay switched on (by the panel or the layer list) is only remembered (ov.visible), not drawn
 document.addEventListener('rs:overlaychange',e=>{if(!in3d)return; const o=OVERLAYS.find(o=>o.label===e.detail.overlay);
   ((o&&o.layers)||[]).forEach(id=>{if(map.getLayer(id))map.setLayoutProperty(id,'visibility','none')})});
-// in 3D: the mouse over a lane, a sidewalk or a street object lights it up (yellow) and names its type (a small tooltip, nothing more);
-// a click selects it (orange) and opens its popup, the same fields as in 2D; a click on nothing clears the selection
+// in 3D: the mouse over a lane, a sidewalk or a street object lights it up (light purple) and names its type (a small tooltip, nothing
+// more); a click selects it (deep purple); the two purples of 2D (roadstyle's hover_color, select_color; Kaveh, 2026-10-13: the yellow
+// and orange were a construction site's and an intersection's colours) and opens its popup, the same fields as in 2D; a click on nothing clears the selection
 let bound3d=false, hov3d=null, sel3d=null, hovT=0;     // hovered / selected: an object's refs or a part's part_id
 const HOVER_MS=300;   // the mouse rests this long on a thing before it lights up and names itself (a passing mouse lights nothing)
 const tip3d=new maplibregl.Popup({closeButton:false,closeOnClick:false,offset:12,className:'u3d-tip'}), OBJ_POPUP=__OBJPOPUP__;
@@ -476,7 +477,7 @@ const L3D={'u3d-furn':['fill-extrusion-color','refs',['get','color'],OBJ_POPUP],
   'u3d-kerb':['fill-extrusion-color','kerb_id','#8f8b86',['type','unit_id','arm','length_m','source','method','ref']],
   'u3d-ground':['fill-color','part_id',['get','color'],null],'u3d-raised':['fill-extrusion-color','part_id',['get','color'],null]};
 function paint3d(){Object.entries(L3D).forEach(([id,[prop,key,base]])=>{if(!map.getLayer(id))return;
-  map.setPaintProperty(id,prop,['case',['==',['get',key],sel3d||'\u0000'],'#f97316',['==',['get',key],hov3d||'\u0000'],'#facc15',base])})}
+  map.setPaintProperty(id,prop,['case',['==',['get',key],sel3d||'\u0000'],'#7c4dff',['==',['get',key],hov3d||'\u0000'],'#b388ff',base])})}
 function bind3d(){if(bound3d||!map.getLayer('u3d-furn'))return; bound3d=true;
   const groundPop=(OVERLAYS.find(o=>o.label==='Parts')||{}).popup||[];
   let took=0;     // the topmost layer under the mouse takes the click: an object before the ground under it
@@ -1039,7 +1040,7 @@ def dossier_layers(con, db):
 BRIDGE_JS = """<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <label id=br3dbox style="position:absolute;right:10px;bottom:40px;z-index:5;background:#fff;padding:3px 8px;border-radius:4px;font:12px sans-serif;
   box-shadow:0 1px 3px #0003"><input type=checkbox id=br3don checked> bridges in 3D (__BRNAMES__)</label>
-<script>(()=>{const BR=__BRIDGES__, BC=__BRCOL__; window.brUnits=__BRUNITS__;   // brUnits: the old level-1 spaces the models replace (draw3d)
+<script>fetch('bridge3d.json',{cache:'no-store'}).then(r=>r.json()).then(BR=>{const BC=__BRCOL__; window.brUnits=__BRUNITS__;   // brUnits: the old level-1 spaces the models replace (draw3d)
 window.brAxes=BR.flatMap(M=>M.axes.map(cs=>({cs,name:M.name})));     // the bridges' roads, for Street View (svHere)
 const hex=c=>parseInt(c.slice(1),16);
 function brLayer(M){const o=maplibregl.MercatorCoordinate.fromLngLat(M.origin,0), s=o.meterInMercatorCoordinateUnits();
@@ -1087,13 +1088,13 @@ function brHit(pt){const c=map.getCanvas(), x=pt.x/c.clientWidth*2-1, y=1-pt.y/c
     ray.set(a,b.sub(a).normalize()); const h=ray.intersectObjects(L.pick)[0]; if(h&&(!best||h.distance<best.distance))best=h});
   return best&&best.object}
 const brName=p=>p.part_id?`${p.type}${p.direction?' · '+p.direction:''} · ${p.part_id}`:p.type==='lane'?`lane ${p.lane} · ${p.direction} · ${p.name||p.osm}`:`${p.type} · ${p.name||p.osm}`;
-// hover and selection as on the street (bind3d): a lane, a path or a crosswalk lights up yellow once the mouse rests on it HOVER_MS and
-// names its type; a click selects it (orange) and opens its popup (BR_POPUP: its duckOSM edge_id and lane_id, OSM way, widths and their
+// hover and selection as on the street (bind3d): a lane, a path or a crosswalk lights up light purple once the mouse rests on it HOVER_MS and
+// names its type; a click selects it (deep purple) and opens its popup (BR_POPUP: its duckOSM edge_id and lane_id, OSM way, widths and their
 // sources); a second click, a click on nothing, Esc or closing the popup deselects. The street under a bridge takes no hover or click
 // there (window.brAt)
 const BR_POPUP=__BRPOPUP__;
 const brTip=new maplibregl.Popup({closeButton:false,closeOnClick:false,offset:12,className:'u3d-tip'}); let brLit=null, brSel=null, brPop=null, brT=0;
-function brPaint(){Object.values(LAYERS).forEach(L=>(L.pick||[]).forEach(m=>m.material.color.setHex(m===brSel?0xf97316:m===brLit?0xfacc15:m.baseHex)));
+function brPaint(){Object.values(LAYERS).forEach(L=>(L.pick||[]).forEach(m=>m.material.color.setHex(m===brSel?0x7c4dff:m===brLit?0xb388ff:m.baseHex)));
   map.triggerRepaint()}
 window.brAt=pt=>brOn()&&!!brHit(pt);
 let brQ=false, brLast=null;
@@ -1122,7 +1123,7 @@ const brGo=()=>{if(typeof map==='undefined'||!map.isStyleLoaded||!map.isStyleLoa
   brAdd(); map.on('styledata',brAdd); map.on('idle',brAdd);
   document.getElementById('br3don').onchange=()=>{BR.forEach(M=>{if(map.getLayer('br3d-'+M.name))map.setLayoutProperty('br3d-'+M.name,'visibility',brOn()?'visible':'none')});
     window.brUnits=brOn()?__BRUNITS__:[]; if(typeof draw3d==='function'&&document.body.classList.contains('u3d'))draw3d()}};
-brGo()})();</script>"""
+brGo()}).catch(e=>console.error('bridge 3D: viz/bridge3d.json',e));</script>"""
 
 
 def bridge_models(con, bridges):
@@ -1151,8 +1152,44 @@ def bridge_models(con, bridges):
         ground_ = [g for g in ground_ if g.distance(ol) < 50]
         # (the level-1 parts are not laid on the deck: parts.py makes them from rules OSM does not support there, e.g. a "no parking"
         # strip from parking:both=no, a sidewalk OSM says is not there; the model's lanes and paths follow GMNS and OSM)
-        ms.append(model(P_, None, None, ground_))
+        ms.append(_cached_model(P_, ground_))
     return ms, under
+
+
+def _cached_model(P_, ground_):
+    """bridge3d.model(P_) with the street's lanes ground_, from data/cache/ when nothing it reads has changed since: the profile, those
+    lanes, the corrections and the code (but the page's own, dashboard.py and cli.py). A change to the page only needs no new model
+    (Kaveh, 2026-10-13: four minutes for each small change)."""
+    import glob
+    import hashlib
+    import pickle
+    import shapely
+    from .bridge3d import model
+    here = os.path.dirname(os.path.abspath(__file__))
+    h = hashlib.sha1(json.dumps(P_, sort_keys=True).encode())
+    for g in ground_:
+        h.update(shapely.to_wkb(g))
+    for f in sorted(glob.glob(os.path.join(here, "*.py")) + glob.glob(os.path.join(here, "..", "..", "corrections", "*.json"))):
+        if os.path.basename(f) not in ("dashboard.py", "cli.py"):
+            h.update(open(f, "rb").read())
+    path = os.path.join(here, "..", "..", "data", "cache", f"bridge3d-{h.hexdigest()[:16]}.pkl")
+    if os.path.exists(path):
+        return pickle.load(open(path, "rb"))
+    m = model(P_, None, None, ground_)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    pickle.dump(m, open(path, "wb"))
+    return m
+
+
+def write_bridge3d(ms, out):
+    """The bridges' models as the page draws them, to `out` (viz/bridge3d.json): the page reads this file when it opens, so a change to
+    a bridge only needs this file written again (`urbanstyle bridge3d`), not the whole page."""
+    page_ms = [{k: v for k, v in mm.items() if k not in ("lanes", "lines", "flat")} for mm in ms]     # (the page draws `surf`)
+    tmp = out + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(page_ms, f, separators=(",", ":"))
+    os.replace(tmp, out)
+    return out
 
 
 def main(db, out, bridges=None):
@@ -1436,8 +1473,8 @@ def main(db, out, bridges=None):
         under = sorted(under)
         col = {"deck": "#a8a29e", "girder": "#8f8b86", "rail": "#cfc8bd",      # the deck: bare concrete, not a lane's colour (it looked like lanes)
                "parts": {**PART_COLORS, **{f"mark {t}": c for t, c, *_ in MARKS}, "mark kerb": "#8f8b86", "barrier": "#cfc8bd", "railing": "#6b7280"}}
-        page_ms = [{k: v for k, v in mm.items() if k not in ("lanes", "lines", "flat")} for mm in ms]     # (the page draws `surf`)
-        panel += (BRIDGE_JS.replace("__BRIDGES__", json.dumps(page_ms, separators=(",", ":"))).replace("__BRNAMES__", ", ".join(mm["name"] for mm in ms))
+        write_bridge3d(ms, os.path.join(os.path.dirname(os.path.abspath(out)), "bridge3d.json"))     # (the page reads it, beside it)
+        panel += (BRIDGE_JS.replace("__BRNAMES__", ", ".join(mm["name"] for mm in ms))
                   .replace("__BRCOL__", json.dumps(col)).replace("__BRPOPUP__", json.dumps(BR_POPUP)).replace("__BRUNITS__", json.dumps(under)))
     open(out, "w").write(m.html.replace("</body>", panel + "</body>"))
 

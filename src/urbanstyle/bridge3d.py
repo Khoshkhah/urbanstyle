@@ -2398,7 +2398,11 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False):
     near_l = lanes_only.buffer(PATH_BAR_NEAR_M)
     # (the cracks where two lane pieces meet shut first: the edge dipped into one and the barrier broke there, a5)
     lanes_shut = lanes_only.buffer(0.2, join_style="mitre").buffer(-0.2, join_style="mitre")
-    no_bar = shapely.union_all([J_.buffer(1.0)] + [fl_.buffer(CROSSWALK_M / 2 + 1.0) for fl_, _, _ in crossings])
+    # (a crosswalk's opening is the crosswalk itself, as wide as it and in line with its edges: a round 5 m opening left 3.8 m of lane
+    # edge with no barrier beside a3, between barriers @-219,-185 and @-117,-325; Kaveh, 2026-10-13)
+    x_open = shapely.union_all([extend(fl_, 2.0).buffer(CROSSWALK_M / 2, cap_style="flat") for fl_, _, _ in crossings]) \
+        if crossings else shapely.Polygon()
+    no_bar = J_.buffer(1.0).union(x_open)
     # (none on a lane: near a fork a branch's lanes move onto the main road's, and a barrier along the branch's own line crossed them)
     on_l = lanes_only.buffer(0.1)
     rbars = [p_ for b_ in P["_bars"] for pts_ in [spec_pts(b_)] if len(pts_) > 1
@@ -2834,7 +2838,7 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False):
     lanes_f = shapely.union_all([sf_["poly"] for sf_ in surf if sf_.get("poly") is not None and sf_["key"].startswith("lane")])
     paths_f = shapely.union_all([sf_["poly"] for sf_ in surf if sf_.get("poly") is not None and sf_["key"] in ("sidewalk", "cycle lane")])
     bars_f = shapely.union_all([sf_["poly"] for sf_ in surf if sf_.get("poly") is not None and sf_["key"].startswith("barrier")])
-    no_x = shapely.union_all([fl_.buffer(CROSSWALK_M / 2 + 1.0) for fl_, _, _ in crossings]) if crossings else shapely.Polygon()
+    no_x = x_open
     shut_ = lanes_f.buffer(0.2, join_style="mitre").buffer(-0.2, join_style="mitre")
     miss_ = shut_.boundary.intersection(paths_f.buffer(0.15)).difference(bars_f.buffer(0.35)).difference(no_x)
     for ln_m in shapely.get_parts(shapely.line_merge(miss_) if not miss_.is_empty else miss_):

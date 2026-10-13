@@ -52,6 +52,10 @@ def main(argv=None):
     b2.add_argument("profile", help="a <name>.bridge.json (measured)")
     b2.add_argument("out", help="the GeoJSON file, e.g. viz/bridge2d.geojson")
     b2.add_argument("--db", help="a unit's space db: its street's lanes for the landings")
+    b3 = sub.add_parser("bridge3d", help="only the bridges' 3D models, to viz/bridge3d.json, which the dashboard page reads: reload the page")
+    b3.add_argument("db", help="the unit's space db (its street's lanes for the landings)")
+    b3.add_argument("out", help="the JSON file beside the page, e.g. viz/bridge3d.json")
+    b3.add_argument("--bridge", action="append", required=True, help="a bridge profile, as for the dashboard")
     a = p.parse_args(argv)
 
     if a.cmd == "build":
@@ -84,6 +88,12 @@ def main(argv=None):
     elif a.cmd == "bridge2d":
         from .bridge2d import write as write2d
         print(write2d(a.profile, a.out, a.db), "parts ->", a.out)
+    elif a.cmd == "bridge3d":
+        import duckdb
+        from .dashboard import bridge_models, write_bridge3d
+        con = duckdb.connect(a.db, read_only=True)
+        con.execute("LOAD spatial")
+        print(write_bridge3d(bridge_models(con, a.bridge)[0], a.out))
     elif a.cmd == "bridge":
         from .bridge_profile import write
         print("\n".join(write(a.osm, a.gmns, a.name, a.out_dir)))

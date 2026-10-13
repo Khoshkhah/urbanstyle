@@ -276,9 +276,10 @@ $('xptabs').onclick=e=>{const t=e.target.dataset.t; if(!t)return; [...$('xptabs'
 // the panel, folded (xp-off) or not; the map fills what is left
 const B=document.body, resize=()=>setTimeout(()=>M()&&M().resize(),0);
 B.classList.add('xp','xp-city');
-// the map: quiet at first (the basemap, the buildings in grey, the bridge), then what Layers ticks (allow): the old page's own logic
+// the map: quiet at first (the basemap, the blocks, the buildings in grey, the spaces, the subsections and the bridge: Kaveh,
+// 2026-10-13), then what Layers ticks (allow): the old page's own logic
 // shows its layers again at times (hush hides what is not allowed)
-const allow=new Set(['Buildings','Bridge 2D']), hid=new Set(), GREY={'fill-color':'#efede9','line-color':'#cdc8c1'}; let oldPaint=null;
+const allow=new Set(['Blocks','Buildings','Spaces','Subsections','Bridge 2D']), hid=new Set(), GREY={'fill-color':'#efede9','line-color':'#cdc8c1'}; let oldPaint=null;
 const roadsOn=on=>{const m=M(); if(m&&!(typeof in3d!=='undefined'&&in3d))m.getStyle().layers.forEach(l=>{if(/^roads-/.test(l.id))m.setLayoutProperty(l.id,'visibility',on?'visible':'none')})};
 const HIDE_LY=l=>l==='Bridge 2D'||/3D/.test(l);     // (not in Layers: the bridge goes by the levels; 3D layers are 3D's)
 function hush(){if(!B.classList.contains('xp')||typeof OVERLAYS==='undefined'||!M())return;

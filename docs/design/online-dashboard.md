@@ -18,7 +18,7 @@ GitHub Pages serves only static files. `urbanstyle serve` answers the panel from
 | `focus` of each space and block | made once at publish time, as one JSON file |
 | `search`, `query` (Filter) | SQL in the browser with DuckDB-WASM, on Parquet files of the panel's layers |
 | `ask` | Gemini, called from the browser; its SQL tool runs on DuckDB-WASM, read-only |
-| Street View | off: the Google Maps key allows `localhost:8784` only |
+| Street View | a second Google Maps key, restricted to `https://khoshkhah.github.io/*`, from the GitHub secret `GOOGLE_MAPS_DEMO_KEY`; with no key, Street View is off |
 
 The geometry goes into the Parquet files as GeoJSON text, with each row's length and area, so DuckDB-WASM does not need its
 spatial extension. The panel (`explore.html`) stays one file. It calls one function, `api(path, body)`, that goes to the server
@@ -38,13 +38,18 @@ The rules:
 
 Kaveh makes the project and the key, and adds the secret to the repository.
 
+## The base map
+
+The base map is CARTO's public basemap service. It needs no key. As far as we know, CARTO allows non-commercial use up to a monthly
+limit, with the credit "© CARTO" on the map. Commercial use or heavy traffic needs a licence from CARTO.
+
 ## What is published, and what is not
 
 - The space tables, buildings, street objects and the bridge model: from OpenStreetMap (ODbL), the City of Vancouver's open data
   and LiDAR. The page names them and their licenses.
 - Not Mapillary's detections or photos: they are CC BY-SA and stay local (`docs/design/mapillary.md`). The online page is built
   without them.
-- Not the Google Maps key.
+- Not the local Google Maps key: it allows `localhost:8784` only.
 
 ## Where the files live
 

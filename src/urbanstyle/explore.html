@@ -424,31 +424,39 @@ $('xp2d').onclick=()=>M()&&M().easeTo({pitch:0,duration:600}); $('xp3d').onclick
 get('/api/meta').then(m=>{meta=m; (m.street_levels||[]).forEach(l=>{if(l!==0&&l!==1&&!(l in LOOKS['2d']))LOOKS['2d'][l]='off'}); $('xparea').textContent='· '+m.area; branch($('xpbr'),''); views(); applyLooks();
   $('xplayer').innerHTML=Object.entries(m.layers).map(([k,v])=>`<option value="${esc(k)}">${esc(k)} (${v.count})</option>`).join(''); cond()})
   .catch(()=>{B.classList.remove('xp','xp-city'); quiet(false); $('xp').style.display='none'; $('xpfold').style.display='none'});   // (no server: the map alone)
-// 2D: hover and click on the plan, as in 3D (Kaveh, 2026-10-13: "hover doesn't work on the 2D plan, only buildings are clickable"): the
-// mouse resting HOVER2D ms on a result, a building, a bridge part or a ticked layer lights it (light purple); a click selects it (deep
-// purple, its card) in place of the map's own popup
-const HOVER2D=300, OVMAP={'Buildings':['Buildings','id'],'Bridge 2D':['Bridge parts','id'],'Spaces':['Street spaces','unit_id'],
-  'Parts':['Street parts','part_id'],'Ground':['Ground','ground_id'],'Parking lots':['Car parks','id'],'Subsections':['Street spaces','unit_id'],'Intersections':['Street spaces','unit_id'],'Sections':['Street spaces','section_id'],'Subsection axes':['Street spaces','subsection_id'],
-  'Blocks':['Blocks','block_id']};
+// 2D: hover and click on the plan, as in 3D: the mouse resting HOVER2D ms on a thing of any layer shown lights the whole thing (light
+// purple); a click selects it (deep purple) and opens its card in the panel; roadstyle's own popup and tooltip never show (Kaveh,
+// 2026-10-13: "hover doesn't work", "the popup shows on the map instead of the side panel"). A layer the panel knows (OVMAP) gives its
+// card from the server, with all its fields; any other (painted lines, street-object dots, cuts, links, Mapillary) from its own fields.
+// (overlay label -> [the panel's layer, the overlay's id field, the server's field for it])
+const HOVER2D=300, OVMAP={'Buildings':['Buildings','id','source_id'],'Bridge 2D':['Bridge parts','id','id'],'Spaces':['Street spaces','unit_id','unit_id'],
+  'Parts':['Street parts','part_id','part_id'],'On the parts':['Street parts','part_id','part_id'],'Ground':['Ground','ground_id','ground_id'],
+  'Parking lots':['Car parks','id','lot_id'],'Subsections':['Street spaces','unit_id','unit_id'],'Intersections':['Street spaces','unit_id','unit_id'],
+  'Sections':['Street spaces','section_id','section_id'],'Subsection axes':['Street spaces','subsection_id','unit_id'],'Blocks':['Blocks','block_id','block_id'],
+  'Street objects':['Street objects','refs','id']};
+const OWNKEY=['part_id','unit_id','refs','node_id','subsection_id','intersection_id','feature_id','id'];     // (a feature's own id, in this order)
 const is3d=()=>typeof in3d!=='undefined'&&in3d;
+const ovOf=f=>OVERLAYS.find(o=>(o.layers||[]).includes(f.layer.id));
 function live2d(){const m=M(); if(!m||typeof OVERLAYS==='undefined')return [];
-  const labs=[...allow].filter(l=>OVMAP[l]), ids=[...XP,...labs.flatMap(l=>(OVERLAYS.find(o=>o.label===l)||{}).layers||[])];
+  const ids=[...XP,...OVERLAYS.filter(o=>!/3D/.test(o.label)).flatMap(o=>o.layers||[])];
   return ids.filter(id=>m.getLayer(id)&&m.getLayoutProperty(id,'visibility')!=='none')}
-function ref(f){const p=f.properties; if(XP.includes(f.layer.id))return p._layer&&p._id!=null?[p._layer,p._id]:null;
-  const o=OVERLAYS.find(o=>(o.layers||[]).includes(f.layer.id)), mp=o&&OVMAP[o.label]; return mp&&p[mp[1]]!=null?[mp[0],String(p[mp[1]])]:null}
+// [panel layer or the overlay's label, the thing's id, its key in the overlay, the server's field for it (none: not on the server)]
+function ref(f){const p=f.properties; if(XP.includes(f.layer.id))return p._layer&&p._id!=null?[p._layer,String(p._id),'_id',LAYERS_ID[p._layer]||'id']:null;
+  const o=ovOf(f); if(!o)return null; const mp=OVMAP[o.label];
+  if(mp&&p[mp[1]]!=null)return [mp[0],String(p[mp[1]]),mp[1],mp[2]];
+  const k=OWNKEY.find(k=>p[k]!=null&&p[k]!==''); return k?[o.label,String(p[k]),k,null]:null}
 function hit2d(pt){const ls=live2d(); if(!ls.length)return null; return M().queryRenderedFeatures(pt,{layers:ls}).find(ref)||null}
 // (the whole thing under the mouse, from the full data: the map draws a large area in tiles, and the drawn feature is only the tile's
 // piece; one block lit in a different piece at every tile: Kaveh, 2026-10-13, b0-w4224972r.13)
 const fullIdx={};
 function full(f){const m=M(), r=ref(f); if(!r||!m)return f;
   if(f.source===SRC&&last)return last.features.find(x=>x.properties._layer===r[0]&&String(x.properties._id)===r[1])||f;
-  const o=OVERLAYS.find(o=>(o.layers||[]).includes(f.layer.id)), k=o&&OVMAP[o.label]&&OVMAP[o.label][1]; if(!k)return f;
-  const ck=f.source+'|'+k;
+  const k=r[2], ck=f.source+'|'+k;
   if(!fullIdx[ck]){const s=m.getSource(f.source), d=s&&s.serialize&&s.serialize().data, ix=new Map();
     ((d&&d.features)||[]).forEach(x=>{const v=x.properties&&x.properties[k]; if(v==null)return; const a=ix.get(String(v)); a?a.push(x):ix.set(String(v),[x])});
     fullIdx[ck]=ix}
   const a=fullIdx[ck].get(r[1]); if(!a||!a.length)return f;
-  return a.length===1?a[0]:{type:'Feature',geometry:{type:'GeometryCollection',geometries:a.map(x=>x.geometry)},properties:{}}}
+  return a.length===1?a[0]:{type:'Feature',geometry:{type:'GeometryCollection',geometries:a.map(x=>x.geometry)},properties:a[0].properties}}
 function hovSrc(f){const m=M(); if(!m||!m.isStyleLoaded())return; const fc={type:'FeatureCollection',features:f?[{type:'Feature',geometry:f.geometry,properties:{}}]:[]};
   if(!m.getSource('xp-hov')){m.addSource('xp-hov',{type:'geojson',data:fc});
     m.addLayer({id:'xp-hov-fill',source:'xp-hov',type:'fill',filter:['==',['geometry-type'],'Polygon'],paint:{'fill-color':'#b388ff','fill-opacity':0.45}});
@@ -458,16 +466,18 @@ function hovSrc(f){const m=M(); if(!m||!m.isStyleLoaded())return; const fc={type
 let hovKey=null, hovT2=0;
 function wire2d(){const m=M();
   m.on('mousemove',e=>{if(is3d()){if(hovKey){hovKey=null; hovSrc(null)} return}
-    const f=hit2d(e.point), r=f&&ref(f), key=r?r.join('|'):null; m.getCanvas().style.cursor=r?'pointer':'';
+    const f=hit2d(e.point), r=f&&ref(f), key=r?r[0]+'|'+r[1]:null; m.getCanvas().style.cursor=r?'pointer':'';
     if(key===hovKey)return; clearTimeout(hovT2); if(hovKey){hovKey=null; hovSrc(null)}
     if(r)hovT2=setTimeout(()=>{hovKey=key; hovSrc(full(f))},HOVER2D)});
   m.on('mouseout',()=>{clearTimeout(hovT2); hovKey=null; hovSrc(null)});
-  m.on('click',e=>{if(is3d())return; const f=hit2d(e.point), r=f&&ref(f); if(!r)return;
-    post('/api/query',{layer:r[0],where:[{field:LAYERS_ID[r[0]]||'id',op:'=',value:r[1]}]}).then(fc=>{if(fc.features&&fc.features[0])select(fc.features[0],[e.lngLat.lng,e.lngLat.lat])})});
-  // (roadstyle's own popup and its hover tooltip: off for these; the tooltip showed a building's type on the map over a block, Kaveh
-  // 2026-10-13: "popup shows up on the map instead of the side panel")
-  if(typeof OVERLAYS!=='undefined')OVERLAYS.forEach(o=>{if(OVMAP[o.label]){o.interactive=false; o.tooltip=[]}})}
-const LAYERS_ID={'Buildings':'source_id','Bridge parts':'id','Street spaces':'unit_id','Street parts':'part_id','Ground':'ground_id','Car parks':'lot_id','Blocks':'block_id'};
+  m.on('click',e=>{if(is3d())return; const f=hit2d(e.point), r=f&&ref(f); if(!r)return; const at=[e.lngLat.lng,e.lngLat.lat];
+    if(f.source===SRC){const g=full(f); if(g&&g.properties&&g.properties._layer)select(g,at); return}     // (a result: the list has it whole)
+    if(r[3]){post('/api/query',{layer:r[0],where:[{field:r[3],op:'=',value:r[1]}]}).then(fc=>{if(fc.features&&fc.features[0])select(fc.features[0],at)}); return}
+    const g=full(f), p=Object.fromEntries(Object.entries(f.properties).filter(([k])=>k!=='color'));     // (a layer the panel has no table for: its own fields)
+    select({type:'Feature',geometry:g.geometry,properties:{...p,_layer:r[0],_id:r[1],_label:p.type||p.class||r[0]}},at)});
+  // (roadstyle's own popup and its hover tooltip: off for every layer, the panel shows them)
+  if(typeof OVERLAYS!=='undefined')OVERLAYS.forEach(o=>{o.interactive=false; o.tooltip=[]})}
+const LAYERS_ID={'Buildings':'source_id','Bridge parts':'id','Street spaces':'unit_id','Street parts':'part_id','Ground':'ground_id','Car parks':'lot_id','Blocks':'block_id','Street objects':'id'};
 const keep=()=>{if(M()&&M().on){wire2d(); M().on('styledata',()=>{if(last)layers()}); M().on('pitchend',()=>setTimeout(()=>{vis(); views(); applyLooks(); selSrc(selF&&$('xpcard').classList.contains('on')?selF:null)},50)); M().once('idle',()=>{views(); applyLooks()}); return} setTimeout(keep,500)}; keep();
 })();
 </script>

@@ -30,6 +30,8 @@ SUB_MIN_M = 12.0         # a subsection is at least this long: changes closer to
 LANES_MIN_M = 5.0        # ... but where OSM's lane count changes (a turn lane before a junction), at least this long
 LANE_M = 3.25            # a lane's width where nothing measures it
 CORNER_ROAD_M = 2.0      # a road's line running this far through an intersection's pedestrian corner: the corner is wrong there
+RING_KERB_M = 0.5        # a roundabout's intersection reaches this far past the edge of its ring's carriageway
+RING_LEFT_M2 = 20.0      # a section with less than this left beside a roundabout is the roundabout's own
 LANE_RANGE = (2.75, 4.0)     # a lane measured kerb to kerb, if it falls in this range; else LANE_M and a shoulder
 SIDEWALK_HALF_M = 1.0    # a sidewalk is drawn along its middle: the kerb is about this far before its line
 OBJECT_BACK_M = 0.5      # a tree or a pole stands at least this far behind the kerb
@@ -276,6 +278,38 @@ def build(con, epsg):
             secgeo[i] = poly(shapely.union_all([secgeo[i], x], grid_size=0.01))
         else:
             inter.append(x)
+
+    # ---- roundabouts: each OSM ring (junction=roundabout), its carriageway and its central island, is one intersection: cut out of the
+    # sections, with every small junction piece around it (Monaco: 10 of 27 roundabouts were sections around the ring; Kaveh, 2026-10-13)
+    ring_rows = rows(f"""SELECT max(width_m), {m('ST_Union_Agg(geometry)')} FROM space.element WHERE type = 'road' AND level_min = 0
+                          AND osm_id IN (SELECT osm_id FROM osm.raw.ways WHERE tags['junction'] IN ('roundabout', 'circular')) GROUP BY osm_id""")
+    island_u, ring_cut = shapely.Polygon(), set()       # (ring_cut: the sections a roundabout cut short)
+    if ring_rows:
+        rl = [(w_ or 2 * LANE_M, g(x_)) for w_, x_ in ring_rows]
+        comps = shapely.get_parts(shapely.union_all([x_.buffer(1.0) for _, x_ in rl]))
+        isl_, done_ = [], []
+        for comp in comps:
+            ls_ = [(w_, x_) for w_, x_ in rl if x_.intersects(comp)]
+            lines_ = shapely.line_merge(shapely.union_all([x_ for _, x_ in ls_]))
+            inner = shapely.union_all(list(shapely.get_parts(shapely.polygonize(list(shapely.get_parts(lines_))))) or [shapely.Polygon()])
+            if inner.is_empty or inner.area < 10:
+                continue                    # (not a closed ring here: at the area's edge, or a piece of one)
+            hw = max(w_ for w_, _ in ls_) / 2
+            R = poly(shapely.union_all([inner, lines_.buffer(hw + RING_KERB_M)]).intersection(street, grid_size=0.01))
+            isl_.append(poly(inner.difference(lines_.buffer(hw), grid_size=0.01)))
+            for i in list(secgeo):
+                if secgeo[i].intersection(R).area > 1:
+                    left_ = poly(secgeo[i].difference(R, grid_size=0.01))
+                    if left_.area < max(RING_LEFT_M2, 0.1 * secgeo[i].area):
+                        del secgeo[i]       # (a section on the ring, between two arms: the roundabout's own)
+                    else:
+                        secgeo[i] = max(shapely.get_parts(left_), key=lambda q: q.area)
+                        ring_cut.add(i)
+            near_ = [x for x in inter if x.intersection(R).area > 1]
+            inter = [x for x in inter if x.intersection(R).area <= 1]
+            done_.append(poly(shapely.union_all([R] + near_, grid_size=0.01)))
+        inter += list(shapely.get_parts(poly(shapely.union_all(done_, grid_size=0.01)))) if done_ else []   # (two rings that touch: one)
+        island_u = shapely.union_all([x for x in isl_ if not x.is_empty] or [shapely.Polygon()])
 
     # ---- roads: carriageways (their offset, width, lanes along / against) for the subsections
     lanes = {}
@@ -538,6 +572,10 @@ def build(con, epsg):
         if axis.geom_type != "LineString" or axis.length < 1:
             continue
         axis = follow_road(straight(axis), P)
+        if i in ring_cut:       # (cut short by a roundabout: the axis stops at the section's new end, not inside the roundabout)
+            inn = [q for q in shapely.get_parts(axis.intersection(P.buffer(0.5))) if q.geom_type == "LineString"]
+            if inn and max(inn, key=lambda q: q.length).length >= 1:
+                axis = max(inn, key=lambda q: q.length)
         sec_axis[i] = (axis, P)
         # where its carriageways change (for SUB_MIN_M at least): the subsections
         keys = []
@@ -1430,6 +1468,10 @@ def build(con, epsg):
               if roads[k][2] != "pedestrian" and roads[k][7].intersection(walkway).length > CORNER_ROAD_M]
         if cw and not walkway.is_empty:
             walkway = poly(walkway.difference(shapely.union_all(cw), grid_size=0.01))
+        isle = poly(X.intersection(island_u, grid_size=0.01)) if not island_u.is_empty else shapely.Polygon()
+        if not isle.is_empty:       # a roundabout's central island: neither roadway nor a corner
+            walkway = poly(walkway.difference(isle, grid_size=0.01))
+            X = poly(X.difference(isle, grid_size=0.01))
         roadway = poly(X.difference(walkway, grid_size=0.01))
         if not roadway.is_empty:    # the kerb's corner rounded
             roadway = poly(roadway.buffer(KERB_RADIUS_M, quad_segs=4, join_style="round").buffer(-KERB_RADIUS_M, quad_segs=4, join_style="round")
@@ -1443,6 +1485,11 @@ def build(con, epsg):
             road_lanes=None, oneway=None, **PV("osm", "derived", f"the junction of {nodes_}" if nodes_ else None), **POS(a_pv))
         add(iid, "sidewalk", walkway, width_m=None, width_method="derived", direction=None, lane=None, road=None, road_class=None,
             road_lanes=None, oneway=None, **PV("urbanstyle", "derived", "where two arms' kerbs meet at a block"), **POS(a_pv))
+        if not isle.is_empty:
+            add(iid, "island", isle, width_m=None, width_method=None, direction=None, lane=None, road=None, road_class=None,
+                road_lanes=None, oneway=None, **PV("osm", "derived", "the roundabout's central island: inside its ring (junction=roundabout)"),
+                **POS(a_pv))
+            mark(iid, "kerb", lines(isle.boundary), "osm", "derived", None)
         k_ = roadway.boundary.intersection(walkway.buffer(0.02)) if not roadway.is_empty and not walkway.is_empty else shapely.LineString()
         # (no kerb across an arm's roadway where it enters: a hairline of walkway left by the rounding drew one across the ends of the
         # lanes, at i0-616471133 across lane s0-w48524371r.2~w48524377r/3#9 and its cycle lane, at 40 more junctions too; Kaveh, 2026-10-12)

@@ -431,6 +431,18 @@ function live2d(){const m=M(); if(!m||typeof OVERLAYS==='undefined')return [];
 function ref(f){const p=f.properties; if(XP.includes(f.layer.id))return p._layer&&p._id!=null?[p._layer,p._id]:null;
   const o=OVERLAYS.find(o=>(o.layers||[]).includes(f.layer.id)), mp=o&&OVMAP[o.label]; return mp&&p[mp[1]]!=null?[mp[0],String(p[mp[1]])]:null}
 function hit2d(pt){const ls=live2d(); if(!ls.length)return null; return M().queryRenderedFeatures(pt,{layers:ls}).find(ref)||null}
+// (the whole thing under the mouse, from the full data: the map draws a large area in tiles, and the drawn feature is only the tile's
+// piece; one block lit in a different piece at every tile: Kaveh, 2026-10-13, b0-w4224972r.13)
+const fullIdx={};
+function full(f){const m=M(), r=ref(f); if(!r||!m)return f;
+  if(f.source===SRC&&last)return last.features.find(x=>x.properties._layer===r[0]&&String(x.properties._id)===r[1])||f;
+  const o=OVERLAYS.find(o=>(o.layers||[]).includes(f.layer.id)), k=o&&OVMAP[o.label]&&OVMAP[o.label][1]; if(!k)return f;
+  const ck=f.source+'|'+k;
+  if(!fullIdx[ck]){const s=m.getSource(f.source), d=s&&s.serialize&&s.serialize().data, ix=new Map();
+    ((d&&d.features)||[]).forEach(x=>{const v=x.properties&&x.properties[k]; if(v==null)return; const a=ix.get(String(v)); a?a.push(x):ix.set(String(v),[x])});
+    fullIdx[ck]=ix}
+  const a=fullIdx[ck].get(r[1]); if(!a||!a.length)return f;
+  return a.length===1?a[0]:{type:'Feature',geometry:{type:'GeometryCollection',geometries:a.map(x=>x.geometry)},properties:{}}}
 function hovSrc(f){const m=M(); if(!m||!m.isStyleLoaded())return; const fc={type:'FeatureCollection',features:f?[{type:'Feature',geometry:f.geometry,properties:{}}]:[]};
   if(!m.getSource('xp-hov')){m.addSource('xp-hov',{type:'geojson',data:fc});
     m.addLayer({id:'xp-hov-fill',source:'xp-hov',type:'fill',filter:['==',['geometry-type'],'Polygon'],paint:{'fill-color':'#b388ff','fill-opacity':0.45}});
@@ -442,7 +454,7 @@ function wire2d(){const m=M();
   m.on('mousemove',e=>{if(is3d()){if(hovKey){hovKey=null; hovSrc(null)} return}
     const f=hit2d(e.point), r=f&&ref(f), key=r?r.join('|'):null; m.getCanvas().style.cursor=r?'pointer':'';
     if(key===hovKey)return; clearTimeout(hovT2); if(hovKey){hovKey=null; hovSrc(null)}
-    if(r)hovT2=setTimeout(()=>{hovKey=key; hovSrc(f)},HOVER2D)});
+    if(r)hovT2=setTimeout(()=>{hovKey=key; hovSrc(full(f))},HOVER2D)});
   m.on('mouseout',()=>{clearTimeout(hovT2); hovKey=null; hovSrc(null)});
   m.on('click',e=>{if(is3d())return; const f=hit2d(e.point), r=f&&ref(f); if(!r)return;
     post('/api/query',{layer:r[0],where:[{field:LAYERS_ID[r[0]]||'id',op:'=',value:r[1]}]}).then(fc=>{if(fc.features&&fc.features[0])select(fc.features[0],[e.lngLat.lng,e.lngLat.lat])})});

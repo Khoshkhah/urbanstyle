@@ -55,6 +55,10 @@ TANGENT_M = 20.0    # an axis's end turned into the trunk's way at their node ov
 PAIR_TANGENT_M = 20.0  # a pair's centre line leaves the trunk's node in the trunk's way, onto the middle of their lines over this
 FREE_THIN_M = 1.0   # ... but a sliver of it narrower than this, beside a lane, is that lane
 FREE_MIN_M2 = 0.2   # deck no part covers, this big or bigger, is the path beside it (no free space on the bridge)
+FREE_CHECK_M2 = 0.5  # check BR9: a piece of deck no part covers, this big or bigger
+BAR_CHECK_M = 1.5    # check BR10: a lane edge on a path with no barrier, this long or longer (a path's tip is shorter)
+HEIGHT_STEP_M = 0.2  # check BR11: a change in the deck's height over this between two points STEP_CHECK_M apart is a step
+STEP_CHECK_M = 0.5
 GORE_CLOSE_M = 4.0  # a gore filled as a path (gore_paths): the gap between the two branches closed up to twice this wide
 GUARD_MIN_M = 3.0   # a guard piece shorter than this is left out
 NO_GUARD_REACH_M = 15.0  # a side with no guard: this far out from its axis
@@ -312,15 +316,43 @@ def model_checks(surf, deck, road_ends, S, axes):
     ll = [g.intersection(h) for i, (sf, g) in enumerate(lanes_) for tf, h in lanes_[i + 1:]
           if sf["props"].get("axis") != tf["props"].get("axis") and g.intersection(h).area > 1.0]
     bare = [g for _, g in lanes_ if not g.intersects(arrows)]
+    # the rules of 2026-10-12 (Kaveh: "the bridge can't have free space", "all boundary of the bridge must have barrier", "between driving
+    # lane and other lanes must have barrier", the steps in the guards): no deck that no part covers; a barrier wherever a lane meets a path,
+    # but at a crosswalk; no step in the deck's height
+    cover = shapely.union_all([g.buffer(0.02) for _, g in of(lambda sf: not sf["key"].startswith("mark") and sf["key"] != "railing")])
+    free = [g for g in shapely.get_parts(deck.difference(cover)) if g.area > FREE_CHECK_M2]
+    xing = shapely.union_all([g.buffer(1.5) for _, g in of(lambda sf: sf["key"] in ("mark zebra", "crosswalk", "mark crosswalk"))])
+    allpaths = shapely.union_all(list(paths.values())) if paths else shapely.Polygon()
+    touch = veh.buffer(0.2, join_style="mitre").buffer(-0.2, join_style="mitre").boundary.intersection(allpaths.buffer(0.15))
+    touch = touch.difference(bar.buffer(0.35)).difference(xing)
+    nobar = [g for g in shapely.get_parts(shapely.line_merge(touch) if not touch.is_empty else touch)
+             if g.geom_type == "LineString" and g.length > BAR_CHECK_M]
+    hsteps = []
+    for ln, a in axes:              # the deck's top every STEP_CHECK_M along each axis, at offsets across it, on the deck
+        for t in (-12.0, -8.0, -4.0, 0.0, 4.0, 8.0, 12.0):
+            prev = None
+            for k in range(int(ln.length / STEP_CHECK_M) + 1):
+                x, y, nx, ny = S["frame"](ln, k * STEP_CHECK_M)
+                q = shapely.Point(x + nx * t, y + ny * t)
+                if not deck.buffer(-0.3).contains(q):
+                    prev = None
+                    continue
+                v = S["z"](q.x, q.y)
+                if prev is not None and abs(v - prev) > HEIGHT_STEP_M:
+                    hsteps.append((q.x, q.y))
+                prev = v
     return [
         ("BR1", "guard pieces standing on a lane (more than 0.5 m inside)", len(on_lane), True, [pt(p) for p in on_lane]),
         ("BR2", "holes in the deck", len(deck.interiors), True, [pt(shapely.Polygon(r)) for r in deck.interiors]),
         ("BR3", "stretches of deck edge over 1 m with no guard, not at a road end on the ground", len(gaps), True, [pt(g) for g in gaps]),
         ("BR4", "pairs of paths drawn on top of each other (over 0.1 m2)", len(pp), True, [pt(paths[a].intersection(paths[b])) for a, b in pp]),
         ("BR5", f"path pieces narrower than {PATH_MIN_M} m", len(thin), True, [pt(p) for p in thin]),
-        ("BR6", "pairs of lanes of two axes overlapping (over 1 m2)", len(ll), False, [pt(g) for g in ll]),
+        ("BR6", "pairs of lanes of two axes overlapping (over 1 m2)", len(ll), True, [pt(g) for g in ll]),
         ("BR7", "lanes with no arrow", len(bare), True, [pt(g) for g in bare]),
         ("BR8", "steps in the deck's width (over 1 m) where a landing begins", len(steps), True, steps),
+        ("BR9", f"pieces of deck that no part covers (over {FREE_CHECK_M2} m2)", len(free), True, [pt(g) for g in free]),
+        ("BR10", f"stretches over {BAR_CHECK_M} m where a lane meets a path with no barrier (not at a crosswalk)", len(nobar), True, [pt(g) for g in nobar]),
+        ("BR11", f"steps in the deck's height (over {HEIGHT_STEP_M} m in {STEP_CHECK_M} m)", len(hsteps), True, hsteps),
     ]
 
 

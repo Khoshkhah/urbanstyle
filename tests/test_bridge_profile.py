@@ -59,9 +59,9 @@ def test_lanes_end_at_a_mapped_path_and_carry_arrows():
 
 
 def test_model_checks_pass_on_a_plain_bridge():
-    """The bridge checks (BR1-BR8) find nothing wrong on a plain deck, and say where they look."""
+    """The bridge checks (BR1-BR11) find nothing wrong on a plain deck, and say where they look."""
     rows = model(_profile())["checks"]
-    assert [r[0] for r in rows] == [f"BR{i}" for i in range(1, 9)]
+    assert [r[0] for r in rows] == [f"BR{i}" for i in range(1, 12)]
     assert not [r for r in rows if r[3] and r[2]]
 
 

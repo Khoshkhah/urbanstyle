@@ -59,7 +59,8 @@ The order of work: `docs/plan.md`.
   G1-G2 the ground (`space.ground`), L1-L2 the surfaces (`space.surface`), B1 and B6 the blocks (`space.block`); R1-R4 the roadway at
   level 0: R1 its edges at the joints, R4 the lanes that meet their continuation there (`division.join_lanes`, tapers).
   `urbanstyle check DB --bridge PROFILE` adds BR1-BR8, the bridge model's own checks (`bridge3d.model_checks`: guard on a lane,
-  holes, guard gaps, paths on paths, slivers, lanes of two axes overlapping, lanes with no arrow, steps at landings), each with `?at=` links.
+  holes, guard gaps, paths on paths, slivers, lanes of two axes overlapping, lanes with no arrow, steps at landings) and BR9-BR11 (deck no
+  part covers, a lane meeting a path with no barrier but at a crosswalk, steps in the deck's height), each with `?at=` links.
 - `src/urbanstyle/mapillary.py`: `urbanstyle mapillary DB [--osm OSM]` fetches Mapillary's features and photos into `DB.mapillary.json`
   (token: `$MAPILLARY_TOKEN` or `~/.config/mapillary/token`, never in the repo) and loads `space.observed` / `space.photo`; `build`
   loads that file when present (`docs/design/mapillary.md`). CC BY-SA: the data stays local. Mapillary is for validation only
@@ -85,6 +86,7 @@ The order of work: `docs/plan.md`.
 P=/home/kaveh/projects/duckOSM/.venv/bin/python        # duckdb + spatial + duckOSM; has no recent roadstyle
 $P -m pytest -q                                        # 31 tests, offline (the turns test needs netconvert) (pythonpath=src from pyproject), ~10 s
 $P -m pytest -q tests/test_levels.py::test_street_space_width      # one test
+URBANSTYLE_BRIDGE_TESTS=1 $P -m pytest -q tests/test_bridge_rules.py   # the bridge's rules BR1-BR11 on the real bridge (~3.5 min, local data/)
 
 # build a container (Monaco ~1 min; Södermalm ~18 min and ~7 GB: check free memory first). Södermalm has no
 # features schema, so a copy data/sodermalm.osm.duckdb is made and its features built from raw.*

@@ -64,6 +64,20 @@ In order; each item is a general rule, checked on Broadway x Granville before an
 - [ ] **Slanted lanes** west of West Broadway's 4 -> 6 joint; **West Broadway's north kerb east of Hemlock** still about 8 m short.
 - [ ] Then the gaps of [What the sources hold](design/source-inventory.md): crossing and kerb details, every Mapillary class, the city's
       turn rules as automatic checks, land cover and lidar; then the W 4th Ave unit; then the recipe.
+- [x] **Dashboard v2, local** ([Dashboard v2](design/dashboard-v2.md), built 2026-10-13): `urbanstyle serve`, one panel (Find with the
+      tree and tick boxes, Filter, Ask), levels full / faded / hidden in 2D and 3D, a street space, block or group in focus, the AI agent
+      (Claude, else Gemini).
+- [ ] **Routes in Ask:** the agent also reads the area's duckOSM database (read-only: its networks, POIs, transit stops, streets), and a
+      `route` tool: from and to as a place name, an id or a map point; walk, cycle or drive; fastest or shortest. The server runs duckOSM's
+      `route_points` (turn restrictions apply) and `directions`, and shows the route on the map and in the results, with its length, time
+      and steps.
+- [ ] **A versioned specification of the format** (requirements: [The format](design/format.md); research: [Our format and the standards](design/standards-comparison.md)): a CityGML 3.0
+      profile as a CityJSON Extension, with our sources, levels and (s, t); its JSON Schema and a validator; exports to OpenDRIVE,
+      OpenSidewalks or OSM, GMNS.
+- [ ] **Source dates** (proposed 2026-10-13, design note first): a `source_date` with each sourced value, and a manifest of the sources
+      and their dates for each area file, so that two builds of one area can be compared by their stable ids.
+- [ ] **Tunnels in 3D:** levels −1 and −2 with the same full / faded / hidden buttons, built and checked on Södermalm.
+- [ ] **The second city: Södermalm**, with no new code, and its check report.
 - [ ] Merge `network-first` into `main` (the docs site shows `main`).
 
 ## Where it stood (2026-10-08, the city-wide work, paused)

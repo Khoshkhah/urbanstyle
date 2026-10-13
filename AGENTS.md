@@ -75,7 +75,15 @@ The order of work: `docs/plan.md`.
   path): the deck top above the ground every 10 m along each axis, each station in `vertical.stations` (`docs/design/bridge-profile.md`).
 - `src/urbanstyle/bridge_heights.py`: `urbanstyle bridge-heights PROFILE HEIGHTS OUT` sets a profile's heights from a small heights file where
   there is no LiDAR: points per axis, a ramp from another axis down to the ground, or the default rule (`docs/design/bridge-heights.md`).
-- `src/urbanstyle/cli.py`: the `urbanstyle build | check | quality | dashboard | layers | mapillary | unit | bridge | bridge-measure | bridge-heights` command.
+- `src/urbanstyle/serve.py` and `explore.html`: `urbanstyle serve DB PAGE [--bridge PROFILE] [--port 8784]` serves `viz/` with one panel
+  (`docs/design/dashboard-v2.md`): Find (search, an exact id, the area's tree with tick boxes), Filter, Ask (an AI agent: Claude with
+  `ANTHROPIC_API_KEY` or `~/.config/anthropic/key`, else Gemini with `GEMINI_API_KEY`, never keys in the repo); results orange,
+  the selected thing deep purple with its card and a short popup; levels full / faded / hidden in 2D and 3D; a street space, block
+  or tree group in focus in 3D. The server reads the space db read-only, adds `space.bridge_part` and `space.street_object` (every
+  source, as 3D draws them); the panel's names start with `xp`, inside one function (roadstyle's globals).
+- The format and the standards: `docs/design/standards-comparison.md` (research), `docs/design/format.md` (requirements: a CityGML 3.0
+  profile as a CityJSON Extension; ids from profiles).
+- `src/urbanstyle/cli.py`: the `urbanstyle build | check | quality | dashboard | layers | mapillary | unit | bridge | bridge-measure | bridge-heights | bridge3d | serve` command.
 - `docs/`: the MkDocs site (`mkdocs.yml`); `docs/design/` the design notes. `docs/img/sodermalm.jpg` and `section.jpg` are screenshots of the dashboard
   (`viz/sodermalm-rs0.18.1.html` and `#c=s0-1277220079715399641`, 1600 × 1000): pictures in the docs come from the
   dashboard, never from a separate drawing script.
@@ -102,9 +110,13 @@ PYTHONPATH=src python3 -m urbanstyle dashboard data/monaco.duckdb viz/monaco.htm
 # http://localhost:8784/* only: serve the pages on port 8784. Clicks inside a focused space move the Street View window too (svHere in dashboard.py).
 
 # a bridge change: only its model, to viz/bridge3d.json, which every dashboard page reads when it opens (reload the page). The model is
-# kept in data/cache/ (key: the profile, the street's lanes, corrections/*.json and the code but dashboard.py and cli.py): with no change
+# kept in data/cache/ (key: the profile, the street's lanes, corrections/*.json and bridge3d.py with the modules it reads): with no change
 # there, the page builds in ~30 s and this in ~2 s
 PYTHONPATH=src $P -m urbanstyle bridge3d data/units/broadway-granville.space.duckdb viz/bridge3d.json --bridge data/bridges-measured/granville-bridge.bridge.json
+
+# the dashboard with its panel (search, filters, the tree, the AI agent): system python3 with roadstyle; then http://localhost:8784/
+PYTHONPATH=src:../roadstyle/src python3 -m urbanstyle serve data/units/broadway-granville.space.duckdb viz/<page>.html --bridge data/bridges-measured/granville-bridge.bridge.json
+PYTHONPATH=src python3 -m pytest -q tests/test_serve.py    # the Gemini test needs google-genai: the system python3 has it, the venv not
 
 # docs
 mkdocs build --strict                                  # needs pip install ".[docs]"

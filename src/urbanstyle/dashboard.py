@@ -164,10 +164,10 @@ const GROUPS=[
     ['rail','Rail line','#c026d3','ln',''],['stations','Station','#0d9488','ci','']].concat(LK.map(k=>['k:'+k.t,'Link: '+k.lab,k.c,'ci',k.d]))]];
 const show={}; GROUPS.forEach(g=>g[1].forEach(r=>show[r[0]]=(r[0].startsWith('c:')&&!HAS.includes('Spaces'))||r[0]==='buildings'||r[0].startsWith('r:')));   // roads start drawn (2D is a map); with the new spaces (space.unit) the old containers start hidden
 const row=r=>`<label><input type=checkbox data-k="${r[0]}" ${show[r[0]]?'checked':''}><span class="sw ${r[3]}" style="background:${r[2]}"></span>${r[1]}${r[4]?` <i>${r[4]}</i>`:''}</label>`;
-document.getElementById('chips').innerHTML=GROUPS[0][1].concat(GROUPS[2][1]).map(r=>`<label title="${r[4]}"><input type=checkbox data-k="${r[0]}" checked><span class="sw" style="background:${r[2]}"></span>${r[1]}</label>`).join('');
+document.getElementById('chips').innerHTML=GROUPS[0][1].concat(GROUPS[2][1]).map(r=>`<label title="${r[4]}"><input type=checkbox data-k="${r[0]}" ${show[r[0]]?'checked':''}><span class="sw" style="background:${r[2]}"></span>${r[1]}</label>`).join('');   // (each its real state: all were drawn ticked)
 document.getElementById('lg').innerHTML=GROUPS.slice(1).map((g,i)=>`<div class=gh><label><input type=checkbox data-g="${i+1}"><b>${g[0]}</b></label></div>`+g[1].map(row).join('')).join('')+
   '<div class=nb>Everything else on the map (streets, icons, labels) is the <b>basemap</b>, not our data. Change or hide it with the basemap button at the top right.</div>';
-const setKey=(k,v)=>{show[k]=v; document.querySelectorAll(`#us input[data-k="${k}"]`).forEach(i=>i.checked=v)};
+const setKey=(k,v)=>{show[k]=v; document.querySelectorAll(`input[data-k="${k}"]`).forEach(i=>i.checked=v)};
 const onChange=e=>{const d=e.target.dataset;
   if(d.k)setKey(d.k,e.target.checked);
   else if(d.g){GROUPS[+d.g][1].forEach(r=>setKey(r[0],e.target.checked))}   // a group's own checkbox switches all its rows
@@ -287,7 +287,7 @@ const root=node('Pilot area',null,{t:'root',l:0},()=>[
     ()=>LV.map(l=>node(`level ${l}`,(tree.containers[l]||[]).length,{t:'ctrL',l},()=>levelNodes(l))))])]);
 document.getElementById('tree').append(root); root.open=true;
 document.getElementById('q').oninput=e=>{const v=e.target.value.toLowerCase();
-  document.querySelectorAll('#us details[data-name]').forEach(d=>d.style.display=d.dataset.name.includes(v)?'':'none')};
+  document.querySelectorAll('#tree details[data-name]').forEach(d=>d.style.display=d.dataset.name.includes(v)?'':'none')};
 document.getElementById('q').onchange=e=>{const v=e.target.value.trim().toLowerCase();       // exact container id: select it and zoom there
   for(const [lvl,arr] of Object.entries(tree.containers)){const c=arr.find(c=>c.id.toLowerCase()===v);
     if(c){focusOn(c.id);return}}
@@ -467,6 +467,8 @@ const pop3d=(e,p,fields,who)=>setTimeout(()=>{if(sel3d!==who)return;     // dese
     fields.filter(k=>p[k]!==undefined&&p[k]!==null&&p[k]!=='').map(k=>`<tr><td><b>${k}</b></td><td>${p[k]}</td></tr>`).join('')+'</table>');
   pp.on('close',()=>{if(sel3d===who){sel3d=null; paint3d()}});    // (Popup.on does not return the popup: no chaining)
   pp.addTo(map)},0);
+// (the Explore panel selects a thing as a click in 3D does: its part_id, ground_id, building or car park id; urbanstyle serve)
+window.pick3d=v=>{sel3d=v??null; paint3d()};
 function deselect3d(){if(sel3d===null)return false; sel3d=null; paint3d();
   document.querySelectorAll('.maplibregl-popup:not(.u3d-tip)').forEach(x=>x.remove()); return true}
 // layer -> [its colour property, the key of a feature, its own colour, its popup fields]
@@ -476,8 +478,28 @@ const L3D={'u3d-furn':['fill-extrusion-color','refs',['get','color'],OBJ_POPUP],
   'u3d-gnd':['fill-color','ground_id',['get','color'],__GROUNDPOPUP__],
   'u3d-kerb':['fill-extrusion-color','kerb_id','#8f8b86',['type','unit_id','arm','length_m','source','method','ref']],
   'u3d-ground':['fill-color','part_id',['get','color'],null],'u3d-raised':['fill-extrusion-color','part_id',['get','color'],null]};
+// (xpMarked: the Explore panel's results that are 3D things themselves, orange (Kaveh, 2026-10-13: the list apart from the one selected): in 3D they are not drawn a second time)
+let xpMarked=[], xpFocus=null;
+window.mark3d=ids=>{xpMarked=ids||[]; paint3d()};
+// (one street space in focus, the Explore panel: its parts in their own colours, all else faint; Kaveh, 2026-10-13: "zooming to a
+// section or an intersection was the first goal")
+// (xpFocus: {unit, blds} for a street space, {parts, ground, blds, lots, objs} for a block: what keeps its colours; null: no focus)
+window.focus3d=f=>{xpFocus=f||null; paint3d()};
+// (a street object's key is refs, the ids of all its sources, "n64, vancouver-3": one source's id, as the Explore panel gives, finds it)
 function paint3d(){Object.entries(L3D).forEach(([id,[prop,key,base]])=>{if(!map.getLayer(id))return;
-  map.setPaintProperty(id,prop,['case',['==',['get',key],sel3d||'\u0000'],'#7c4dff',['==',['get',key],hov3d||'\u0000'],'#b388ff',base])})}
+  const is=key==='refs'?v=>['in',', '+v+', ',['concat',', ',['get','refs'],', ']]:v=>['==',['get',key],v];
+  const marked=!xpMarked.length?false:key==='refs'?['any',...xpMarked.map(is)]:['in',['get',key],['literal',xpMarked]];
+  // (in the space in focus its own colours win over the results' orange; outside it all is faint. A street object belongs to the space
+  // it stands in, its `space`: Kaveh, 2026-10-13, "show all objects in that space too")
+  const fk={'u3d-ground':'unit_id','u3d-raised':'unit_id','u3d-kerb':'unit_id','u3d-furn':'space'}[id];
+  // (a focus: {units, parts, ground, blds, lots, objs}, any of them: a street space, a block, or a group from Browse)
+  const F=xpFocus, lit=(k,vs)=>vs&&vs.length?['in',['get',k],['literal',vs]]:false, units=F?(F.units||(F.unit?[F.unit]:[])):[];
+  let inF=false;
+  if(F){if(id==='u3d-bld')inF=lit('id',F.blds); else if(id==='u3d-gnd')inF=lit('ground_id',F.ground); else if(id==='u3d-lot')inF=lit('id',F.lots);
+    else{const a=[fk&&lit(fk,units),['u3d-ground','u3d-raised'].includes(id)&&lit('part_id',F.parts),
+      id==='u3d-furn'&&(F.objs||[]).length&&['any',...F.objs.map(is)]].filter(Boolean); inF=a.length?['any',...a]:false}}
+  map.setPaintProperty(id,prop,['case',is(sel3d||'\u0000'),'#7c4dff',is(hov3d||'\u0000'),'#b388ff',inF,base,marked,'#ff9100',
+    !F?base:'#ebe8e3'])})}
 function bind3d(){if(bound3d||!map.getLayer('u3d-furn'))return; bound3d=true;
   const groundPop=(OVERLAYS.find(o=>o.label==='Parts')||{}).popup||[];
   let took=0;     // the topmost layer under the mouse takes the click: an object before the ground under it
@@ -492,6 +514,8 @@ function bind3d(){if(bound3d||!map.getLayer('u3d-furn'))return; bound3d=true;
     map.on('mouseleave',id,()=>{clearTimeout(hovT); hov3d=null; map.getCanvas().style.cursor=''; paint3d(); tip3d.remove()});
     map.on('click',id,e=>{if(Date.now()-took<50||(window.brAt&&window.brAt(e.point)))return; took=Date.now(); const p=e.features[0].properties;
       if(sel3d===p[key]){deselect3d(); return}          // a click on the selected one deselects it
+      if(window.xpOnPick&&window.xpOnPick(id,p,e))return;      // (the Explore panel selects it: its card and its short popup)
+      if(window.brDeselect)window.brDeselect();       // (a bridge part selected before: off, its popup closed)
       sel3d=p[key]; paint3d(); pop3d(e,p,fields||groundPop,p[key])})});
   map.on('click',e=>{if(!in3d)return; const hit=map.queryRenderedFeatures(e.point,{layers:Object.keys(L3D).filter(x=>map.getLayer(x))});
     if(!hit.length)deselect3d();
@@ -824,7 +848,7 @@ def furniture_3d(con, epsg, place, objs, decks=()):
     from shapely.ops import transform
     import pyproj
     to_m = lambda col="geometry": f"ST_AsWKB(ST_Transform({col}, 'EPSG:4326', '{epsg}', always_xy := true))"
-    roads = con.execute(f"SELECT level_min, {to_m()} FROM space.element WHERE type = 'road'").fetchall()
+    roads = con.execute(f"SELECT level_min, {to_m()}, class FROM space.element WHERE type = 'road'").fetchall()
     rg = [shapely.from_wkb(bytes(r[1])) for r in roads]
     rtree = shapely.STRtree(rg)
     # the buildings' footprints: an entrance's door lies along the wall it is on (OSM maps it on the building's outline)
@@ -869,7 +893,10 @@ def furniture_3d(con, epsg, place, objs, decks=()):
             if h > 0.1:
                 ux, uy = (q.x - p.x) / h, (q.y - p.y) / h
         elif cand:
-            q = rg[min(cand, key=lambda k: rg[k].distance(p))].interpolate(rg[min(cand, key=lambda k: rg[k].distance(p))].project(p))
+            # (to the nearest street; to a service road, an alley, a driveway or a parking aisle, only with no street near: 40 of 492
+            # lamps turned their backs to the street, to an alley behind them; Kaveh, 2026-10-13)
+            st_ = [k for k in cand if roads[k][2] != "service"] or cand
+            q = rg[min(st_, key=lambda k: rg[k].distance(p))].interpolate(rg[min(st_, key=lambda k: rg[k].distance(p))].project(p))
             h = math.hypot(q.x - p.x, q.y - p.y)
             if h > 0.1:
                 ux, uy = (q.x - p.x) / h, (q.y - p.y) / h
@@ -889,8 +916,8 @@ def furniture_3d(con, epsg, place, objs, decks=()):
                         ux, uy = -ux, -uy           # out of the building, not into it
         ax, ay = -uy, ux            # along the road (an entrance: along its wall)
 
-        def blk(off, L, W, b, t, col):     # a block centred `off` m towards the road, L along it, W across
-            cx, cy = p.x + ux * off, p.y + uy * off
+        def blk(off, L, W, b, t, col, along=0.0):     # a block centred `off` m towards the road (and `along` it), L along it, W across
+            cx, cy = p.x + ux * off + ax * along, p.y + uy * off + ay * along
             pts = [(cx + ax * a * L / 2 + ux * c * W / 2, cy + ay * a * L / 2 + uy * c * W / 2) for a, c in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
             out.append((shapely.Polygon(pts), b + dz, t + dz, col, cls, lv, refs, sources, None, details, methods))
         if cls == "furniture.lamp":             # pole W wide, H high; its arm and lamp over the road
@@ -899,8 +926,13 @@ def furniture_3d(con, epsg, place, objs, decks=()):
             blk(0, W, W, 0, H - 1.0, "#3f3f46"); blk(0.12, 0.32, 0.28, H - 1.0, H, "#111827"); blk(0.27, 0.2, 0.04, H - 0.3, H - 0.1, "#ef4444")
         elif cls == "furniture.sign":           # a plate W wide at the top, on a post
             blk(0, 0.08, 0.08, 0, H - 0.6, "#9ca3af"); blk(0.05, W, 0.05, H - 0.65, H, SIGN_COLOR.get(grp, "#2563eb"))
-        elif cls == "furniture.waste":
-            blk(0, W, W, 0, H, "#3f6212")
+        elif cls == "furniture.waste":         # a round bin W across, its rim darker
+            out.append((p.buffer(W / 2, quad_segs=6), dz, H - 0.05 + dz, "#3f6212", cls, lv, refs, sources, None, details, methods))
+            out.append((p.buffer(W / 2 + 0.02, quad_segs=6), H - 0.05 + dz, H + dz, "#1a2e05", cls, lv, refs, sources, None, details, methods))
+        elif cls == "furniture.hydrant":       # a round red body W across, its cap and side nozzles
+            out.append((p.buffer(W / 2, quad_segs=6), dz, H - 0.15 + dz, "#dc2626", cls, lv, refs, sources, None, details, methods))
+            out.append((p.buffer(W / 2.6, quad_segs=6), H - 0.15 + dz, H + dz, "#991b1b", cls, lv, refs, sources, None, details, methods))
+            blk(0, W * 1.6, 0.1, H * 0.55, H * 0.7, "#991b1b")
         elif cls == "furniture.bench":          # W long: seat, back, legs
             blk(0, W, 0.45, 0.4, 0.48, "#92400e"); blk(-0.2, W, 0.07, 0.48, H, "#92400e"); blk(0, 0.08, 0.4, 0, 0.4, "#44403c")
         elif cls == "furniture.bollard":
@@ -918,8 +950,12 @@ def furniture_3d(con, epsg, place, objs, decks=()):
             blk(0, 0.08, 0.08, 0, H - 0.35, "#6b7280"); blk(0, W, 0.16, H - 0.35, H, "#1f2937")
         elif cls == "furniture.map_stand":      # a wayfinding panel W wide
             blk(0, W, 0.15, 0, H, "#1e3a8a")
-        elif cls == "furniture.bike_parking":   # a row of stands W along the kerb
-            blk(0, W, 0.6, 0, H, "#94a3b8")
+        elif cls == "furniture.bike_parking":   # a row of inverted-U stands W along the kerb, one each 0.8 m, each across it (a bike
+            k_ = max(1, round(W / 0.8))           # parks along a stand): two posts and the bar between them, in steel
+            for i_ in range(k_):
+                a_ = (i_ - (k_ - 1) / 2) * 0.8
+                blk(-0.3, 0.05, 0.05, 0, H, "#9ca3af", a_); blk(0.3, 0.05, 0.05, 0, H, "#9ca3af", a_)
+                blk(0, 0.05, 0.65, H - 0.05, H, "#9ca3af", a_)
         elif cls == "access.entrance":          # a door in the facade
             blk(0, W, 0.2, 0, H, "#78350f")
         elif cls == "access.parking_entrance":  # a garage door
@@ -1005,17 +1041,16 @@ DOSSIER_COLORS = {"osm": "#2563eb", "mapillary": "#f59e0b", "vancouver": "#16a34
 
 
 def dossier_layers(con, db):
-    """A unit's dossier (unit.py) next to its built neighbourhood (`<unit>.space.duckdb` -> `<unit>.duckdb`): its roads and its objects
+    """A unit's dossier (unit.py) next to its built neighbourhood (`<unit>.space.duckdb` -> `<unit>.duckdb`): its objects
     from every source, each with all it knows (`info`: the source's own attributes), and the real objects they were matched into
     (`match`: one per object, with every source's id), to click on. Empty frames without a dossier."""
     path = db.replace(".space.duckdb", ".duckdb")
     empty = gpd.GeoDataFrame({"source": []}, geometry=[], crs=4326)
     if path == db or not os.path.exists(path):
-        return empty, empty, empty
+        return empty, empty
     con.execute(f"ATTACH IF NOT EXISTS '{path}' AS dos (READ_ONLY)")
     crs = con.execute("SELECT crs FROM dos.unit").fetchone()[0]
     ll = f"ST_AsWKB(ST_Transform(geometry, '{crs}', 'EPSG:4326', always_xy := true)) AS geometry"
-    roads = frame(con, f"SELECT * EXCLUDE (geometry, osm_id), {ll} FROM dos.road")
     objs = frame(con, f"""SELECT object_id, class, source, method, confidence::DOUBLE AS confidence, height_m, sign, observed, attrs,
                           coalesce(match_id, '') AS match_id, {ll} FROM dos.object""")
     try:
@@ -1032,7 +1067,7 @@ def dossier_layers(con, db):
             return a or ""
         return "; ".join(f"{k}: {v}" for k, v in d.items() if v not in (None, "", "None") and k != "geo_point_2d") if isinstance(d, dict) else str(d)
     objs["info"] = objs.pop("attrs").map(info)
-    return roads, objs, matches
+    return objs, matches
 
 
 # a bridge as a 3D model (bridge3d.py) in a three.js layer on the map: its deck, parapets, piers, lanes and paths; a box on the map turns it
@@ -1046,7 +1081,7 @@ const hex=c=>parseInt(c.slice(1),16);
 function brLayer(M){const o=maplibregl.MercatorCoordinate.fromLngLat(M.origin,0), s=o.meterInMercatorCoordinateUnits();
   const T=new THREE.Matrix4().makeTranslation(o.x,o.y,o.z).scale(new THREE.Vector3(s,-s,s)); let renderer,scene,camera; const pick=[];
   const L={id:'br3d-'+M.name, type:'custom', renderingMode:'3d', pick,
-    onAdd(map,gl){camera=new THREE.Camera(); scene=new THREE.Scene(); L.camera=camera;
+    onAdd(map,gl){camera=new THREE.Camera(); scene=new THREE.Scene(); L.camera=camera; L.scene=scene;
       scene.add(new THREE.AmbientLight(0xffffff,0.7)); const d=new THREE.DirectionalLight(0xffffff,0.45); d.position.set(-0.5,-1,2); scene.add(d);
       const P=new THREE.BufferAttribute(new Float32Array(M.verts.flat()),3);
       const mesh=(faces,color)=>{const g=new THREE.BufferGeometry(); g.setAttribute('position',P); g.setIndex(faces.flat()); g.computeVertexNormals();
@@ -1094,8 +1129,12 @@ const brName=p=>p.part_id?`${p.type}${p.direction?' · '+p.direction:''} · ${p.
 // there (window.brAt)
 const BR_POPUP=__BRPOPUP__;
 const brTip=new maplibregl.Popup({closeButton:false,closeOnClick:false,offset:12,className:'u3d-tip'}); let brLit=null, brSel=null, brPop=null, brT=0;
-function brPaint(){Object.values(LAYERS).forEach(L=>(L.pick||[]).forEach(m=>m.material.color.setHex(m===brSel?0x7c4dff:m===brLit?0xb388ff:m.baseHex)));
+// (the Explore panel's results among the bridge's parts, by id, in orange: window.brMark, urbanstyle serve)
+let brMarked=new Set();
+function brPaint(){Object.values(LAYERS).forEach(L=>(L.pick||[]).forEach(m=>m.material.color.setHex(m===brSel?0x7c4dff:m===brLit?0xb388ff:
+  brMarked.has(m.userData.id)?0xff9100:m.baseHex)));
   map.triggerRepaint()}
+window.brMark=ids=>{brMarked=new Set(ids||[]); brPaint()};
 window.brAt=pt=>brOn()&&!!brHit(pt);
 let brQ=false, brLast=null;
 map.on('mousemove',e=>{brLast=e; if(brQ)return; brQ=true; requestAnimationFrame(()=>{brQ=false; const m=brOn()?brHit(brLast.point):null;
@@ -1104,7 +1143,14 @@ map.on('mousemove',e=>{brLast=e; if(brQ)return; brQ=true; requestAnimationFrame(
   clearTimeout(brT); if(brLit){brLit=null; brPaint(); brTip.remove()}       // another thing: the last one off at once
   if(m)brT=setTimeout(()=>{brLit=m; brPaint(); brTip.setLngLat(brLast.lngLat).setText(m.userData.type).addTo(map)},HOVER_MS)})});
 const brDeselect=()=>{if(!brSel)return false; brSel=null; brPaint(); if(brPop){const p_=brPop; brPop=null; p_.remove()} return true};
+window.brDeselect=brDeselect;
+// (a level's look in 3D, the Explore panel: the bridge full, faded or hidden: 1, 0.25 or 0)
+window.brOpacity=a=>{Object.values(LAYERS).forEach(L=>{if(!L.scene)return; L.scene.visible=a>0;
+  L.scene.traverse(o=>{(Array.isArray(o.material)?o.material:o.material?[o.material]:[]).forEach(m=>{m.transparent=a<1; m.opacity=a;
+    m.depthWrite=a>=1; m.needsUpdate=true})})}); map.triggerRepaint()};
+window.brPick=id=>{let hit=null; Object.values(LAYERS).forEach(L=>(L.pick||[]).forEach(m=>{if(m.userData.id===id)hit=m})); brSel=hit; brPaint(); return !!hit};
 map.on('click',e=>{const m=brOn()?brHit(e.point):null; if(!m||m===brSel){brDeselect(); return}
+  if(window.xpOnPick&&window.xpOnPick('bridge',m.userData,e))return;      // (the Explore panel selects it)
   deselect3d(); brSel=m; brPaint(); if(brPop){const p_=brPop; brPop=null; p_.remove()}
   const p=m.userData, rows=BR_POPUP.filter(k=>p[k]!==undefined&&p[k]!==null&&p[k]!=='').map(k=>`<tr><td><b>${k}</b></td><td>${p[k]}</td></tr>`).join('');
   const pp=new maplibregl.Popup({closeButton:true,maxWidth:'320px'}).setLngLat(e.lngLat).setHTML('<table>'+rows+'</table>');
@@ -1158,7 +1204,7 @@ def bridge_models(con, bridges):
 
 def _cached_model(P_, ground_):
     """bridge3d.model(P_) with the street's lanes ground_, from data/cache/ when nothing it reads has changed since: the profile, those
-    lanes, the corrections and the code (but the page's own, dashboard.py and cli.py). A change to the page only needs no new model
+    lanes, the corrections and the model's code (bridge3d.py and the modules it reads). A change to the page only needs no new model
     (Kaveh, 2026-10-13: four minutes for each small change)."""
     import glob
     import hashlib
@@ -1169,9 +1215,10 @@ def _cached_model(P_, ground_):
     h = hashlib.sha1(json.dumps(P_, sort_keys=True).encode())
     for g in ground_:
         h.update(shapely.to_wkb(g))
-    for f in sorted(glob.glob(os.path.join(here, "*.py")) + glob.glob(os.path.join(here, "..", "..", "corrections", "*.json"))):
-        if os.path.basename(f) not in ("dashboard.py", "cli.py"):
-            h.update(open(f, "rb").read())
+    # (the model's own code only: a change to the page, the server or the CLI needs no new model)
+    for f in [os.path.join(here, m) for m in ("bridge3d.py", "bridge_profile.py", "corrections.py", "parts.py")] + \
+            sorted(glob.glob(os.path.join(here, "..", "..", "corrections", "*.json"))):
+        h.update(open(f, "rb").read())
     path = os.path.join(here, "..", "..", "data", "cache", f"bridge3d-{h.hexdigest()[:16]}.pkl")
     if os.path.exists(path):
         return pickle.load(open(path, "rb"))
@@ -1335,7 +1382,7 @@ def main(db, out, bridges=None):
                 photos[uid].append([pid, when, bool(pano)])
     except duckdb.CatalogException:
         seen, photos = pd.DataFrame({"grp": []}), {}
-    droads, dobjs, dmatch = dossier_layers(con, db)
+    dobjs, dmatch = dossier_layers(con, db)
     shapes["unit"] = shapes["object_id"].map(unit_of)
     objects["unit"] = objects["object_id"].map(unit_of)
     has = [lab for lab, df in (("Track", track), ("Rail", rails), ("Station", stations), ("Spaces", units), ("Parts", pts_), ("Cuts", cuts), ("Junction roads", jroads), ("Subsections", subs),
@@ -1413,8 +1460,6 @@ def main(db, out, bridges=None):
                                tooltip=["subsection_id", "length_m"])] * (len(subs) > 0)
                  + [rs.Overlay(brk, kind="circle", placement="over", color="#111827", radius=5, label="Subsection breaks",
                                popup=["subsection_id", "starts_at"], tooltip=["subsection_id", "starts_at"])] * (len(brk) > 0)
-                 + [rs.Overlay(droads, kind="line", placement="over", color="#0f766e", width=6, label="Dossier roads",
-                               popup=[c for c in droads.columns if c != "geometry"], tooltip=["name", "class"])] * (len(droads) > 0)
                  + [rs.Overlay(dobjs[dobjs.source == s], kind="circle", placement="over", color=DOSSIER_COLORS.get(s, "#6b7280"), radius=6,
                                label=f"Dossier objects: {s}", visible=len(dmatch) == 0,
                                popup=["object_id", "class", "source", "method", "confidence", "height_m", "sign", "observed", "match_id", "info"],

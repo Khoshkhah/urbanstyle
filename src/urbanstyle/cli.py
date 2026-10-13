@@ -56,6 +56,11 @@ def main(argv=None):
     b3.add_argument("db", help="the unit's space db (its street's lanes for the landings)")
     b3.add_argument("out", help="the JSON file beside the page, e.g. viz/bridge3d.json")
     b3.add_argument("--bridge", action="append", required=True, help="a bridge profile, as for the dashboard")
+    sv = sub.add_parser("serve", help="the dashboard page with the Explore panel (search, filters, AI questions) on a local server")
+    sv.add_argument("db", help="the unit's space db")
+    sv.add_argument("page", help="a page `urbanstyle dashboard` built, e.g. viz/broadway-granville-v92.html (its folder is served)")
+    sv.add_argument("--bridge", action="append", default=[], help="a bridge profile: its parts can be searched too")
+    sv.add_argument("--port", type=int, default=8784, help="8784: the port Street View's key allows")
     a = p.parse_args(argv)
 
     if a.cmd == "build":
@@ -88,6 +93,9 @@ def main(argv=None):
     elif a.cmd == "bridge2d":
         from .bridge2d import write as write2d
         print(write2d(a.profile, a.out, a.db), "parts ->", a.out)
+    elif a.cmd == "serve":
+        from .serve import serve
+        serve(a.db, a.page, a.bridge, a.port)
     elif a.cmd == "bridge3d":
         import duckdb
         from .dashboard import bridge_models, write_bridge3d

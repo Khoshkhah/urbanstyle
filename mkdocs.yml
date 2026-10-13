@@ -59,6 +59,9 @@ nav:
       - "Bridges in 3D": design/bridges-3d.md
       - "Bridge profile": design/bridge-profile.md
       - "Bridge heights without LiDAR": design/bridge-heights.md
+      - "Dashboard v2": design/dashboard-v2.md
+      - "Our format and the standards": design/standards-comparison.md
+      - "The format: requirements": design/format.md
       - "Research: how standards layer a street": design/layers-research.md
       - Street space: design/street-space.md
       - Specification: design/street-space-spec.md

@@ -1,0 +1,409 @@
+<!-- the Explore panel (urbanstyle serve, docs/design/dashboard-v2.md): search, filters, results and questions to the AI agent; every
+name is inside one function or starts with xp, so nothing meets roadstyle's globals -->
+<style>
+/* the panel (body.xp): docked on the left in place of the old one (#us); one way of working: Search, Filter, Browse or Ask give a result
+   list (orange), one thing is selected (deep purple, its card); Layers at the foot adds the data's own layers; body.xp-off: folded */
+body.xp #us,body.xp #usfold,body.xp #br3dbox{display:none!important}
+body.xp #map{left:380px!important}body.xp.xp-off #map{left:0!important}
+#xp{position:fixed;top:0;left:0;bottom:0;width:380px;max-width:100vw;z-index:9;background:#fff;border-right:1px solid #e2e8f0;display:flex;
+  flex-direction:column;font:13px system-ui,sans-serif;color:#0f172a}
+body.xp-off #xp{display:none}
+#xp input[type=checkbox]{accent-color:#7c4dff;margin:0 5px 0 0;vertical-align:-2px}
+#xpbr{max-height:34vh;overflow:auto;font-size:12.5px;margin-top:8px;border-top:1px solid #f1f5f9;padding-top:6px}
+#xpbr .n{display:flex;align-items:center;gap:2px;padding:2px 4px;border-radius:5px;cursor:pointer}#xpbr .n:hover{background:#f5f0ff}
+#xpbr .n.on{background:#ede7ff;color:#5b21b6}
+#xpbr .t{width:16px;flex:none;text-align:center;color:#94a3b8;font-size:10px}#xpbr .cb{margin:0 4px 0 0;flex:none}#xpbr .l{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#xpbr .c{color:#94a3b8;font-size:11px;margin-left:6px}#xpbr .k{margin-left:14px}
+#xpcard{display:none;margin:0 0 10px;padding:8px 10px;border:1px solid #c4b5fd;border-left:4px solid #7c4dff;border-radius:6px;background:#faf8ff}
+#xpcard.on{display:block}
+#xpcard .h{display:flex;align-items:baseline;gap:6px}#xpcard .h b{flex:1}#xpcard .h small{color:#64748b}
+#xpcard .h button{border:0;background:none;cursor:pointer;color:#64748b;font-size:15px}
+#xpcard table{font-size:12px;margin-top:4px;border-collapse:collapse;width:100%;table-layout:fixed}
+#xpcard td{padding:1px 4px;vertical-align:top;overflow-wrap:anywhere;word-break:break-word}#xpcard td:first-child{width:34%}
+#xpcard .h b{overflow-wrap:anywhere}
+#xpcard td:first-child{color:#64748b}#xpcard .go{margin-top:6px;display:flex;flex-wrap:wrap;gap:4px}
+#xpcard .go button{border:1px solid #d6c8ff;background:#fff;border-radius:12px;padding:2px 8px;cursor:pointer;color:#5b21b6;font-size:11.5px}
+#xplayers{border-bottom:1px solid #e2e8f0;padding:6px 12px;max-height:38vh;overflow:auto;flex:none}
+#xplayers summary{cursor:pointer;font:600 12px system-ui;color:#475569;padding:2px 0}
+#xplayers h5{margin:8px 0 3px;font:600 11px system-ui;letter-spacing:.04em;text-transform:uppercase;color:#94a3b8}
+#xplayers label{display:block;font-size:12px;padding:1px 0;cursor:pointer}
+/* the layers draw in 2D only (body.u3d: the 3D view): there they rest, greyed (Kaveh, 2026-10-13: "just inactive in 3D"); the
+   terrain is 3D's own and rests in 2D */
+body.u3d #xplys,body.u3d #xpopts label:has(#allparts),body.u3d #xpopts label:has(#mlybox),body:not(.u3d) #xpopts label:has(#terrain3d)
+  {opacity:.4;pointer-events:none}
+body:not(.u3d) .xp3dl{display:none}.xp3dl{color:#94a3b8;font-weight:400}
+#xpfold{position:fixed;top:10px;left:388px;z-index:9;width:28px;height:28px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;
+  cursor:pointer;font:15px/1 system-ui;color:#475569;box-shadow:0 1px 3px #0002}
+body.xp-off #xpfold{left:10px}
+#xpview{display:flex;align-items:center;gap:4px;padding:6px 12px;border-bottom:1px solid #e2e8f0;font-size:12px;color:#64748b}
+#xpview button{border:1px solid #cbd5e1;background:#fff;border-radius:5px;padding:2px 7px;cursor:pointer;font:12px system-ui;color:#334155}
+#xpview button.on{background:#7c4dff;border-color:#7c4dff;color:#fff}
+#xpview .sp{flex:1}
+#xplk button{min-width:26px}#xplk button.full{background:#7c4dff;border-color:#7c4dff;color:#fff}
+#xplk button.fade{background:#ddd6fe;border-color:#c4b5fd;color:#4c1d95}#xplk button.off{background:#fff;color:#94a3b8;text-decoration:line-through}
+#xp header{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid #e2e8f0}
+#xp header b{font-size:15px;flex:1}
+#xp header button{border:1px solid #cbd5e1;background:#fff;border-radius:5px;padding:2px 8px;cursor:pointer;font:12px system-ui;color:#475569}
+#xptabs{display:flex;border-bottom:1px solid #e2e8f0}
+#xptabs button{flex:1;padding:8px;border:0;background:none;cursor:pointer;font:600 13px system-ui;color:#64748b;border-bottom:2px solid transparent}
+#xptabs button.on{color:#7c4dff;border-bottom-color:#7c4dff}
+.xptab{display:none;padding:10px 12px;border-bottom:1px solid #e2e8f0}
+.xptab.on{display:block}
+#xp input,#xp select,#xp textarea{font:13px system-ui;border:1px solid #cbd5e1;border-radius:6px;padding:6px 8px;box-sizing:border-box}
+#xp .xprow{display:flex;gap:6px;margin:6px 0;align-items:center}#xp .xprow>*{min-width:0}
+#xpconds .xprow{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,.95fr) minmax(0,1.25fr) auto}
+#xpconds select,#xpconds input,#xpconds .xpval{width:100%;min-width:0;text-overflow:ellipsis}#xp select{max-width:100%}
+#xplist div{overflow-wrap:anywhere}
+#xp .xpgo{background:#7c4dff;color:#fff;border:0;border-radius:6px;padding:7px 14px;font-weight:600;cursor:pointer}
+#xp .xplink{border:0;background:none;color:#7c4dff;cursor:pointer;padding:2px 4px;font:12px system-ui}
+#xpchat{max-height:34vh;overflow:auto;display:flex;flex-direction:column;gap:6px;margin-bottom:6px}
+.xpq{align-self:flex-end;background:#ede7ff;border-radius:10px 10px 2px 10px;padding:6px 9px;max-width:85%}
+.xpa{align-self:flex-start;background:#f1f5f9;border-radius:10px 10px 10px 2px;padding:6px 9px;max-width:92%;white-space:pre-wrap}
+.xpa details{margin-top:4px;font-size:11px;color:#475569}
+.xpa pre{white-space:pre-wrap;background:#fff;border:1px solid #e2e8f0;border-radius:4px;padding:4px;margin:3px 0;font-size:11px}
+.xpex{display:inline-block;margin:2px 4px 2px 0;padding:3px 8px;border:1px solid #d6c8ff;border-radius:12px;color:#5b21b6;cursor:pointer;font-size:12px}
+#xpres{flex:1;overflow:auto;padding:8px 12px}
+#xpsum{font-weight:600;margin-bottom:4px}
+#xpkinds span{display:inline-block;margin:2px 4px 2px 0;padding:1px 7px;border-radius:10px;background:#f1f5f9;font-size:11px}
+#xplist div{padding:5px 4px;border-bottom:1px solid #f1f5f9;cursor:pointer}
+#xplist div:hover{background:#f5f0ff}
+#xplist small{color:#64748b;margin-left:4px}
+.xpwait{color:#7c4dff}
+</style>
+<button id=xpfold title="hide the panel">&laquo;</button>
+<div id=xp>
+  <header><b>urbanstyle <span id=xparea style="font-weight:400;color:#64748b"></span></b></header>
+  <div id=xpview>level <span id=xplk></span><span class=sp></span><button id=xp2d>2D</button><button id=xp3d>3D</button></div>
+  <details id=xplayers><summary>Layers <span class=xp3dl>(2D only)</span></summary><div id=xplys></div><h5>Options</h5><div id=xpopts></div></details>
+  <div id=xptabs><button data-t=s class=on>Find</button><button data-t=f>Filter</button><button data-t=a>Ask</button></div>
+  <div class="xptab on" id=xp-s><div class=xprow><input id=xpq style="flex:1" placeholder="a street, a type, an OSM way, or an id (s0-…, i0-…)"><button class=xpgo id=xpqgo>Find</button></div>
+    <div id=xpbr title="browse: a group lists its things, one thing is selected"></div></div>
+  <div class=xptab id=xp-f>
+    <div class=xprow><select id=xplayer style="flex:1"></select></div>
+    <div id=xpconds></div>
+    <div class=xprow><button class=xplink id=xpadd>+ condition</button><label style="flex:1;text-align:right"><input type=checkbox id=xpinview> only in the map view</label></div>
+    <div class=xprow><button class=xpgo id=xpfgo>Show</button></div>
+  </div>
+  <div class=xptab id=xp-a>
+    <div id=xpchat></div>
+    <div id=xpexs></div>
+    <div class=xprow style="justify-content:flex-end"><button class=xplink id=xpnew title="forget the questions so far: the next one starts afresh">New conversation</button></div>
+    <div class=xprow><textarea id=xpask rows=2 style="flex:1;resize:vertical" placeholder="Ask about the street, e.g. where are the sidewalks narrower than 1.8 m?"></textarea><button class=xpgo id=xpaskgo>Ask</button></div>
+  </div>
+  <div id=xpres><div id=xpcard></div><div id=xpsum style="color:#64748b;font-weight:400">Find (type, or browse the tree), filter or ask: the results show here (orange) and on the map.</div><div id=xpkinds></div>
+    <div class=xprow id=xpacts style="display:none"><button class=xplink id=xpcsv>CSV</button><button class=xplink id=xpgeo>GeoJSON</button><button class=xplink id=xpclr>Clear</button></div>
+    <div id=xplist></div></div>
+</div>
+<script>
+(()=>{
+const M=()=>typeof map!=="undefined"?map:null;
+// (the Ask conversation: its id and its chat kept in this browser, so a reload goes on with it; the server keeps its memory)
+const store={get:k=>{try{return localStorage.getItem(k)}catch(e){return null}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}}};
+const newId=()=>Math.random().toString(36).slice(2);
+let session=store.get('xp-session')||newId(); store.set('xp-session',session);
+const $=id=>document.getElementById(id), COL='#ff9100', SRC='xp-res';
+let meta=null, last=null;
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const km=m=>m>=1000?(m/1000).toFixed(2)+' km':Math.round(m)+' m';
+// the results on the map: one GeoJSON source, a fill, a line and a dot layer in orange (one thing selected: deep purple), in 2D and in 3D, on top
+function layers(){const m=M(); if(!m||!m.isStyleLoaded||!m.isStyleLoaded())return false;
+  if(!m.getSource(SRC))m.addSource(SRC,{type:'geojson',data:last||{type:'FeatureCollection',features:[]}});
+  const add=(id,spec)=>{if(!m.getLayer(id))m.addLayer({id,source:SRC,...spec})};
+  add('xp-fill',{type:'fill',filter:['==',['geometry-type'],'Polygon'],paint:{'fill-color':COL,'fill-opacity':0.35}});     // (2D only: vis)
+  add('xp-line',{type:'line',paint:{'line-color':COL,'line-width':3}});
+  add('xp-pt',{type:'circle',filter:['==',['geometry-type'],'Point'],paint:{'circle-color':COL,'circle-radius':6,'circle-stroke-color':'#fff','circle-stroke-width':2}});
+  top(); vis(); return true}
+// the results above every other layer but the bridge's (3D adds its ground layers later, on top; the bridge keeps the top: brAdd);
+// style._order, not getStyle(): getStyle leaves out custom layers such as the bridge
+const XP=['xp-fill','xp-line','xp-pt'];
+function top(){const m=M(), ids=[...m.style._order], i=Math.min(...XP.map(x=>ids.indexOf(x)).filter(k=>k>=0));
+  if(!ids.slice(i).some(x=>!XP.includes(x)&&!x.startsWith('br3d-')))return;
+  [...XP,'xp-hov-fill','xp-hov-line','xp-hov-pt','xp-sel-fill','xp-sel-line','xp-sel-pt'].forEach(x=>m.getLayer(x)&&m.moveLayer(x)); ids.filter(x=>x.startsWith('br3d-')).forEach(x=>m.moveLayer(x))}
+// 2D and 3D apart (Kaveh, 2026-10-13: "the circle markers and footprints belong to 2D"): 2D draws the results as shapes and dots; 3D
+// draws none of them and colours the 3D objects themselves (mark3d: buildings, street parts, ground, car parks, street objects; brMark)
+const SELF3D=['Street parts','Buildings','Ground','Car parks','Street objects'];
+function vis(){const m=M(); if(!m)return; const d3=typeof in3d!=='undefined'&&in3d;
+  XP.forEach(x=>{if(m.getLayer(x))m.setLayoutProperty(x,'visibility',d3?'none':'visible')})}
+// (only the newest results: an older list that waited for a busy map came late and took the place of the new one, 2026-10-13: the
+// whole bridge orange after "Axis a1", and a lane's row selected a crosswalk)
+let mapSeq=0;
+function onMap(fc,my){if(my===undefined)my=++mapSeq; else if(my!==mapSeq)return; last=fc;
+  if(!layers())return setTimeout(()=>onMap(fc,my),500); M().getSource(SRC).setData(fc); vis();
+  if(window.mark3d)window.mark3d(fc.features.filter(f=>SELF3D.includes(f.properties._layer)).map(f=>f.properties._id));
+  if(window.brMark)window.brMark(fc.features.filter(f=>f.properties._layer==='Bridge parts').map(f=>f.properties._id))}
+function bounds(fs){let b=[180,90,-180,-90]; const walk=c=>typeof c[0]==='number'?(b=[Math.min(b[0],c[0]),Math.min(b[1],c[1]),Math.max(b[2],c[0]),Math.max(b[3],c[1])]):c.forEach(walk);
+  fs.forEach(f=>f.geometry&&walk(f.geometry.coordinates)); return b[0]<=b[2]?[[b[0],b[1]],[b[2],b[3]]]:null}
+function fly(fs){const b=bounds(fs); if(b)M().fitBounds(b,{padding:60,maxZoom:19,duration:700})}     // (the map starts beside the panel)
+// the one thing selected: deep purple where it stands (2D: the map's own selection is roadstyle's; 3D: pick3d; the bridge: brPick) and its
+// card at the top of the results: its fields, and the spaces and parts it leads to (a click on one: select it, or list it)
+let xpPop=null;
+const shut=()=>{const pp=xpPop; xpPop=null; if(pp)pp.remove(); document.querySelectorAll('.maplibregl-popup:not(.u3d-tip)').forEach(x=>x.remove());
+  $('xpcard').classList.remove('on');
+  if(window.brDeselect)window.brDeselect(); if(window.pick3d)window.pick3d(null); if(focusU)focus(null); selSrc()};
+const pick=p=>{if(p._layer==='Bridge parts'){if(window.brPick)window.brPick(p._id)}
+  else if(p._layer==='Street spaces'||p._layer==='Blocks')focus(p._id,p._layer); else if(window.pick3d)window.pick3d(p._id)};
+// a street space selected: in focus in 3D, its parts and painted lines as they are, all else faint (the bridge too, for a space on the
+// ground); the panel's card closed: all back
+// the focus in 3D: what keeps its colours, all else faint. A selected street space or block (focusU, focusF: from the server), else a
+// group from Browse (groupF: its results); selecting one thing inside a group keeps the group's focus
+let focusU=null, focusF=null, groupF=null;
+function focus(u,layer){if((u||null)!==focusU){focusF=null; if(u)get(`/api/focus?layer=${encodeURIComponent(layer||'Street spaces')}&id=${encodeURIComponent(u)}`)
+    .then(f=>{if(focusU===u){focusF=f; paintFocus()}})}
+  focusU=u||null; paintFocus()}
+function specOf(fc){const f={units:[],parts:[],ground:[],blds:[],lots:[],objs:[],bridge:0},
+    K={'Street spaces':'units','Street parts':'parts','Ground':'ground','Buildings':'blds','Car parks':'lots','Street objects':'objs'};
+  (fc.features||[]).forEach(x=>{const p=x.properties, k=K[p._layer]; if(k)f[k].push(p._id); if(p._layer==='Bridge parts')f.bridge++}); return f}
+const eff=()=>focusU?(focusF||{units:[]}):groupF;
+function paintFocus(){const F=eff(); if(window.focus3d)window.focus3d(F); const m=M(); if(!m)return;
+  m.getStyle().layers.forEach(l=>{if(l.id.startsWith('u3d-')&&l.type==='line')m.setPaintProperty(l.id,'line-opacity',lineOp())});
+  applyLooks()}
+// (painted lines: those of the spaces in focus; with a block or a group of no spaces, all faint)
+function lineOp(){const F=eff(); if(!F)return 1; const us=F.units||(F.unit?[F.unit]:[]);
+  return us.length?['case',['in',['get','unit_id'],['literal',us]],1,0.12]:0.12}
+// (2D: the selected one in deep purple over the orange results: its own source)
+function selSrc(f){const m=M(); if(!m)return; if(!m.isStyleLoaded())return setTimeout(()=>selSrc(f),200); const fc={type:'FeatureCollection',features:f?[f]:[]};
+  if(!m.getSource('xp-sel')){m.addSource('xp-sel',{type:'geojson',data:fc});
+    m.addLayer({id:'xp-sel-fill',source:'xp-sel',type:'fill',filter:['==',['geometry-type'],'Polygon'],paint:{'fill-color':'#7c4dff','fill-opacity':0.45}});
+    m.addLayer({id:'xp-sel-line',source:'xp-sel',type:'line',paint:{'line-color':'#7c4dff','line-width':4}});
+    m.addLayer({id:'xp-sel-pt',source:'xp-sel',type:'circle',filter:['==',['geometry-type'],'Point'],paint:{'circle-color':'#7c4dff','circle-radius':8,'circle-stroke-color':'#fff','circle-stroke-width':2}})}
+  else m.getSource('xp-sel').setData(fc);
+  const d3=typeof in3d!=='undefined'&&in3d; ['xp-sel-fill','xp-sel-line','xp-sel-pt'].forEach(x=>m.getLayer(x)&&m.setLayoutProperty(x,'visibility',d3?'none':'visible'))}
+let selF=null;
+// select one thing: deep purple, its card (all its fields) and a short popup at it (name, layer, id); the same in 2D and 3D, from the
+// panel or from a click on the map (at: where it was clicked; from the panel the map flies to it); closing the popup deselects
+function select(f,at){shut(); if(!f)return; selF=f; const p=f.properties; pick(p); selSrc(f); if(!at)fly([f]); card(f);
+  const b=bounds([f]); if(!b&&!at)return; const ll=at||[(b[0][0]+b[1][0])/2,(b[0][1]+b[1][1])/2];
+  const pp=new maplibregl.Popup({closeButton:true,maxWidth:'280px',offset:8}).setLngLat(ll)
+    .setHTML(`<div style="font:600 13px system-ui">${esc(p._label)}</div><div style="font-size:11.5px;color:#64748b;overflow-wrap:anywhere">${esc(p._layer)} · ${esc(p._id)}</div>`).addTo(M());
+  xpPop=pp; pp.on('close',()=>{if(xpPop===pp){xpPop=null; shut()}})}
+// a click on the map in 3D (the 3D page's own handlers ask first: xpOnPick): its layer and id, then select as above
+const PICK3D={'u3d-furn':['Street objects','refs','id'],'u3d-bld':['Buildings','id','source_id'],'u3d-gnd':['Ground','ground_id','ground_id'],
+  'u3d-lot':['Car parks','id','lot_id'],'u3d-ground':['Street parts','part_id','part_id'],'u3d-raised':['Street parts','part_id','part_id'],
+  bridge:['Bridge parts','id','id']};
+window.xpOnPick=(lid,p,e)=>{const k=PICK3D[lid]; if(!k||!p||p[k[1]]==null||!meta)return false;
+  const at=e&&e.lngLat?[e.lngLat.lng,e.lngLat.lat]:null;
+  post('/api/query',{layer:k[0],where:[{field:k[2],op:'=',value:String(p[k[1]])}]}).then(fc=>{if(fc.features&&fc.features[0])select(fc.features[0],at)});
+  return true};
+function card(f){const p=f.properties, rows=Object.entries(p).filter(([k,v])=>!k.startsWith('_')&&v!==null&&v!==''&&k!=='fields')
+    .map(([k,v])=>`<tr><td>${esc(k)}</td><td>${esc(String(v).slice(0,160))}</td></tr>`).join('');
+  const go=[];
+  if(p.unit_id&&p._layer!=='Street spaces')go.push(`<button data-sel="Street spaces|unit_id|${esc(p.unit_id)}">its space ${esc(p.unit_id)}</button>`);
+  if(p._layer==='Street spaces')go.push(`<button data-res="Street parts|unit_id|${esc(p._id)}">its parts</button>`);
+  if(p._layer==='Street spaces'&&p.section_id)go.push(`<button data-res="Street spaces|section_id|${esc(p.section_id)}">its section</button>`);
+  if(p._layer==='Bridge parts'&&p.axis)go.push(`<button data-res="Bridge parts|axis|${esc(p.axis)}">all of axis ${esc(p.axis)}</button>`);
+  if(p._layer==='Street objects'&&p.class)go.push(`<button data-res="Street objects|class|${esc(p.class)}">all ${esc(String(p.class).split('.').pop().replace(/_/g,' '))}</button>`);
+  $('xpcard').innerHTML=`<div class=h><b>${esc(p._label)}</b><small>${esc(p._layer)}</small><button title="deselect">&times;</button></div>`+
+    `<table>${rows}</table>`+(go.length?`<div class=go>${go.join('')}</div>`:'');
+  $('xpcard').classList.add('on'); $('xpres').scrollTop=0}
+$('xpcard').onclick=e=>{if(e.target.matches('.h button')){shut(); return}
+  const b=e.target.closest('button'); if(!b)return; const [layer,field,value]=(b.dataset.sel||b.dataset.res||'').split('|'); if(!layer)return;
+  (b.dataset.sel?post:(u,x)=>latest(post(u,x)))('/api/query',{layer,where:[{field,op:'=',value}]}).then(fc=>{if(b.dataset.sel){if(fc.features[0])select(fc.features[0])}
+    else{show(fc,b.textContent); if(selF)card(selF)}}).catch(stale)};
+function show(fc,title,group){
+  if(fc.error){$('xpsum').textContent='Error: '+fc.error; return}
+  groupF=group?specOf(fc):null; paintFocus();
+  // (a group of street spaces: also the buildings that frame them and the objects that stand in them, from the server)
+  const g=groupF; if(g&&g.units.length)post('/api/focus',{layer:'Street spaces',ids:g.units}).then(f=>{if(groupF!==g||!f)return;
+    g.blds=[...new Set([...g.blds,...(f.blds||[])])]; g.objs=[...new Set([...g.objs,...(f.objs||[])])]; paintFocus()});
+  onMap(fc); const n=fc.total, s=fc.features.length;
+  $('xpsum').style.cssText=''; $('xpsum').textContent=(title?title+': ':'')+n+(n===1?' thing':' things')+(s<n?` (first ${s} shown)`:'')+
+    (fc.length_m?' · '+km(fc.length_m):'')+(fc.area_m2?' · '+Math.round(fc.area_m2).toLocaleString()+' m²':'');
+  $('xpkinds').innerHTML=(fc.kinds||[]).slice(0,12).map(([k,v])=>`<span>${esc(k||'other')} ${v}</span>`).join('');
+  $('xpacts').style.display=s?'flex':'none';
+  $('xplist').innerHTML=fc.features.slice(0,300).map((f,i)=>`<div data-i=${i}>${esc(f.properties._label)}<small>${esc(f.properties._layer)} · ${esc(f.properties._id??'')}</small></div>`).join('');
+  if(s)fly(fc.features)}
+$('xplist').onclick=e=>{const d=e.target.closest('[data-i]'); if(d&&last)select(last.features[+d.dataset.i])};
+const get=u=>fetch(u).then(r=>r.json()), post=(u,b)=>fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}).then(r=>r.json());
+// (a result list from the newest request only: a slow answer to an older one is dropped)
+let rq=0; const latest=pr=>{const n=++rq; return pr.then(r=>{if(n!==rq)throw 'stale'; return r})}, stale=e=>{if(e!=='stale')throw e};
+const wait=t=>{$('xpsum').innerHTML=`<span class=xpwait>${t}</span>`; $('xpkinds').innerHTML=''; $('xplist').innerHTML=''};
+// search
+// search; an exact id (s0-…, i0-…, a part's or an object's id) goes straight to that thing: selected, its card open
+const find=()=>{const q=$('xpq').value.trim(); if(!q)return; wait('Searching...'); latest(get('/api/search?q='+encodeURIComponent(q))).then(fc=>{
+  show(fc,'“'+q+'”'); const ORDER=['Street spaces','Street parts','Street objects','Buildings','Bridge parts','Car parks','Ground','Surfaces','Blocks'];
+  const hit=(fc.features||[]).filter(f=>String(f.properties._id)===q&&ORDER.includes(f.properties._layer))      // (a painted line carries its space's id)
+    .sort((a,b)=>ORDER.indexOf(a.properties._layer)-ORDER.indexOf(b.properties._layer))[0]; if(hit)select(hit)}).catch(stale)};
+$('xpqgo').onclick=find; $('xpq').onkeydown=e=>{if(e.key==='Enter')find()};
+// filter: one layer, conditions on its fields
+const ops={number:['>=','<=','=','!='],choice:['=','!=','contains'],text:['contains','=','!=']};
+function cond(){const L=meta.layers[$('xplayer').value]; if(!L)return; const d=document.createElement('div'); d.className='xprow';
+  d.innerHTML=`<select class=xpfield>${L.fields.map(f=>`<option>${esc(f.name)}</option>`).join('')}</select><select class=xpop></select><span class=xpval style="display:flex"></span><button class=xplink title=remove>&times;</button>`;
+  const fld=d.querySelector('.xpfield'), op=d.querySelector('.xpop'), val=d.querySelector('.xpval');
+  const set=()=>{const f=L.fields.find(x=>x.name===fld.value); op.innerHTML=ops[f.kind].map(o=>`<option>${o}</option>`).join('');
+    val.innerHTML=f.kind==='choice'?`<select style="flex:1;width:100%">${f.values.map(([v,n])=>`<option value="${esc(v)}">${esc(v)} (${n})</option>`).join('')}</select>`
+      :`<input style="flex:1;width:100%" ${f.kind==='number'?`type=number step=any placeholder="${f.min} – ${f.max}"`:''}>`};
+  fld.onchange=set; set(); d.querySelector('button').onclick=()=>d.remove(); $('xpconds').appendChild(d)}
+$('xplayer').onchange=()=>{$('xpconds').innerHTML=''; cond()}; $('xpadd').onclick=cond;
+$('xpfgo').onclick=()=>{const where=[...$('xpconds').children].map(d=>({field:d.querySelector('.xpfield').value,op:d.querySelector('.xpop').value,
+    value:(d.querySelector('.xpval select')||d.querySelector('.xpval input')).value})).filter(w=>w.value!=='');
+  let bbox=null; if($('xpinview').checked){const b=M().getBounds(); bbox=[b.getWest(),b.getSouth(),b.getEast(),b.getNorth()]}
+  wait('Filtering...'); latest(post('/api/query',{layer:$('xplayer').value,where,bbox})).then(fc=>show(fc,$('xplayer').value)).catch(stale)};
+// ask: the AI agent answers from the tables, shows what it found and the queries it used
+const EX=['Where are the sidewalks narrower than 1.8 m?','How much of Granville Street is for cars, and how much for people?',
+  'Which crossings are not marked?','How many street lights are on the bridge?','Which parts of the bridge have chosen widths, not mapped ones?'];
+$('xpexs').innerHTML=EX.map(q=>`<span class=xpex>${esc(q)}</span>`).join('');
+$('xpexs').onclick=e=>{if(e.target.classList.contains('xpex')){$('xpask').value=e.target.textContent; ask()}};
+function ask(){const q=$('xpask').value.trim(); if(!q)return; $('xpask').value='';
+  const chat=$('xpchat'); chat.insertAdjacentHTML('beforeend',`<div class=xpq>${esc(q)}</div><div class=xpa><span class=xpwait>Looking at the data...</span></div>`);
+  const a=chat.lastElementChild; chat.scrollTop=chat.scrollHeight; $('xpexs').style.display='none';
+  post('/api/ask',{session,question:q}).then(r=>{
+    a.innerHTML=esc(r.answer||r.error||'')+(r.queries&&r.queries.length?`<details><summary>${r.queries.length} ${r.queries.length===1?'query':'queries'} used</summary>${
+      r.queries.map(x=>`<pre>${x.title?esc(x.title)+' (on the map)\n':''}${esc(x.sql)}</pre>`).join('')}</details>`:'');
+    if(r.fresh&&chat.querySelectorAll('.xpq').length>1)a.insertAdjacentHTML('afterbegin','<div style="font-size:11px;color:#b45309;margin-bottom:4px">'+
+      'The server has no memory of the questions above (it was restarted): this one was answered on its own.</div>');
+    store.set('xp-chat',chat.innerHTML); if(r.map)show(r.map,r.map.title); chat.scrollTop=chat.scrollHeight})
+  .catch(e=>{a.textContent='Error: '+e})}
+$('xpnew').onclick=()=>{post('/api/forget',{session}); session=newId(); store.set('xp-session',session); store.set('xp-chat','');
+  $('xpchat').innerHTML=''; $('xpexs').style.display=''};
+{const old=store.get('xp-chat'); if(old){$('xpchat').innerHTML=old; $('xpexs').style.display='none'}}      // (the chat so far, after a reload)
+$('xpaskgo').onclick=ask; $('xpask').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault(); ask()}};
+// export and clear
+const save=(name,text,type)=>{const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([text],{type})); a.download=name; a.click()};
+$('xpgeo').onclick=()=>last&&save('urbanstyle-results.geojson',JSON.stringify({type:'FeatureCollection',features:last.features}),'application/geo+json');
+$('xpcsv').onclick=()=>{if(!last)return; const ks=[...new Set(last.features.flatMap(f=>Object.keys(f.properties)))];
+  const q=v=>{v=String(v??''); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v};
+  save('urbanstyle-results.csv',[ks.join(','),...last.features.map(f=>ks.map(k=>q(f.properties[k])).join(','))].join('\n'),'text/csv')};
+$('xpclr').onclick=()=>{shut(); selF=null; groupF=null; untick(); paintFocus(); onMap({type:'FeatureCollection',features:[]}); $('xpsum').textContent=''; $('xpkinds').innerHTML=''; $('xplist').innerHTML=''; $('xpacts').style.display='none'};
+// tabs, open and close; the panel only when the server answers (a page opened as a file has none)
+$('xptabs').onclick=e=>{const t=e.target.dataset.t; if(!t)return; [...$('xptabs').children].forEach(b=>b.classList.toggle('on',b.dataset.t===t));
+  document.querySelectorAll('.xptab').forEach(d=>d.classList.toggle('on',d.id==='xp-'+t))};
+// the panel, folded (xp-off) or not; the map fills what is left
+const B=document.body, resize=()=>setTimeout(()=>M()&&M().resize(),0);
+B.classList.add('xp','xp-city');
+// the map: quiet at first (the basemap, the buildings in grey, the bridge), then what Layers ticks (allow): the old page's own logic
+// shows its layers again at times (hush hides what is not allowed)
+const allow=new Set(['Buildings','Bridge 2D']), hid=new Set(), GREY={'fill-color':'#dedad4','line-color':'#b5afa7'}; let oldPaint=null;
+const roadsOn=on=>{const m=M(); if(m&&!(typeof in3d!=='undefined'&&in3d))m.getStyle().layers.forEach(l=>{if(/^roads-/.test(l.id))m.setLayoutProperty(l.id,'visibility',on?'visible':'none')})};
+const HIDE_LY=l=>l==='Bridge 2D'||/3D/.test(l);     // (not in Layers: the bridge goes by the levels; 3D layers are 3D's)
+function hush(){if(!B.classList.contains('xp')||typeof OVERLAYS==='undefined'||!M())return;
+  OVERLAYS.forEach(o=>{if(o.visible&&!allow.has(o.label)){hid.add(o.label); rsSetOverlay(o.label,false)}});
+  // (and what Layers ticked on again: the old page works its layers out anew at a view switch and turned them off, "Travelway" after
+  // 2D -> 3D -> 2D; Kaveh, 2026-10-13)
+  OVERLAYS.forEach(o=>{if(!o.visible&&allow.has(o.label)&&!HIDE_LY(o.label))rsSetOverlay(o.label,true)});
+  roadsOn(allow.has('Roads'));
+  const m=M(), bl=(OVERLAYS.find(o=>o.label==='Buildings')||{}).layers||[];
+  if(!oldPaint){oldPaint={}; bl.forEach(id=>{const L=m.getLayer(id); if(!L)return; const k=L.type==='fill'?'fill-color':L.type==='line'?'line-color':null;
+    if(k){oldPaint[id]=[k,m.getPaintProperty(id,k)]; m.setPaintProperty(id,k,GREY[k])}})}}
+function quiet(on){if(typeof OVERLAYS==='undefined'||!M()||!M().isStyleLoaded())return setTimeout(()=>quiet(on),300);
+  if(on){hush(); layersList(); return}
+  const m=M(); hid.forEach(l=>rsSetOverlay(l,true)); hid.clear(); roadsOn(true);     // (no server: the old page as it was)
+  if(oldPaint){Object.entries(oldPaint).forEach(([id,[k,v]])=>m.getLayer(id)&&m.setPaintProperty(id,k,v)); oldPaint=null}
+  if(typeof apply==='function')apply()}
+document.addEventListener('rs:overlaychange',()=>setTimeout(hush,0));
+quiet(true);
+$('xpfold').onclick=()=>{const off=!B.classList.toggle('xp-off'); $('xpfold').innerHTML=off?'&laquo;':'&raquo;';
+  $('xpfold').title=off?'hide the panel':'show the panel'; resize()};
+// Layers: the data's own layers (the old panel's), each ticked on its own, by group; and its options (terrain, road surface, Mapillary)
+function layersList(){if(typeof OVERLAYS==='undefined')return; const groups={};
+  [{label:'Roads'},...OVERLAYS].filter(o=>!HIDE_LY(o.label)).forEach(o=>{const g=o.label.includes(': ')?o.label.split(': ')[0]:'Street space data';
+    (groups[g]=groups[g]||[]).push(o.label)});
+  $('xplys').innerHTML=Object.entries(groups).map(([g,ls])=>`<h5>${esc(g)}</h5>`+ls.map(l=>`<label><input type=checkbox data-ly="${esc(l)}" ${allow.has(l)?'checked':''}>${
+    esc(l.includes(': ')?l.split(': ').slice(1).join(': '):l==='Roads'?'Road centre lines':l)}</label>`).join('')).join('')}
+$('xplys').onchange=e=>{const l=e.target.dataset.ly; if(!l)return; const on=e.target.checked; if(on)allow.add(l); else allow.delete(l);
+  if(l==='Roads')roadsOn(on); else rsSetOverlay(l,on); applyLooks()};
+// (the options keep their own code; what they switch on is allowed)
+['terrain3d','allparts','mlybox'].forEach(id=>{const i=document.getElementById(id); if(i&&i.closest('label'))$('xpopts').appendChild(i.closest('label'))});
+const optLy={allparts:()=>['Parts',...(typeof OVERLAYS!=='undefined'?OVERLAYS.filter(o=>o.label.startsWith('Mark: ')).map(o=>o.label):[])],mlybox:()=>['Mapillary']};
+$('xpopts').addEventListener('change',e=>{const f=optLy[e.target.id]; if(f)f().forEach(l=>e.target.checked?allow.add(l):allow.delete(l)); setTimeout(layersList,100)},true);
+// the tree (Find, server: /api/tree): a click on a name lists all of it (orange, a focus in 3D), on one thing selects it; the arrow opens.
+// The tick boxes put a list together from parts of the tree (Kaveh, 2026-10-13: "if the user doesn't want the whole category"): the
+// list is all that is ticked; a ticked group ticks all under it (greyed)
+const ticked=new Map();      // node id -> its node (layer, where, label)
+function branch(el,node){get('/api/tree?node='+encodeURIComponent(node)).then(kids=>{el.innerHTML='';
+  const under=el.closest('.k')&&el.closest('.k').previousElementSibling, covered=!!(under&&under.querySelector('.cb')&&under.querySelector('.cb').checked);
+  kids.forEach(k=>{const row=document.createElement('div'), sub=document.createElement('div'); row.className='n'; sub.className='k'; sub.style.display='none';
+    row.innerHTML=`<span class=t>${k.kids?'▸':'•'}</span>${k.layer?`<input type=checkbox class=cb data-id="${esc(k.id)}" ${covered?'checked disabled':''}>`:''}<span class=l title="${esc(k.label)}">${esc(k.label)}</span>${k.count!=null?`<span class=c>${k.count}</span>`:''}`;
+    const open=()=>{if(!k.kids)return; const shut_=sub.style.display!=='none'; sub.style.display=shut_?'none':''; row.querySelector('.t').textContent=shut_?'▸':'▾';
+      if(!shut_&&!sub.dataset.done){sub.dataset.done=1; sub.textContent='…'; branch(sub,k.id)}};
+    const cb=row.querySelector('.cb');
+    if(cb)cb.onchange=()=>{if(cb.checked)ticked.set(k.id,k); else ticked.delete(k.id);
+      sub.querySelectorAll('.cb').forEach(c=>{ticked.delete(c.dataset.id); c.checked=cb.checked; c.disabled=cb.checked}); combine()};   // (under it: in it, not ticked alone)
+    row.onclick=e=>{if(e.target.classList.contains('cb'))return; if(e.target.classList.contains('t')){open(); return}
+      document.querySelectorAll('#xpbr .n.on').forEach(x=>x.classList.remove('on')); row.classList.add('on');
+      if(!k.layer){open(); return}
+      if(!k.kids){post('/api/query',{layer:k.layer,where:k.where}).then(fc=>{if(fc.features&&fc.features[0])select(fc.features[0])}); return}
+      untick(); if(sub.style.display==='none')open(); wait('Loading...');
+      latest(post('/api/query',{layer:k.layer,where:k.where})).then(fc=>{show(fc,k.label,true); if(selF&&$('xpcard').classList.contains('on'))card(selF)}).catch(stale)};
+    el.appendChild(row); el.appendChild(sub)})})}
+function untick(){ticked.clear(); document.querySelectorAll('#xpbr .cb').forEach(c=>{c.checked=false; c.disabled=false})}
+// the list of all that is ticked (a group under a ticked group is in it once): its things once each, their totals added up
+function combine(){
+  const ks=[...ticked.values()];
+  if(!ks.length){show({type:'FeatureCollection',features:[],total:0,length_m:0,area_m2:0,kinds:[]},'nothing ticked',true); return}
+  wait('Loading...');
+  latest(Promise.all(ks.map(k=>post('/api/query',{layer:k.layer,where:k.where})))).then(fcs=>{const seen=new Set(), fs=[], kinds={}; let more=0;
+    fcs.forEach(fc=>{more+=Math.max(0,(fc.total||0)-(fc.features||[]).length);
+      (fc.features||[]).forEach(f=>{const key=f.properties._layer+'|'+f.properties._id; if(seen.has(key))return; seen.add(key); fs.push(f);
+        const t=f.properties.type||f.properties.class||f.properties.kind||''; kinds[t]=(kinds[t]||0)+1})});
+    const sum=k=>Math.round(fs.reduce((a,f)=>a+(f.properties[k]||0),0)*10)/10;
+    show({type:'FeatureCollection',features:fs,total:fs.length+more,length_m:sum('_m'),area_m2:sum('_m2'),kinds:Object.entries(kinds).sort((a,b)=>b[1]-a[1])},
+      ks.length===1?ks[0].label:`${ks.length} ticked`,true)}).catch(stale)}
+// the view: 2D / 3D (the tilt: setView follows it), and the levels: each level with streets full, faded or hidden, all together, the
+// same in 2D and 3D (Kaveh, 2026-10-13). Each view keeps its own: 2D starts with the bridge (level 1) faded to an outline, 3D with all
+// full. Level 0: the basemap and the buildings, and in 3D the ground with its parts, kerbs and objects; level 1: the bridge and decks.
+// (The old panel's own level stays 0: it filters what the old page draws.)
+const LOOK=['full','fade','off'], LOOKS={'2d':{1:'fade'},'3d':{}}, FADE=0.2, orig={};
+const d3=()=>typeof in3d!=='undefined'&&in3d, look=()=>LOOKS[d3()?'3d':'2d'];
+function views(){$('xp2d').classList.toggle('on',!d3()); $('xp3d').classList.toggle('on',d3());
+  const ls=(meta&&meta.street_levels)||[0], L=look();
+  $('xplk').innerHTML=ls.map(l=>{const st=L[l]||'full';
+    return `<button data-k="${l}" class="${st}" title="level ${l}: ${({full:'shown',fade:'faded',off:'hidden'})[st]} (a click: the next)">${l}</button>`}).join('')}
+$('xplk').onclick=e=>{const l=e.target.dataset.k; if(l===undefined)return; const L=look(); L[l]=LOOK[(LOOK.indexOf(L[l]||'full')+1)%3]; views(); applyLooks()};
+const OPA={fill:'fill-opacity','fill-extrusion':'fill-extrusion-opacity',line:'line-opacity',circle:'circle-opacity',raster:'raster-opacity'};
+function applyLooks(){const m=M(); if(!m)return; if(!m.isStyleLoaded())return setTimeout(applyLooks,200); const L=look();
+  const g=L[0]||'full', up=L[1]||'full';
+  const keep=(id,k)=>{if(!(id+k in orig))orig[id+k]=m.getPaintProperty(id,k)??(k.endsWith('opacity')?1:null); return orig[id+k]};
+  const set=(id,st,fadeTo)=>{const ly=m.getLayer(id); if(!ly)return; const k=OPA[ly.type]; const o=k&&keep(id,k);
+    m.setLayoutProperty(id,'visibility',st==='off'?'none':'visible');
+    if(k)m.setPaintProperty(id,k,st==='fade'?(fadeTo??FADE):k==='line-opacity'&&eff()&&id.startsWith('u3d-')?lineOp():o)};
+  m.getStyle().layers.forEach(l=>{if(l.source==='bm'&&l.type==='raster'){const o=keep(l.id,'raster-opacity');
+    m.setPaintProperty(l.id,'raster-opacity',g==='full'?o:g==='fade'?0.35:0.08)}});
+  const ov=lab=>(typeof OVERLAYS!=='undefined'&&OVERLAYS.find(o=>o.label===lab)||{}).layers||[];
+  if(d3()){m.getStyle().layers.forEach(l=>{if(l.id.startsWith('u3d-')&&l.id!=='u3d-deck')set(l.id,g)}); set('u3d-deck',up);
+    const F=eff(), onBr=focusU?/^\w1-/.test(focusU):F&&F.bridge>0;      // (a focus on the ground: the bridge faint)
+    const upF=F&&!onBr&&up==='full'?'fade':up;
+    if(window.brOpacity)window.brOpacity(upF==='full'?1:upF==='fade'?0.25:0); return}
+  if(allow.has('Buildings'))ov('Buildings').forEach(id=>set(id,g));
+  ov('Bridge 2D').forEach(id=>{const ly=m.getLayer(id); if(!ly)return;     // (faded: the light outline only)
+    m.setLayoutProperty(id,'visibility',up==='off'?'none':'visible');
+    if(ly.type==='fill'){const o=keep(id,'fill-opacity'); m.setPaintProperty(id,'fill-opacity',up==='full'?o:0)}
+    if(ly.type==='line'){const o=keep(id,'line-color'); m.setPaintProperty(id,'line-color',up==='full'?o:'#94a3b8')}})}
+// (3D redraws its layers, draw3d, on every view change: the looks again after it)
+if(typeof draw3d==='function'){const d3o=draw3d; draw3d=function(){d3o.apply(this,arguments); setTimeout(()=>{paintFocus(); selSrc(selF&&$('xpcard').classList.contains('on')?selF:null)},0)}}
+$('xp2d').onclick=()=>M()&&M().easeTo({pitch:0,duration:600}); $('xp3d').onclick=()=>M()&&M().easeTo({pitch:60,duration:600});
+get('/api/meta').then(m=>{meta=m; $('xparea').textContent='· '+m.area; branch($('xpbr'),''); views(); applyLooks();
+  $('xplayer').innerHTML=Object.entries(m.layers).map(([k,v])=>`<option value="${esc(k)}">${esc(k)} (${v.count})</option>`).join(''); cond()})
+  .catch(()=>{B.classList.remove('xp','xp-city'); quiet(false); $('xp').style.display='none'; $('xpfold').style.display='none'});   // (no server: the old page)
+// 2D: hover and click on the plan, as in 3D (Kaveh, 2026-10-13: "hover doesn't work on the 2D plan, only buildings are clickable"): the
+// mouse resting HOVER2D ms on a result, a building, a bridge part or a ticked layer lights it (light purple); a click selects it (deep
+// purple, its card) in place of the map's own popup
+const HOVER2D=300, OVMAP={'Buildings':['Buildings','id'],'Bridge 2D':['Bridge parts','id'],'Spaces':['Street spaces','unit_id'],
+  'Parts':['Street parts','part_id'],'Ground':['Ground','ground_id'],'Parking lots':['Car parks','id'],'Subsections':['Street spaces','subsection_id'],
+  'Blocks':['Blocks','block_id']};
+const is3d=()=>typeof in3d!=='undefined'&&in3d;
+function live2d(){const m=M(); if(!m||typeof OVERLAYS==='undefined')return [];
+  const labs=[...allow].filter(l=>OVMAP[l]), ids=[...XP,...labs.flatMap(l=>(OVERLAYS.find(o=>o.label===l)||{}).layers||[])];
+  return ids.filter(id=>m.getLayer(id)&&m.getLayoutProperty(id,'visibility')!=='none')}
+function ref(f){const p=f.properties; if(XP.includes(f.layer.id))return p._layer&&p._id!=null?[p._layer,p._id]:null;
+  const o=OVERLAYS.find(o=>(o.layers||[]).includes(f.layer.id)), mp=o&&OVMAP[o.label]; return mp&&p[mp[1]]!=null?[mp[0],String(p[mp[1]])]:null}
+function hit2d(pt){const ls=live2d(); if(!ls.length)return null; return M().queryRenderedFeatures(pt,{layers:ls}).find(ref)||null}
+function hovSrc(f){const m=M(); if(!m||!m.isStyleLoaded())return; const fc={type:'FeatureCollection',features:f?[{type:'Feature',geometry:f.geometry,properties:{}}]:[]};
+  if(!m.getSource('xp-hov')){m.addSource('xp-hov',{type:'geojson',data:fc});
+    m.addLayer({id:'xp-hov-fill',source:'xp-hov',type:'fill',filter:['==',['geometry-type'],'Polygon'],paint:{'fill-color':'#b388ff','fill-opacity':0.45}});
+    m.addLayer({id:'xp-hov-line',source:'xp-hov',type:'line',paint:{'line-color':'#b388ff','line-width':4}});
+    m.addLayer({id:'xp-hov-pt',source:'xp-hov',type:'circle',filter:['==',['geometry-type'],'Point'],paint:{'circle-color':'#b388ff','circle-radius':8}})}
+  else m.getSource('xp-hov').setData(fc)}
+let hovKey=null, hovT2=0;
+function wire2d(){const m=M();
+  m.on('mousemove',e=>{if(is3d()){if(hovKey){hovKey=null; hovSrc(null)} return}
+    const f=hit2d(e.point), r=f&&ref(f), key=r?r.join('|'):null; m.getCanvas().style.cursor=r?'pointer':'';
+    if(key===hovKey)return; clearTimeout(hovT2); if(hovKey){hovKey=null; hovSrc(null)}
+    if(r)hovT2=setTimeout(()=>{hovKey=key; hovSrc(f)},HOVER2D)});
+  m.on('mouseout',()=>{clearTimeout(hovT2); hovKey=null; hovSrc(null)});
+  m.on('click',e=>{if(is3d())return; const f=hit2d(e.point), r=f&&ref(f); if(!r)return;
+    post('/api/query',{layer:r[0],where:[{field:LAYERS_ID[r[0]]||'id',op:'=',value:r[1]}]}).then(fc=>{if(fc.features&&fc.features[0])select(fc.features[0],[e.lngLat.lng,e.lngLat.lat])})});
+  if(typeof OVERLAYS!=='undefined')OVERLAYS.forEach(o=>{if(OVMAP[o.label])o.interactive=false})}      // (roadstyle's own popup: off for these)
+const LAYERS_ID={'Buildings':'source_id','Bridge parts':'id','Street spaces':'unit_id','Street parts':'part_id','Ground':'ground_id','Car parks':'lot_id','Blocks':'block_id'};
+const keep=()=>{if(M()&&M().on){wire2d(); M().on('styledata',()=>{if(last)layers()}); M().on('pitchend',()=>setTimeout(()=>{vis(); views(); applyLooks(); selSrc(selF&&$('xpcard').classList.contains('on')?selF:null)},50)); M().once('idle',()=>{views(); applyLooks()}); return} setTimeout(keep,500)}; keep();
+})();
+</script>

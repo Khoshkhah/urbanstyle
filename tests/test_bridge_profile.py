@@ -78,6 +78,6 @@ def test_bridge_heights_rule_points_and_ramp():
     m, p_, r = (a["vertical"] for a in P["axes"])
     assert abs(height(m, 200.0) - 10.0) < 1e-6 and abs(height(m, 500.0) - 20.0) < 1e-6 and abs(height(m, 1000.0)) < 1e-6
     assert abs(height(p_, 200.0) - 8.0) < 1e-6
-    assert abs(height(r, 0.0) - 16.0) < 1e-6 and abs(height(r, 300.0) - 1.0) < 1e-6      # (16 m down at 5 %: 1 m left at 300 m)
-    assert abs(height(r, 100.0) - 11.0) < 1e-6
+    # (16 m down over 300 m: too short for 5 %, so as steep as it must be to reach the ground at its end)
+    assert abs(height(r, 0.0) - 16.0) < 1e-6 and abs(height(r, 150.0) - 8.0) < 1e-6 and abs(height(r, 300.0)) < 1e-6
     assert all(v["source"] == "urbanstyle" and v["method"] == "chosen" for v in (m, p_, r))

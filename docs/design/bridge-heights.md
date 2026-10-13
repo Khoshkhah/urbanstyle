@@ -29,10 +29,11 @@ One entry for each bridge, by its name:
 | `default.max_m` | metres | The highest height that the rule gives (the clearance of the bridge). |
 | `default.curve_m` | metres | The length of the vertical curve at each inside point (smooth crests and sags). |
 | `<axis>`: list of `[s, height]` | metres | These points, in order of s. The tool rounds each inside point with a vertical curve. |
-| `<axis>`: `{"from": axis, "to_ground": true}` | | The axis starts at the height of the other axis where they meet, and goes down at `grade` to the ground at its far end. |
+| `<axis>`: `{"from": axis, "to_ground": true}` | | The axis starts at the height of the other axis where they meet, and goes down at `grade` to the ground at its far end. If the axis is too short for `grade`, it goes down more steeply, so that it reaches the ground at its end. |
 
 An axis that the file does not name gets the default rule: from each end on the ground it goes up at `grade` to `max_m`, and stays
-at `max_m` between. An axis with no end on the ground stays at `max_m`.
+at `max_m` between. An axis with no end on the ground goes straight between the heights of the axes that it meets (where the file
+gives them), else it stays at `max_m`.
 
 ## Sources
 

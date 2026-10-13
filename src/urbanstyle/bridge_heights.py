@@ -53,6 +53,27 @@ def apply(P, H):
         else:
             a["vertical"] = _vertical(_rule(a, d["grade"], d["max_m"]), d["curve_m"],
                                       f"heights file default: {d['grade'] * 100:.0f}% up from each end on the ground, at most {d['max_m']} m")
+    # an axis with both ends in the air that the file does not name: straight between the heights of the axes it meets there, where those
+    # are given (a4, a9, a10 between a1 and the ramps; at max_m they met a1 2 m off)
+    given = {aid for aid, h in H.items() if isinstance(h, list)}
+    node_h = {}
+    for aid in given:
+        a = axes[aid]
+        for e in a.get("ends", []):
+            if e.get("node"):
+                node_h[e["node"]] = height(a["vertical"], e["s"])
+    for aid, a in axes.items():
+        if aid in H or any(e.get("ground") for e in a.get("ends", [])):
+            continue
+        hs = [node_h.get(e.get("node")) for e in a["ends"][:2]]
+        if len(hs) == 2 and None not in hs:
+            a["vertical"] = _vertical([[0, hs[0]], [a["length_m"], hs[1]]], d["curve_m"], "heights file default: straight between the axes it meets")
+        elif len(hs) == 2 and any(h_ is not None for h_ in hs):
+            h_ = next(h_ for h_ in hs if h_ is not None)
+            a["vertical"] = _vertical([[0, h_], [a["length_m"], h_]], d["curve_m"], "heights file default: level with the axis it meets")
+        for k, e in enumerate(a["ends"][:2]):        # (its ends known now, for the ramps from it)
+            if e.get("node") and e["node"] not in node_h:
+                node_h[e["node"]] = height(a["vertical"], e["s"])
     for a, h in later:          # a ramp: from the other axis's height where they meet, down at grade to the ground
         o = axes.get(h["from"])
         if o is None:
@@ -62,11 +83,14 @@ def apply(P, H):
         o_nodes = {e.get("node"): e["s"] for e in o.get("ends", []) if e.get("node")}
         e_meet = next((k for k, e in enumerate(a["ends"]) if e.get("node") in o_nodes), 0)
         z0 = height(o["vertical"], o_nodes.get(a["ends"][e_meet].get("node"), 0.0))
-        run = z0 / d["grade"] if h.get("to_ground", True) else L
-        pts = [[0, z0], [min(run, L), max(z0 - d["grade"] * L, 0.0) if run >= L else 0.0]] + ([[L, 0.0]] if run < L else [])
+        g = d["grade"]
+        if h.get("to_ground", True) and z0 / g > L:
+            g = z0 / L          # (a ramp too short for the grade: as steep as it must be to reach the ground at its end)
+        run = z0 / g if h.get("to_ground", True) else L
+        pts = [[0, z0], [min(run, L), max(z0 - g * L, 0.0) if run >= L else 0.0]] + ([[L, 0.0]] if run < L else [])
         if e_meet == 1:
             pts = [[L - s, z] for s, z in pts]
-        a["vertical"] = _vertical(pts, d["curve_m"], f"heights file: from {h['from']}'s height where they meet, {d['grade'] * 100:.0f}% down to the ground")
+        a["vertical"] = _vertical(pts, d["curve_m"], f"heights file: from {h['from']}'s height where they meet, {g * 100:.1f}% down to the ground")
     return P
 
 

@@ -77,7 +77,7 @@ body.xp-off #xpfold{left:10px}
 <div id=xp>
   <header><b>urbanstyle <span id=xparea style="font-weight:400;color:#64748b"></span></b></header>
   <div id=xpview>level <span id=xplk></span><span class=sp></span><button id=xp2d>2D</button><button id=xp3d>3D</button></div>
-  <details id=xplayers><summary>Layers <span class=xp3dl>(2D only)</span></summary><div id=xplys></div><h5>Options</h5><div id=xpopts></div></details>
+  <details id=xplayers><summary>Layers <span class=xp3dl>(2D only)</span></summary><div id=xplys></div><h5>Options</h5><div id=xpopts><label title="3D view only: the ground follows the hill (public 30 m terrain: rough, roads and buildings do not sit right on it)"><input type=checkbox id=terrain3d> rough terrain</label><label title="2D is a map: roads as lines, objects as dots. Tick to draw the real-size road surface in 2D too (lanes, crosswalks, sidewalks, markings), as 3D always does"><input type=checkbox id=allparts> road surface in 2D</label><label title="Mapillary's detections, for validation only: their positions are too rough to make an object. Green: it confirms a surveyed or mapped object; orange: nothing confirms it"><input type=checkbox id=mlybox> Mapillary detections (validation)</label></div></details>
   <div id=xptabs><button data-t=s class=on>Find</button><button data-t=f>Filter</button><button data-t=a>Ask</button></div>
   <div class="xptab on" id=xp-s><div class=xprow><input id=xpq style="flex:1" placeholder="a street, a type, an OSM way, or an id (s0-…, i0-…)"><button class=xpgo id=xpqgo>Find</button></div>
     <div id=xpbr title="browse: a group lists its things, one thing is selected"></div></div>
@@ -232,7 +232,7 @@ const find=()=>{const q=$('xpq').value.trim(); if(!q)return; wait('Searching...'
   show(fc,'“'+q+'”'); const ORDER=['Street spaces','Street parts','Street objects','Buildings','Bridge parts','Car parks','Ground','Surfaces','Blocks'];
   const hit=(fc.features||[]).filter(f=>String(f.properties._id)===q&&ORDER.includes(f.properties._layer))      // (a painted line carries its space's id)
     .sort((a,b)=>ORDER.indexOf(a.properties._layer)-ORDER.indexOf(b.properties._layer))[0]; if(hit)select(hit)}).catch(stale)};
-$('xpqgo').onclick=find; $('xpq').onkeydown=e=>{if(e.key==='Enter')find()};
+$('xpqgo').onclick=find; window.xpFind=q=>{$('xpq').value=q; find()}; $('xpq').onkeydown=e=>{if(e.key==='Enter')find()};
 // filter: one layer, conditions on its fields
 const ops={number:['>=','<=','=','!='],choice:['=','!=','contains'],text:['contains','=','!=']};
 function cond(){const L=meta.layers[$('xplayer').value]; if(!L)return; const d=document.createElement('div'); d.className='xprow';
@@ -340,9 +340,9 @@ $('xplys').addEventListener('click',e=>{const a=e.target.dataset&&e.target.datas
 $('xplys').onchange=e=>{const l=e.target.dataset.ly; if(!l)return; const on=e.target.checked; if(on)allow.add(l); else allow.delete(l);
   if(l==='Roads')roadsOn(on); else rsSetOverlay(l,on); applyLooks()};
 // (the options keep their own code; what they switch on is allowed)
-['terrain3d','allparts','mlybox'].forEach(id=>{const i=document.getElementById(id); if(i&&i.closest('label'))$('xpopts').appendChild(i.closest('label'))});
 const optLy={allparts:()=>['Parts',...(typeof OVERLAYS!=='undefined'?OVERLAYS.filter(o=>o.label.startsWith('Mark: ')).map(o=>o.label):[])],mlybox:()=>['Mapillary']};
-$('xpopts').addEventListener('change',e=>{const f=optLy[e.target.id]; if(f)f().forEach(l=>e.target.checked?allow.add(l):allow.delete(l)); setTimeout(layersList,100)},true);
+$('xpopts').addEventListener('change',e=>{if(e.target.id==='terrain3d'){if(typeof draw3d==='function')draw3d(); return}
+  const f=optLy[e.target.id]; if(!f)return; f().forEach(l=>{e.target.checked?allow.add(l):allow.delete(l); rsSetOverlay(l,e.target.checked)}); levels2d(); setTimeout(layersList,100)},true);
 // the tree (Find, server: /api/tree): a click on a name lists all of it (orange, a focus in 3D), on one thing selects it; the arrow opens.
 // The tick boxes put a list together from parts of the tree (Kaveh, 2026-10-13: "if the user doesn't want the whole category"): the
 // list is all that is ticked; a ticked group ticks all under it (greyed)
@@ -384,7 +384,7 @@ function combine(){
 // the view: 2D / 3D (the tilt: setView follows it), and the levels: each level with streets full, faded or hidden, all together, the
 // same in 2D and 3D (Kaveh, 2026-10-13). Each view keeps its own: 2D starts with the bridge (level 1) faded to an outline, 3D with all
 // full. Level 0: the basemap and the buildings, and in 3D the ground with its parts, kerbs and objects; level 1: the bridge and decks.
-// (The old panel's own level stays 0: it filters what the old page draws.)
+// In 2D every layer shows only the levels not hidden (levels2d); at first level 0, level 1 faded, the others (tunnels, upper decks) hidden.
 const LOOK=['full','fade','off'], LOOKS={'2d':{1:'fade'},'3d':{}}, FADE=0.2, orig={};
 const d3=()=>typeof in3d!=='undefined'&&in3d, look=()=>LOOKS[d3()?'3d':'2d'];
 function views(){$('xp2d').classList.toggle('on',!d3()); $('xp3d').classList.toggle('on',d3());
@@ -393,6 +393,11 @@ function views(){$('xp2d').classList.toggle('on',!d3()); $('xp3d').classList.tog
     return `<button data-k="${l}" class="${st}" title="level ${l}: ${({full:'shown',fade:'faded',off:'hidden'})[st]} (a click: the next)">${l}</button>`}).join('')}
 $('xplk').onclick=e=>{const l=e.target.dataset.k; if(l===undefined)return; const L=look(); L[l]=LOOK[(LOOK.indexOf(L[l]||'full')+1)%3]; views(); applyLooks()};
 const OPA={fill:'fill-opacity','fill-extrusion':'fill-extrusion-opacity',line:'line-opacity',circle:'circle-opacity',raster:'raster-opacity'};
+// 2D: each layer's things on the levels not hidden: by `level`, a building by its floors (level_min..level_max), a link by its two ends
+function levels2d(){const m=M(); if(!m||d3()||typeof OVERLAYS==='undefined'||typeof rsFilter!=='function')return; const L=look(), on=l=>(L[l]||'full')!=='off';
+  const keep=p=>p.level!=null?on(p.level):p.level_min!=null?Array.from({length:p.level_max-p.level_min+1},(_,i)=>p.level_min+i).some(on):p.level_a!=null?on(p.level_a)||on(p.level_b):true;
+  rsFilter(rsQuery(p=>p.level==null||on(p.level)));      // the road centre lines
+  OVERLAYS.forEach(o=>{if(o.label!=='Bridge 2D'&&!/3D/.test(o.label))rsFilter(rsQuery(keep,o.label),o.label)})}
 function applyLooks(){const m=M(); if(!m)return; if(!m.isStyleLoaded())return setTimeout(applyLooks,200); const L=look();
   const g=L[0]||'full', up=L[1]||'full';
   const keep=(id,k)=>{if(!(id+k in orig))orig[id+k]=m.getPaintProperty(id,k)??(k.endsWith('opacity')?1:null); return orig[id+k]};
@@ -407,6 +412,7 @@ function applyLooks(){const m=M(); if(!m)return; if(!m.isStyleLoaded())return se
     const F=eff(), onBr=focusU?/^\w1-/.test(focusU):F&&F.bridge>0;      // (a focus on the ground: the bridge faint)
     const upF=F&&!onBr&&up==='full'?'fade':up;
     if(window.brOpacity)window.brOpacity(upF==='full'?1:upF==='fade'?0.25:0); return}
+  levels2d();
   if(allow.has('Buildings'))ov('Buildings').forEach(id=>set(id,g));
   ov('Bridge 2D').forEach(id=>{const ly=m.getLayer(id); if(!ly)return;     // (faded: the light outline only)
     m.setLayoutProperty(id,'visibility',up==='off'?'none':'visible');
@@ -415,9 +421,9 @@ function applyLooks(){const m=M(); if(!m)return; if(!m.isStyleLoaded())return se
 // (3D redraws its layers, draw3d, on every view change: the looks again after it)
 if(typeof draw3d==='function'){const d3o=draw3d; draw3d=function(){d3o.apply(this,arguments); setTimeout(()=>{paintFocus(); selSrc(selF&&$('xpcard').classList.contains('on')?selF:null)},0)}}
 $('xp2d').onclick=()=>M()&&M().easeTo({pitch:0,duration:600}); $('xp3d').onclick=()=>M()&&M().easeTo({pitch:60,duration:600});
-get('/api/meta').then(m=>{meta=m; $('xparea').textContent='· '+m.area; branch($('xpbr'),''); views(); applyLooks();
+get('/api/meta').then(m=>{meta=m; (m.street_levels||[]).forEach(l=>{if(l!==0&&l!==1&&!(l in LOOKS['2d']))LOOKS['2d'][l]='off'}); $('xparea').textContent='· '+m.area; branch($('xpbr'),''); views(); applyLooks();
   $('xplayer').innerHTML=Object.entries(m.layers).map(([k,v])=>`<option value="${esc(k)}">${esc(k)} (${v.count})</option>`).join(''); cond()})
-  .catch(()=>{B.classList.remove('xp','xp-city'); quiet(false); $('xp').style.display='none'; $('xpfold').style.display='none'});   // (no server: the old page)
+  .catch(()=>{B.classList.remove('xp','xp-city'); quiet(false); $('xp').style.display='none'; $('xpfold').style.display='none'});   // (no server: the map alone)
 // 2D: hover and click on the plan, as in 3D (Kaveh, 2026-10-13: "hover doesn't work on the 2D plan, only buildings are clickable"): the
 // mouse resting HOVER2D ms on a result, a building, a bridge part or a ticked layer lights it (light purple); a click selects it (deep
 // purple, its card) in place of the map's own popup

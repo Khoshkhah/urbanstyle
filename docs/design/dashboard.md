@@ -18,8 +18,13 @@ The dashboard answers on the map, in 2D and in 3D, with numbers and with the sou
 urbanstyle serve DB [--bridge PROFILE] [--page viz/PAGE.html] [--port 8784]
 ```
 
-The command serves the folder of the page (`viz/`) on a local web server. It adds the Explore panel to the page and gives the panel
-its data through `/api/...`. A page that `urbanstyle dashboard` builds stays usable without the server. It then has no Explore panel.
+`urbanstyle dashboard DB OUT` builds the page (`page.py`): the map with the current model's layers, the map engine (`engine.js`) and
+the panel (`explore.html`), all in one file. `urbanstyle serve` serves the folder of the page (`viz/`) on a local web server and gives
+the panel its data through `/api/...`; `urbanstyle publish` writes the same page with the data as files, for a site with no server.
+Opened as a file with no server, the page shows the map alone.
+
+Since 2026-10-13 there is one dashboard: the old page (its own panel, the old model's layers) is gone from the page, and it never
+shows while the page loads (Kaveh: "make it one unified dashboard instead of something weird").
 
 ## The page
 

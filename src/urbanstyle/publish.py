@@ -111,7 +111,7 @@ def _tables(area, data):
 
 def publish(db, out_dir, bridges=()):
     """Write the static dashboard of `db` to out_dir; returns the files written."""
-    from . import dashboard
+    from . import page as page_
     from .serve import AGENT_TURNS, GEMINI_MODEL, GEMINI_NEXT, LAYERS, ROW_LIMIT, SEARCH_COLS, SQL_ROWS, Area
     data = os.path.join(out_dir, "data")
     os.makedirs(data, exist_ok=True)
@@ -121,7 +121,7 @@ def publish(db, out_dir, bridges=()):
         os.environ.update(KEYS)        # (the page gets placeholders, never the local keys)
         page = os.path.join(out_dir, "index.html")
         try:
-            dashboard.main(clean, page, list(bridges) or None)
+            page_.build(clean, page, list(bridges) or None)
         finally:
             for k, v in old.items():
                 os.environ.pop(k) if v is None else os.environ.__setitem__(k, v)
@@ -138,10 +138,8 @@ def publish(db, out_dir, bridges=()):
         json.dump(_focus(area), open(os.path.join(data, "focus.json"), "w"), default=str)
     here = os.path.dirname(__file__)
     shutil.copy(os.path.join(here, "static.js"), os.path.join(out_dir, "static.js"))
-    panel = open(os.path.join(here, "explore.html")).read()
     cfg = (f"<script>window.XP_STATIC_CFG={{gemini:'{GEMINI}',data:'data/'}};window.XP_STATIC_READY=new Promise(r=>window.XP_STATIC_RESOLVE=r);"
            "window.XP_STATIC={api:(u,b)=>window.XP_STATIC_READY.then(f=>f(u,b))};</script><script type=module src=\"static.js\"></script>")
-    head, tail = open(page).read().rsplit("</body>", 1)      # (the last one: the page's scripts hold the word too)
-    html = head + cfg + panel + "</body>" + tail
+    html = open(page).read().replace("<head>", "<head>" + cfg, 1)      # (the static /api/ before the panel's script runs)
     open(page, "w").write(html)
     return sorted(os.path.relpath(f, out_dir) for f in glob.glob(os.path.join(out_dir, "**", "*"), recursive=True) if os.path.isfile(f))

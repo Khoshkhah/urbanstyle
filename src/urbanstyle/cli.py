@@ -119,7 +119,7 @@ def main(argv=None):
         from .mapillary import main as mly
         mly(a.db, a.osm)
     else:
-        from .dashboard import main as dash
+        from .page import build as dash      # the dashboard: one page, one panel (page.py)
         dash(a.db, a.out, a.bridge)
     return 0
 

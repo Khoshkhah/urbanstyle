@@ -45,9 +45,12 @@ The order of work: `docs/plan.md`.
   `docs/design/street-objects-step1.md`).
 - `src/urbanstyle/checks.py`: the invariants of `docs/design/street-space-spec.md` section 8. `quality.py`: section
   shape over a whole area.
-- `src/urbanstyle/dashboard.py` only reads those tables; it builds a roadstyle map (overlays for buildings, zones,
-  links, strips, objects) plus a tree panel driven by roadstyle's `rs*` JS API. Layer ids differ per overlay: always
-  pass the overlay label.
+- The dashboard is one page with one panel (2026-10-13): `src/urbanstyle/page.py` (`urbanstyle dashboard`) reads the tables and writes
+  the page: roadstyle's map with the current model's layers (blocks, sections, intersections, subsections, parts, painted lines, ground,
+  buildings, car parks, street objects, links, rail, bridges), the map engine `engine.js` (3D, levels, bridges, Street View) and the
+  panel `explore.html`. `dashboard.py` keeps the data helpers (matched objects, 3D furniture, bridge models) and the old page (`main`,
+  with the old panel and the old model's layers: no longer used) and the layers page. Layer ids differ per overlay: always pass the
+  overlay label.
 - `src/urbanstyle/subsections.py`, `spaces.py` and `parts.py` (called at the end of `build`): the network-first partition, a preview
   (`docs/design/network-first.md`, `docs/design/space-parts.md`): `space.subsection` (roads divided where cross-section or frontage
   changes), `space.unit` (one space per subsection and per intersection, cut at the block corners, `space.cut`), and inside each space

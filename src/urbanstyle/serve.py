@@ -618,6 +618,17 @@ class Agent:
         return out_(text or "(no answer: the question needed more steps than allowed)")
 
 
+def with_panel(html, panel, extra=""):
+    """The page with the Explore panel: its style in the head and the body in the panel's mode (class xp) from the first moment, so
+    the old panel never shows (it showed until the panel's script ran at the end of a large page: Kaveh, 2026-10-13, "it first shows
+    an old version"); the panel itself, and `extra` before it, at the end of the body."""
+    i = panel.index("</style>") + len("</style>")
+    style, rest = panel[:i], panel[i:]
+    html = html.replace("</head>", style + "</head>", 1).replace("<body>", '<body class="xp xp-city">', 1)
+    head, tail = html.rsplit("</body>", 1)
+    return head + extra + rest + "</body>" + tail
+
+
 def handler(area, agent, viz, page):
     """The request handler: the page with the Explore panel, the rest of viz/ as files, and /api/."""
     panel = open(os.path.join(os.path.dirname(__file__), "explore.html")).read()
@@ -645,7 +656,8 @@ def handler(area, agent, viz, page):
                 self.send_header("Location", "/" + page + ("?" + u.query if u.query else ""))
                 self.end_headers()
             elif u.path == "/" + page:
-                b = open(os.path.join(viz, page)).read().replace("</body>", panel + "</body>").encode()
+                html = open(os.path.join(viz, page)).read()
+                b = (html if "id=xpfold" in html else with_panel(html, panel)).encode()     # (page.py's pages have the panel already)
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(b)))

@@ -63,3 +63,21 @@ def test_model_checks_pass_on_a_plain_bridge():
     rows = model(_profile())["checks"]
     assert [r[0] for r in rows] == [f"BR{i}" for i in range(1, 9)]
     assert not [r for r in rows if r[3] and r[2]]
+
+
+def test_bridge_heights_rule_points_and_ramp():
+    """bridge_heights: the default rule (up from the ground at the grade), points given, a ramp from another axis down to the ground."""
+    from urbanstyle.bridge_heights import apply
+    from urbanstyle.bridge_profile import height
+    line = lambda L: {"value": [[0.0, 0.0], [L, 0.0]], "source": "osm", "method": "mapped"}
+    P = {"name": "B", "axes": [
+        {"id": "m", "line": line(1000.0), "ends": [{"s": 0, "ground": True}, {"s": 1000.0, "ground": True}]},
+        {"id": "p", "line": line(400.0), "ends": [{"s": 0, "ground": True, "node": "n1"}, {"s": 400.0, "ground": False, "node": "n2"}]},
+        {"id": "r", "line": line(300.0), "ends": [{"s": 0, "ground": False, "node": "n2"}, {"s": 300.0, "ground": True}]}]}
+    apply(P, {"default": {"grade": 0.05, "max_m": 20.0, "curve_m": 0.0}, "p": [[0, 0], [400, 16]], "r": {"from": "p", "to_ground": True}})
+    m, p_, r = (a["vertical"] for a in P["axes"])
+    assert abs(height(m, 200.0) - 10.0) < 1e-6 and abs(height(m, 500.0) - 20.0) < 1e-6 and abs(height(m, 1000.0)) < 1e-6
+    assert abs(height(p_, 200.0) - 8.0) < 1e-6
+    assert abs(height(r, 0.0) - 16.0) < 1e-6 and abs(height(r, 300.0) - 1.0) < 1e-6      # (16 m down at 5 %: 1 m left at 300 m)
+    assert abs(height(r, 100.0) - 11.0) < 1e-6
+    assert all(v["source"] == "urbanstyle" and v["method"] == "chosen" for v in (m, p_, r))

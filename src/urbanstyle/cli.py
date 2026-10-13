@@ -44,6 +44,10 @@ def main(argv=None):
     bm.add_argument("out", help="the measured profile: a .json file or a directory")
     bm.add_argument("--lidar", nargs="+", required=True, help="ducklidar Parquet tiles that cover the bridge")
     bm.add_argument("--osm", help="the duckOSM .duckdb of the profile: a ramp that OSM ends in the air runs on along the road that continues it")
+    bh = sub.add_parser("bridge-heights", help="set a bridge profile's heights from a small heights file, no LiDAR (docs/design/bridge-heights.md)")
+    bh.add_argument("profile", help="a <name>.bridge.json (`urbanstyle bridge`)")
+    bh.add_argument("heights", help="the heights file: {bridge name: {default: {grade, max_m, curve_m}, axis: [[s, height], ...] | {from, to_ground}}}")
+    bh.add_argument("out", help="the profile with these heights")
     b2 = sub.add_parser("bridge2d", help="the bridge model in 2D, every part with its id, as GeoJSON for viz/bridge2d.html (seconds)")
     b2.add_argument("profile", help="a <name>.bridge.json (measured)")
     b2.add_argument("out", help="the GeoJSON file, e.g. viz/bridge2d.geojson")
@@ -71,6 +75,9 @@ def main(argv=None):
     elif a.cmd == "layers":
         from .dashboard import layers
         print(layers(a.db, a.out))
+    elif a.cmd == "bridge-heights":
+        from .bridge_heights import write as heights
+        print(heights(a.profile, a.heights, a.out), "axes ->", a.out)
     elif a.cmd == "bridge-measure":
         from .bridge_lidar import write as measure
         print(measure(a.profile, a.out, a.lidar, a.osm))

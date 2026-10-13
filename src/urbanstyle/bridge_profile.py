@@ -100,6 +100,18 @@ def profiles(osm_db, gmns_db, name=None):
     return out
 
 
+def _strip(line, lo, hi):
+    """The area beside `line` from offset lo to offset hi (left positive), from one-sided buffers: on a tight curve an offset line
+    comes back in pieces (Monaco, 2026-10-13), a buffer does not."""
+    import shapely
+    side = lambda d: line.buffer(d, single_sided=True, cap_style="flat") if d else shapely.Polygon()
+    if lo >= 0:
+        return side(hi).difference(side(lo))
+    if hi <= 0:
+        return side(lo).difference(side(hi))
+    return side(hi).union(side(lo))
+
+
 def _profile(g, tr, name, epsg, deck, outline, on, lines, pts, ground, osm_db, gmns_db):
     import datetime
 
@@ -161,7 +173,7 @@ def _profile(g, tr, name, epsg, deck, outline, on, lines, pts, ground, osm_db, g
                     lo = min(b["t"] - b["width"]["value"] / 2 for b in sec["bands"])
                     hi = max(b["t"] + b["width"]["value"] / 2 for b in sec["bands"])
                     piece = shapely.ops.substring(ax, sec["s0"], sec["s1"])
-                    polys.append(shapely.Polygon(list(piece.offset_curve(hi).coords) + list(piece.offset_curve(lo).coords)[::-1]).buffer(0))
+                    polys.append(_strip(piece, lo, hi))
         deck = shapely.union_all(polys) if polys else merged.buffer(4)
         deck = max(shapely.get_parts(deck), key=lambda p: p.area)
         outline = _val([[round(x, 2), round(y, 2)] for x, y in deck.exterior.coords], "urbanstyle: the sections, each as wide as its bands",

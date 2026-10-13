@@ -871,7 +871,9 @@ def furniture_3d(con, epsg, place, objs, decks=()):
     rg = [shapely.from_wkb(bytes(r[1])) for r in roads]
     rtree = shapely.STRtree(rg)
     # the buildings' footprints: an entrance's door lies along the wall it is on (OSM maps it on the building's outline)
-    bg = [shapely.make_valid(shapely.from_wkb(bytes(w))) for (w,) in con.execute(
+    # (only the area of a repaired outline: make_valid can give an area with lines, which has no wall; Monaco's r11384697)
+    area_of = lambda g: shapely.union_all([q for q in shapely.get_parts(g) if q.geom_type in ("Polygon", "MultiPolygon")])
+    bg = [area_of(shapely.make_valid(shapely.from_wkb(bytes(w)))) for (w,) in con.execute(
         f"SELECT {to_m()} FROM space.element WHERE type = 'building' AND level_min <= 0 AND level_max >= 0").fetchall()]
     btree = shapely.STRtree(bg) if bg else None
     units = con.execute(f"SELECT unit_id, level, {to_m()} FROM space.unit").fetchall()

@@ -182,11 +182,19 @@ class Area:
             if node.startswith("objc:"):
                 return [item("Street objects", i, lab) for i, lab in
                         q("SELECT id, coalesce(left(details, 60), type) FROM space.street_object WHERE class = ? ORDER BY 2 LIMIT 1000", [node[5:]])]
-            if node == "bridge":
-                return [kid(f"bra:{a}", f"Axis {a}", n, True, "Bridge parts", [{"field": "axis", "op": "=", "value": a}]) for a, n in
-                        q("SELECT axis, count(*) FROM space.bridge_part WHERE axis IS NOT NULL GROUP BY 1 ORDER BY 1")]
+            # (more than one bridge: each bridge, then its axes; their axes share names, a1, a2, ...: Monaco's 11, 2026-10-13)
+            brs = q("SELECT bridge, count(*) FROM space.bridge_part GROUP BY 1 ORDER BY 1") if node == "bridge" else []
+            if node == "bridge" and len(brs) > 1:
+                return [kid(f"brb:{b}", b, n, True, "Bridge parts", [{"field": "bridge", "op": "=", "value": b}]) for b, n in brs]
+            if node == "bridge" or node.startswith("brb:"):
+                b = node[4:] if node.startswith("brb:") else brs[0][0] if brs else ""
+                return [kid(f"bra:{b}|{a}", f"Axis {a}", n, True, "Bridge parts",
+                            [{"field": "bridge", "op": "=", "value": b}, {"field": "axis", "op": "=", "value": a}]) for a, n in
+                        q("SELECT axis, count(*) FROM space.bridge_part WHERE bridge = ? AND axis IS NOT NULL GROUP BY 1 ORDER BY 1", [b])]
             if node.startswith("bra:"):
-                return [item("Bridge parts", i, t) for i, t in q("SELECT id, type FROM space.bridge_part WHERE axis = ? ORDER BY 2, 1", [node[4:]])]
+                b, a = node[4:].split("|", 1)
+                return [item("Bridge parts", i, t) for i, t in
+                        q("SELECT id, type FROM space.bridge_part WHERE bridge = ? AND axis = ? ORDER BY 2, 1", [b, a])]
             if node == "ground":
                 return [kid(f"grt:{t}", t, n, True, "Ground", [{"field": "type", "op": "=", "value": t}]) for t, n in
                         q("SELECT type, count(*) FROM space.ground GROUP BY 1 ORDER BY 2 DESC")]

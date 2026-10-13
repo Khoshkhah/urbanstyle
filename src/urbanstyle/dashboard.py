@@ -1061,11 +1061,19 @@ function brLayer(M){const o=maplibregl.MercatorCoordinate.fromLngLat(M.origin,0)
         if(sf.props){m.userData=sf.props; m.baseHex=hex(c); pick.push(m)} scene.add(m)});
       M.piers.forEach(q=>{const [ax,ay]=q.a,[bx,by]=q.b, m=new THREE.Mesh(new THREE.BoxGeometry(Math.hypot(bx-ax,by-ay),q.t,q.h),new THREE.MeshLambertMaterial({color:hex(BC.girder)}));
         m.position.set((ax+bx)/2,(ay+by)/2,q.h/2); m.rotation.z=Math.atan2(by-ay,bx-ax); scene.add(m)});
-      // the steel truss under a span (bridge3d: truss): each member a box from a to b, in the photos' blue-grey
-      const steel=new THREE.MeshLambertMaterial({color:hex(BC.truss||'#8b9aa5')});
-      (M.truss||[]).forEach(q=>{const A=new THREE.Vector3(...q.a), B=new THREE.Vector3(...q.b), d=B.clone().sub(A), L=d.length(); if(L<0.05) return;
-        const m=new THREE.Mesh(new THREE.BoxGeometry(L,q.w,q.w),steel); m.position.copy(A.clone().add(B).multiplyScalar(0.5));
-        m.quaternion.setFromUnitVectors(new THREE.Vector3(1,0,0),d.normalize()); scene.add(m)});
+      // the steel truss under a span (bridge3d: truss): each member a box from a to b, in the photos' blue-grey, all one instanced mesh;
+      // a member in a plane (n, its normal) longer than 3 m is a lattice, as in the photos: two thin flanges w apart and a zig-zag
+      // lacing between them about every metre (Kaveh, 2026-10-12)
+      const tm=[], put=(A,B,ty,tz,y)=>{const d=B.clone().sub(A), L=d.length(); if(L<0.05) return; d.divideScalar(L);
+        const yy=(y?y.clone():new THREE.Vector3().crossVectors(d,Math.abs(d.z)<0.9?new THREE.Vector3(0,0,1):new THREE.Vector3(1,0,0))).normalize();
+        tm.push(new THREE.Matrix4().makeBasis(d,yy,d.clone().cross(yy)).scale(new THREE.Vector3(L,ty,tz)).setPosition(A.clone().add(B).multiplyScalar(0.5)))};
+      (M.truss||[]).forEach(q=>{const A=new THREE.Vector3(...q.a), B=new THREE.Vector3(...q.b), L=A.distanceTo(B);
+        if(!q.n||L<=3) return put(A,B,q.w,q.w);
+        const d=B.clone().sub(A).divideScalar(L), o=d.clone().cross(new THREE.Vector3(q.n[0],q.n[1],0)).normalize().multiplyScalar(q.w/2), m=Math.round(L);
+        put(A.clone().add(o),B.clone().add(o),0.12,q.w,o); put(A.clone().sub(o),B.clone().sub(o),0.12,q.w,o);
+        for(let i=0;i<m;i++) put(A.clone().addScaledVector(d,L*i/m).addScaledVector(o,i%2?-1:1),A.clone().addScaledVector(d,L*(i+1)/m).addScaledVector(o,i%2?1:-1),0.08,0.08)});
+      const steel=new THREE.InstancedMesh(new THREE.BoxGeometry(1,1,1),new THREE.MeshLambertMaterial({color:hex(BC.truss||'#8b9aa5')}),tm.length);
+      tm.forEach((m,i)=>steel.setMatrixAt(i,m)); scene.add(steel);
       scene.traverse(o=>{o.frustumCulled=false});   // the map's matrix is the camera: three.js's own culling dropped the parts far from the origin
       renderer=new THREE.WebGLRenderer({canvas:map.getCanvas(),context:gl,antialias:true}); renderer.autoClear=false},
     render(gl,args){const mm=args&&args.defaultProjectionData?args.defaultProjectionData.mainMatrix:args;

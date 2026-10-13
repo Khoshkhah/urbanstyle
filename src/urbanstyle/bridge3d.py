@@ -2098,12 +2098,14 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False):
             z_crown = z_top(mid_) - tr_.get("crown_gap", TRUSS_CROWN_M)
             z_bot = lambda s_, zc=z_crown, zs=tr_["spring_z"]: zs + (zc - zs) * (1 - ((s_ - mid_) / half_) ** 2)
         sides_t = {1: [], -1: []}           # each side's panel points: (top, bottom), 1 m in from the deck's edge
+        nrm_ = []                           # ... and the axis's normal there, the side planes' normal (n: a lattice member's plane)
         for k in range(n_ + 1):
             s_ = s0_ + (s1_ - s0_) * k / n_
             f_ = planes_(ln, s_)
             if not f_:
                 continue
             x, y, nx, ny, t_ = f_
+            nrm_.append([round(nx, 3), round(ny, 3)])
             for sd in (1, -1):
                 px, py = x + nx * t_[sd], y + ny * t_[sd]
                 sides_t[sd].append(([px, py, z_top(s_)], [px, py, z_bot(s_)]))
@@ -2120,18 +2122,20 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False):
                     truss.append({"a": ends_[0], "b": ends_[1], "w": TRUSS_M[0]})
         for pts_ in sides_t.values():
             for k, (top_, bot_) in enumerate(pts_):
-                truss.append({"a": top_, "b": bot_, "w": TRUSS_M[1]})                  # the vertical
+                truss.append({"a": top_, "b": bot_, "w": TRUSS_M[1], "n": nrm_[k]})    # the vertical
                 if k + 1 < len(pts_):
                     nt_, nb_ = pts_[k + 1]
                     truss.append({"a": top_, "b": nt_, "w": TRUSS_M[0]})               # the chords
                     truss.append({"a": bot_, "b": nb_, "w": TRUSS_M[0]})
-                    truss.append({"a": bot_ if k % 2 == 0 else top_, "b": nt_ if k % 2 == 0 else nb_, "w": TRUSS_M[1]})   # the V
+                    truss.append({"a": bot_ if k % 2 == 0 else top_, "b": nt_ if k % 2 == 0 else nb_, "w": TRUSS_M[1], "n": nrm_[k]})  # the V
         # the bracing between the two sides (Kaveh, 2026-10-12; the photo under the deck, p3): a top lateral under the deck at each
         # panel point; at every other one a bottom strut and an X across, in the plane of the verticals
         for k, ((t1_, b1_), (t2_, b2_)) in enumerate(zip(sides_t[1], sides_t[-1])):
-            truss.append({"a": t1_, "b": t2_, "w": TRUSS_M[1]})
+            n_x = [nrm_[k][1], -nrm_[k][0]]     # (their plane is across the axis: its normal is the axis's direction)
+            truss.append({"a": t1_, "b": t2_, "w": TRUSS_M[1], "n": n_x})
             if k % 2 == 0:
-                truss += [{"a": b1_, "b": b2_, "w": TRUSS_M[1]}, {"a": t1_, "b": b2_, "w": TRUSS_M[1]}, {"a": b1_, "b": t2_, "w": TRUSS_M[1]}]
+                truss += [{"a": b1_, "b": b2_, "w": TRUSS_M[1], "n": n_x}, {"a": t1_, "b": b2_, "w": TRUSS_M[1], "n": n_x},
+                          {"a": b1_, "b": t2_, "w": TRUSS_M[1], "n": n_x}]
     for q in truss:
         q["a"], q["b"] = [round(v_, 2) for v_ in q["a"]], [round(v_, 2) for v_ in q["b"]]
     # the surface the page draws: every item as a mesh on the deck, in the street's types (its colours, raised sidewalks, kerbs, lines)

@@ -40,8 +40,12 @@ Kaveh makes the project and the key, and adds the secret to the repository.
 
 ## The base map
 
-The base map is CARTO's public basemap service. It needs no key. As far as we know, CARTO allows non-commercial use up to a monthly
-limit, with the credit "© CARTO" on the map. Commercial use or heavy traffic needs a licence from CARTO.
+The base map is CARTO's Voyager. CARTO's tiles need an API key: with no key, every tile comes back stamped "API KEY REQUIRED". The
+local page takes the key from `CARTO_API_KEY` (roadstyle's `get_api_key`) and writes it into the page. Online:
+
+- a CARTO key for the online page, from the GitHub secret `CARTO_DEMO_KEY`, restricted to `https://khoshkhah.github.io/*` if CARTO
+  allows a restriction;
+- with no key, roadstyle's keyless base map `esri_street` (Esri World Street Map) instead.
 
 ## What is published, and what is not
 

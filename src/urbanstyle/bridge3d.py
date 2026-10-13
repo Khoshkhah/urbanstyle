@@ -2126,6 +2126,12 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False):
                     truss.append({"a": top_, "b": nt_, "w": TRUSS_M[0]})               # the chords
                     truss.append({"a": bot_, "b": nb_, "w": TRUSS_M[0]})
                     truss.append({"a": bot_ if k % 2 == 0 else top_, "b": nt_ if k % 2 == 0 else nb_, "w": TRUSS_M[1]})   # the V
+        # the bracing between the two sides (Kaveh, 2026-10-12; the photo under the deck, p3): a top lateral under the deck at each
+        # panel point; at every other one a bottom strut and an X across, in the plane of the verticals
+        for k, ((t1_, b1_), (t2_, b2_)) in enumerate(zip(sides_t[1], sides_t[-1])):
+            truss.append({"a": t1_, "b": t2_, "w": TRUSS_M[1]})
+            if k % 2 == 0:
+                truss += [{"a": b1_, "b": b2_, "w": TRUSS_M[1]}, {"a": t1_, "b": b2_, "w": TRUSS_M[1]}, {"a": b1_, "b": t2_, "w": TRUSS_M[1]}]
     for q in truss:
         q["a"], q["b"] = [round(v_, 2) for v_ in q["a"]], [round(v_, 2) for v_ in q["b"]]
     # the surface the page draws: every item as a mesh on the deck, in the street's types (its colours, raised sidewalks, kerbs, lines)

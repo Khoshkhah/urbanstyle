@@ -1,10 +1,13 @@
-"""`urbanstyle dashboard DB OUT [--bridge PROFILE]` (docs/design/dashboard.md): the dashboard, one page: the map with the street space of
-DB (roadstyle, MapLibre), its 3D engine (engine.js) and its one panel (explore.html: Find, Filter, Ask, Layers, levels). `urbanstyle
-serve` serves it with the panel's data (/api/); `urbanstyle publish` writes it as static files. Only the current model is on the page:
-blocks, sections, intersections, subsections, their parts and painted lines, the ground, buildings, car parks, street objects, links,
-rail and the bridges (Kaveh, 2026-10-13: "make it one unified dashboard"). The data helpers stay in dashboard.py."""
+"""`urbanstyle dashboard DB OUT [--bridge PROFILE]` (docs/design/dashboard.md, "How the page is made"): the dashboard page of one area.
+The page holds the area's data only: roadstyle's map (MapLibre) with the current model's layers, every one hidden at first, and the
+area's own values for the engine (window.US_CFG). The engine (engine.js), the panel (panel.js, panel.css) and the bridges' models
+(bridge3d.json) lie beside it: urbanstyle serve gives the first three from the package on every request, urbanstyle publish copies them.
+So every area runs the same script. The data helpers stay in dashboard.py."""
 import json
 import os
+
+ENGINE, PANEL_JS, PANEL_CSS = "urbanstyle-engine.js", "urbanstyle-panel.js", "urbanstyle-panel.css"     # (their names beside the page)
+ASSETS = {ENGINE: "engine.js", PANEL_JS: "panel.js", PANEL_CSS: "panel.css"}       # beside the page -> in the package
 
 
 def _frames(con, db, bridges):
@@ -104,7 +107,8 @@ def _frames(con, db, bridges):
 
 
 def _overlays(F):
-    """The page's layers, in drawing order (the panel's Layers tree names them by these labels)."""
+    """The page's layers, in drawing order (the panel's Layers tree names them by these labels). Every one starts hidden: the panel
+    sets the first look, then lifts the veil."""
     import roadstyle as rs
     from . import dashboard as d
     under = lambda g, **kw: rs.Overlay(g, placement="under", **kw)
@@ -120,22 +124,22 @@ def _overlays(F):
                               label="Bridge 2D", popup=d.BR_POPUP, tooltip=["id", "type"]))
     if have(F["ground"]):
         ovs.append(under(F["ground"], color=d.GROUND_COLORS["plot"], color_col="color", opacity=0.55, outline="#94a3b8", width=0.5, label="Ground",
-                         popup=d.GROUND_POPUP, tooltip=["type", "name"], visible=False))
+                         popup=d.GROUND_POPUP, tooltip=["type", "name"]))
     if have(F["blocks"]):
         ovs.append(rs.Overlay(F["blocks"], placement="over", color=d.BLOCK_COLOR, color_col="color", opacity=0.45, outline="#5b3410", width=2.0,
                               label="Blocks", popup=d.BLOCK_POPUP, tooltip=["block_id"]))
-    ovs.append(under(F["buildings"], color="#3b82f6", opacity=0.85, outline="#334", label="Buildings", popup=d.BLD_POPUP, tooltip=["type"]))
+    ovs.append(under(F["buildings"], color="#efede9", opacity=0.85, outline="#cdc8c1", label="Buildings", popup=d.BLD_POPUP, tooltip=["type"]))
     if have(F["lots"]):
-        ovs.append(under(F["lots"], color="#a8b0ba", opacity=0.9, outline="#64748b", label="Parking lots", popup=d.LOT_POPUP, tooltip=["type"], visible=False))
+        ovs.append(under(F["lots"], color="#a8b0ba", opacity=0.9, outline="#64748b", label="Parking lots", popup=d.LOT_POPUP, tooltip=["type"]))
     if have(F["rails"]):
         ovs.append(rs.Overlay(F["rails"], kind="line", placement="over", color="#c026d3", width=3, label="Rail", popup=["id", "name", "class", "level"],
-                              tooltip=["id", "name"], visible=False))
+                              tooltip=["id", "name"]))
     if have(F["stations"]):
         ovs.append(rs.Overlay(F["stations"], kind="circle", placement="over", color="#0d9488", radius=9, label="Station", popup=["id", "name", "kind", "level"],
-                              tooltip=["id", "name"], visible=False))
+                              tooltip=["id", "name"]))
     for t, name, c in LINKS:
         if have(links) and (links["type"] == t).any():
-            ovs.append(rs.Overlay(links[links["type"] == t], kind="circle", placement="over", color=c, radius=6, label=f"Link: {name}", visible=False,
+            ovs.append(rs.Overlay(links[links["type"] == t], kind="circle", placement="over", color=c, radius=6, label=f"Link: {name}",
                                   popup=["node_id", "type", "level_a", "level_b", "assumed", "station_id", "match", "dist_m"], tooltip=["node_id", "type"]))
     if have(F["sections"]):
         ovs.append(under(F["sections"], color="#a78bfa", opacity=0.35, outline="#4c1d95", width=2.2, label="Sections", popup=["section_id", "level"],
@@ -147,47 +151,47 @@ def _overlays(F):
         ovs.append(under(F["subsections"], color="#a78bfa", color_col="color", opacity=0.25, outline="#6d28d9", width=0.8, label="Subsections",
                          popup=["unit_id", "section_id", "level", "area_m2"], tooltip=["unit_id"]))
     if have(parts):
-        ovs.append(under(parts, color="#999999", color_col="color", opacity=0.95, outline="#475569", width=0, label="Parts", visible=False,
+        ovs.append(under(parts, color="#999999", color_col="color", opacity=0.95, outline="#475569", width=0, label="Parts",
                          popup=["part_id", "type", "holds", "rule", "road", "road_class", "direction", "lane", "lane_id", "width_m", "length_m", "speed",
                                 "surface", "lit", "road_lanes", "oneway", "area_m2", "source", "method", "ref", "width_source", "width_method",
                                 "position_source", "position_method", "position_ref"], tooltip=["type", "direction", "arm"]))
     if have(on_parts):
-        ovs.append(under(on_parts, color="#f97316", color_col="color", opacity=0.85, outline="#7c2d12", width=0.8, label="On the parts", visible=False,
+        ovs.append(under(on_parts, color="#f97316", color_col="color", opacity=0.85, outline="#7c2d12", width=0.8, label="On the parts",
                          popup=["part_id", "type", "rule", "unit_id", "source", "method", "ref"], tooltip=["type"]))
     for t, c, w, dash in d.MARKS:
         if have(marks) and (marks["type"] == t).any():
-            ovs.append(rs.Overlay(marks[marks["type"] == t], kind="line", placement="over", color=c, width_m=w, dash=dash, label=f"Mark: {t}", visible=False,
+            ovs.append(rs.Overlay(marks[marks["type"] == t], kind="line", placement="over", color=c, width_m=w, dash=dash, label=f"Mark: {t}",
                                   popup=["unit_id", "type", "arm", "length_m", "width_m", "width_source", "width_method", "source", "method", "ref"],
                                   tooltip=["type", "arm"]))
     if have(F["dots"]):
         ovs.append(rs.Overlay(F["dots"], kind="circle", placement="over", color="#4f46e5", color_col="color", radius=4, label="Street objects",
-                              popup=d.OBJ_POPUP, tooltip=d.OBJ_TIP, visible=False))
+                              popup=d.OBJ_POPUP, tooltip=d.OBJ_TIP))
     if have(F["seen"]):
-        ovs.append(rs.Overlay(F["seen"], kind="circle", placement="over", color="#f97316", color_col="color", radius=4, label="Mapillary", visible=False,
+        ovs.append(rs.Overlay(F["seen"], kind="circle", placement="over", color="#f97316", color_col="color", radius=4, label="Mapillary",
                               popup=["type", "status", "last_seen", "feature_id", "space"], tooltip=["type"]))
     # drawn by 3D only (engine.js, draw3d): the street objects' models and the kerbstones
     if have(F["furn"]):
-        ovs.append(under(F["furn"], color="#71717a", color_col="color", opacity=0, width=0, label="Street objects 3D", visible=False,
+        ovs.append(under(F["furn"], color="#71717a", color_col="color", opacity=0, width=0, label="Street objects 3D",
                          popup=d.OBJ_POPUP, tooltip=d.OBJ_TIP))
     if have(F["kerbs3d"]):
-        ovs.append(under(F["kerbs3d"], color="#cfcac2", opacity=0, width=0, label="Kerbs 3D", visible=False,
+        ovs.append(under(F["kerbs3d"], color="#cfcac2", opacity=0, width=0, label="Kerbs 3D",
                          popup=["type", "unit_id", "arm", "length_m"], tooltip=["type"]))
     # the helper lines: how the street was cut
     if have(F["cuts"]):
-        ovs.append(rs.Overlay(F["cuts"], kind="line", placement="over", color="#6b7280", color_col="color", width=4, label="Cuts", visible=False,
+        ovs.append(rs.Overlay(F["cuts"], kind="line", placement="over", color="#6b7280", color_col="color", width=4, label="Cuts",
                               popup=["intersection_id", "edge_id", "how", "length_m"], tooltip=["how", "length_m"]))
     if have(F["axes"]):
-        ovs.append(rs.Overlay(F["axes"], kind="line", placement="over", color="#e6194b", color_col="color", width=5, label="Subsection axes", visible=False,
+        ovs.append(rs.Overlay(F["axes"], kind="line", placement="over", color="#e6194b", color_col="color", width=5, label="Subsection axes",
                               popup=["subsection_id", "section_id", "class", "width_m", "oneway", "length_m", "left", "right", "starts_at"],
                               tooltip=["subsection_id", "length_m"]))
     if have(F["breaks"]):
-        ovs.append(rs.Overlay(F["breaks"], kind="circle", placement="over", color="#111827", radius=5, label="Subsection breaks", visible=False,
+        ovs.append(rs.Overlay(F["breaks"], kind="circle", placement="over", color="#111827", radius=5, label="Subsection breaks",
                               popup=["subsection_id", "starts_at"], tooltip=["subsection_id", "starts_at"]))
     return ovs
 
 
 def build(db, out, bridges=None):
-    """Write the dashboard page of `db` to `out` (and the bridges' 3D models beside it, bridge3d.json)."""
+    """Write the dashboard page of `db` to `out`, and the bridges' 3D models beside it (bridge3d.json)."""
     import duckdb
     import roadstyle as rs
     from . import dashboard as d
@@ -195,30 +199,32 @@ def build(db, out, bridges=None):
     con = duckdb.connect(db, read_only=True)
     con.execute("LOAD spatial")
     F = _frames(con, db, bridges)
+    ovs = _overlays(F)
+    for o in ovs:
+        o.visible = False      # (every layer hidden at first: the panel sets the first look, then lifts the veil)
     m = rs.render_edges(
         F["edges"], palette="mono", basemap="voyager", name="urbanstyle", filter_control=False,
         street_view_key=os.environ.get("GOOGLE_MAPS_KEY"),        # Street View's panorama (the key is in the page: restrict it in Google Cloud)
         settings={"config": {"fill_opacity": 0.35, "casing_opacity": 0.2}},
         road_popup=["edge_id", "container_id", "name", "type", "highway", "level", "width_m", "width_src"],
         color_options={"Roads": {"color_by": "type", "colors": {"road": "#555", "walkway": "#a16207", "cycleway": "#16a34a"}}},
-        overlays=_overlays(F))
-    here = os.path.dirname(__file__)
-    engine = (open(os.path.join(here, "engine.js")).read()
-              .replace("__RAISED__", json.dumps(RAISED)).replace("__KERBTOP__", json.dumps(KERB_TOP_M)).replace("__OBJPOPUP__", json.dumps(d.OBJ_POPUP))
-              .replace("__BLDPOPUP__", json.dumps(d.BLD_POPUP)).replace("__LOTPOPUP__", json.dumps(d.LOT_POPUP))
-              .replace("__GROUNDPOPUP__", json.dumps(d.GROUND_POPUP))
-              .replace("__MARKS__", json.dumps([t for t, *_ in d.MARKS if len(F["marks"]) and (F["marks"]["type"] == t).any()])))
-    style = ("<style>.co-lg{display:none}  /* no road legend: the panel says what is drawn */\n"
-             "body.u3d .rs-tip{display:none!important}.ov-ctrl{display:none!important}  /* roadstyle's own Layers box: the panel's Layers */</style>")
-    extra = style + "<script>\n" + engine + "</script>"
+        overlays=ovs)
+    cfg = {"marks": [t for t, *_ in d.MARKS if len(F["marks"]) and (F["marks"]["type"] == t).any()], "raised": RAISED, "kerbtop": KERB_TOP_M,
+           "objpopup": d.OBJ_POPUP, "bldpopup": d.BLD_POPUP, "lotpopup": d.LOT_POPUP, "groundpopup": d.GROUND_POPUP}
+    tail = f'<script>window.US_CFG={json.dumps(cfg)};</script><script src="{ENGINE}"></script>'
     if F["models"]:      # the bridges' 3D models: written beside the page, which reads them when it opens
         col = {"deck": "#a8a29e", "girder": "#8f8b86", "rail": "#cfc8bd",
                "parts": {**d.PART_COLORS, **{f"mark {t}": c for t, c, *_ in d.MARKS}, "mark kerb": "#8f8b86", "barrier": "#cfc8bd", "railing": "#6b7280"}}
         d.write_bridge3d(F["models"], os.path.join(os.path.dirname(os.path.abspath(out)), "bridge3d.json"))
-        extra += (d.BRIDGE_JS.replace("__BRNAMES__", ", ".join(mm["name"] for mm in F["models"])).replace("__BRCOL__", json.dumps(col))
-                  .replace("__BRPOPUP__", json.dumps(d.BR_POPUP)).replace("__BRUNITS__", json.dumps(F["under"])))
-    from .serve import with_panel
-    head, tail = m.html.rsplit("</body>", 1)      # (the last one: the page's scripts hold the word too)
-    html = with_panel(head + extra + "</body>" + tail, open(os.path.join(here, "explore.html")).read())
-    open(out, "w").write(html)
+        tail += (d.BRIDGE_JS.replace("__BRNAMES__", ", ".join(mm["name"] for mm in F["models"])).replace("__BRCOL__", json.dumps(col))
+                 .replace("__BRPOPUP__", json.dumps(d.BR_POPUP)).replace("__BRUNITS__", json.dumps(F["under"])))
+    tail += f'<script src="{PANEL_JS}"></script>'
+    # (the head's end, then the body tag after it: the words "<body>" and "</body>" also stand in roadstyle's code, before and after)
+    html = m.html
+    i = html.index("</head>")
+    j = html.index("<body>", i)
+    html = (html[:i] + f'<link rel="stylesheet" href="{PANEL_CSS}">' + html[i:j]
+            + '<body class="xp"><div id="xpveil">Loading the street space...</div>' + html[j + len("<body>"):])
+    head, end = html.rsplit("</body>", 1)
+    open(out, "w").write(head + tail + "</body>" + end)
     return out

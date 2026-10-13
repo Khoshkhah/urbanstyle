@@ -58,6 +58,7 @@ def blocks_frame(con):
 
 
 ON_PARTS = ("crosswalk", "cycle crossing", "bus zone", "driveway")     # on the parts, not between them (docs/design/space-layers.md, layer 3)
+BLOCK_NEAR_DEG = 0.0004    # blocks this near (about 30-45 m: across a street) get different colours
 BLOCK_PALETTE = ["#e6a157", "#7fb3d5", "#82c99a", "#d98cb3", "#c9b458", "#9e8fd1", "#e08a7a", "#6fc2bf"]
 
 
@@ -69,7 +70,7 @@ def block_colors(blocks):
     tree = shapely.STRtree(gs)
     col = {}
     for k in sorted(range(len(gs)), key=lambda k: str(blocks["block_id"].iloc[k])):
-        near = {col[j] for j in tree.query(gs[k].buffer(1e-6)) if j in col}
+        near = {col[j] for j in tree.query(gs[k].buffer(BLOCK_NEAR_DEG)) if j in col}     # (across a street too: grid blocks never touch)
         col[k] = next((c for c in BLOCK_PALETTE if c not in near), BLOCK_PALETTE[k % len(BLOCK_PALETTE)])
     return blocks.assign(color=[col[k] for k in range(len(gs))])
 

@@ -1,7 +1,8 @@
 """`urbanstyle publish DB OUT_DIR [--bridge PROFILE]` (docs/design/online-dashboard.md): the dashboard as static files, for a web site
-with no server. OUT_DIR gets index.html (the page with the Explore panel; no Mapillary data, the keys as placeholders that the site's
-deploy fills from its secrets), bridge3d.json, static.js (the panel's /api/ in the browser: DuckDB-WASM, Gemini) and data/: meta.json,
-tree.json, focus.json and one Parquet file per space table, its geometry as GeoJSON text with its length, area, centre and bounds."""
+with no server. OUT_DIR gets index.html (the page, page.py; no Mapillary data, the keys as placeholders that the site's deploy fills
+from its secrets), the engine and the panel beside it (page.ASSETS), bridge3d.json, static.js (the panel's /api/ in the browser:
+DuckDB-WASM, Gemini) and data/: meta.json, tree.json, focus.json and one Parquet file per space table, its geometry as GeoJSON text
+with its length, area, centre and bounds."""
 import glob
 import json
 import os
@@ -138,8 +139,10 @@ def publish(db, out_dir, bridges=()):
         json.dump(_focus(area), open(os.path.join(data, "focus.json"), "w"), default=str)
     here = os.path.dirname(__file__)
     shutil.copy(os.path.join(here, "static.js"), os.path.join(out_dir, "static.js"))
+    for beside, name in page_.ASSETS.items():       # the engine and the panel, beside the page (docs/design/dashboard.md)
+        shutil.copy(os.path.join(here, name), os.path.join(out_dir, beside))
     cfg = (f"<script>window.XP_STATIC_CFG={{gemini:'{GEMINI}',data:'data/'}};window.XP_STATIC_READY=new Promise(r=>window.XP_STATIC_RESOLVE=r);"
            "window.XP_STATIC={api:(u,b)=>window.XP_STATIC_READY.then(f=>f(u,b))};</script><script type=module src=\"static.js\"></script>")
-    html = open(page).read().replace("<head>", "<head>" + cfg, 1)      # (the static /api/ before the panel's script runs)
+    html = open(page).read().replace("</head>", cfg + "</head>", 1)      # (the panel's /api/ in the browser, before the panel's script)
     open(page, "w").write(html)
     return sorted(os.path.relpath(f, out_dir) for f in glob.glob(os.path.join(out_dir, "**", "*"), recursive=True) if os.path.isfile(f))

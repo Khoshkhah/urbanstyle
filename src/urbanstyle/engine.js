@@ -4,8 +4,11 @@
 // roadway flat, sidewalks and islands raised, kerbstones), its painted lines, the buildings to their real height, the levels above as
 // decks, and one model per street object. Switching shows one set and hides the other.
 // Hooks for the panel: pick3d, mark3d, focus3d, bldLook, nearRoad (window.*); the bridges' own (brPick, brMark, ...) come with the bridge model.
-const MK=__MARKS__;      // the painted lines' types in this area ("Mark: <type>" layers)
-const RAISE=__RAISED__;   // parts.RAISED: the parts above the roadway, their top (m)
+// The page's own data comes in window.US_CFG (page.py); this file is the same for every area, loaded from the server (or beside the
+// page, online), so every dashboard runs the same script (Kaveh, 2026-10-13: "they must run the same script")
+const C=window.US_CFG;
+const MK=C.marks;      // the painted lines' types in this area ("Mark: <type>" layers)
+const RAISE=C.raised;   // parts.RAISED: the parts above the roadway, their top (m)
 const LEVEL_M=3.2, DECK_M=6, SLAB_M=0.6;   // a building's floor; a bridge level's height above the one viewed, its deck's thickness
 const ovSrc=lab=>(OVERLAYS.find(o=>o.label===lab)||{}).source;
 const byKey=(key,table,dflt)=>['match',['get',key],...Object.entries(table).flatMap(([k,v])=>[k,v]),dflt];
@@ -35,7 +38,7 @@ function draw3d(){
     add({id:'u3d-'+o.layers[0],type:l2.type,source:o.source,paint:l2.paint||{},layout:Object.assign({},l2.layout||{},{visibility:'none'})},own)});
   // the kerb: a stone 0.25 m wide along the roadway's edge
   add({id:'u3d-kerb',type:'fill-extrusion',source:ovSrc('Kerbs 3D'),paint:{'fill-extrusion-color':'#8f8b86','fill-extrusion-opacity':1,
-      'fill-extrusion-height':__KERBTOP__}},own);     // a grey stone, standing 5 cm above the sidewalk: the kerb reads as a line
+      'fill-extrusion-height':C.kerbtop}},own);     // a grey stone, standing 5 cm above the sidewalk: the kerb reads as a line
   add({id:'u3d-raised',type:'fill-extrusion',source:ovSrc('Parts'),paint:{'fill-extrusion-color':['get','color'],'fill-extrusion-opacity':1,
       'fill-extrusion-height':byKey('type',RAISE,0)}},['all',own,['in',['get','type'],['literal',Object.keys(RAISE)]]]);
   add({id:'u3d-bld',type:'fill-extrusion',source:ovSrc('Buildings'),paint:{'fill-extrusion-color':'#ffffff','fill-extrusion-opacity':0.92,'fill-extrusion-vertical-gradient':false,
@@ -66,7 +69,7 @@ document.addEventListener('rs:overlaychange',e=>{if(!in3d)return; const o=OVERLA
 // and orange were a construction site's and an intersection's colours) and opens its popup, the same fields as in 2D; a click on nothing clears the selection
 let bound3d=false, hov3d=null, sel3d=null, hovT=0;     // hovered / selected: an object's refs or a part's part_id
 const HOVER_MS=300;   // the mouse rests this long on a thing before it lights up and names itself (a passing mouse lights nothing)
-const tip3d=new maplibregl.Popup({closeButton:false,closeOnClick:false,offset:12,className:'u3d-tip'}), OBJ_POPUP=__OBJPOPUP__;
+const tip3d=new maplibregl.Popup({closeButton:false,closeOnClick:false,offset:12,className:'u3d-tip'}), OBJ_POPUP=C.objpopup;
 // a popup for the selected thing (`who`: its refs or part_id); closing it deselects it
 const pop3d=(e,p,fields,who)=>setTimeout(()=>{if(sel3d!==who)return;     // deselected meanwhile (a quick second click)
   document.querySelectorAll('.maplibregl-popup:not(.u3d-tip)').forEach(x=>x.remove());
@@ -80,9 +83,9 @@ function deselect3d(){if(sel3d===null)return false; sel3d=null; paint3d();
   document.querySelectorAll('.maplibregl-popup:not(.u3d-tip)').forEach(x=>x.remove()); return true}
 // layer -> [its colour property, the key of a feature, its own colour, its popup fields]
 const L3D={'u3d-furn':['fill-extrusion-color','refs',['get','color'],OBJ_POPUP],
-  'u3d-bld':['fill-extrusion-color','id','#ffffff',__BLDPOPUP__],     // (white, no dark base: Kaveh, 2026-10-13)
-  'u3d-lot':['fill-color','id','#a8b0ba',__LOTPOPUP__],
-  'u3d-gnd':['fill-color','ground_id',['get','color'],__GROUNDPOPUP__],
+  'u3d-bld':['fill-extrusion-color','id','#ffffff',C.bldpopup],     // (white, no dark base: Kaveh, 2026-10-13)
+  'u3d-lot':['fill-color','id','#a8b0ba',C.lotpopup],
+  'u3d-gnd':['fill-color','ground_id',['get','color'],C.groundpopup],
   'u3d-kerb':['fill-extrusion-color','kerb_id','#8f8b86',['type','unit_id','arm','length_m','source','method','ref']],
   'u3d-ground':['fill-color','part_id',['get','color'],null],'u3d-raised':['fill-extrusion-color','part_id',['get','color'],null]};
 // (xpMarked: the Explore panel's results that are 3D things themselves, orange (Kaveh, 2026-10-13: the list apart from the one selected): in 3D they are not drawn a second time)

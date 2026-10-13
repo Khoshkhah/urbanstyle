@@ -45,12 +45,14 @@ The order of work: `docs/plan.md`.
   `docs/design/street-objects-step1.md`).
 - `src/urbanstyle/checks.py`: the invariants of `docs/design/street-space-spec.md` section 8. `quality.py`: section
   shape over a whole area.
-- The dashboard is one page with one panel (2026-10-13): `src/urbanstyle/page.py` (`urbanstyle dashboard`) reads the tables and writes
-  the page: roadstyle's map with the current model's layers (blocks, sections, intersections, subsections, parts, painted lines, ground,
-  buildings, car parks, street objects, links, rail, bridges), the map engine `engine.js` (3D, levels, bridges, Street View) and the
-  panel `explore.html`. `dashboard.py` keeps the data helpers (matched objects, 3D furniture, bridge models) and the old page (`main`,
-  with the old panel and the old model's layers: no longer used) and the layers page. Layer ids differ per overlay: always pass the
-  overlay label.
+- The dashboard, one for every area (2026-10-13; `docs/design/dashboard.md`, "How the page is made"): `src/urbanstyle/page.py`
+  (`urbanstyle dashboard DB viz/<area>.html`) writes the page with the area's data only (roadstyle's map with the current model's
+  layers, all hidden at first, and `window.US_CFG`); the map engine `engine.js` (3D, levels, bridges, Street View) and the panel
+  `panel.js` + `panel.css` are not in the page: `serve` gives them from the package on every request (`page.ASSETS`), `publish` copies
+  them beside the page. A change to the engine or the panel needs a reload, not a page build. The panel sets the first look under a
+  veil (`#xpveil`), then lifts it. `dashboard.py` keeps the data helpers (matched objects, 3D furniture, bridge models), its old page
+  (`main`: no longer used) and the layers page. Old page builds are in `data/old-pages/`, not served. Layer ids differ per overlay:
+  always pass the overlay label.
 - `src/urbanstyle/subsections.py`, `spaces.py` and `parts.py` (called at the end of `build`): the network-first partition, a preview
   (`docs/design/network-first.md`, `docs/design/space-parts.md`): `space.subsection` (roads divided where cross-section or frontage
   changes), `space.unit` (one space per subsection and per intersection, cut at the block corners, `space.cut`), and inside each space
@@ -78,7 +80,7 @@ The order of work: `docs/plan.md`.
   path): the deck top above the ground every 10 m along each axis, each station in `vertical.stations` (`docs/design/bridge-profile.md`).
 - `src/urbanstyle/bridge_heights.py`: `urbanstyle bridge-heights PROFILE HEIGHTS OUT` sets a profile's heights from a small heights file where
   there is no LiDAR: points per axis, a ramp from another axis down to the ground, or the default rule (`docs/design/bridge-heights.md`).
-- `src/urbanstyle/serve.py` and `explore.html`: `urbanstyle serve DB PAGE [--bridge PROFILE] [--port 8784]` serves `viz/` with one panel
+- `src/urbanstyle/serve.py` and `panel.js`: `urbanstyle serve DB PAGE [--bridge PROFILE] [--port 8784]` serves `viz/` with one panel
   (`docs/design/dashboard.md`): Find (search, an exact id, the area's tree with tick boxes), Filter, Ask (an AI agent: Claude with
   `ANTHROPIC_API_KEY` or `~/.config/anthropic/key`, else Gemini with `GEMINI_API_KEY`, never keys in the repo); results orange,
   the selected thing deep purple with its card (no popup); levels full / faded / hidden in 2D and 3D; a street space, block

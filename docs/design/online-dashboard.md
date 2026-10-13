@@ -21,7 +21,7 @@ GitHub Pages serves only static files. `urbanstyle serve` answers the panel from
 | Street View | a second Google Maps key, restricted to `https://khoshkhah.github.io/*`, from the GitHub secret `GOOGLE_MAPS_DEMO_KEY`; with no key, Street View is off |
 
 The geometry goes into the Parquet files as GeoJSON text, with each row's length and area, so DuckDB-WASM does not need its
-spatial extension. The panel (`explore.html`) stays one file. It calls one function, `api(path, body)`, that goes to the server
+spatial extension. The panel (`panel.js`) is the same file as with the server. It calls one function, `api(path, body)`, that goes to the server
 or, when the page has no server, to the browser's own code.
 
 ## The Gemini key

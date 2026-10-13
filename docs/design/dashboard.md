@@ -18,13 +18,23 @@ The dashboard answers on the map, in 2D and in 3D, with numbers and with the sou
 urbanstyle serve DB [--bridge PROFILE] [--page viz/PAGE.html] [--port 8784]
 ```
 
-`urbanstyle dashboard DB OUT` builds the page (`page.py`): the map with the current model's layers, the map engine (`engine.js`) and
-the panel (`explore.html`), all in one file. `urbanstyle serve` serves the folder of the page (`viz/`) on a local web server and gives
-the panel its data through `/api/...`; `urbanstyle publish` writes the same page with the data as files, for a site with no server.
-Opened as a file with no server, the page shows the map alone.
+## How the page is made (2026-10-13)
 
-Since 2026-10-13 there is one dashboard: the old page (its own panel, the old model's layers) is gone from the page, and it never
-shows while the page loads (Kaveh: "make it one unified dashboard instead of something weird").
+One dashboard, the same for every area (Kaveh: "they must run the same script").
+
+| File | What it holds | Where it comes from |
+|---|---|---|
+| the page, `viz/<area>.html` | the area's data only: roadstyle's map with the current model's layers, and `window.US_CFG` (the area's own values for the engine) | `urbanstyle dashboard DB OUT` (`page.py`) |
+| `urbanstyle-engine.js` | the map engine: 3D, levels, bridges, Street View, links | `engine.js` in the package |
+| `urbanstyle-panel.js`, `urbanstyle-panel.css` | the panel: Find, Filter, Ask, Layers, levels, cards; it makes its own HTML | `panel.js`, `panel.css` in the package |
+
+- `urbanstyle serve` serves the page as it is, gives the three files from the package on every request, and the panel's data
+  (`/api/...`). A change to the engine or the panel shows on the next reload, in every area, with no page rebuilt.
+- `urbanstyle publish` copies the three files beside the page, with the panel's data as files (no server).
+- **The first look:** every layer starts hidden, and a "Loading" veil covers the page. The panel waits until the layers' data and its
+  server's first answer are in, sets every layer (its defaults, the levels, the grey buildings), and then lifts the veil. So nothing on
+  the page changes in front of the user while it loads.
+- Opened as a file with no server, the page lifts the veil and shows the map alone.
 
 ## The page
 

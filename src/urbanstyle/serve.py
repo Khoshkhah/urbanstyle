@@ -1,6 +1,6 @@
-"""`urbanstyle serve DB [--bridge PROFILE] [--page PAGE] [--port 8784]` (docs/design/dashboard.md): the dashboard page on a local web
-server, with an Explore panel: search, filters, a results list and questions to an AI agent (Claude), in 2D and 3D. The page's folder
-(viz/) is served as it is; the page gets the panel, and the panel gets its data from /api/."""
+"""`urbanstyle serve DB PAGE [--bridge PROFILE] [--port 8784]` (docs/design/dashboard.md): the dashboard on a local web server. The page's
+folder (viz/) is served as it is; the page's engine and panel come from the package; the panel gets its data from /api/: search,
+filters, the tree, the focus and the AI agent's answers."""
 import json
 import os
 import re
@@ -618,27 +618,19 @@ class Agent:
         return out_(text or "(no answer: the question needed more steps than allowed)")
 
 
-def with_panel(html, panel, extra=""):
-    """The page with the Explore panel: its style in the head and the body in the panel's mode (class xp) from the first moment, so
-    the old panel never shows (it showed until the panel's script ran at the end of a large page: Kaveh, 2026-10-13, "it first shows
-    an old version"); the panel itself, and `extra` before it, at the end of the body."""
-    i = panel.index("</style>") + len("</style>")
-    style, rest = panel[:i], panel[i:]
-    html = html.replace("</head>", style + "</head>", 1).replace("<body>", '<body class="xp xp-city">', 1)
-    head, tail = html.rsplit("</body>", 1)
-    return head + extra + rest + "</body>" + tail
-
-
 def handler(area, agent, viz, page):
-    """The request handler: the page with the Explore panel, the rest of viz/ as files, and /api/."""
-    panel = open(os.path.join(os.path.dirname(__file__), "explore.html")).read()
+    """The request handler: the page and the rest of viz/ as files; the engine and the panel (page.ASSETS) from the package, read on every
+    request so every page runs the current script (docs/design/dashboard.md, "How the page is made"); and /api/."""
+    from .page import ASSETS
+    here = os.path.dirname(__file__)
+    types = {".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8"}
 
     class H(SimpleHTTPRequestHandler):
         def __init__(self, *a, **k):
             super().__init__(*a, directory=viz, **k)
 
         def log_message(self, fmt, *args):
-            if "/api/" in (args[0] if args else ""):
+            if "/api/" in str(args[0] if args else ""):
                 super().log_message(fmt, *args)
 
         def _json(self, obj, code=200):
@@ -655,12 +647,13 @@ def handler(area, agent, viz, page):
                 self.send_response(302)
                 self.send_header("Location", "/" + page + ("?" + u.query if u.query else ""))
                 self.end_headers()
-            elif u.path == "/" + page:
-                html = open(os.path.join(viz, page)).read()
-                b = (html if "id=xpfold" in html else with_panel(html, panel)).encode()     # (page.py's pages have the panel already)
+            elif u.path.rsplit("/", 1)[-1] in ASSETS:          # the engine and the panel, from the package
+                name = ASSETS[u.path.rsplit("/", 1)[-1]]
+                b = open(os.path.join(here, name)).read().encode()
                 self.send_response(200)
-                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Type", types[os.path.splitext(name)[1]])
                 self.send_header("Content-Length", str(len(b)))
+                self.send_header("Cache-Control", "no-store")
                 self.end_headers()
                 self.wfile.write(b)
             elif u.path == "/api/meta":

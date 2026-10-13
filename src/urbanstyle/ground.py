@@ -69,8 +69,10 @@ def build(con, epsg):
     area = [g(w) for (w,) in rows(f"SELECT {m()} FROM osm_boundary")]
     area = shapely.union_all(area) if area else shapely.box(*shapely.union_all(
         [g(w) for (w,) in rows(f"SELECT {m()} FROM space.element")]).bounds)
+    # (not an area OSM maps under the ground, layer < 0: Monaco's station is in a tunnel, landuse=railway on layer -3; Kaveh, 2026-10-13)
     land = lambda kinds: [(f"w{i}" if t == "way" else f"r{i}", n, g(w)) for i, t, n, w in rows(
-        f"SELECT osm_id, osm_type, name, {m('geom')} FROM osm.features.land WHERE kind IN {tuple(kinds) + ('',)}")]
+        f"""SELECT osm_id, osm_type, name, {m('geom')} FROM osm.features.land l WHERE kind IN {tuple(kinds) + ('',)}
+            AND NOT EXISTS (SELECT 1 FROM osm.raw.ways w WHERE l.osm_type = 'way' AND w.osm_id = l.osm_id AND try_cast(w.tags['layer'] AS INT) < 0)""")]
     # (type, items [(ref, name, geometry)], source, method), in the order they take the ground
     order = [
         # (and the sea: OSM maps it only by its coastline, duckOSM's features.ocean makes it an area; Monaco's harbours were yards,

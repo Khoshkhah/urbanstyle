@@ -165,6 +165,8 @@ mkdocs build --strict                                  # needs pip install ".[do
   because 3D hides the road lines roadstyle's Street View follows. 2D overlays' wanted visibility is roadstyle's
   `ov.visible`; a 3D layer is never drawn in 2D. Terrain only when "rough terrain" is ticked: the public AWS Terrain Tiles (~30 m) are
   too coarse for Monaco and broke the map; needs a 1-5 m terrain.
+  Tunnels in 3D (`u3d-tun`): flat under level 0's ground (the map draws nothing below 0); they show where level 0 is faded or hidden.
+  "low buildings" (and a selected street object): buildings at most `LOW_M` (3 m) high.
 - Heavy imports (shapely, pandas, geopandas, roadstyle) stay inside functions so the CLI starts fast.
 
 ## Rules

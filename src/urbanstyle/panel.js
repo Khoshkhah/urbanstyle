@@ -8,7 +8,7 @@ B.insertAdjacentHTML('beforeend',`<button id=xpfold title="hide the panel">&laqu
 <div id=xp>
   <header><b>urbanstyle <span id=xparea style="font-weight:400;color:#64748b"></span></b></header>
   <div id=xpview>level <span id=xplk></span><span class=sp></span><button id=xp2d>2D</button><button id=xp3d>3D</button></div>
-  <details id=xplayers><summary>Layers <span class=xp3dl>(2D only)</span></summary><div id=xplys></div><h5>Options</h5><div id=xpopts><label title="3D view only: the ground follows the hill (public 30 m terrain: rough, roads and buildings do not sit right on it)"><input type=checkbox id=terrain3d> rough terrain</label><label title="2D is a map: roads as lines, objects as dots. Tick to draw the real-size road surface in 2D too (lanes, crosswalks, sidewalks, markings), as 3D always does"><input type=checkbox id=allparts> road surface in 2D</label><label title="Mapillary's detections, for validation only: their positions are too rough to make an object. Green: it confirms a surveyed or mapped object; orange: nothing confirms it"><input type=checkbox id=mlybox> Mapillary detections (validation)</label></div></details>
+  <details id=xplayers><summary>Layers <span class=xp3dl>(2D only)</span></summary><div id=xplys></div><h5>Options</h5><div id=xpopts><label title="3D view only: the ground follows the hill (public 30 m terrain: rough, roads and buildings do not sit right on it)"><input type=checkbox id=terrain3d> rough terrain</label><label title="3D view only: each building at most 3 m high, so the streets are not hidden (also while a street object is selected)"><input type=checkbox id=lowbld> low buildings</label><label title="2D is a map: roads as lines, objects as dots. Tick to draw the real-size road surface in 2D too (lanes, crosswalks, sidewalks, markings), as 3D always does"><input type=checkbox id=allparts> road surface in 2D</label><label title="Mapillary's detections, for validation only: their positions are too rough to make an object. Green: it confirms a surveyed or mapped object; orange: nothing confirms it"><input type=checkbox id=mlybox> Mapillary detections (validation)</label></div></details>
   <div id=xptabs><button data-t=s class=on>Find</button><button data-t=f>Filter</button><button data-t=a>Ask</button></div>
   <div class="xptab on" id=xp-s><div class=xprow><input id=xpq style="flex:1" placeholder="a street, a type, an OSM way, or an id (s0-…, i0-…)"><button class=xpgo id=xpqgo>Find</button></div>
     <div id=xpbr title="browse: a group lists its things, one thing is selected"></div></div>
@@ -249,6 +249,7 @@ $('xplys').onchange=e=>{const l=e.target.dataset.ly; if(!l)return; const on=e.ta
 // (the options keep their own code; what they switch on is allowed)
 const optLy={allparts:()=>['Parts',...(typeof OVERLAYS!=='undefined'?OVERLAYS.filter(o=>o.label.startsWith('Mark: ')).map(o=>o.label):[])],mlybox:()=>['Mapillary']};
 $('xpopts').addEventListener('change',e=>{if(e.target.id==='terrain3d'){if(typeof draw3d==='function')draw3d(); return}
+  if(e.target.id==='lowbld'){if(typeof bldFade==='function')bldFade(); return}
   const f=optLy[e.target.id]; if(!f)return; f().forEach(l=>{e.target.checked?allow.add(l):allow.delete(l); rsSetOverlay(l,e.target.checked)}); levels2d(); setTimeout(layersList,100)},true);
 // the tree (Find, server: /api/tree): a click on a name lists all of it (orange, a focus in 3D), on one thing selects it; the arrow opens.
 // The tick boxes put a list together from parts of the tree (Kaveh, 2026-10-13: "if the user doesn't want the whole category"): the
@@ -321,7 +322,8 @@ function applyLooks(){const m=M(); if(!m)return; if(!m.isStyleLoaded())return se
   m.getStyle().layers.forEach(l=>{if(l.source==='bm'&&l.type==='raster'){const o=keep(l.id,'raster-opacity');
     m.setPaintProperty(l.id,'raster-opacity',g==='full'?o:g==='fade'?0.35:0.08)}});
   const ov=lab=>(typeof OVERLAYS!=='undefined'&&OVERLAYS.find(o=>o.label===lab)||{}).layers||[];
-  if(d3()){m.getStyle().layers.forEach(l=>{if(l.id.startsWith('u3d-')&&!['u3d-deck','u3d-bld','u3d-bld-on'].includes(l.id))set(l.id,g)}); set('u3d-deck',up);
+  if(d3()){m.getStyle().layers.forEach(l=>{if(l.id.startsWith('u3d-')&&!['u3d-deck','u3d-bld','u3d-bld-on','u3d-tun'].includes(l.id))set(l.id,g)}); set('u3d-deck',up);
+    window.xpOff3d=Object.keys(L).filter(k=>L[k]==='off').map(Number); if(m.getLayer('u3d-tun'))m.setFilter('u3d-tun',tunF());     // (the tunnels)
     if(window.bldLook)window.bldLook(g);     // (the buildings: the 3D page fades them itself, by focus and selection too)
     const F=eff(), onBr=focusU?/^\w1-/.test(focusU):F&&F.bridge>0;      // (a focus on the ground: the bridge faint)
     const upF=F&&!onBr&&up==='full'?'fade':up;

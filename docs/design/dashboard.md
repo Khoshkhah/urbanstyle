@@ -65,8 +65,12 @@ the ground, the bridge. Closing the card brings everything back.
 **Levels.** Each level that has streets has one button with three states, in three colours: full (deep purple), faded (light purple)
 and hidden (white, crossed out). A click moves it to the next state, and the levels combine. Level 0 is the basemap and the buildings,
 and in 3D also the ground, its parts, kerbs and objects. Level 1 is the bridge and the decks. 2D starts with level 1 faded (the bridge
-as a light outline over the street), and 3D starts with all levels full. Each view keeps its own choice. Tunnels (levels −1, −2) are to
-be added with the second city (Södermalm).
+as a light outline over the street), and 3D starts with all levels full. Each view keeps its own choice. In 2D the tunnels (levels −1,
+−2) are hidden at first. In 3D the map cannot draw under the ground, so the tunnels' parts lie flat under the ground of level 0. To see
+them, fade or hide level 0.
+
+**Low buildings** (an option, 3D only): each building is at most 3 m high, so it does not hide the streets. The buildings are also
+low while a street object is selected, because a building can stand between the object and the camera.
 
 ## The Explore panel
 

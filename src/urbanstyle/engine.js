@@ -22,6 +22,7 @@ function terrain(on){if(!map.setTerrain)return;
   if(on&&!map.getSource('u3d-dem'))map.addSource('u3d-dem',{type:'raster-dem',tiles:[DEM_TILES],tileSize:256,encoding:'terrarium',maxzoom:15,
     attribution:'Terrain: <a href="https://registry.opendata.aws/terrain-tiles/" target="_blank">AWS Terrain Tiles</a>'});
   const now=!!map.getTerrain&&!!map.getTerrain(); if(on!==now)map.setTerrain(on?{source:'u3d-dem',exaggeration:1}:null)}
+const tunF=()=>['all',['<',['get','level'],0],['!',['in',['get','level'],['literal',window.xpOff3d||[]]]]];
 function draw3d(){
   map.setLight({anchor:'viewport',intensity:0.15});   // a soft light: white walls stay near-white (MapLibre's 0.5 made them grey, Kaveh 2026-10-13)
   terrain(in3d&&document.getElementById('terrain3d').checked);
@@ -29,6 +30,9 @@ function draw3d(){
     map.setFilter(spec.id,filter); map.setLayoutProperty(spec.id,'visibility',in3d?'visible':'none')};
   const lvl=['==',['get','level'],lv3d];
   const own=['all',lvl,['!',['in',['get','unit_id'],['literal',window.brUnits||[]]]]];   // (on a bridge: the model lays them on its deck)
+  // the tunnels (levels below 0): the map cannot draw under the ground, so their parts lie flat under level 0's ground: they show where
+  // level 0 is faded or hidden (the panel's level buttons; xpOff3d: the levels hidden; Kaveh, 2026-10-13: "monaco doesn't show tunnels")
+  add({id:'u3d-tun',type:'fill',source:ovSrc('Parts'),paint:{'fill-color':['get','color'],'fill-opacity':1}},tunF());
   add({id:'u3d-gnd',type:'fill',source:ovSrc('Ground'),paint:{'fill-color':['get','color'],'fill-opacity':1}},['all',lvl,['!=',['get','type'],'street']]);   // the ground beside the street
   add({id:'u3d-lot',type:'fill',source:ovSrc('Parking lots'),paint:{'fill-color':'#a8b0ba','fill-opacity':1}},lvl);   // a car park: paved, flush
   add({id:'u3d-ground',type:'fill',source:ovSrc('Parts'),paint:{'fill-color':['get','color'],'fill-opacity':1}},
@@ -78,7 +82,7 @@ const pop3d=(e,p,fields,who)=>setTimeout(()=>{if(sel3d!==who)return;     // dese
   pp.on('close',()=>{if(sel3d===who){sel3d=null; paint3d()}});    // (Popup.on does not return the popup: no chaining)
   pp.addTo(map)},0);
 // (the Explore panel selects a thing as a click in 3D does: its part_id, ground_id, building or car park id; urbanstyle serve)
-window.pick3d=(v,obj)=>{sel3d=v??null; selObj=!!obj; paint3d()};     // (obj: a street object: the buildings fade)
+window.pick3d=(v,obj)=>{sel3d=v??null; selObj=!!obj; paint3d()};     // (obj: a street object: the buildings low)
 function deselect3d(){if(sel3d===null)return false; sel3d=null; paint3d();
   document.querySelectorAll('.maplibregl-popup:not(.u3d-tip)').forEach(x=>x.remove()); return true}
 // layer -> [its colour property, the key of a feature, its own colour, its popup fields]
@@ -112,12 +116,13 @@ function paint3d(){Object.entries(L3D).forEach(([id,[prop,key,base]])=>{if(!map.
   const always=['u3d-ground','u3d-raised'].includes(id)?['in',['get','type'],['literal',['crosswalk','cycle crossing']]]:false;
   map.setPaintProperty(id,prop,['case',is(sel3d||'\u0000'),'#7c4dff',is(hov3d||'\u0000'),'#b388ff',inF,base,marked,'#ff9100',always,base,
     !F?base:'#ebe8e3'])}); bldFade()}
-// buildings fade by their opacity: out of a focus (white walls in a faint grey read as no change, Kaveh 2026-10-13), and all of them
-// while a street object is selected (a building can stand between it and the camera). Those in focus, selected or lit stay whole: a
+// buildings fade by their opacity out of a focus (white walls in a faint grey read as no change, Kaveh 2026-10-13). Those in focus,
+// selected or lit stay whole: a
 // second layer over the same buildings
 // (the level's look from the panel: full, fade or off)
+const LOW_M=3;
 let selObj=false, bldG='full'; window.bldLook=g=>{bldG=g; bldFade()};
-function bldFade(){const b=map.getLayer('u3d-bld'); if(!b)return; const fade=bldG==='fade'||!!xpFocus||(sel3d!==null&&selObj), on=in3d&&bldG!=='off';
+function bldFade(){const b=map.getLayer('u3d-bld'); if(!b)return; const fade=bldG==='fade'||!!xpFocus, on=in3d&&bldG!=='off';
   if(!map.getLayer('u3d-bld-on'))map.addLayer({id:'u3d-bld-on',type:'fill-extrusion',source:b.source,paint:{'fill-extrusion-opacity':0.92,
     'fill-extrusion-vertical-gradient':false,'fill-extrusion-height':['get','height_m'],'fill-extrusion-base':map.getPaintProperty('u3d-bld','fill-extrusion-base')}},map.getLayer('u3d-furn')?'u3d-furn':undefined);
   if(!U3D.includes('u3d-bld-on'))U3D.push('u3d-bld-on');     // (a 3D layer: setView hides it in 2D)
@@ -125,7 +130,12 @@ function bldFade(){const b=map.getLayer('u3d-bld'); if(!b)return; const fade=bld
   map.setFilter('u3d-bld-on',['all',map.getFilter('u3d-bld')||true,keep]);
   map.setPaintProperty('u3d-bld-on','fill-extrusion-color',map.getPaintProperty('u3d-bld','fill-extrusion-color'));
   map.setLayoutProperty('u3d-bld','visibility',on?'visible':'none'); map.setLayoutProperty('u3d-bld-on','visibility',on&&fade?'visible':'none');
-  map.setPaintProperty('u3d-bld','fill-extrusion-opacity',fade?0.25:0.92)}
+  map.setPaintProperty('u3d-bld','fill-extrusion-opacity',fade?0.25:0.92);
+  // low buildings, LOW_M high at most, to see the streets: the panel's option "low buildings", and while a street object is selected
+  // (a building can stand between it and the camera; Kaveh, 2026-10-13)
+  const low=!!(document.getElementById('lowbld')||{}).checked||(sel3d!==null&&selObj),
+    h=low?['min',['get','height_m'],['+',map.getPaintProperty('u3d-bld','fill-extrusion-base'),LOW_M]]:['get','height_m'];
+  ['u3d-bld','u3d-bld-on'].forEach(id=>map.setPaintProperty(id,'fill-extrusion-height',h))}
 function bind3d(){if(bound3d||!map.getLayer('u3d-furn'))return; bound3d=true;
   const groundPop=(OVERLAYS.find(o=>o.label==='Parts')||{}).popup||[];
   let took=0;     // the topmost layer under the mouse takes the click: an object before the ground under it

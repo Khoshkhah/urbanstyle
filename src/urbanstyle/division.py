@@ -47,6 +47,7 @@ JOIN_EDGE_M = 2.0        # two sections whose spaces share this much edge (no in
 JOIN_COS = 0.7           # ... when their axes there are this near in line (cos of the angle: 45°; 0.85 left Monaco's Avenue de
                          # Monte-Carlo, 0.848 at s0-w4097656r~w4224972r.16/1, with a step in its roadway, Kaveh 2026-10-13)
 FOLLOW_MAX_M = 30.0      # a section's axis runs on along its main road past the middle between the blocks by at most this
+FOLLOW_COS = 0.94        # ... a section that took a street's end: on along its roads while they turn less than this from the end (20°)
 FOLLOW_MIN_M = 5.0       # ... where the middle between the blocks stops at least this short of the section's end
 BASIN_BACK_M = 0.3       # a catch basin sits in the gutter: the kerb is this far behind it
 OBJ_KERB_M = 0.4         # a pole, a tree, a meter stands at least this far behind the kerb
@@ -270,12 +271,13 @@ def build(con, epsg):
             secgeo[hit[0]] = x
         else:
             rest.append(x)
-    inter = []
+    inter, ends = [], {}        # (ends: the street's ends each section took)
     for x in rest:      # a piece meeting fewer than three sections is a street's end (at the area's edge): it joins its section
         touch = [(secgeo[i].boundary.intersection(x.boundary.buffer(0.05)).length, i) for i in secgeo if secgeo[i].distance(x) < 0.05]
         if 0 < len(touch) < 3:
             i = max(touch)[1]
             secgeo[i] = poly(shapely.union_all([secgeo[i], x], grid_size=0.01))
+            ends.setdefault(i, []).append(x)
         else:
             inter.append(x)
 
@@ -525,10 +527,41 @@ def build(con, epsg):
         chord = shapely.LineString([c[0], c[-1]])
         return chord if max(chord.distance(shapely.Point(p)) for p in c) < 1.0 else line.simplify(0.5)
 
-    def follow_road(axis, P):
+    def run_on(line, reach, name):
+        """line, on past its end along the road of the same name that goes on straightest there (an OSM way ends where a tag changes), to
+        reach metres"""
+        cs, u0 = list(line.coords), tangent(line, 0.5)
+        for _ in range(20):
+            L = shapely.LineString(cs)
+            if L.length >= reach:
+                break
+            E, ux, uy = shapely.Point(cs[-1]), *tangent(L, L.length - 0.5)
+            nxt = []
+            for k in road_tree.query(E.buffer(0.5)):
+                if roads[k][1] != name:
+                    continue
+                for q in shapely.get_parts(roads[k][7]):
+                    qc = list(q.coords)
+                    qc = qc if math.dist(qc[0], cs[-1]) < 0.5 else qc[::-1] if math.dist(qc[-1], cs[-1]) < 0.5 else None
+                    if qc and len(qc) > 1:
+                        vx, vy = tangent(shapely.LineString(qc), 0.5)
+                        nxt.append((vx * ux + vy * uy, qc))
+            cos_, qc = max(nxt, default=(-1, None), key=lambda t: t[0])
+            if cos_ < JOIN_COS:
+                break
+            cs += qc[1:]
+        L = shapely.LineString(cs)
+        L = substring(L, 0, reach) if L.length > reach else L
+        # (cut where the road has turned away from where it started: offset from it, the strips would fold)
+        turn = next((k * 2.0 for k in range(1, int(L.length // 2)) if sum(a * b for a, b in zip(tangent(L, k * 2.0), u0)) < FOLLOW_COS), None)
+        return substring(L, 0, turn) if turn else L
+
+    def follow_road(axis, P, reach=FOLLOW_MAX_M):
         """The axis run on past each end along the OSM line of the section's main road (the road with the most length in P), moved to start
         at that end, to the edge of P: where a block steps back, the middle between the blocks stops short of the section's end, and a
-        straight run past it leaves the road where the road bends."""
+        straight run past it leaves the road where the road bends. A section that took a street's end follows its roads on, way after way,
+        to the edge of P, from the road at each end (the main road can end before it; Monaco's Boulevard du Larvotto: 110 m to the tunnel,
+        on four ways; Kaveh, 2026-10-13)."""
         rs = [roads[k] for k in road_tree.query(P)]
         best = max(rs, key=lambda r: r[7].intersection(P).length, default=None)
         if best is None or best[7].intersection(P).length < 5:
@@ -537,7 +570,10 @@ def build(con, epsg):
         for end in (0, 1):
             E = shapely.Point(cs[-1] if end else cs[0])
             A = shapely.Point(cs[-2] if end else cs[1])
-            part = min(shapely.get_parts(way_lines[best[0]]), key=lambda q: q.distance(E))
+            way = best[0]
+            if reach > FOLLOW_MAX_M and best[1]:        # (the way of its name nearest the end)
+                way = min((r for r in rs if r[1] == best[1]), key=lambda r: way_lines[r[0]].distance(E))[0]
+            part = min(shapely.get_parts(way_lines[way]), key=lambda q: q.distance(E))
             sq = part.project(E)
             Qp = part.interpolate(sq)
             if Qp.distance(E) > RAY_M:
@@ -545,7 +581,10 @@ def build(con, epsg):
             ox, oy = E.x - A.x, E.y - A.y
             rx, ry = tangent(part, sq)
             fwd = rx * ox + ry * oy > 0                      # the road's own direction is the outward one
-            rest = substring(part, sq, min(sq + FOLLOW_MAX_M, part.length)) if fwd else substring(part, max(sq - FOLLOW_MAX_M, 0.0), sq).reverse()
+            rest = substring(part, sq, part.length) if fwd else substring(part, 0.0, sq).reverse()
+            if rest.geom_type != "LineString" or rest.length < 0.5:
+                continue
+            rest = run_on(rest, reach, best[1]) if reach > FOLLOW_MAX_M and best[1] else substring(rest, 0.0, min(reach, rest.length))
             if rest.geom_type != "LineString" or rest.length < 1:
                 continue
             fx, fy = tangent(rest, 0.5)
@@ -571,7 +610,10 @@ def build(con, epsg):
         axis = substring(line, a0, a1)
         if axis.geom_type != "LineString" or axis.length < 1:
             continue
-        axis = follow_road(straight(axis), P)
+        # (a street's end with roads of one name in it: a dead end to follow on to the edge; with two names it is a junction)
+        X = shapely.union_all(ends.get(i, []))
+        one = i in ends and len({roads[k][1] for k in road_tree.query(X) if roads[k][7].intersects(X)}) == 1
+        axis = follow_road(straight(axis), P, *([math.dist(P.bounds[:2], P.bounds[2:])] if one else []))
         if i in ring_cut:       # (cut short by a roundabout: the axis stops at the section's new end, not inside the roundabout)
             inn = [q for q in shapely.get_parts(axis.intersection(P.buffer(0.5))) if q.geom_type == "LineString"]
             if inn and max(inn, key=lambda q: q.length).length >= 1:

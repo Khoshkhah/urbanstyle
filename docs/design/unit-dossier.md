@@ -4,7 +4,7 @@
 one street section), gather everything that can be known about it, from every source, in as much detail as exists, and give it
 a clean structure. Then generalize the recipe to the rest of the city.</p>
 
-**Status:** agreed 2026-10-09, being built (see the [roadmap](../plan.md)). It replaces the city-wide approach of the network-first
+**Status:** agreed 2026-10-09, being built. It replaces the city-wide approach of the network-first
 preview (the partition into spaces stays, as the way a unit's outline is found; the SUMO and Mapillary work stays, as sources).
 
 ## Why
@@ -22,7 +22,7 @@ street, how well, from which source, and in what structure. Two cities make the 
 | **A block of W 4th Ave**, Kitsilano (Vine St to Yew St, to confirm) | Vancouver | shopping street: parking, street trees, furniture; inside the lidar area |
 
 Each unit's outline comes from urbanstyle's partition (cut at the block corners, out to the facades), built for these places
-only. Vancouver becomes a pilot area for this purpose (a roadmap step, `docs/plan.md`).
+only. Vancouver becomes a pilot area for this purpose (a planned step).
 
 ## Step 1: the source inventory
 

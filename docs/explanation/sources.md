@@ -40,4 +40,4 @@ Take a lamp from the city's survey, accurate to a few centimeters, that lands in
 accurate to a few metres. The rule "a lamp stands on the sidewalk" is broken, and the less accurate value is the one to move: the lane's edge, not
 the lamp. Solved together for a whole area, as surveyors adjust a network of measurements, every value comes closer to the truth,
 and its stated accuracy becomes smaller. A rule that cannot hold at all points to a gross error, such as a lamp mapped on the wrong
-street. This is on the [roadmap](../plan.md).
+street. This is planned work.

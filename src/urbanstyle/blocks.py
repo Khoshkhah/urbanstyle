@@ -192,7 +192,7 @@ def build(con, epsg):
         return {sg for sg in (1, -1) if shapely.Point(mid.x - sg * dy / h * 0.5, mid.y + sg * dx / h * 0.5).within(f)}
 
     ctree = shapely.STRtree([ch["geom"] for ch in chains])
-    lines = shapely.union_all([ch["geom"] for ch in chains] + [box.exterior])
+    lines = shapely.union_all([ch["geom"] for ch in chains] + [box.boundary])      # (boundary: an area of several parts, Monaco)
     faces = [f for f in shapely.get_parts(shapely.polygonize(list(shapely.get_parts(shapely.line_merge(lines))))) if f.within(box.buffer(0.1))]
     out = []        # (block geometry, its sides [(chain, side row)], face)
     for f in faces:

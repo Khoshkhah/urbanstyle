@@ -78,8 +78,9 @@ The order of work: `docs/plan.md`.
 - `src/urbanstyle/serve.py` and `explore.html`: `urbanstyle serve DB PAGE [--bridge PROFILE] [--port 8784]` serves `viz/` with one panel
   (`docs/design/dashboard-v2.md`): Find (search, an exact id, the area's tree with tick boxes), Filter, Ask (an AI agent: Claude with
   `ANTHROPIC_API_KEY` or `~/.config/anthropic/key`, else Gemini with `GEMINI_API_KEY`, never keys in the repo); results orange,
-  the selected thing deep purple with its card and a short popup; levels full / faded / hidden in 2D and 3D; a street space, block
-  or tree group in focus in 3D. The server reads the space db read-only, adds `space.bridge_part` and `space.street_object` (every
+  the selected thing deep purple with its card (no popup); levels full / faded / hidden in 2D and 3D; a street space, block
+  or tree group in focus in 3D: the buildings that frame it (`Area.bounding`: seen from it within 10 m) solid, the other buildings
+  see-through (`bldFade`), painted lines and crosswalks never faint. A street object selected in 3D: the camera along its street (`nearRoad`). The server reads the space db read-only, adds `space.bridge_part` and `space.street_object` (every
   source, as 3D draws them); the panel's names start with `xp`, inside one function (roadstyle's globals).
 - The format and the standards: `docs/design/standards-comparison.md` (research), `docs/design/format.md` (requirements: a CityGML 3.0
   profile as a CityJSON Extension; ids from profiles).
@@ -148,7 +149,7 @@ mkdocs build --strict                                  # needs pip install ".[do
   height (`space.element.floors`, `height_m`: before levels are clamped to -2..2), bridge decks 6 m a level, one model per street
   object (`matched_objects`: OSM, Mapillary and a city's survey matched by `unit.match`; `furniture_3d`). In 3D a hover lights a lane,
   kerb, building or object and names its type; a click selects it and opens its popup (the same fields as in 2D: OBJ_POPUP,
-  BLD_POPUP, the Parts popup); Esc, a second click or closing the popup deselects. A hover lights a thing only once the mouse rests on it
+  BLD_POPUP, the Parts popup; with `urbanstyle serve` no popup, the panel's card); Esc, a second click or closing the popup deselects. A hover lights a thing only once the mouse rests on it
   300 ms (HOVER_MS; in 2D roadstyle's `hover_delay_ms`). Street View in 3D: every click moves an open window to the nearest road or bridge axis (svHere, `window.brAxes`),
   because 3D hides the road lines roadstyle's Street View follows. 2D overlays' wanted visibility is roadstyle's
   `ov.visible`; a 3D layer is never drawn in 2D. Terrain only when "rough terrain" is ticked: the public AWS Terrain Tiles (~30 m) are

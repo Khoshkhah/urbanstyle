@@ -64,6 +64,7 @@ body.xp-off #xpfold{left:10px}
 .xpex{display:inline-block;margin:2px 4px 2px 0;padding:3px 8px;border:1px solid #d6c8ff;border-radius:12px;color:#5b21b6;cursor:pointer;font-size:12px}
 #xpres{flex:1;overflow:auto;padding:8px 12px}
 #xpsum{font-weight:600;margin-bottom:4px}
+#xpfocus.on{background:#7c4dff;color:#fff;border-radius:5px}
 #xpkinds span{display:inline-block;margin:2px 4px 2px 0;padding:1px 7px;border-radius:10px;background:#f1f5f9;font-size:11px}
 #xplist div{padding:5px 4px;border-bottom:1px solid #f1f5f9;cursor:pointer}
 #xplist div:hover{background:#f5f0ff}
@@ -91,7 +92,7 @@ body.xp-off #xpfold{left:10px}
     <div class=xprow><textarea id=xpask rows=2 style="flex:1;resize:vertical" placeholder="Ask about the street, e.g. where are the sidewalks narrower than 1.8 m?"></textarea><button class=xpgo id=xpaskgo>Ask</button></div>
   </div>
   <div id=xpres><div id=xpcard></div><div id=xpsum style="color:#64748b;font-weight:400">Find (type, or browse the tree), filter or ask: the results show here (orange) and on the map.</div><div id=xpkinds></div>
-    <div class=xprow id=xpacts style="display:none"><button class=xplink id=xpcsv>CSV</button><button class=xplink id=xpgeo>GeoJSON</button><button class=xplink id=xpclr>Clear</button></div>
+    <div class=xprow id=xpacts style="display:none"><button class=xplink id=xpcsv>CSV</button><button class=xplink id=xpgeo>GeoJSON</button><button class=xplink id=xpclr>Clear</button><button class=xplink id=xpfocus title="3D: the things of the list in their own colors, everything else faint">Focus</button></div>
     <div id=xplist></div></div>
 </div>
 <script>
@@ -133,15 +134,20 @@ function onMap(fc,my){if(my===undefined)my=++mapSeq; else if(my!==mapSeq)return;
   if(window.brMark)window.brMark(fc.features.filter(f=>f.properties._layer==='Bridge parts').map(f=>f.properties._id))}
 function bounds(fs){let b=[180,90,-180,-90]; const walk=c=>typeof c[0]==='number'?(b=[Math.min(b[0],c[0]),Math.min(b[1],c[1]),Math.max(b[2],c[0]),Math.max(b[3],c[1])]):c.forEach(walk);
   fs.forEach(f=>f.geometry&&walk(f.geometry.coordinates)); return b[0]<=b[2]?[[b[0],b[1]],[b[2],b[3]]]:null}
-function fly(fs){const b=bounds(fs); if(b)M().fitBounds(b,{padding:60,maxZoom:19,duration:700})}     // (the map starts beside the panel)
+function fly(fs){const b=bounds(fs); if(!b)return;
+  // one street object in 3D: the camera looks along the street it stands in, so the buildings stand at the sides, not in front of it
+  const p=fs.length===1&&fs[0].properties, at={lng:(b[0][0]+b[1][0])/2,lat:(b[0][1]+b[1][1])/2},
+    r=p&&p._layer==='Street objects'&&typeof in3d!=='undefined'&&in3d&&window.nearRoad&&nearRoad(at);
+  if(r){const now=M().getBearing(), h=Math.abs(((r.h-now+540)%360)-180)<=90?r.h:(r.h+180)%360;      // (of the two ways along it, the nearer)
+    return M().flyTo({center:[at.lng,at.lat],zoom:19.5,pitch:60,bearing:h,duration:900})}
+  M().fitBounds(b,{padding:60,maxZoom:19,duration:700})}     // (the map starts beside the panel)
 // the one thing selected: deep purple where it stands (2D: the map's own selection is roadstyle's; 3D: pick3d; the bridge: brPick) and its
 // card at the top of the results: its fields, and the spaces and parts it leads to (a click on one: select it, or list it)
-let xpPop=null;
-const shut=()=>{const pp=xpPop; xpPop=null; if(pp)pp.remove(); document.querySelectorAll('.maplibregl-popup:not(.u3d-tip)').forEach(x=>x.remove());
+const shut=()=>{document.querySelectorAll('.maplibregl-popup:not(.u3d-tip)').forEach(x=>x.remove());
   $('xpcard').classList.remove('on');
   if(window.brDeselect)window.brDeselect(); if(window.pick3d)window.pick3d(null); if(focusU)focus(null); selSrc()};
 const pick=p=>{if(p._layer==='Bridge parts'){if(window.brPick)window.brPick(p._id)}
-  else if(p._layer==='Street spaces'||p._layer==='Blocks')focus(p._id,p._layer); else if(window.pick3d)window.pick3d(p._id)};
+  else if(p._layer==='Street spaces'||p._layer==='Blocks')focus(p._id,p._layer); else if(window.pick3d)window.pick3d(p._id,p._layer==='Street objects')};
 // a street space selected: in focus in 3D, its parts and painted lines as they are, all else faint (the bridge too, for a space on the
 // ground); the panel's card closed: all back
 // the focus in 3D: what keeps its colours, all else faint. A selected street space or block (focusU, focusF: from the server), else a
@@ -150,16 +156,13 @@ let focusU=null, focusF=null, groupF=null;
 function focus(u,layer){if((u||null)!==focusU){focusF=null; if(u)get(`/api/focus?layer=${encodeURIComponent(layer||'Street spaces')}&id=${encodeURIComponent(u)}`)
     .then(f=>{if(focusU===u){focusF=f; paintFocus()}})}
   focusU=u||null; paintFocus()}
-function specOf(fc){const f={units:[],parts:[],ground:[],blds:[],lots:[],objs:[],bridge:0},
+// (an empty list is no focus: the last tick box cleared left all faint, 2026-10-13)
+function specOf(fc){if(!(fc.features||[]).length)return null; const f={units:[],parts:[],ground:[],blds:[],lots:[],objs:[],bridge:0},
     K={'Street spaces':'units','Street parts':'parts','Ground':'ground','Buildings':'blds','Car parks':'lots','Street objects':'objs'};
   (fc.features||[]).forEach(x=>{const p=x.properties, k=K[p._layer]; if(k)f[k].push(p._id); if(p._layer==='Bridge parts')f.bridge++}); return f}
 const eff=()=>focusU?(focusF||{units:[]}):groupF;
 function paintFocus(){const F=eff(); if(window.focus3d)window.focus3d(F); const m=M(); if(!m)return;
-  m.getStyle().layers.forEach(l=>{if(l.id.startsWith('u3d-')&&l.type==='line')m.setPaintProperty(l.id,'line-opacity',lineOp())});
   applyLooks()}
-// (painted lines: those of the spaces in focus; with a block or a group of no spaces, all faint)
-function lineOp(){const F=eff(); if(!F)return 1; const us=F.units||(F.unit?[F.unit]:[]);
-  return us.length?['case',['in',['get','unit_id'],['literal',us]],1,0.12]:0.12}
 // (2D: the selected one in deep purple over the orange results: its own source)
 function selSrc(f){const m=M(); if(!m)return; if(!m.isStyleLoaded())return setTimeout(()=>selSrc(f),200); const fc={type:'FeatureCollection',features:f?[f]:[]};
   if(!m.getSource('xp-sel')){m.addSource('xp-sel',{type:'geojson',data:fc});
@@ -169,13 +172,11 @@ function selSrc(f){const m=M(); if(!m)return; if(!m.isStyleLoaded())return setTi
   else m.getSource('xp-sel').setData(fc);
   const d3=typeof in3d!=='undefined'&&in3d; ['xp-sel-fill','xp-sel-line','xp-sel-pt'].forEach(x=>m.getLayer(x)&&m.setLayoutProperty(x,'visibility',d3?'none':'visible'))}
 let selF=null;
-// select one thing: deep purple, its card (all its fields) and a short popup at it (name, layer, id); the same in 2D and 3D, from the
-// panel or from a click on the map (at: where it was clicked; from the panel the map flies to it); closing the popup deselects
+// select one thing: deep purple and its card (all its fields); the same in 2D and 3D, from the panel or from a click on the map (at:
+// where it was clicked; from the panel the map flies to it). No popup: it held only the name and the id, and it covered the thing; a
+// hidden panel opens for the card (Kaveh, 2026-10-13). The card's ×, Esc or a second click deselects
 function select(f,at){shut(); if(!f)return; selF=f; const p=f.properties; pick(p); selSrc(f); if(!at)fly([f]); card(f);
-  const b=bounds([f]); if(!b&&!at)return; const ll=at||[(b[0][0]+b[1][0])/2,(b[0][1]+b[1][1])/2];
-  const pp=new maplibregl.Popup({closeButton:true,maxWidth:'280px',offset:8}).setLngLat(ll)
-    .setHTML(`<div style="font:600 13px system-ui">${esc(p._label)}</div><div style="font-size:11.5px;color:#64748b;overflow-wrap:anywhere">${esc(p._layer)} · ${esc(p._id)}</div>`).addTo(M());
-  xpPop=pp; pp.on('close',()=>{if(xpPop===pp){xpPop=null; shut()}})}
+  if(B.classList.contains('xp-off'))$('xpfold').click()}
 // a click on the map in 3D (the 3D page's own handlers ask first: xpOnPick): its layer and id, then select as above
 const PICK3D={'u3d-furn':['Street objects','refs','id'],'u3d-bld':['Buildings','id','source_id'],'u3d-gnd':['Ground','ground_id','ground_id'],
   'u3d-lot':['Car parks','id','lot_id'],'u3d-ground':['Street parts','part_id','part_id'],'u3d-raised':['Street parts','part_id','part_id'],
@@ -199,12 +200,16 @@ $('xpcard').onclick=e=>{if(e.target.matches('.h button')){shut(); return}
   const b=e.target.closest('button'); if(!b)return; const [layer,field,value]=(b.dataset.sel||b.dataset.res||'').split('|'); if(!layer)return;
   (b.dataset.sel?post:(u,x)=>latest(post(u,x)))('/api/query',{layer,where:[{field,op:'=',value}]}).then(fc=>{if(b.dataset.sel){if(fc.features[0])select(fc.features[0])}
     else{show(fc,b.textContent); if(selF)card(selF)}}).catch(stale)};
-function show(fc,title,group){
+// one rule for every list, from any tab (Kaveh, 2026-10-13): its things are orange and all else keeps its colors. Focus (the list's
+// things in their own colors, all else faint) only with the list's Focus button, or for one selected space or block (focus())
+let listSpec=null;
+function listFocus(on){groupF=on&&listSpec?listSpec:null; $('xpfocus').classList.toggle('on',!!groupF); paintFocus();
+  // (street spaces in focus: also the buildings that frame them and the objects that stand in them, from the server)
+  const g=groupF; if(g&&g.units.length&&!g.more)post('/api/focus',{layer:'Street spaces',ids:g.units}).then(f=>{if(groupF!==g||!f)return;
+    g.more=1; g.blds=[...new Set([...g.blds,...(f.blds||[])])]; g.objs=[...new Set([...g.objs,...(f.objs||[])])]; paintFocus()})}
+function show(fc,title){
   if(fc.error){$('xpsum').textContent='Error: '+fc.error; return}
-  groupF=group?specOf(fc):null; paintFocus();
-  // (a group of street spaces: also the buildings that frame them and the objects that stand in them, from the server)
-  const g=groupF; if(g&&g.units.length)post('/api/focus',{layer:'Street spaces',ids:g.units}).then(f=>{if(groupF!==g||!f)return;
-    g.blds=[...new Set([...g.blds,...(f.blds||[])])]; g.objs=[...new Set([...g.objs,...(f.objs||[])])]; paintFocus()});
+  listSpec=specOf(fc); listFocus(false);
   onMap(fc); const n=fc.total, s=fc.features.length;
   $('xpsum').style.cssText=''; $('xpsum').textContent=(title?title+': ':'')+n+(n===1?' thing':' things')+(s<n?` (first ${s} shown)`:'')+
     (fc.length_m?' · '+km(fc.length_m):'')+(fc.area_m2?' · '+Math.round(fc.area_m2).toLocaleString()+' m²':'');
@@ -263,7 +268,8 @@ $('xpgeo').onclick=()=>last&&save('urbanstyle-results.geojson',JSON.stringify({t
 $('xpcsv').onclick=()=>{if(!last)return; const ks=[...new Set(last.features.flatMap(f=>Object.keys(f.properties)))];
   const q=v=>{v=String(v??''); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v};
   save('urbanstyle-results.csv',[ks.join(','),...last.features.map(f=>ks.map(k=>q(f.properties[k])).join(','))].join('\n'),'text/csv')};
-$('xpclr').onclick=()=>{shut(); selF=null; groupF=null; untick(); paintFocus(); onMap({type:'FeatureCollection',features:[]}); $('xpsum').textContent=''; $('xpkinds').innerHTML=''; $('xplist').innerHTML=''; $('xpacts').style.display='none'};
+$('xpfocus').onclick=()=>listFocus(!groupF);
+$('xpclr').onclick=()=>{shut(); selF=null; listSpec=null; listFocus(false); untick(); onMap({type:'FeatureCollection',features:[]}); $('xpsum').textContent=''; $('xpkinds').innerHTML=''; $('xplist').innerHTML=''; $('xpacts').style.display='none'};
 // tabs, open and close; the panel only when the server answers (a page opened as a file has none)
 $('xptabs').onclick=e=>{const t=e.target.dataset.t; if(!t)return; [...$('xptabs').children].forEach(b=>b.classList.toggle('on',b.dataset.t===t));
   document.querySelectorAll('.xptab').forEach(d=>d.classList.toggle('on',d.id==='xp-'+t))};
@@ -272,7 +278,7 @@ const B=document.body, resize=()=>setTimeout(()=>M()&&M().resize(),0);
 B.classList.add('xp','xp-city');
 // the map: quiet at first (the basemap, the buildings in grey, the bridge), then what Layers ticks (allow): the old page's own logic
 // shows its layers again at times (hush hides what is not allowed)
-const allow=new Set(['Buildings','Bridge 2D']), hid=new Set(), GREY={'fill-color':'#dedad4','line-color':'#b5afa7'}; let oldPaint=null;
+const allow=new Set(['Buildings','Bridge 2D']), hid=new Set(), GREY={'fill-color':'#efede9','line-color':'#cdc8c1'}; let oldPaint=null;
 const roadsOn=on=>{const m=M(); if(m&&!(typeof in3d!=='undefined'&&in3d))m.getStyle().layers.forEach(l=>{if(/^roads-/.test(l.id))m.setLayoutProperty(l.id,'visibility',on?'visible':'none')})};
 const HIDE_LY=l=>l==='Bridge 2D'||/3D/.test(l);     // (not in Layers: the bridge goes by the levels; 3D layers are 3D's)
 function hush(){if(!B.classList.contains('xp')||typeof OVERLAYS==='undefined'||!M())return;
@@ -323,7 +329,12 @@ function branch(el,node){get('/api/tree?node='+encodeURIComponent(node)).then(ki
       if(!k.layer){open(); return}
       if(!k.kids){post('/api/query',{layer:k.layer,where:k.where}).then(fc=>{if(fc.features&&fc.features[0])select(fc.features[0])}); return}
       untick(); if(sub.style.display==='none')open(); wait('Loading...');
-      latest(post('/api/query',{layer:k.layer,where:k.where})).then(fc=>{show(fc,k.label,true); if(selF&&$('xpcard').classList.contains('on'))card(selF)}).catch(stale)};
+      latest(post('/api/query',{layer:k.layer,where:k.where})).then(fc=>{show(fc,k.label,true);
+        // (one space, an intersection or a subsection: its parts listed, and the space itself selected: in focus in 3D, as from Find;
+        // Kaveh, 2026-10-13: "intersection not working")
+        if(k.id.startsWith('unit:'))return post('/api/query',{layer:'Street spaces',where:[{field:'unit_id',op:'=',value:k.id.slice(5)}]})
+          .then(f=>{if(f.features&&f.features[0])select(f.features[0],true)});
+        if(selF&&$('xpcard').classList.contains('on'))card(selF)}).catch(stale)};
     el.appendChild(row); el.appendChild(sub)})})}
 function untick(){ticked.clear(); document.querySelectorAll('#xpbr .cb').forEach(c=>{c.checked=false; c.disabled=false})}
 // the list of all that is ticked (a group under a ticked group is in it once): its things once each, their totals added up
@@ -355,11 +366,12 @@ function applyLooks(){const m=M(); if(!m)return; if(!m.isStyleLoaded())return se
   const keep=(id,k)=>{if(!(id+k in orig))orig[id+k]=m.getPaintProperty(id,k)??(k.endsWith('opacity')?1:null); return orig[id+k]};
   const set=(id,st,fadeTo)=>{const ly=m.getLayer(id); if(!ly)return; const k=OPA[ly.type]; const o=k&&keep(id,k);
     m.setLayoutProperty(id,'visibility',st==='off'?'none':'visible');
-    if(k)m.setPaintProperty(id,k,st==='fade'?(fadeTo??FADE):k==='line-opacity'&&eff()&&id.startsWith('u3d-')?lineOp():o)};
+    if(k)m.setPaintProperty(id,k,st==='fade'?(fadeTo??FADE):o)};     // (painted lines, arrows and guide lines never fade in a focus: Kaveh, 2026-10-13)
   m.getStyle().layers.forEach(l=>{if(l.source==='bm'&&l.type==='raster'){const o=keep(l.id,'raster-opacity');
     m.setPaintProperty(l.id,'raster-opacity',g==='full'?o:g==='fade'?0.35:0.08)}});
   const ov=lab=>(typeof OVERLAYS!=='undefined'&&OVERLAYS.find(o=>o.label===lab)||{}).layers||[];
-  if(d3()){m.getStyle().layers.forEach(l=>{if(l.id.startsWith('u3d-')&&l.id!=='u3d-deck')set(l.id,g)}); set('u3d-deck',up);
+  if(d3()){m.getStyle().layers.forEach(l=>{if(l.id.startsWith('u3d-')&&!['u3d-deck','u3d-bld','u3d-bld-on'].includes(l.id))set(l.id,g)}); set('u3d-deck',up);
+    if(window.bldLook)window.bldLook(g);     // (the buildings: the 3D page fades them itself, by focus and selection too)
     const F=eff(), onBr=focusU?/^\w1-/.test(focusU):F&&F.bridge>0;      // (a focus on the ground: the bridge faint)
     const upF=F&&!onBr&&up==='full'?'fade':up;
     if(window.brOpacity)window.brOpacity(upF==='full'?1:upF==='fade'?0.25:0); return}

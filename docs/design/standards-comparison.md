@@ -53,7 +53,7 @@ the text says so.
 | **3D** | the 3D model from the data (decks, kerbs, objects); not solids | LOD 0–3, solids | elevation, superelevation, shape, OpenCRG | full solids, swept along the alignment | none | `incline` only |
 | **Positions** | lon / lat, and (s, t) along each subsection's axis, **t positive to the left** | coordinates only, no linear referencing | (s, t, h), t positive to the left | alignment + `IfcPointByDistanceExpression`, lateral offset positive to the left | coordinates; Overture `between` ranges 0–1 | coordinates |
 | **Source of each value** | **every value: source and method** (mapped, measured, observed, derived, chosen), and the reference | none per value; external references per object | `dataQuality` per element: error in metres, source type, processing | per object or property set (`IfcOwnerHistory`, `Pset_Uncertainty`) | OSM: free text `source`; **Overture: `sources` per value** (dataset, record id, date, confidence), no method | per dataset only |
-| **Time** | not yet (see `plan.md`, source dates) | bitemporal dates on every feature; a versioning module | the header date; temporary lane layers and objects | the owner history only | OSM: `check_date`, element history; Overture: monthly releases | per dataset |
+| **Time** | not yet (planned: source dates) | bitemporal dates on every feature; a versioning module | the header date; temporary lane layers and objects | the owner history only | OSM: `check_date`, element history; Overture: monthly releases | per dataset |
 | **Ids** | content ids (`s0-…`, `i0-…`, `b0-…`, part ids) | `gml:id` and an `identifier` that stays across versions | ids in the file | GUIDs | OSM ids; Overture GERS ids with a registry | ids in the file |
 | **Checks** | fixed rules on the data (B, G, L, R, U, BR), each fault with a link | schema validation | schema (XSD) and rule ids | schema, model view definitions | none; tools such as validators | JSON Schema |
 
@@ -93,7 +93,7 @@ This table is the core of an export: one lookup for each of our kinds.
 5. **Overture's `sources` shape.** A list per feature, each entry naming the value it is about (a JSON Pointer), the dataset, the
    record id, the date and a confidence. With our `method` added, it is the source model we need.
 6. **A model of time.** CityGML's two times (when the data changed, when the real thing changed), and CDS's rule: a new geometry
-   gets a new id, and the old one stays with a link to the new one. This is the "source dates" item of `plan.md`.
+   gets a new id, and the old one stays with a link to the new one. This is the planned "source dates" work.
 7. **Stable ids with a registry** (Overture GERS: first seen, last seen, last changed).
 8. **Kerb rules by time of day** (CDS) for parking and loading, when a city gives them.
 9. **A formal schema** (JSON Schema, as CityJSON Extensions and OpenSidewalks use) and a validator that runs our checks.

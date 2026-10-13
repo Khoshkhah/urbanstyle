@@ -22,7 +22,7 @@ classifiers = [
   "Programming Language :: Python :: 3.13",
   "Topic :: Scientific/Engineering :: GIS",
 ]
-dependencies = ["duckdb>=1.1", "shapely>=2", "numpy", "pandas"]
+dependencies = ["duckdb>=1.1", "shapely>=2", "numpy", "pandas", "pyproj"]     # (pyproj: the bridge model, lon/lat to metres)
 
 [project.optional-dependencies]
 dashboard = ["roadstyle>=0.13.1", "geopandas"]

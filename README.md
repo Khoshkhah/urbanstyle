@@ -18,7 +18,8 @@
 <p align="center">
   <a href="https://khoshkhah.github.io/urbanstyle/"><b>Documentation</b></a> ·
   <a href="https://khoshkhah.github.io/urbanstyle/get-started/">Get started</a> ·
-  <a href="https://khoshkhah.github.io/urbanstyle/plan/">Roadmap</a>
+  <a href="https://khoshkhah.github.io/urbanstyle/dashboard/">The dashboard</a> ·
+  <a href="https://khoshkhah.github.io/urbanstyle/gallery/">Gallery</a>
 </p>
 
 <p align="center">
@@ -49,11 +50,28 @@ urbanstyle serve data/monaco.duckdb viz/monaco.html      # then open http://loca
 - **A dashboard for planners:** find, filter and ask questions in plain words, in 2D and 3D, with a street, section or block in focus.
 - **Bridges from a profile:** axes, lanes, paths, barriers, piers and the deck's heights from LiDAR.
 
+## The dashboard
+
+`urbanstyle serve` opens an area in the browser: a map in 2D and the street at its real size in 3D, with one panel on the left.
+
+- **Find** searches names, types and ids, and its tree lists the streets, the bridge, the street objects, the blocks, the buildings
+  and the ground.
+- **Filter** sets conditions on the fields of one layer, for example the sidewalks narrower than 1.8 m.
+- **Ask** answers a question in plain words, from the area's data only, with Claude or Gemini.
+- A list is orange, and the selected thing is deep purple, with its card. A selected section, intersection or block is in focus:
+  its own things in color, the buildings that frame it solid, everything else faint.
+- Each level is full, faded or hidden, in 2D and in 3D.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Khoshkhah/urbanstyle/main/docs/img/street3d.jpg" alt="One street lamp selected in 3D, seen along its street, with the buildings see-through" width="800"><br>
+  <sub>One lamp selected, close up in 3D. More pictures in the <a href="https://khoshkhah.github.io/urbanstyle/gallery/">Gallery</a>.</sub>
+</p>
+
 ## Status
 
 Alpha. The pilot area is West Broadway × Granville Street in Vancouver, with Granville Bridge. The format is a set of agreed
 requirements: a profile of CityGML 3.0, written as a CityJSON Extension. Its first specification and an export come next, then a
-second city. See the [roadmap](https://khoshkhah.github.io/urbanstyle/plan/).
+second city.
 
 ## The family
 

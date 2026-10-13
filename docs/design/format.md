@@ -108,7 +108,7 @@ The idea (Kaveh): every thing has a **profile**, made only of facts that do not 
 
 - An adjustment of the values with the connections between sources (R8 gives the weights): see the plan.
 
-- Time: the date of each source value (R2) and two builds compared by stable id (R6): the "source dates" item of [the plan](../plan.md).
+- Time: the date of each source value (R2) and two builds compared by stable id (R6): planned as "source dates".
 - Signals with national codes (OpenDRIVE's `country`, `type`, `subtype`).
 - Kerb rules by time of day (CDS), where a city gives them.
 - The code lists for `function` and `usage` (CityGML defines them outside the standard; the SIG3D lists are the starting point).

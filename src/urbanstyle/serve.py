@@ -230,13 +230,40 @@ class Area:
                     "blds": inside("space.element", "source_id", "AND x.type = 'building'"), "lots": inside("space.lot", "lot_id"),
                     "objs": inside("space.street_object", "id")}
 
-    def bounding(self, unit_id, reach_m=5.0):
-        """The buildings that frame a street space: their footprint within reach_m of its edge (5 m: the 4 at an intersection's corners,
-        the 13 along a block; Kaveh, 2026-10-13, "also the bounding buildings")."""
-        utm = lambda g: f"ST_Transform({g}, 'EPSG:4326', '{self.epsg}', always_xy := true)"
-        with self.lock:
-            return [i for (i,) in self.con.execute(f"""SELECT e.source_id FROM space.element e, space.unit u WHERE u.unit_id = ? AND
-                    e.type = 'building' AND ST_DWithin({utm('e.geometry')}, {utm('u.geometry')}, ?)""", [unit_id, reach_m]).fetchall()]
+    def bounding(self, unit_id, reach_m=10.0):
+        """The buildings that frame a street space: those seen from it. The shortest line from the space to a building is reach_m or
+        shorter, and no other building nearer the space and no other street space is on it: the front row, also behind a front yard
+        (a 5 m reach missed the set-back ones, Kaveh 2026-10-13: "5 meters is not enough"; 40 m was "too high"). 10 m: of the buildings
+        seen within 40 m, 507 stand within 5 m, 179 at 5-10 m, then only about 40 in each 5 m further out."""
+        import shapely
+        if not hasattr(self, "_frame"):
+            utm = f"ST_AsWKB(ST_Transform(geometry, 'EPSG:4326', '{self.epsg}', always_xy := true))"
+            with self.lock:
+                us = self.con.execute(f"SELECT unit_id, level, {utm} FROM space.unit").fetchall()
+                bs = self.con.execute(f"SELECT source_id, {utm} FROM space.element WHERE type = 'building'").fetchall()
+            units = {u: (lv, shapely.from_wkb(bytes(g))) for u, lv, g in us}
+            ids, geoms = [b for b, _ in bs], [shapely.from_wkb(bytes(g)) for _, g in bs]
+            streets = {lv: shapely.union_all([g for l2, g in units.values() if l2 == lv]) for lv in {l for l, _ in units.values()}}
+            self._frame = (units, ids, geoms, shapely.STRtree(geoms), streets, {})
+        units, ids, geoms, tree, streets, seen = self._frame
+        if unit_id not in units:
+            return []
+        if unit_id not in seen:
+            lv, ug = units[unit_id]
+            others = streets[lv].difference(ug.buffer(0.5))
+            out = []
+            for j in tree.query(ug.buffer(reach_m)):
+                line = shapely.shortest_line(geoms[j], ug)
+                if line.length > reach_m:
+                    continue
+                d = geoms[j].distance(ug)
+                if any(k != j and geoms[k].intersects(line) and geoms[k].distance(ug) < d for k in tree.query(line)):
+                    continue                                      # another building in front of it
+                if line.length > 1 and shapely.LineString([line.coords[0], line.interpolate(line.length - 1).coords[0]]).intersects(others):
+                    continue                                      # across another street space
+                out.append(ids[j])
+            seen[unit_id] = sorted(out)
+        return seen[unit_id]
 
     def street_levels(self):
         """The levels that hold a street space (the 3D view's levels: a building's floors go with the ground)."""

@@ -56,19 +56,23 @@ The panel is on the left. The « button folds it away, and the map then takes th
 
 Click a result in the list, a thing in the tree, or a thing on the map.
 
-- The thing turns deep purple. A short popup on the map gives its name, its layer and its id. Closing the popup deselects it.
+- The thing turns deep purple. If the panel is hidden, it opens.
 - Its **card** opens above the list, with all its fields and buttons to related things: its space, its parts, its section, all
   objects of its class.
-- In 2D, the mouse resting on a thing for 300 ms lights it in light purple.
+- The mouse resting on a thing for 300 ms lights it in light purple, and in 3D names its type.
+- In 3D, a selected street object is seen along its street, and the buildings become see-through, so that no building hides it.
+- To deselect, click the card's ×, press Esc, or click the thing again.
 
 ## See a street in focus
 
 In 3D, select a section, a subsection, an intersection, a block, or a group from the tree (for example a whole street). It is then
 in focus:
 
-- its parts, kerbs and painted lines keep their colors;
-- the street objects that stand in it, and the buildings that frame it (within 5 m), keep their colors;
-- everything else is faint, and so is the bridge when the focus is on the ground.
+- its parts and kerbs keep their colors;
+- the street objects that stand in it keep their colors;
+- the buildings that frame it stay solid: the front row, the buildings you can see from the space within 10 m;
+- everything else is faint, the other buildings are see-through, and so is the bridge when the focus is on the ground;
+- painted lines, arrows, guide lines and crosswalks keep their colors everywhere.
 
 Closing the card, or **Clear**, brings everything back.
 

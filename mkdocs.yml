@@ -45,6 +45,8 @@ extra_css:
 nav:
   - Home: index.md
   - Get started: get-started.md
+  - The dashboard: dashboard.md
+  - Gallery: gallery.md
   - How-to guides:
       - Build an area: how-to/build-an-area.md
       - Use the dashboard: how-to/use-the-dashboard.md
@@ -61,11 +63,11 @@ nav:
       - The street space: explanation/street-space.md
       - Sources and accuracy: explanation/sources.md
       - The format and the standards: explanation/standards.md
-  - Roadmap: plan.md
   - Design notes:
       - design/index.md
       - "Our format and the standards (research)": design/standards-comparison.md
       - "Dashboard v2": design/dashboard-v2.md
+      - "The dashboard online": design/online-dashboard.md
       - One unit in full: design/unit-dossier.md
       - What the sources hold: design/source-inventory.md
       - "Plots: where the street ends": design/plots.md
@@ -98,18 +100,31 @@ plugins:
   - llmstxt:
       full_output: llms-full.txt
       markdown_description: >
-        urbanstyle builds a level-aware street space from one duckOSM database: buildings, the right-of-way
-        between them partitioned into sections, intersections, path spaces, rail spaces and plazas, split into
-        travelway and pedestrian realm, filled with strips and point objects, and linked across levels -2 to 2.
+        urbanstyle is an open format for city street space, and an open tool that builds it from open data: the
+        street between the blocks, divided into sections, intersections, subsections and parts (lanes, sidewalk
+        zones, kerbs, crossings, painted lines), with street objects, bridges and levels -2 to 2, and the source
+        and method of every value. The format is a profile of CityGML 3.0, written as a CityJSON Extension.
       sections:
-        Get started:
+        Start:
           - index.md
           - get-started.md
-        Design:
-          - design/street-space.md
-          - design/street-space-spec.md
-          - design/street-objects.md
-          - design/glossary.md
+          - dashboard.md
+        How-to guides:
+          - how-to/build-an-area.md
+          - how-to/use-the-dashboard.md
+          - how-to/ask-questions.md
+          - how-to/check-the-data.md
+          - how-to/bridges.md
+        Reference:
+          - reference/commands.md
+          - reference/tables.md
+          - reference/ids.md
+          - reference/checks.md
+          - design/format.md
+        Explanation:
+          - explanation/street-space.md
+          - explanation/sources.md
+          - explanation/standards.md
 
 markdown_extensions:
   - admonition
@@ -130,3 +145,4 @@ markdown_extensions:
 # the builders are scripts, not pages
 exclude_docs: |
   build_*.py
+  plan.md

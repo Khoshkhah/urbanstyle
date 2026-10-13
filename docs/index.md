@@ -43,7 +43,7 @@ Then open <http://localhost:8784/>. [Get started](get-started.md) goes through t
 
 Alpha. The pilot area is West Broadway × Granville Street in Vancouver, with Granville Bridge. The format is a set of agreed
 requirements ([The format](design/format.md)): a profile of CityGML 3.0, written as a CityJSON Extension. The first version of its
-specification and an export command come next, then a second city, Södermalm in Stockholm. See the [roadmap](plan.md).
+specification and an export command come next, then a second city, Södermalm in Stockholm.
 
 ## Where to go next
 

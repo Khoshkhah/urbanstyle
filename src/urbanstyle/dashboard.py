@@ -414,6 +414,7 @@ function terrain(on){if(!map.setTerrain)return;
     attribution:'Terrain: <a href="https://registry.opendata.aws/terrain-tiles/" target="_blank">AWS Terrain Tiles</a>'});
   const now=!!map.getTerrain&&!!map.getTerrain(); if(on!==now)map.setTerrain(on?{source:'u3d-dem',exaggeration:1}:null)}
 function draw3d(){
+  map.setLight({anchor:'viewport',intensity:0.15});   // a soft light: white walls stay near-white (MapLibre's 0.5 made them grey, Kaveh 2026-10-13)
   terrain(in3d&&document.getElementById('terrain3d').checked);
   const add=(spec,filter)=>{if(!spec.source)return; if(!map.getLayer(spec.id)){map.addLayer(spec); U3D.push(spec.id)}
     map.setFilter(spec.id,filter); map.setLayoutProperty(spec.id,'visibility',in3d?'visible':'none')};
@@ -431,7 +432,7 @@ function draw3d(){
       'fill-extrusion-height':__KERBTOP__}},own);     // a grey stone, standing 5 cm above the sidewalk: the kerb reads as a line
   add({id:'u3d-raised',type:'fill-extrusion',source:ovSrc('Parts'),paint:{'fill-extrusion-color':['get','color'],'fill-extrusion-opacity':1,
       'fill-extrusion-height':byKey('type',RAISE,0)}},['all',own,['in',['get','type'],['literal',Object.keys(RAISE)]]]);
-  add({id:'u3d-bld',type:'fill-extrusion',source:ovSrc('Buildings'),paint:{'fill-extrusion-color':'#e7e2d8','fill-extrusion-opacity':0.92,
+  add({id:'u3d-bld',type:'fill-extrusion',source:ovSrc('Buildings'),paint:{'fill-extrusion-color':'#ffffff','fill-extrusion-opacity':0.92,'fill-extrusion-vertical-gradient':false,
       'fill-extrusion-height':['get','height_m'],'fill-extrusion-base':['*',['max',['get','level_min'],0],LEVEL_M]}},     // its real height
       ['>=',['get','level_max'],0]);
   const up=['*',['-',['get','level'],lv3d],DECK_M];   // bridges: the levels above, as decks in the air
@@ -468,12 +469,12 @@ const pop3d=(e,p,fields,who)=>setTimeout(()=>{if(sel3d!==who)return;     // dese
   pp.on('close',()=>{if(sel3d===who){sel3d=null; paint3d()}});    // (Popup.on does not return the popup: no chaining)
   pp.addTo(map)},0);
 // (the Explore panel selects a thing as a click in 3D does: its part_id, ground_id, building or car park id; urbanstyle serve)
-window.pick3d=v=>{sel3d=v??null; paint3d()};
+window.pick3d=(v,obj)=>{sel3d=v??null; selObj=!!obj; paint3d()};     // (obj: a street object: the buildings fade)
 function deselect3d(){if(sel3d===null)return false; sel3d=null; paint3d();
   document.querySelectorAll('.maplibregl-popup:not(.u3d-tip)').forEach(x=>x.remove()); return true}
 // layer -> [its colour property, the key of a feature, its own colour, its popup fields]
 const L3D={'u3d-furn':['fill-extrusion-color','refs',['get','color'],OBJ_POPUP],
-  'u3d-bld':['fill-extrusion-color','id','#e7e2d8',__BLDPOPUP__],
+  'u3d-bld':['fill-extrusion-color','id','#ffffff',__BLDPOPUP__],     // (white, no dark base: Kaveh, 2026-10-13)
   'u3d-lot':['fill-color','id','#a8b0ba',__LOTPOPUP__],
   'u3d-gnd':['fill-color','ground_id',['get','color'],__GROUNDPOPUP__],
   'u3d-kerb':['fill-extrusion-color','kerb_id','#8f8b86',['type','unit_id','arm','length_m','source','method','ref']],
@@ -498,8 +499,24 @@ function paint3d(){Object.entries(L3D).forEach(([id,[prop,key,base]])=>{if(!map.
   if(F){if(id==='u3d-bld')inF=lit('id',F.blds); else if(id==='u3d-gnd')inF=lit('ground_id',F.ground); else if(id==='u3d-lot')inF=lit('id',F.lots);
     else{const a=[fk&&lit(fk,units),['u3d-ground','u3d-raised'].includes(id)&&lit('part_id',F.parts),
       id==='u3d-furn'&&(F.objs||[]).length&&['any',...F.objs.map(is)]].filter(Boolean); inF=a.length?['any',...a]:false}}
-  map.setPaintProperty(id,prop,['case',is(sel3d||'\u0000'),'#7c4dff',is(hov3d||'\u0000'),'#b388ff',inF,base,marked,'#ff9100',
-    !F?base:'#ebe8e3'])})}
+  // (crosswalks keep their colours in every focus, as the painted lines do: Kaveh, 2026-10-13)
+  const always=['u3d-ground','u3d-raised'].includes(id)?['in',['get','type'],['literal',['crosswalk','cycle crossing']]]:false;
+  map.setPaintProperty(id,prop,['case',is(sel3d||'\u0000'),'#7c4dff',is(hov3d||'\u0000'),'#b388ff',inF,base,marked,'#ff9100',always,base,
+    !F?base:'#ebe8e3'])}); bldFade()}
+// buildings fade by their opacity: out of a focus (white walls in a faint grey read as no change, Kaveh 2026-10-13), and all of them
+// while a street object is selected (a building can stand between it and the camera). Those in focus, selected or lit stay whole: a
+// second layer over the same buildings
+// (the level's look from the panel: full, fade or off)
+let selObj=false, bldG='full'; window.bldLook=g=>{bldG=g; bldFade()};
+function bldFade(){const b=map.getLayer('u3d-bld'); if(!b)return; const fade=bldG==='fade'||!!xpFocus||(sel3d!==null&&selObj), on=in3d&&bldG!=='off';
+  if(!map.getLayer('u3d-bld-on'))map.addLayer({id:'u3d-bld-on',type:'fill-extrusion',source:b.source,paint:{'fill-extrusion-opacity':0.92,
+    'fill-extrusion-vertical-gradient':false,'fill-extrusion-height':['get','height_m'],'fill-extrusion-base':map.getPaintProperty('u3d-bld','fill-extrusion-base')}},map.getLayer('u3d-furn')?'u3d-furn':undefined);
+  if(!U3D.includes('u3d-bld-on'))U3D.push('u3d-bld-on');     // (a 3D layer: setView hides it in 2D)
+  const keep=['any',['in',['get','id'],['literal',(xpFocus&&xpFocus.blds)||[]]],['==',['get','id'],sel3d??'\u0000'],['==',['get','id'],hov3d??'\u0000']];
+  map.setFilter('u3d-bld-on',['all',map.getFilter('u3d-bld')||true,keep]);
+  map.setPaintProperty('u3d-bld-on','fill-extrusion-color',map.getPaintProperty('u3d-bld','fill-extrusion-color'));
+  map.setLayoutProperty('u3d-bld','visibility',on?'visible':'none'); map.setLayoutProperty('u3d-bld-on','visibility',on&&fade?'visible':'none');
+  map.setPaintProperty('u3d-bld','fill-extrusion-opacity',fade?0.25:0.92)}
 function bind3d(){if(bound3d||!map.getLayer('u3d-furn'))return; bound3d=true;
   const groundPop=(OVERLAYS.find(o=>o.label==='Parts')||{}).popup||[];
   let took=0;     // the topmost layer under the mouse takes the click: an object before the ground under it
@@ -516,7 +533,7 @@ function bind3d(){if(bound3d||!map.getLayer('u3d-furn'))return; bound3d=true;
       if(sel3d===p[key]){deselect3d(); return}          // a click on the selected one deselects it
       if(window.xpOnPick&&window.xpOnPick(id,p,e))return;      // (the Explore panel selects it: its card and its short popup)
       if(window.brDeselect)window.brDeselect();       // (a bridge part selected before: off, its popup closed)
-      sel3d=p[key]; paint3d(); pop3d(e,p,fields||groundPop,p[key])})});
+      sel3d=p[key]; selObj=id==='u3d-furn'; paint3d(); pop3d(e,p,fields||groundPop,p[key])})});
   map.on('click',e=>{if(!in3d)return; const hit=map.queryRenderedFeatures(e.point,{layers:Object.keys(L3D).filter(x=>map.getLayer(x))});
     if(!hit.length)deselect3d();
     svHere()})}       // 3D hides the road lines roadstyle's Street View follows: any click moves an open window to the nearest road
@@ -524,19 +541,21 @@ map.on('pitchend',()=>{setView(); apply()});   // the view follows the tilt: 3D'
 // Street View: roadstyle's window follows clicks on a road's centre line only; in a space most clicks land on its parts, lines or
 // Mapillary points (overlays). While the window is open such a click moves it too: to the road nearest the spot, looking along it.
 let downAt=null; map.on('mousedown',e=>downAt=e.lngLat); map.on('touchstart',e=>downAt=e.lngLat);
-function svHere(name){const w=document.querySelector('.rs-svw'); if(!w||w.hidden||!downAt)return;
-  // the road nearest the spot, from the map's road data (the roads need not be drawn: the overview hides them), looking along it
-  // and a bridge model's own roads (its axes, window.brAxes): the map's roads need not reach the bridge
+// the road nearest a spot, from the map's road data (the roads need not be drawn: the overview hides them), looking along it,
+// and a bridge model's own roads (its axes, window.brAxes): the map's roads need not reach the bridge. {x, y, h (heading), d, name}
+window.nearRoad=at=>{
   const src=map.getSource('roads'), data=src&&src.serialize&&src.serialize().data, lines=(window.brAxes||[]).slice();
   ((data&&data.features)||[]).forEach(f=>{const g=f.geometry; if(!g)return;
     (g.type==='LineString'?[g.coordinates]:g.type==='MultiLineString'?g.coordinates:[]).forEach(cs=>lines.push({cs,name:(f.properties||{}).name}))});
-  const k=Math.cos(downAt.lat*Math.PI/180), X=downAt.lng*k, Y=downAt.lat;
+  const k=Math.cos(at.lat*Math.PI/180), X=at.lng*k, Y=at.lat;
   let best=null;
   lines.forEach(({cs,name})=>{
     for(let i=0;i<cs.length-1;i++){const ax=cs[i][0]*k, ay=cs[i][1], bx=cs[i+1][0]*k, by=cs[i+1][1], dx=bx-ax, dy=by-ay, L=dx*dx+dy*dy||1e-18;
       const t=Math.max(0,Math.min(1,((X-ax)*dx+(Y-ay)*dy)/L)), px=ax+t*dx, py=ay+t*dy, d=(X-px)**2+(Y-py)**2;
       if(!best||d<best.d)best={d,x:px/k,y:py,h:(Math.atan2(dx,dy)*180/Math.PI+360)%360,name}}});
-  if(!best||Math.sqrt(best.d)*111320>40)return;      // no road within 40 m
+  return best&&Math.sqrt(best.d)*111320<=40?best:null};      // (none within 40 m)
+function svHere(name){const w=document.querySelector('.rs-svw'); if(!w||w.hidden||!downAt)return;
+  const best=nearRoad(downAt); if(!best)return;
   if(window.rsSetStreetViewMarkerAt)rsSetStreetViewMarkerAt(best.x,best.y,best.h);
   const url=`https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${best.y.toFixed(6)},${best.x.toFixed(6)}&heading=${Math.round(best.h)}`;
   document.dispatchEvent(new CustomEvent('rs:select',{detail:{sv:true,properties:{name:best.name||'Street View'},streetView:url}}))}

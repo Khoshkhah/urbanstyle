@@ -123,16 +123,17 @@ def build(con, epsg):
     if not blocks or not area:
         return 0
     box = g(area[0][0])
+    box_edge = box.boundary        # (the area's edge: of each part, when the area has several, Monaco)
     bid = [i for i, _ in blocks]
     bgeo = [x for _, x in blocks]
     street = poly(box.difference(shapely.union_all(bgeo), grid_size=0.01))
     short = lambda k: "edge" if k == -1 else bid[k][3:] if bid[k].startswith("b0-") else bid[k]
 
     # ---- shares and middle lines
-    openings = shapely.union_all([x for x in shapely.get_parts(shapely.line_merge(box.exterior.intersection(street.buffer(0.01))))
+    openings = shapely.union_all([x for x in shapely.get_parts(shapely.line_merge(box_edge.intersection(street.buffer(0.01))))
                                   if x.length < OPENING_M] or [shapely.Point()]).buffer(0.05)
     pts, owner, seen = [], [], set()
-    edge_near = box.exterior.intersection(shapely.union_all(bgeo).buffer(2 * RAY_M))
+    edge_near = box_edge.intersection(shapely.union_all(bgeo).buffer(2 * RAY_M))
     rings = [(k, b.exterior) for k, b in enumerate(bgeo)] + [(-1, x) for x in shapely.get_parts(shapely.line_merge(edge_near))
                                                             if x.geom_type == "LineString"]
     step = max(STEP_M, sum(r.length for _, r in rings) / MAX_POINTS)     # (a vast area: fewer points, coarser shares)
@@ -170,7 +171,7 @@ def build(con, epsg):
                 x = shapely.line_merge(shapely.set_precision(shapely.union_all(x), 0.05))
                 if x.length > 1:
                     mids[key] = x
-    targets = [(k, b) for k, b in enumerate(bgeo)] + [(-1, box.exterior)]
+    targets = [(k, b) for k, b in enumerate(bgeo)] + [(-1, box_edge)]
     ttree = shapely.STRtree([t for _, t in targets])
     cosf = math.cos(math.radians(FACE_DEG))
 
@@ -237,8 +238,8 @@ def build(con, epsg):
                     start = None
                 prev = sv
             for s0, s1 in runs:
-                e0 = line.interpolate(s0).distance(box.exterior) < 2.0
-                e1 = line.interpolate(s1).distance(box.exterior) < 2.0
+                e0 = line.interpolate(s0).distance(box_edge) < 2.0
+                e1 = line.interpolate(s1).distance(box_edge) < 2.0
                 c0, c1 = s0 + (0 if e0 else ARM_M), s1 - (0 if e1 else ARM_M)
                 hm = across(line, (c0 + c1) / 2)
                 width = hm[1][1].distance(hm[-1][1]) if all(hm.values()) else 0

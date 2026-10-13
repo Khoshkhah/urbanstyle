@@ -26,8 +26,8 @@ its data through `/api/...`. A page that `urbanstyle dashboard` builds stays usa
 One panel, docked on the left, with one way of working. The « button folds the panel away, and the map then takes the full width.
 
 1. **Get a result list** with one of three tabs: Find (type a name or an id, or browse the tree under the box), Filter or Ask. The results are orange on the map.
-2. **Select one thing** with a click on a result, on a tree item, or on the map, in 2D or 3D. It is deep purple, a short popup at it
-   gives its name, layer and id (closing it deselects), and its **card** opens at the top of the results: its fields, and buttons to the things it leads to (a part's space, a space's parts or section, a bridge part's axis,
+2. **Select one thing** with a click on a result, on a tree item, or on the map, in 2D or 3D. It is deep purple (no popup: it held
+   only the name and the id, and it covered the thing; 2026-10-13), and its **card** opens at the top of the results: its fields, and buttons to the things it leads to (a part's space, a space's parts or section, a bridge part's axis,
    all objects of one class).
 3. **Add layers** in Layers, under the level row: the data's own layers (street space data, strips, links, painted lines, survey
    objects), each one on its own, and the options (terrain, road surface in 2D, Mapillary). All are off at start, and the map is quiet:

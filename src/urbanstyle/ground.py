@@ -2,7 +2,7 @@
 type: water, rail, street, path, square, structure, green, plot, unknown. Built in that order, each kind taking only ground no earlier kind took; within a
 kind, its sources in the order listed. What is left is `unknown`: check G1 reports it, to be traced to a missing rule.
 
-    water   OSM water areas
+    water   OSM water areas, and the sea (duckOSM's features.ocean, from the coastline)
     rail    OSM railway land (landuse=railway); the rail lines' own beds
     street  our street spaces (space.unit)
     path    walkways and cycleways away from roads (a greenway, a connector, a footpath): the measured path spaces (space.container `path`)
@@ -73,7 +73,11 @@ def build(con, epsg):
         f"SELECT osm_id, osm_type, name, {m('geom')} FROM osm.features.land WHERE kind IN {tuple(kinds) + ('',)}")]
     # (type, items [(ref, name, geometry)], source, method), in the order they take the ground
     order = [
-        ("water", [(f"w{i}", n, g(w)) for i, n, w in rows(f"SELECT osm_id, name, {m('geom')} FROM osm.features.water_polygons")], "osm", "mapped"),
+        # (and the sea: OSM maps it only by its coastline, duckOSM's features.ocean makes it an area; Monaco's harbours were yards,
+        # Kaveh, 2026-10-13)
+        ("water", [(f"w{i}", n, g(w)) for i, n, w in rows(f"SELECT osm_id, name, {m('geom')} FROM osm.features.water_polygons")]
+         + [(f"{'w' if t == 'way' else 'r'}{i}", n or "sea", g(w)) for i, t, n, w in rows(f"SELECT osm_id, osm_type, name, {m('geom')} FROM osm.features.ocean")],
+         "osm", "mapped"),
         ("rail", land(("railway",)) + [(f"w{i}", n, g(w).buffer(max(wd or 4.0, 3.0) / 2, cap_style="flat")) for i, n, w, wd in rows(
             f"SELECT osm_id, name, {m()}, width_m FROM space.element WHERE type = 'rail' AND level_min = 0")], "osm", "mapped"),
         ("street", [(u, None, g(w)) for u, w in rows(f"SELECT unit_id, {m()} FROM space.unit WHERE level = 0")], "urbanstyle", "derived"),

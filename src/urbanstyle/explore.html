@@ -396,8 +396,15 @@ const OPA={fill:'fill-opacity','fill-extrusion':'fill-extrusion-opacity',line:'l
 // 2D: each layer's things on the levels not hidden: by `level`, a building by its floors (level_min..level_max), a link by its two ends
 function levels2d(){const m=M(); if(!m||d3()||typeof OVERLAYS==='undefined'||typeof rsFilter!=='function')return; const L=look(), on=l=>(L[l]||'full')!=='off';
   const keep=p=>p.level!=null?on(p.level):p.level_min!=null?Array.from({length:p.level_max-p.level_min+1},(_,i)=>p.level_min+i).some(on):p.level_a!=null?on(p.level_a)||on(p.level_b):true;
-  rsFilter(rsQuery(p=>p.level==null||on(p.level)));      // the road centre lines
-  OVERLAYS.forEach(o=>{if(o.label!=='Bridge 2D'&&!/3D/.test(o.label))rsFilter(rsQuery(keep,o.label),o.label)})}
+  // (a layer whose data is not in yet is left alone, and tried again: filtered while empty, it was hidden whole, and the map opened with
+  // no data at all; Kaveh, 2026-10-13: "monaco-v8 not working at all")
+  let waiting=rsQuery(()=>true).length===0;
+  if(!waiting)rsFilter(rsQuery(p=>p.level==null||on(p.level)));      // the road centre lines
+  OVERLAYS.forEach(o=>{if(o.label==='Bridge 2D'||/3D/.test(o.label))return;
+    if(!rsQuery(()=>true,o.label).length){waiting=true; return}
+    rsFilter(rsQuery(keep,o.label),o.label)});
+  if(waiting&&lvTries++<60)setTimeout(levels2d,1000)}
+let lvTries=0;
 function applyLooks(){const m=M(); if(!m)return; if(!m.isStyleLoaded())return setTimeout(applyLooks,200); const L=look();
   const g=L[0]||'full', up=L[1]||'full';
   const keep=(id,k)=>{if(!(id+k in orig))orig[id+k]=m.getPaintProperty(id,k)??(k.endsWith('opacity')?1:null); return orig[id+k]};

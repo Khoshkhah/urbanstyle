@@ -785,11 +785,15 @@ def matched_objects(con, epsg, db):
     return out
 
 
-def bridge_decks(bridges, epsg):
-    """Each bridge profile's deck (bridge3d.surface), in `epsg` metres."""
+def bridge_decks(bridges, epsg, models=()):
+    """Each bridge profile's deck (bridge3d.surface), in `epsg` metres; with the bridges' models, each deck's final outline (deck_ll):
+    street lights stand at its edge (on the profile's first outline they stood in lanes and in the air, Kaveh, 2026-10-12)."""
+    import shapely
+    import shapely.geometry
+    import shapely.ops
     from .bridge3d import surface
     out = []
-    for b in bridges:
+    for i_, b in enumerate(bridges):
         P = json.load(open(b))
         if P["crs"] != epsg:            # the profile in the dashboard's metres
             import pyproj
@@ -798,7 +802,12 @@ def bridge_decks(bridges, epsg):
             P["deck"]["outline"]["value"] = [list(f(x, y)) for x, y in P["deck"]["outline"]["value"]]
             for a in P["axes"]:
                 a["line"]["value"] = [list(f(*q[:2])) for q in a["line"]["value"]]
-        out.append(surface(P))
+        d_ = surface(P)
+        if i_ < len(models) and models[i_].get("deck_ll"):
+            import pyproj
+            f_ = pyproj.Transformer.from_crs(4326, epsg, always_xy=True).transform
+            d_["deck"] = shapely.ops.transform(f_, shapely.geometry.shape(models[i_]["deck_ll"]))
+        out.append(d_)
     return out
 
 
@@ -1188,7 +1197,8 @@ def main(db, out, bridges=None):
     shapes = object_shapes(con, epsg_of(con), place)
     try:
         mobjs = matched_objects(con, epsg_of(con), db)
-        furn = furniture_3d(con, epsg_of(con), place, mobjs, bridge_decks(bridges or [], epsg_of(con)))
+        ms_early = bridge_models(con, bridges) if bridges else ([], set())
+        furn = furniture_3d(con, epsg_of(con), place, mobjs, bridge_decks(bridges or [], epsg_of(con), ms_early[0]))
         # 2D: one dot per real object, where its model stands (its smallest block: the pole, the trunk, the cover), coloured by kind
         dots = furn.assign(a=furn.to_crs(epsg_of(con)).area).sort_values("a").drop_duplicates("refs").drop(columns=["a"])
         dots = dots.set_geometry(dots.to_crs(epsg_of(con)).centroid.to_crs(4326))
@@ -1292,7 +1302,10 @@ def main(db, out, bridges=None):
             ("connection", "Other level change", "#ec4899", "ways on different layers meet, no ramp, stairs or lift tagged")]
     defs = [d for d in defs if (links["type"] == d[0]).any()]
     o = lambda g, **kw: rs.Overlay(g, placement="under", **kw)
-    ms, under = bridge_models(con, bridges) if bridges else ([], set())
+    try:
+        ms, under = ms_early
+    except NameError:
+        ms, under = bridge_models(con, bridges) if bridges else ([], set())
     # the bridges in 2D (Kaveh, 2026-10-12: "a 2D version of the bridge, everything with an id"): every part of each model, flat, with its id
     bridge2d = gpd.GeoDataFrame([{**{k: (v if isinstance(v, (str, int, float)) or v is None else str(v)) for k, v in pr.items()},
                                   "color": PART_COLORS.get(key) or PART_COLORS.get(key.split(" ")[0]) or {"barrier median": "#cfc8bd", "median": "#6b7280",

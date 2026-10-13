@@ -2026,7 +2026,7 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False):
     # the flat map, which has no depth: a slab under the ground showed as a block standing on it)
     # on a landing (OSM maps no bridge there: the road on fill between walls) the sides reach the ground
     fill = S["fill"]
-    under = lambda x, y, zz: 0.0 if fill is not None and shapely.contains_xy(fill, x, y) else max(zz - DECK_M, 0.0)
+    under = lambda x, y, zz, fill=fill: 0.0 if fill is not None and shapely.contains_xy(fill, x, y) else max(zz - DECK_M, 0.0)
     bottom = [[vid(x, y, under(x, y, z(x, y))) for x, y in t.exterior.coords[:3]][::-1] for t in tris]
     sides, rails = [], []
     for ring in [dense.exterior] + list(dense.interiors):
@@ -2779,6 +2779,22 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False):
         for q, xm, ym in zip(pts, (X - mx0) * k, (Y - my0) * k):
             q[0], q[1] = round(float(xm), 2), round(float(ym), 2)
         return pts
+    # the slab drawn from the deck as it is now: the deck grows and is cut after the first slab (its heights, zd), and the guards stand on
+    # the final deck's edge; the old slab's edge showed as steps beside them and as bare deck (Kaveh, 2026-10-12: "stepping in barriers")
+    top_f, bottom_f, sides_f = top, bottom, sides
+    if not flat_only:
+        dense_f = deck.segmentize(STEP_M)
+        tris_f = [t for cell in grid(dense_f, STEP_M) for pc in shapely.get_parts(cell) if pc.geom_type == "Polygon" and pc.area > 1e-4
+                  for t in shapely.get_parts(shapely.constrained_delaunay_triangles(pc)) if t.representative_point().within(pc.buffer(0.01))]
+        top_f = [[vid(x, y, z(x, y)) for x, y in t.exterior.coords[:3]] for t in tris_f]
+        bottom_f = [[vid(x, y, under(x, y, z(x, y))) for x, y in t.exterior.coords[:3]][::-1] for t in tris_f]
+        sides_f = []
+        for ring in [dense_f.exterior] + list(dense_f.interiors):
+            c = list(ring.coords)
+            for (ax, ay), (bx, by) in zip(c, c[1:]):
+                za, zb = z(ax, ay), z(bx, by)
+                a0, b0, a1, b1 = vid(ax, ay, under(ax, ay, za)), vid(bx, by, under(bx, by, zb)), vid(ax, ay, za), vid(bx, by, zb)
+                sides_f += [[a0, b0, b1], [a0, b1, a1]]
     deck_ll = json.loads(shapely.to_geojson(shapely.ops.transform(lambda x, y: to_ll(x + x0, y + y0), deck)))   # (the final outline, GeoJSON, for checks)
     flat = []           # the 2D layer (dashboard "Bridge 2D"): each surface's outline in lon / lat, with its id and fields
     for sf_ in surf:
@@ -2794,7 +2810,7 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False):
     for q in truss:
         to_map([q["a"], q["b"]])
     return {"name": P["name"], "origin": list(to_ll(x0, y0)), "outline": [list(to_ll(x, y)) for x, y in ol], "verts": verts,
-            "deck": top + bottom, "axes": [[list(to_ll(x, y)) for x, y in a["line"]["value"]] for a in P["axes"]], "sides": sides, "rails": rails, "lines": lines, "lanes": lanes, "piers": piers, "truss": truss, "surf": surf, "checks": checks, "flat": flat, "deck_ll": deck_ll,
+            "deck": top_f + bottom_f, "axes": [[list(to_ll(x, y)) for x, y in a["line"]["value"]] for a in P["axes"]], "sides": sides_f, "rails": rails, "lines": lines, "lanes": lanes, "piers": piers, "truss": truss, "surf": surf, "checks": checks, "flat": flat, "deck_ll": deck_ll,
             "sources": {"outline": v(P["deck"]["outline"]), "heights": "; ".join(sorted({v(a["vertical"]) for _, a in axes})),
                         "deck": v(P["deck"]["thickness"]), "parapet": v(P["deck"]["parapet"]),
                         "piers": v(P["piers"][0]) if P["piers"] else "none"}}

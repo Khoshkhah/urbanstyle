@@ -458,7 +458,9 @@ function wire2d(){const m=M();
   m.on('mouseout',()=>{clearTimeout(hovT2); hovKey=null; hovSrc(null)});
   m.on('click',e=>{if(is3d())return; const f=hit2d(e.point), r=f&&ref(f); if(!r)return;
     post('/api/query',{layer:r[0],where:[{field:LAYERS_ID[r[0]]||'id',op:'=',value:r[1]}]}).then(fc=>{if(fc.features&&fc.features[0])select(fc.features[0],[e.lngLat.lng,e.lngLat.lat])})});
-  if(typeof OVERLAYS!=='undefined')OVERLAYS.forEach(o=>{if(OVMAP[o.label])o.interactive=false})}      // (roadstyle's own popup: off for these)
+  // (roadstyle's own popup and its hover tooltip: off for these; the tooltip showed a building's type on the map over a block, Kaveh
+  // 2026-10-13: "popup shows up on the map instead of the side panel")
+  if(typeof OVERLAYS!=='undefined')OVERLAYS.forEach(o=>{if(OVMAP[o.label]){o.interactive=false; o.tooltip=[]}})}
 const LAYERS_ID={'Buildings':'source_id','Bridge parts':'id','Street spaces':'unit_id','Street parts':'part_id','Ground':'ground_id','Car parks':'lot_id','Blocks':'block_id'};
 const keep=()=>{if(M()&&M().on){wire2d(); M().on('styledata',()=>{if(last)layers()}); M().on('pitchend',()=>setTimeout(()=>{vis(); views(); applyLooks(); selSrc(selF&&$('xpcard').classList.contains('on')?selF:null)},50)); M().once('idle',()=>{views(); applyLooks()}); return} setTimeout(keep,500)}; keep();
 })();

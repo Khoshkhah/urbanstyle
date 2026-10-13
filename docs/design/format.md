@@ -86,6 +86,17 @@ The idea (Kaveh): every thing has a **profile**, made only of facts that do not 
 - **The id** goes in CityGML's `identifier`. **The readable code** (`s0-…`, `i0-…`, `b0-…`) stays as a label for people and the
   dashboard; it can change between builds. **External ids** (OSM, the city's records, Overture's GERS) go in `externalReference`.
 
+### R8. The accuracy of every value (agreed 2026-10-13)
+
+- Each `+sources` entry has `accuracy`: how far the value can be from the truth, in metres for a position or a width, or as a
+  confidence from 0 to 1 for a class or a count.
+- The accuracy comes from the source itself, where the source gives it: a city's record says "survey accuracy" or "approximate
+  location" (we read these notes already); LiDAR heights are about ±0.1 m; Mapillary's positions lie a median 6 m from the city's
+  surveyed poles (measured at Broadway × Granville). Where a source gives none (OSM), the value is urbanstyle's own class, with
+  `method` chosen.
+- A value that urbanstyle derives (a width between two edges) gets the accuracy of its inputs, combined.
+- OpenDRIVE (`dataQuality`) and IFC (`Pset_Uncertainty`) record the same, but only for a whole element or object.
+
 ### R7. Exports (agreed: by use)
 
 - OpenDRIVE 1.9 for driving simulation (SUMO, CARLA, esmini): lanes, junctions, `crossPath`, objects, signals, bridges.
@@ -94,6 +105,8 @@ The idea (Kaveh): every thing has a **profile**, made only of facts that do not 
 - IFC 4.3 only for a project hand-over.
 
 ## Still open
+
+- An adjustment of the values with the connections between sources (R8 gives the weights): see the plan.
 
 - Time: the date of each source value (R2) and two builds compared by stable id (R6): the "source dates" item of [the plan](../plan.md).
 - Signals with national codes (OpenDRIVE's `country`, `type`, `subtype`).

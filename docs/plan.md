@@ -74,6 +74,12 @@ In order; each item is a general rule, checked on Broadway x Granville before an
 - [ ] **A versioned specification of the format** (requirements: [The format](design/format.md); research: [Our format and the standards](design/standards-comparison.md)): a CityGML 3.0
       profile as a CityJSON Extension, with our sources, levels and (s, t); its JSON Schema and a validator; exports to OpenDRIVE,
       OpenSidewalks or OSM, GMNS.
+- [ ] **An adjustment that uses the connections between sources** (research, after the format and Södermalm; Kaveh, 2026-10-13).
+      Each value has an accuracy (format R8), and the sources overlap and follow the street's rules: the lanes and sidewalks add up to
+      the width between the building lines, a kerb touches the lane and the sidewalk, a lamp stands on the sidewalk. Where a rule breaks,
+      the less accurate value moves. For example, a lamp from the city's survey (about 0.1 m) that lands in the middle of a lane drawn
+      from OSM (a few metres) moves the lane's edge, not the lamp. Solved together for the whole area (a least-squares adjustment, as
+      surveyors do), every value gets closer to the truth and its stated accuracy gets smaller.
 - [ ] **Source dates** (proposed 2026-10-13, design note first): a `source_date` with each sourced value, and a manifest of the sources
       and their dates for each area file, so that two builds of one area can be compared by their stable ids.
 - [ ] **Tunnels in 3D:** levels −1 and −2 with the same full / faded / hidden buttons, built and checked on Södermalm.

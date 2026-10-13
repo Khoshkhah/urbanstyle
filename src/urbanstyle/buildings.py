@@ -92,7 +92,7 @@ def city(con):
     con.execute("CREATE OR REPLACE TEMP TABLE cfp (ds VARCHAR, i VARCHAR, g GEOMETRY, h DOUBLE)")
     con.executemany("INSERT INTO cfp VALUES (?, ?, ST_MakeValid(ST_GeomFromGeoJSON(?)), ?)", rows)
     try:    # only where OSM's data reaches (a clip's box): beyond it, OSM lacking a building says nothing
-        con.execute("DELETE FROM cfp WHERE NOT ST_Intersects(ST_Centroid(g), (SELECT ST_Union_Agg(geometry) FROM osm.main.boundary))")
+        con.execute("DELETE FROM cfp WHERE NOT ST_Intersects(ST_Centroid(g), (SELECT ST_Union_Agg(geometry) FROM osm_boundary))")
     except duckdb.CatalogException:     # a whole duckOSM database, not a clip: the city's file covers less than it
         pass
     try:

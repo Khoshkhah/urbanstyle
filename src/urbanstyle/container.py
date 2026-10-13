@@ -904,6 +904,11 @@ def build(osm, out):
     con = duckdb.connect(out)
     con.execute("INSTALL spatial; LOAD spatial")
     con.execute(f"ATTACH '{osm}' AS osm (READ_ONLY)")
+    # the area's boundary with its outline in `geometry`: an older duckOSM names it `geom` (Monaco's file; the build failed at the
+    # blocks, 2026-10-13); blocks, ground and buildings read this view
+    cols = {c for (c,) in con.execute("SELECT column_name FROM duckdb_columns() WHERE database_name = 'osm' AND table_name = 'boundary'").fetchall()}
+    if cols:
+        con.execute(f"CREATE OR REPLACE TEMP VIEW osm_boundary AS SELECT {'geometry' if 'geometry' in cols else 'geom'} AS geometry FROM osm.main.boundary")
     con.execute(BUILD)
     con.execute(ROADS)
     from . import buildings

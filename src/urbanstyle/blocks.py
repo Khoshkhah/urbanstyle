@@ -75,7 +75,7 @@ def build(con, epsg):
     con.execute("""CREATE OR REPLACE TABLE space.block_side (block_id VARCHAR, way_id BIGINT, name VARCHAR, class VARCHAR,
                    distance_m DOUBLE, basis VARCHAR, method VARCHAR, unpulled_m DOUBLE, building VARCHAR)""")
     city_blocks(con)
-    area = [g(w) for (w,) in rows(f"SELECT {m()} FROM osm.main.boundary")]
+    area = [g(w) for (w,) in rows(f"SELECT {m()} FROM osm_boundary")]
     box = shapely.union_all(area) if area else shapely.box(*shapely.union_all(
         [g(w) for (w,) in rows(f"SELECT {m()} FROM space.element")]).bounds)
     con.execute("CREATE OR REPLACE TABLE space.area (geometry GEOMETRY)")

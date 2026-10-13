@@ -66,7 +66,7 @@ def build(con, epsg):
         except duckdb.CatalogException:     # a database without that layer
             return []
 
-    area = [g(w) for (w,) in rows(f"SELECT {m()} FROM osm.main.boundary")]
+    area = [g(w) for (w,) in rows(f"SELECT {m()} FROM osm_boundary")]
     area = shapely.union_all(area) if area else shapely.box(*shapely.union_all(
         [g(w) for (w,) in rows(f"SELECT {m()} FROM space.element")]).bounds)
     land = lambda kinds: [(f"w{i}" if t == "way" else f"r{i}", n, g(w)) for i, t, n, w in rows(

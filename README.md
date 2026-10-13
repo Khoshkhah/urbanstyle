@@ -5,8 +5,7 @@
 <h1 align="center">urbanstyle</h1>
 
 <p align="center">
-  <b>The street space of a city, level by level.</b><br>
-  The right-of-way between the buildings, cut into sections and intersections, split into travelway and pedestrian realm, filled with strips and objects. From one duckOSM database.
+  <b>An open format for city street space, and an open tool that builds it from open data.</b>
 </p>
 
 <p align="center">
@@ -19,65 +18,52 @@
 <p align="center">
   <a href="https://khoshkhah.github.io/urbanstyle/"><b>Documentation</b></a> ·
   <a href="https://khoshkhah.github.io/urbanstyle/get-started/">Get started</a> ·
-  <a href="https://khoshkhah.github.io/urbanstyle/plan/">Roadmap</a> ·
-  <a href="https://khoshkhah.github.io/urbanstyle/design/street-space/">Design</a>
+  <a href="https://khoshkhah.github.io/urbanstyle/plan/">Roadmap</a>
 </p>
-
----
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/Khoshkhah/urbanstyle/main/docs/img/sodermalm.jpg" alt="The urbanstyle dashboard on Södermalm, Stockholm: the street space at level 0, sections in violet, intersections in amber, path spaces in green, plazas in red, buildings in blue, with the hierarchy tree on the left" width="900"><br>
-  <sub>Södermalm, Stockholm, in the urbanstyle dashboard. Map data © OpenStreetMap contributors, base map © CARTO.</sub>
+  <img src="https://raw.githubusercontent.com/Khoshkhah/urbanstyle/main/docs/img/focus.jpg" alt="Granville Street in focus in the urbanstyle dashboard: its lanes, markings and trees in color, everything else faint" width="800"><br>
+  <sub>Granville Street, Vancouver, in focus in the 3D view of the dashboard. Map data © OpenStreetMap contributors, base map © CARTO.</sub>
 </p>
+
+urbanstyle takes the space between the buildings of a city and divides it the way a street engineer does: into sections and
+intersections, and each of these into lanes, sidewalk zones, kerbs, crossings and painted lines. The street objects stand in it,
+and bridges carry it at their measured heights. Every value names its source and how it was found: mapped in OpenStreetMap,
+measured from LiDAR, taken from a city's survey, observed in street-level photos, or derived by urbanstyle.
 
 ## Quick start
 
 ```bash
 pip install "urbanstyle[dashboard,osm] @ git+https://github.com/Khoshkhah/urbanstyle"
-```
-
-```bash
 duckosm build --pbf monaco-latest.osm.pbf -o monaco.duckdb -m driving -m walking -m cycling
-urbanstyle build monaco.duckdb data/monaco.duckdb         # ~1 min for Monaco
-urbanstyle check data/monaco.duckdb                       # the partition invariants: PASS / FAIL
-urbanstyle dashboard data/monaco.duckdb viz/monaco.html   # an offline map with the hierarchy tree
-urbanstyle unit broadway-granville --at -123.138546 49.263611 --osm vancouver_city.duckdb --vancouver \
-    --gtfs https://gtfs-static.translink.ca/gtfs/google_transit.zip           # one unit in full: data/units/<name>.duckdb
+urbanstyle build monaco.duckdb data/monaco.duckdb
+urbanstyle dashboard data/monaco.duckdb viz/monaco.html
+urbanstyle serve data/monaco.duckdb viz/monaco.html      # then open http://localhost:8784/
 ```
 
 ## What you get
 
-- **A measured street space.** Cross-section rays every 3 m out to the building faces: the right-of-way as it is, not a buffer of constant width.
-- **A clean partition.** Sections, intersections, path spaces, rail spaces and plazas: no overlaps, no gaps, one connected polygon each, checked on every build.
-- **Levels −2 … 2.** Bridges over, tunnels and metro stations under, and the ramps, stairs, lifts and entrances that link them.
-- **Strips and objects.** Every container filled with typed bands (travel, cycle, sidewalk, furnishing, frontage) and the trees, lamps, benches and crossings that stand in it.
-- **One unit in full.** One junction or street section with everything every source knows: lanes and turns (SUMO on duckOSM), kerbs, markings, parking with its rules, bus stops with their timetable, street objects matched across OSM, a city's survey and Mapillary, and each building's use and ground-floor use. Every item carries its source, method and confidence.
-- **2D and 3D.** One page, two views of the same data: a map, and the street at real size where every lane, kerb, building and object can be selected.
-- **Stable ids.** `s0-<edge>` for a section, `i0-<node>` for an intersection: the same after every rebuild.
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/Khoshkhah/urbanstyle/main/docs/img/section.jpg" alt="One section in focus in the dashboard: Dalslandsgatan, Södermalm, with its travel lane, cycle lane, sidewalk, furnishing and frontage strips, its entrances and the buildings that bound it" width="900"><br>
-  <sub>Click a section: its strips, its objects and the buildings that bound it. Map data © OpenStreetMap contributors, base map © CARTO.</sub>
-</p>
-
-## The family
-
-urbanstyle works on the same data as its siblings:
-
-| | |
-|---|---|
-| [duckOSM](https://github.com/Khoshkhah/duckOSM) | `.osm.pbf` → a routable network in DuckDB; urbanstyle's input |
-| [roadstyle](https://github.com/Khoshkhah/roadstyle) | styled, interactive road maps; draws urbanstyle's dashboard |
-| [mapstyle](https://github.com/Khoshkhah/mapstyle) | the full base map |
-| [lanestyle](https://github.com/Khoshkhah/lanestyle) | lane-level maps |
-| **urbanstyle** | the space between the buildings |
+- **The street space as areas, in 3D:** sections, intersections, subsections and parts, at levels −2 … 2.
+- **One object for each real thing,** matched from OpenStreetMap, a city's open data and Mapillary, with every source's id.
+- **The source and the method of every value,** and checks that run on every build.
+- **A dashboard for planners:** find, filter and ask questions in plain words, in 2D and 3D, with a street, section or block in focus.
+- **Bridges from a profile:** axes, lanes, paths, barriers, piers and the deck's heights from LiDAR.
 
 ## Status
 
-Alpha. Since 2026-10-09 the work is **one unit in full**: W Broadway × Granville St in Vancouver, built from OSM, SUMO, the
-City of Vancouver's open data, TransLink's timetable and Mapillary (for validation only), then compared with reality. Built so
-far: parking, bus stops and building use; next are crossing and kerb details. The city-wide partition (Monaco and Södermalm, which
-pass the hard checks) is paused. See the [roadmap](https://khoshkhah.github.io/urbanstyle/plan/).
+Alpha. The pilot area is West Broadway × Granville Street in Vancouver, with Granville Bridge. The format is a set of agreed
+requirements: a profile of CityGML 3.0, written as a CityJSON Extension. Its first specification and an export come next, then a
+second city. See the [roadmap](https://khoshkhah.github.io/urbanstyle/plan/).
+
+## The family
+
+| | |
+|---|---|
+| [duckOSM](https://github.com/Khoshkhah/duckOSM) | an OSM extract becomes a routable network in DuckDB; urbanstyle's input |
+| [roadstyle](https://github.com/Khoshkhah/roadstyle) | styled, interactive road maps; draws urbanstyle's dashboard |
+| [mapstyle](https://github.com/Khoshkhah/mapstyle) | the full base map |
+| [lanestyle](https://github.com/Khoshkhah/lanestyle) | lane-level maps |
+| **urbanstyle** | the street space between the buildings |
 
 ## For AI agents
 

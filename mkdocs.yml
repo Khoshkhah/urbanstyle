@@ -45,12 +45,27 @@ extra_css:
 nav:
   - Home: index.md
   - Get started: get-started.md
+  - How-to guides:
+      - Build an area: how-to/build-an-area.md
+      - Use the dashboard: how-to/use-the-dashboard.md
+      - Ask questions: how-to/ask-questions.md
+      - Check the data: how-to/check-the-data.md
+      - Model a bridge: how-to/bridges.md
+  - Reference:
+      - Commands: reference/commands.md
+      - Tables: reference/tables.md
+      - Ids: reference/ids.md
+      - Checks: reference/checks.md
+      - "The format: requirements": design/format.md
+  - Explanation:
+      - The street space: explanation/street-space.md
+      - Sources and accuracy: explanation/sources.md
+      - The format and the standards: explanation/standards.md
   - Roadmap: plan.md
-  - Units:
-      - Skanstull: units/skanstull.md
-      - W Broadway × Granville St: units/broadway-granville.md
   - Design notes:
       - design/index.md
+      - "Our format and the standards (research)": design/standards-comparison.md
+      - "Dashboard v2": design/dashboard-v2.md
       - One unit in full: design/unit-dossier.md
       - What the sources hold: design/source-inventory.md
       - "Plots: where the street ends": design/plots.md
@@ -59,9 +74,6 @@ nav:
       - "Bridges in 3D": design/bridges-3d.md
       - "Bridge profile": design/bridge-profile.md
       - "Bridge heights without LiDAR": design/bridge-heights.md
-      - "Dashboard v2": design/dashboard-v2.md
-      - "Our format and the standards": design/standards-comparison.md
-      - "The format: requirements": design/format.md
       - "Research: how standards layer a street": design/layers-research.md
       - Street space: design/street-space.md
       - Specification: design/street-space-spec.md
@@ -76,6 +88,9 @@ nav:
       - Glossary: design/glossary.md
       - "Research: partitioning": design/partitioning-research.md
       - "Research: levels": design/levels-research.md
+      - Units:
+          - Skanstull: units/skanstull.md
+          - W Broadway × Granville St: units/broadway-granville.md
 
 plugins:
   - search

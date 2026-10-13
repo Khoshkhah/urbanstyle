@@ -1,89 +1,56 @@
 # urbanstyle
 
-<p class="lead">The street space of a city, level by level: the right-of-way between the buildings, cut into sections and intersections, split into travelway and pedestrian realm, filled with strips and objects, and linked across levels. From one duckOSM database.</p>
+<p class="lead">An open format for city street space, and an open tool that builds it from open data.</p>
 
-<div class="us-hero" markdown>
-![The urbanstyle dashboard on Södermalm, Stockholm: the street space at level 0, sections in violet, intersections in amber, path spaces in green, plazas in red, buildings in blue, with the hierarchy tree on the left](img/sodermalm.jpg)
-</div>
+![Granville Street in focus in the urbanstyle dashboard: its lanes, markings and trees in color, everything else faint](img/focus.jpg)
+<small>Granville Street, Vancouver, in focus in the 3D view of the dashboard. Map data © OpenStreetMap contributors, base map © CARTO.</small>
 
-<p class="us-caption">Södermalm, Stockholm, in the urbanstyle dashboard. Map data © OpenStreetMap contributors, base map © CARTO.</p>
+urbanstyle takes the space between the buildings of a city and divides it the way a street engineer does. The street is the ground
+outside the blocks. Each street is divided into sections and intersections, and each of these into its parts: lanes, shoulders,
+medians, sidewalk zones, kerbs, crossings and painted lines. The street objects (lamps, trees, signs, benches, hydrants) stand in
+it, and bridges carry it above the ground at their measured heights.
 
-```bash
-pip install "urbanstyle[dashboard] @ git+https://github.com/Khoshkhah/urbanstyle"
-```
-
-```bash
-urbanstyle build monaco.duckdb data/monaco.duckdb        # duckOSM in, space schema out
-urbanstyle check data/monaco.duckdb                      # invariants: PASS / FAIL
-urbanstyle dashboard data/monaco.duckdb viz/monaco.html  # offline map + tree
-urbanstyle unit broadway-granville --at -123.138546 49.263611 --osm vancouver_city.duckdb --vancouver \
-    --gtfs https://gtfs-static.translink.ca/gtfs/google_transit.zip           # one unit in full: data/units/<name>.duckdb
-```
-
-urbanstyle is the newest member of a family of tools on the same data. [duckOSM](https://github.com/Khoshkhah/duckOSM)
-turns an `.osm.pbf` into a routable network in DuckDB, [roadstyle](https://khoshkhah.github.io/roadstyle/) draws its
-roads, [mapstyle](https://khoshkhah.github.io/mapstyle/) the full base map, and
-[lanestyle](https://khoshkhah.github.io/lanestyle/) its lanes. urbanstyle adds the **space**
-between the buildings: what a street is made of, where one ends and the next begins, and what stands in it.
+Every value names its source and how it was found: mapped in OpenStreetMap, measured from LiDAR, taken from a city's survey,
+observed in street-level photos, or derived and chosen by urbanstyle. A planner can see why a sidewalk is 2.4 m wide, and fix the
+source if it is wrong.
 
 ## What you get
 
-<div class="grid cards" markdown>
+- **The street space as areas, in 3D.** Sections, intersections, subsections and parts, at levels −2 … 2, with the links between
+  levels. Bridges come from a profile with LiDAR heights.
+- **One object for each real thing.** OpenStreetMap, the city's open data and Mapillary are matched, and each object keeps every
+  source's id.
+- **The source and the method of every value**, and checks that run on every build and link to each fault.
+- **A dashboard for planners.** Find, filter and ask questions in plain words, in 2D and in 3D. A selected street, section or block
+  is in focus, and everything else is faint.
 
--   :material-office-building-outline:{ .lg .middle } **A measured street space**
+![Granville Bridge in the 3D view](img/bridge.jpg)
+<small>Granville Bridge, from its profile: lanes, paths, barriers, the steel truss and the piers. Map data © OpenStreetMap contributors, base map © CARTO.</small>
 
-    ---
+## Quick start
 
-    Cross-section rays every 3 m out to the building faces: the right-of-way as it is, not a buffer of a constant width.
+```bash
+pip install "urbanstyle[dashboard,osm] @ git+https://github.com/Khoshkhah/urbanstyle"
+duckosm build --pbf monaco-latest.osm.pbf -o monaco.duckdb -m driving -m walking -m cycling
+urbanstyle build monaco.duckdb data/monaco.duckdb
+urbanstyle dashboard data/monaco.duckdb viz/monaco.html
+urbanstyle serve data/monaco.duckdb viz/monaco.html
+```
 
-    [:octicons-arrow-right-24: Street space](design/street-space.md)
+Then open <http://localhost:8784/>. [Get started](get-started.md) goes through these steps one at a time.
 
--   :material-vector-square:{ .lg .middle } **A clean partition**
+## Status
 
-    ---
+Alpha. The pilot area is West Broadway × Granville Street in Vancouver, with Granville Bridge. The format is a set of agreed
+requirements ([The format](design/format.md)): a profile of CityGML 3.0, written as a CityJSON Extension. The first version of its
+specification and an export command come next, then a second city, Södermalm in Stockholm. See the [roadmap](plan.md).
 
-    Sections, intersections, path spaces, rail spaces and plazas. No overlaps, no gaps, one connected polygon each, checked on every build.
+## Where to go next
 
-    [:octicons-arrow-right-24: The specification](design/street-space-spec.md)
-
--   :material-layers-triple-outline:{ .lg .middle } **Levels −2 … 2**
-
-    ---
-
-    Bridges, tunnels, metro stations and the ramps, stairs, lifts and entrances that link them.
-
-    [:octicons-arrow-right-24: Levels research](design/levels-research.md)
-
--   :material-format-list-group:{ .lg .middle } **Strips and objects**
-
-    ---
-
-    Every container filled with typed bands (travel, cycle, sidewalk, furnishing, frontage) and the trees, lamps, benches and crossings in it.
-
-    [:octicons-arrow-right-24: Street objects](design/street-objects.md)
-
-</div>
-
-## One section, close up
-
-<div class="us-hero" markdown>
-![One section in focus in the dashboard: Dalslandsgatan, Södermalm, with its travel lane, cycle lane, sidewalk, furnishing and frontage strips, its entrances and the buildings that bound it](img/section.jpg)
-</div>
-
-Click a section in the dashboard: the panel lists its strips with their areas and the objects inside it, and the
-map shows the buildings that bound it. Every square metre of open ground at a level belongs to exactly one
-container. The words are in the [glossary](design/glossary.md).
-
-## Now: one unit in full
-
-Since 2026-10-09 the city-wide partition is paused, and one unit is built with everything every source knows: W Broadway ×
-Granville St in Vancouver ([the unit](units/broadway-granville.md)). `urbanstyle unit` clips the neighbourhood, builds it and
-writes the unit's dossier, every item with its source, method and confidence ([One unit in full](design/unit-dossier.md)):
-lanes and turns from SUMO, kerbs and markings, parking with its meters' rules, bus stops with their timetable, street objects
-matched across OSM, the city's survey and Mapillary, and each building's use and ground-floor use (OSM's tag, the shops inside,
-the city's storefronts). The dashboard shows it in 2D (a map) and in 3D (the street at real size, every item selectable).
-What each source holds, and the rule each gap became: [What the sources hold](design/source-inventory.md).
-
-## Where next
-
-The [roadmap](plan.md) lists what is built, what is open and the order of work.
+| You want to | Read |
+|---|---|
+| build a first area and open it | [Get started](get-started.md) |
+| do one task | the how-to guides: [build an area](how-to/build-an-area.md), [use the dashboard](how-to/use-the-dashboard.md), [ask questions](how-to/ask-questions.md), [check the data](how-to/check-the-data.md), [model a bridge](how-to/bridges.md) |
+| look up a command, a table, an id or a check | [Commands](reference/commands.md), [Tables](reference/tables.md), [Ids](reference/ids.md), [Checks](reference/checks.md) |
+| understand the model and its choices | [The street space](explanation/street-space.md), [Sources and accuracy](explanation/sources.md), [The format and the standards](explanation/standards.md) |
+| read why a decision was made | the [design notes](design/index.md) |

@@ -96,7 +96,7 @@ $P -m pytest -q                                        # 31 tests, offline (the 
 $P -m pytest -q tests/test_levels.py::test_street_space_width      # one test
 URBANSTYLE_BRIDGE_TESTS=1 $P -m pytest -q tests/test_bridge_rules.py   # the bridge's rules BR1-BR11 on the real bridge (~3.5 min, local data/)
 
-# build a container (Monaco ~1 min; Södermalm ~18 min and ~7 GB: check free memory first). Södermalm has no
+# build a container (Monaco ~20 min and ~2.5 GB, measured 2026-10-13; Södermalm ~7 GB: check free memory first). Södermalm has no
 # features schema, so a copy data/sodermalm.osm.duckdb is made and its features built from raw.*
 PYTHONPATH=src $P -m urbanstyle build ../duckOSM/monaco.duckdb data/monaco.duckdb
 PYTHONPATH=src $P -m urbanstyle build ../duckOSM/data/db/sodermalm.duckdb data/sodermalm.duckdb

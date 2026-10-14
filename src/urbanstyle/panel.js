@@ -311,6 +311,13 @@ function levels2d(){const m=M(); if(!m||d3()||typeof OVERLAYS==='undefined'||typ
   OVERLAYS.forEach(o=>{if(o.label==='Bridge 2D'||/3D/.test(o.label))return;
     if(!rsQuery(()=>true,o.label).length){waiting=true; return}
     rsFilter(rsQuery(keep,o.label),o.label)});
+  // a faded level: its things at FADE in every layer, by their level (only show / hide was done here, so levels -1, -2, -3 never
+  // faded; Kaveh, 2026-10-14). Level 0 fades the basemap and the buildings, level 1 the bridge (applyLooks)
+  const faded=Object.keys(L).filter(l=>L[l]==='fade'&&+l!==0&&+l!==1).map(Number), m2=M();
+  OVERLAYS.forEach(o=>{if(['Bridge 2D','Buildings'].includes(o.label)||/3D/.test(o.label))return;
+    (o.layers||[]).forEach(id=>{const ly=m2.getLayer(id), k=ly&&OPA[ly.type]; if(!k)return;
+      if(!(id+k in orig))orig[id+k]=m2.getPaintProperty(id,k)??1;
+      m2.setPaintProperty(id,k,faded.length?['case',['in',['coalesce',['get','level'],0],['literal',faded]],FADE,orig[id+k]]:orig[id+k])})});
   if(waiting&&lvTries++<60)setTimeout(levels2d,1000)}
 let lvTries=0;
 function applyLooks(){const m=M(); if(!m)return; if(!m.isStyleLoaded())return setTimeout(applyLooks,200); const L=look();

@@ -1,7 +1,7 @@
 # The street from SUMO
 
-Status (2026-10-13): proposed. Kaveh agreed on the principle (rules 1 to 4). The inputs, the outputs and the open questions are for
-review. No code is written yet.
+Status (2026-10-13): proposed. Kaveh agreed on the principle (rules 1 to 3) and on what the Monaco test showed (below; it replaces
+rule 4). No code in the repository yet.
 
 ## Why the rules change
 
@@ -25,8 +25,8 @@ other levels used its roadway before (`space-parts.md`, "The roadway from SUMO")
 2. **Nobody edits SUMO's output.** If a shape is wrong, change SUMO's input or a `netconvert` setting, and run `netconvert` again.
 3. **Each input value has a source:** OSM, a city's data or a measurement. A value that no source gives is urbanstyle's own, with
    `method` = `chosen`, as everywhere in the model.
-4. **We split SUMO's parts only at the cuts between the street spaces** (sections and intersections), so that each part belongs to one
-   space. We do not change a part in any other way.
+4. **We never cut or change a SUMO shape.** One SUMO shape is one part; its street space is only a property (see "What the Monaco
+   test showed").
 
 What stays ours: the blocks, the cut of the street into sections and intersections, the ground, and the ground between the outer edge
 of SUMO's street and the block edge (the frontage).
@@ -59,11 +59,13 @@ source, strongest source first.
 | SUMO | `space.part` type |
 |---|---|
 | a lane that lets cars through | `lane` |
+| a path through a junction (internal lane) | `junction lane` |
+| a lane that no traffic uses (between the roadway and the sidewalk) | `shoulder` |
 | a bus lane, a bike lane | `bus lane`, `cycle lane` |
 | a sidewalk lane | `sidewalk` |
 | a crossing | `crosswalk` |
 | a walking area | `pedestrian corner` |
-| a junction shape, less its crossings and walking areas | `junction area` |
+| a junction shape, as SUMO gives it | `junction area` |
 
 Each part has `source` = `sumo`, `method` = `derived`, and `ref` gives the inputs it came from (for example, `w8056051 lanes=2,
 width:lanes`). The painted lines (lane lines, centre lines, stop lines) come from the edges of SUMO's lanes. A part of SUMO's street that
@@ -77,6 +79,30 @@ edge.
 - The checks R1 and R4 (steps at the joints): SUMO's lanes have no joints between subsections.
 
 The blocks, the sections, the intersections and the ground do not change.
+
+## What the Monaco test showed (2026-10-13)
+
+Six test runs on Monaco, each drawn as SUMO gives it (a raw page of `net.xml` and a test dashboard). The scripts are in the session's
+scratch folder, not in the repository. Agreed from them:
+
+1. **Draw SUMO's shapes as they are.** One SUMO shape is one part. We do not cut a shape at our street spaces or take holes out of a
+   junction. The street space of a part is only a property: the space that holds most of its area. (This replaces rule 4 above.)
+2. **The sidewalk is as wide as its footway**: OSM `width` of the footway, else 2.0 m (chosen). SUMO puts it where the footway is: the
+   ground between the outer driving lane and the sidewalk is a lane of its own that no traffic uses (`shoulder`). A footway counts as
+   a road's sidewalk within 8 m of the road line, along the road (within 35°). (Run 1 measured the sidewalk from the road line to the
+   footway: 207 of 1180 sidewalks were 6 m wide or more.)
+3. **No junction is joined by distance.** Joining all the nodes of our intersection made one junction for a whole square, with
+   internal lanes straight across it (run 3), and two such groups crashed netconvert 1.27.0.
+4. **Two junctions whose SUMO shapes overlap are one junction** (run 5): pass 1 with no joins; the junctions whose shapes overlap by
+   more than 0.5 m², on the same level, go to netconvert as `<join nodes>` in pass 2. Monaco: 692 junctions in 215 groups.
+5. **A join takes nodes of one level only.** A node where roads of two levels meet (a ramp's end) stays its own junction.
+6. **A building footprint is not a hard edge of the street.** OSM often draws a building by its roof, which can reach over the
+   sidewalk (Avenue Pasteur at w49209427, seen in Street View). A SUMO part that overlaps a footprint by a little is reported as "under
+   a roof?", not as a fault.
+
+Tried and not kept: moving each road line to the middle between our block edges (run 6). It fixed Avenue Pasteur but moved 260 road
+lines by more than 4 m, and the parts in buildings went from 7,614 to 7,865 m² across Monaco. Our block edges are pulled in to
+building footprints, and a footprint can be a roof, so the "middle" moved away from the real street.
 
 ## Open questions
 

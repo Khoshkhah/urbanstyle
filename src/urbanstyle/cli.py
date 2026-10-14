@@ -13,7 +13,7 @@ def main(argv=None):
                    "the last full build kept (OUT.before-division): for a fix in division.py or ground.py")
     ck = sub.add_parser("check", help="conformance checks; exit 1 if a hard check fails")
     ck.add_argument("db", nargs="+")
-    ck.add_argument("--bridge", nargs="+", default=[], help="bridge profiles: the bridge model's checks too (BR1-BR11)")
+    ck.add_argument("--bridge", nargs="+", default=[], help="bridge profiles: the bridge model's checks too (BR1-BR12)")
     sub.add_parser("quality", help="shape quality of the sections").add_argument("db", nargs="+")
     d = sub.add_parser("dashboard", help="an offline HTML map with the hierarchy tree (needs roadstyle)")
     d.add_argument("db")

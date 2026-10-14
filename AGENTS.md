@@ -65,7 +65,7 @@ The order of work: `docs/plan.md`.
   level 0: R1 its edges at the joints, R4 the lanes that meet their continuation there (`division.join_lanes`, tapers).
   `urbanstyle check DB --bridge PROFILE` adds BR1-BR8, the bridge model's own checks (`bridge3d.model_checks`: guard on a lane,
   holes, guard gaps, paths on paths, slivers, lanes of two axes overlapping, lanes with no arrow, steps at landings) and BR9-BR11 (deck no
-  part covers, a lane meeting a path with no barrier but at a crosswalk, steps in the deck's height), each with `?at=` links.
+  part covers, a lane meeting a path with no barrier but at a crosswalk, steps in the deck's height) and BR12 (a surveyed or OSM street object standing inside a lane near the ground: the lane is wrong there), each with `?at=` links.
 - `src/urbanstyle/mapillary.py`: `urbanstyle mapillary DB [--osm OSM]` fetches Mapillary's features and photos into `DB.mapillary.json`
   (token: `$MAPILLARY_TOKEN` or `~/.config/mapillary/token`, never in the repo) and loads `space.observed` / `space.photo`; `build`
   loads that file when present (`docs/design/mapillary.md`). CC BY-SA: the data stays local. Mapillary is for validation only
@@ -103,7 +103,7 @@ The order of work: `docs/plan.md`.
 P=/home/kaveh/projects/duckOSM/.venv/bin/python        # duckdb + spatial + duckOSM; has no recent roadstyle
 $P -m pytest -q                                        # 31 tests, offline (the turns test needs netconvert) (pythonpath=src from pyproject), ~10 s
 $P -m pytest -q tests/test_levels.py::test_street_space_width      # one test
-URBANSTYLE_BRIDGE_TESTS=1 $P -m pytest -q tests/test_bridge_rules.py   # the bridge's rules BR1-BR11 on the real bridge (~3.5 min, local data/)
+URBANSTYLE_BRIDGE_TESTS=1 $P -m pytest -q tests/test_bridge_rules.py   # the bridge's rules BR1-BR12 on the real bridge (~3.5 min, local data/)
 
 # build a container (Monaco ~20 min and ~2.5 GB, measured 2026-10-13; Södermalm ~7 GB: check free memory first). Södermalm has no
 # features schema, so a copy data/sodermalm.osm.duckdb is made and its features built from raw.*
@@ -166,7 +166,8 @@ mkdocs build --strict                                  # needs pip install ".[do
   `ov.visible`; a 3D layer is never drawn in 2D. Terrain only when "rough terrain" is ticked: the public AWS Terrain Tiles (~30 m) are
   too coarse for Monaco and broke the map; needs a 1-5 m terrain.
   Tunnels in 3D (`u3d-tun`): flat under level 0's ground (the map draws nothing below 0); they show where level 0 is faded or hidden.
-  "low buildings" (and a selected street object): buildings at most `LOW_M` (3 m) high.
+  "low buildings" (and a selected street object): buildings at most `LOW_M` (3 m) high. Each level but 0 has its own 3D layer (`u3d-deck<l>`,
+  `u3d-tun<l>`), so every level button fades or hides its own level in 3D.
 - Heavy imports (shapely, pandas, geopandas, roadstyle) stay inside functions so the CLI starts fast.
 
 ## Rules

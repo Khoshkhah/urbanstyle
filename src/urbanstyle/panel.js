@@ -322,8 +322,9 @@ function applyLooks(){const m=M(); if(!m)return; if(!m.isStyleLoaded())return se
   m.getStyle().layers.forEach(l=>{if(l.source==='bm'&&l.type==='raster'){const o=keep(l.id,'raster-opacity');
     m.setPaintProperty(l.id,'raster-opacity',g==='full'?o:g==='fade'?0.35:0.08)}});
   const ov=lab=>(typeof OVERLAYS!=='undefined'&&OVERLAYS.find(o=>o.label===lab)||{}).layers||[];
-  if(d3()){m.getStyle().layers.forEach(l=>{if(l.id.startsWith('u3d-')&&!['u3d-deck','u3d-bld','u3d-bld-on','u3d-tun'].includes(l.id))set(l.id,g)}); set('u3d-deck',up);
-    window.xpOff3d=Object.keys(L).filter(k=>L[k]==='off').map(Number); if(m.getLayer('u3d-tun'))m.setFilter('u3d-tun',tunF());     // (the tunnels)
+  if(d3()){const lv=id=>{const x=/^u3d-(deck|tun)(-?\d+)$/.exec(id); return x?+x[2]:null};     // (a deck or a tunnel: its own level's look)
+    m.getStyle().layers.forEach(l=>{if(!l.id.startsWith('u3d-')||['u3d-bld','u3d-bld-on'].includes(l.id))return;
+      const k=lv(l.id); set(l.id,k===null?g:(L[k]||'full'))});
     if(window.bldLook)window.bldLook(g);     // (the buildings: the 3D page fades them itself, by focus and selection too)
     const F=eff(), onBr=focusU?/^\w1-/.test(focusU):F&&F.bridge>0;      // (a focus on the ground: the bridge faint)
     const upF=F&&!onBr&&up==='full'?'fade':up;

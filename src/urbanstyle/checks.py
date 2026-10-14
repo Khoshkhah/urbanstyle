@@ -249,6 +249,39 @@ def run(path):
 
 
 
+ON_GROUND_M = 2.5      # BR12: a lane this near the ground (deck height) is where an object can stand in it
+
+
+def objects_in_lanes(M, c, db):
+    """BR12: street objects of a real source (a city's survey, OSM; not Mapillary alone, its positions are too rough) whose point stands
+    inside a lane of the bridge model: the source places it, so the lane is wrong there (Granville Bridge, lamp
+    street-lighting-poles-133 in lane a2.1 at its landing; Kaveh, 2026-10-13)."""
+    import math
+    import pyproj
+    import shapely
+    from .dashboard import epsg_of, matched_objects
+    ep = epsg_of(c)
+    to_ll = pyproj.Transformer.from_crs(ep, "EPSG:4326", always_xy=True).transform
+    ox, oy = M["origin"]
+    k = 111320 * math.cos(math.radians(oy))         # (the page's metres at the model's origin, as the model is placed)
+    lanes = [shapely.union_all([shapely.Polygon([sf["v"][i][:2] for i in t]) for t in sf["f"] if len({tuple(sf["v"][i][:2]) for i in t}) == 3])
+             for sf in M["surf"] if sf.get("props") and sf["key"].startswith("lane") and sf["props"].get("type") == "lane"]
+    vz = [[v for v in sf["v"]] for sf in M["surf"] if sf.get("props") and sf["key"].startswith("lane") and sf["props"].get("type") == "lane"]
+    lane_z = [(lambda V: lambda q: min(V, key=lambda v: (v[0] - q.x) ** 2 + (v[1] - q.y) ** 2)[2])(V) for V in vz]   # the deck's height there
+    tree = shapely.STRtree(lanes)
+    at = []
+    for oid, cls, lv, grp, p, refs, sources, *_ in matched_objects(c, ep, db):
+        if set(s_.strip() for s_ in str(sources).split(",")) <= {"mapillary"}:
+            continue
+        lon, lat = to_ll(p.x, p.y)
+        q = shapely.Point((lon - ox) * k, (lat - oy) * 111320)
+        for j in tree.query(q):
+            if lanes[j].contains(q) and lane_z[j](q) < ON_GROUND_M:      # (a lane high on the deck passes over it)
+                at.append((lon, lat))
+                break
+    return ("BR12", f"street objects of a city's survey or OSM standing inside a bridge lane (where it is under {ON_GROUND_M} m high)", len(at), True, at)
+
+
 def bridge(profile, db=None):
     """The bridge model's checks (bridge3d.model_checks) for a bridge profile, as the page draws it: with a unit's `db`, its street's
     lanes near the bridge for the landings (as the dashboard passes them)."""
@@ -266,7 +299,11 @@ def bridge(profile, db=None):
                   for g in [shapely.from_wkb(bytes(w))] if g.distance(ol) < 50]
     print(f"\n== {profile}  (bridge model: {P['name']})")
     failed = False
-    for cid, what, value, hard, at in model(P, None, None, ground)["checks"]:
+    M = model(P, None, None, ground)
+    rows = list(M["checks"])
+    if db:
+        rows.append(objects_in_lanes(M, c, db))
+    for cid, what, value, hard, at in rows:
         status = "PASS" if value == 0 else ("FAIL" if hard else "INFO")
         failed |= status == "FAIL"
         print(f"  {cid:3s} {status:5s} {value:6d}  {what}")

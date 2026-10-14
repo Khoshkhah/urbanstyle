@@ -22,7 +22,9 @@ function terrain(on){if(!map.setTerrain)return;
   if(on&&!map.getSource('u3d-dem'))map.addSource('u3d-dem',{type:'raster-dem',tiles:[DEM_TILES],tileSize:256,encoding:'terrarium',maxzoom:15,
     attribution:'Terrain: <a href="https://registry.opendata.aws/terrain-tiles/" target="_blank">AWS Terrain Tiles</a>'});
   const now=!!map.getTerrain&&!!map.getTerrain(); if(on!==now)map.setTerrain(on?{source:'u3d-dem',exaggeration:1}:null)}
-const tunF=()=>['all',['<',['get','level'],0],['!',['in',['get','level'],['literal',window.xpOff3d||[]]]]];
+// every level but 0 has its own layer in 3D (a deck above, a tunnel below), so each follows its own level button: full, faded or
+// hidden (Kaveh, 2026-10-13: "fading in 3D only works for level 0")
+const OTHER_LEVELS=[-5,-4,-3,-2,-1,1,2,3,4,5];
 function draw3d(){
   map.setLight({anchor:'viewport',intensity:0.15});   // a soft light: white walls stay near-white (MapLibre's 0.5 made them grey, Kaveh 2026-10-13)
   terrain(in3d&&document.getElementById('terrain3d').checked);
@@ -31,8 +33,9 @@ function draw3d(){
   const lvl=['==',['get','level'],lv3d];
   const own=['all',lvl,['!',['in',['get','unit_id'],['literal',window.brUnits||[]]]]];   // (on a bridge: the model lays them on its deck)
   // the tunnels (levels below 0): the map cannot draw under the ground, so their parts lie flat under level 0's ground: they show where
-  // level 0 is faded or hidden (the panel's level buttons; xpOff3d: the levels hidden; Kaveh, 2026-10-13: "monaco doesn't show tunnels")
-  add({id:'u3d-tun',type:'fill',source:ovSrc('Parts'),paint:{'fill-color':['get','color'],'fill-opacity':1}},tunF());
+  // level 0 is faded or hidden (Kaveh, 2026-10-13: "monaco doesn't show tunnels"); one layer a level, the deepest first
+  OTHER_LEVELS.filter(l=>l<0).forEach(l=>add({id:'u3d-tun'+l,type:'fill',source:ovSrc('Parts'),paint:{'fill-color':['get','color'],'fill-opacity':1}},
+    ['==',['get','level'],l]));
   add({id:'u3d-gnd',type:'fill',source:ovSrc('Ground'),paint:{'fill-color':['get','color'],'fill-opacity':1}},['all',lvl,['!=',['get','type'],'street']]);   // the ground beside the street
   add({id:'u3d-lot',type:'fill',source:ovSrc('Parking lots'),paint:{'fill-color':'#a8b0ba','fill-opacity':1}},lvl);   // a car park: paved, flush
   add({id:'u3d-ground',type:'fill',source:ovSrc('Parts'),paint:{'fill-color':['get','color'],'fill-opacity':1}},
@@ -49,9 +52,9 @@ function draw3d(){
       'fill-extrusion-height':['get','height_m'],'fill-extrusion-base':['*',['max',['get','level_min'],0],LEVEL_M]}},     // its real height
       ['>=',['get','level_max'],0]);
   const up=['*',['-',['get','level'],lv3d],DECK_M];   // bridges: the levels above, as decks in the air
-  add({id:'u3d-deck',type:'fill-extrusion',source:ovSrc('Parts'),paint:{'fill-extrusion-color':['get','color'],'fill-extrusion-opacity':1,
-      'fill-extrusion-base':['-',up,SLAB_M],'fill-extrusion-height':['+',up,byKey('type',RAISE,0)]}},
-      ['all',['>',['get','level'],lv3d],['!',['in',['get','unit_id'],['literal',window.brUnits||[]]]]]);   // (a bridge's 3D model replaces its deck)
+  OTHER_LEVELS.filter(l=>l>0).forEach(l=>add({id:'u3d-deck'+l,type:'fill-extrusion',source:ovSrc('Parts'),paint:{'fill-extrusion-color':['get','color'],
+      'fill-extrusion-opacity':1,'fill-extrusion-base':['-',up,SLAB_M],'fill-extrusion-height':['+',up,byKey('type',RAISE,0)]}},
+      ['all',['==',['get','level'],l],['!',['in',['get','unit_id'],['literal',window.brUnits||[]]]]]));   // (a bridge's 3D model replaces its deck)
   add({id:'u3d-furn',type:'fill-extrusion',source:ovSrc('Street objects 3D'),paint:{'fill-extrusion-color':['get','color'],'fill-extrusion-opacity':1,
       'fill-extrusion-base':['get','base'],'fill-extrusion-height':['get','height']}},lvl);
   bind3d();

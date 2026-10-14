@@ -111,7 +111,7 @@ def main(argv=None):
         from .dashboard import bridge_models, write_bridge3d
         con = duckdb.connect(a.db, read_only=True)
         con.execute("LOAD spatial")
-        print(write_bridge3d(bridge_models(con, a.bridge)[0], a.out))
+        print(write_bridge3d(bridge_models(con, a.bridge, a.db)[0], a.out))
     elif a.cmd == "bridge":
         from .bridge_profile import write
         print("\n".join(write(a.osm, a.gmns, a.name, a.out_dir)))

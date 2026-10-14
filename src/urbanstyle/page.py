@@ -69,7 +69,7 @@ def _frames(con, db, bridges):
     kerbs["kerb_id"] = [f"kerb-{k}" for k in range(len(kerbs))]
     out["kerbs3d"] = kerbs
     # the bridges: each profile's model (3D, bridge3d.py), and every part of it flat, with its id (2D)
-    ms, under = d.bridge_models(con, bridges) if bridges else ([], set())
+    ms, under = d.bridge_models(con, bridges, db) if bridges else ([], set())
     out["models"], out["under"] = ms, sorted(under)
     out["bridge2d"] = gpd.GeoDataFrame([{**{k: (v if isinstance(v, (str, int, float)) or v is None else str(v)) for k, v in pr.items()},
                                          "color": d.PART_COLORS.get(key) or d.PART_COLORS.get(key.split(" ")[0]) or

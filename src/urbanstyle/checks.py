@@ -299,7 +299,11 @@ def bridge(profile, db=None):
                   for g in [shapely.from_wkb(bytes(w))] if g.distance(ol) < 50]
     print(f"\n== {profile}  (bridge model: {P['name']})")
     failed = False
-    M = model(P, None, None, ground)
+    poles = None
+    if db:
+        from .dashboard import bridge_poles
+        poles = bridge_poles(c, P["crs"], shapely.Polygon(P["deck"]["outline"]["value"]), db)
+    M = model(P, None, None, ground, poles=poles)
     rows = list(M["checks"])
     if db:
         rows.append(objects_in_lanes(M, c, db))

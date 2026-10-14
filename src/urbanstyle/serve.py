@@ -56,7 +56,7 @@ class Area:
         lon = c.execute("SELECT avg(ST_X(ST_Centroid(geometry))) FROM space.container").fetchone()[0]
         self.epsg = f"EPSG:{32600 + int((lon + 180) // 6) + 1}"
         self.name = os.path.basename(db).split(".")[0]
-        self._bridge_parts(bridges)
+        self._bridge_parts(bridges, db)
         self._street_objects(db)
         self.cols = {}
         for name, (t, _, _) in LAYERS.items():
@@ -65,7 +65,7 @@ class Area:
             except Exception:
                 pass
 
-    def _bridge_parts(self, bridges):
+    def _bridge_parts(self, bridges, db=None):
         """space.bridge_part: every part of each bridge's model (the flat outlines bridge2d draws), with its id and fields."""
         c = self.con
         c.execute("""CREATE TABLE space.bridge_part (id VARCHAR, type VARCHAR, kind VARCHAR, bridge VARCHAR, axis VARCHAR, direction VARCHAR,
@@ -74,7 +74,7 @@ class Area:
             return
         import shapely
         from .dashboard import bridge_models
-        ms = bridge_models(c, bridges)[0]
+        ms = bridge_models(c, bridges, db)[0]
         num = lambda v: float(v) if isinstance(v, (int, float)) else None
         rows = [(p.get("id"), p.get("type") or key, key, m["name"], p.get("axis"), p.get("direction"), num(p.get("width_m")),
                  str(p["osm"]) if p.get("osm") else None, p.get("source"), p.get("method"), json.dumps(p, default=str), shapely.to_wkb(g))

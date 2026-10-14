@@ -1214,7 +1214,7 @@ const brGo=()=>{if(typeof map==='undefined'||!map.isStyleLoaded||!map.isStyleLoa
 brGo()}).catch(e=>console.error('bridge 3D: viz/bridge3d.json',e));</script>"""
 
 
-def bridge_models(con, bridges):
+def bridge_models(con, bridges, db=None):
     """Each bridge profile's 3D model (bridge3d.model) with the street around it: (models, the level > 0 units they replace)."""
     import shapely
     from .bridge3d import model
@@ -1240,11 +1240,30 @@ def bridge_models(con, bridges):
         ground_ = [g for g in ground_ if g.distance(ol) < 50]
         # (the level-1 parts are not laid on the deck: parts.py makes them from rules OSM does not support there, e.g. a "no parking"
         # strip from parking:both=no, a sidewalk OSM says is not there; the model's lanes and paths follow GMNS and OSM)
-        ms.append(_cached_model(P_, ground_))
+        ms.append(_cached_model(P_, ground_, bridge_poles(con, P_['crs'], ol, db)))
     return ms, under
 
 
-def _cached_model(P_, ground_):
+def bridge_poles(con, crs, outline, db=None, near=50.0):
+    """The street's surveyed poles near a bridge (a city's lamps and poles, OSM's; not Mapillary alone: its positions are too rough),
+    [(x, y)] in the bridge profile's crs: its lanes keep clear of them (bridge3d.POLE_CLEAR_M)."""
+    import pyproj
+    import shapely
+    ep = epsg_of(con)
+    to = pyproj.Transformer.from_crs(ep, crs, always_xy=True).transform
+    out = []
+    for oid, cls, lv, grp, p, refs, sources, *_ in matched_objects(con, ep, db or ""):
+        if not str(cls).startswith(("furniture.lamp", "furniture.pole", "furniture.traffic_signal", "furniture.sign")):
+            continue
+        if set(s_.strip() for s_ in str(sources).split(",")) <= {"mapillary"}:
+            continue
+        x, y = to(p.x, p.y)
+        if shapely.Point(x, y).distance(outline) < near:
+            out.append((round(x, 2), round(y, 2)))
+    return sorted(out)
+
+
+def _cached_model(P_, ground_, poles_=()):
     """bridge3d.model(P_) with the street's lanes ground_, from data/cache/ when nothing it reads has changed since: the profile, those
     lanes, the corrections and the model's code (bridge3d.py and the modules it reads). A change to the page only needs no new model
     (Kaveh, 2026-10-13: four minutes for each small change)."""
@@ -1257,6 +1276,7 @@ def _cached_model(P_, ground_):
     h = hashlib.sha1(json.dumps(P_, sort_keys=True).encode())
     for g in ground_:
         h.update(shapely.to_wkb(g))
+    h.update(json.dumps(list(poles_)).encode())
     # (the model's own code only: a change to the page, the server or the CLI needs no new model)
     for f in [os.path.join(here, m) for m in ("bridge3d.py", "bridge_profile.py", "corrections.py", "parts.py")] + \
             sorted(glob.glob(os.path.join(here, "..", "..", "corrections", "*.json"))):
@@ -1264,7 +1284,7 @@ def _cached_model(P_, ground_):
     path = os.path.join(here, "..", "..", "data", "cache", f"bridge3d-{h.hexdigest()[:16]}.pkl")
     if os.path.exists(path):
         return pickle.load(open(path, "rb"))
-    m = model(P_, None, None, ground_)
+    m = model(P_, None, None, ground_, poles=list(poles_))
     os.makedirs(os.path.dirname(path), exist_ok=True)
     pickle.dump(m, open(path, "wb"))
     return m
@@ -1331,7 +1351,7 @@ def main(db, out, bridges=None):
     shapes = object_shapes(con, epsg_of(con), place)
     try:
         mobjs = matched_objects(con, epsg_of(con), db)
-        ms_early = bridge_models(con, bridges) if bridges else ([], set())
+        ms_early = bridge_models(con, bridges, db) if bridges else ([], set())
         furn = furniture_3d(con, epsg_of(con), place, mobjs, bridge_decks(bridges or [], epsg_of(con), ms_early[0]))
         # 2D: one dot per real object, where its model stands (its smallest block: the pole, the trunk, the cover), coloured by kind
         dots = furn.assign(a=furn.to_crs(epsg_of(con)).area).sort_values("a").drop_duplicates("refs").drop(columns=["a"])
@@ -1439,7 +1459,7 @@ def main(db, out, bridges=None):
     try:
         ms, under = ms_early
     except NameError:
-        ms, under = bridge_models(con, bridges) if bridges else ([], set())
+        ms, under = bridge_models(con, bridges, db) if bridges else ([], set())
     # the bridges in 2D (Kaveh, 2026-10-12: "a 2D version of the bridge, everything with an id"): every part of each model, flat, with its id
     bridge2d = gpd.GeoDataFrame([{**{k: (v if isinstance(v, (str, int, float)) or v is None else str(v)) for k, v in pr.items()},
                                   "color": PART_COLORS.get(key) or PART_COLORS.get(key.split(" ")[0]) or {"barrier median": "#cfc8bd", "median": "#6b7280",

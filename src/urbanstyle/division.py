@@ -1514,11 +1514,16 @@ def build(con, epsg):
         if not isle.is_empty:       # a roundabout's central island: neither roadway nor a corner
             walkway = poly(walkway.difference(isle, grid_size=0.01))
             X = poly(X.difference(isle, grid_size=0.01))
+        # the kerb's corner rounded: the corners' tips that point into the roadway, by an opening of the corners with the outside of the
+        # intersection counted in, so the intersection's own edges never move. (Before, the roadway was rounded by a closing and the
+        # corners made again as the rest: the closing did not give back the straight outer edges, and the rest kept a hairline along them,
+        # a spike 8 m long on i0-616471133#5, a wall across the road in 3D; Kaveh, 2026-10-13)
+        if not walkway.is_empty:
+            out_ = shapely.box(*X.buffer(KERB_RADIUS_M * 4).bounds).difference(X.buffer(-0.05))     # (over the edge by 5 cm: always touching)
+            open_ = shapely.make_valid(shapely.union_all([shapely.make_valid(walkway), out_]).buffer(-KERB_RADIUS_M, quad_segs=4, join_style="round")
+                                       .buffer(KERB_RADIUS_M, quad_segs=4, join_style="round"))
+            walkway = poly(shapely.make_valid(walkway).intersection(open_).intersection(X))
         roadway = poly(X.difference(walkway, grid_size=0.01))
-        if not roadway.is_empty:    # the kerb's corner rounded
-            roadway = poly(roadway.buffer(KERB_RADIUS_M, quad_segs=4, join_style="round").buffer(-KERB_RADIUS_M, quad_segs=4, join_style="round")
-                           .intersection(X, grid_size=0.01))
-            walkway = poly(X.difference(roadway, grid_size=0.01))
         nodes_ = ", ".join(f"n{n_}" for j_, n_, _, _ in junction if j_ == iid) or None
         kp = [sec_kerbs[sub_axis[a[0]][3]] for a in arms if sub_axis[a[0]][3] in sec_kerbs]
         a_pv = prov_of([(s_, x) for k_ in kp for pv in (k_[2], k_[3]) for s_ in pv[0].split("+") for x in (pv[2] or "").split(", ")[:3] if x],

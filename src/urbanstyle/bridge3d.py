@@ -55,6 +55,8 @@ TANGENT_M = 20.0    # an axis's end turned into the trunk's way at their node ov
 PAIR_TANGENT_M = 20.0  # a pair's centre line leaves the trunk's node in the trunk's way, onto the middle of their lines over this
 FREE_THIN_M = 1.0   # ... but a sliver of it narrower than this, beside a lane, is that lane
 FREE_MIN_M2 = 0.2   # deck no part covers, this big or bigger, is the path beside it (no free space on the bridge)
+LAND_FLAT_M = 3.0    # the surfaces come down flush with the ground road over this length before a landing's end
+POLE_CLEAR_M = 0.4   # a lane keeps this clear of a surveyed pole (a city's lamp, OSM's): the kerb rule on the ground (blocks.md)
 FREE_CHECK_M2 = 0.5  # check BR9: a piece of deck no part covers, this big or bigger
 BAR_CHECK_M = 1.5    # check BR10: a lane edge on a path with no barrier, this long or longer (a path's tip is shorter)
 HEIGHT_STEP_M = 0.2  # check BR11: a change in the deck's height over this between two points STEP_CHECK_M apart is a step
@@ -1451,11 +1453,13 @@ def rectangles(P):
     return P
 
 
-def model(path, parts=None, marks=None, ground=None, flat_only=False):
+def model(path, parts=None, marks=None, ground=None, flat_only=False, poles=None):
     """The 3D model of the bridge profile at `path` (or the profile itself). `parts`, `marks`: the street's own parts and marks that lie
     on the bridge (a unit's level > 0 spaces: [(props, polygon)], [(type, line)], in the profile's crs), laid on the deck so the bridge
     is drawn as its street; elsewhere the model's lanes and paths in the street's types. `ground`: the street's lanes at level 0 near
-    the bridge ([polygon], same crs): a bridge lane that lands on one moves to its place and width over the last LAND_BLEND_M."""
+    the bridge ([polygon], same crs): a bridge lane that lands on one moves to its place and width over the last LAND_BLEND_M. `poles`:
+    the street's surveyed poles near the bridge ([(x, y)], same crs: a city's lamps, OSM's): a lane keeps POLE_CLEAR_M clear of each, as
+    on the ground (blocks.md, the kerbs; Granville Bridge: lamp street-lighting-poles-133 on the edge of lane a2.1, Kaveh, 2026-10-13)."""
     import pyproj
     import shapely
     import shapely.affinity
@@ -1479,6 +1483,7 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False):
 
     # a bridge lane that lands on a ground lane (the street's own, level 0): its edges move to that lane's over the last LAND_BLEND_M
     gl = [shapely.affinity.translate(g, -x0, -y0) for g in (ground or [])]
+    pole_clear = shapely.union_all([shapely.Point(x - x0, y - y0).buffer(POLE_CLEAR_M) for x, y in (poles or [])])
     gtree = shapely.STRtree(gl) if gl else None
     land = {}       # (axis id, section index, band index) -> [(end, the ground lane's edges at s, s_full)]
 
@@ -2212,9 +2217,23 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False):
 
     ids_seen = {}
 
+    # where an axis reaches the ground (a landing on a ground road), the surfaces come down flush with the street over the last
+    # LAND_FLAT_M: before, the lanes ended 0.1-0.2 m above the ground road, a step that looked like a kerb (a2.1; Kaveh, 2026-10-13)
+    land_ = []
+    for ln_l, a_l in axes:
+        for e_l in a_l.get("ends", []):
+            if e_l["ground"]:
+                xl, yl, nxl, nyl = frame(ln_l, e_l["s"])
+                land_.append(shapely.LineString([(xl - nxl * 40, yl - nyl * 40), (xl + nxl * 40, yl + nyl * 40)]))
+    land_u = shapely.union_all(land_) if land_ else None
+    landf = (lambda x, y: min(1.0, shapely.Point(x, y).distance(land_u) / LAND_FLAT_M)) if land_u is not None else (lambda x, y: 1.0)
+
     def mesh(poly, key, lift, props=None, raise_=0.0):
-        """poly (model metres) as triangles on the deck's surface, lift above it (and raise_ more, with its sides down to the lift)."""
+        """poly (model metres) as triangles on the deck's surface, lift above it (and raise_ more, with its sides down to the lift). A lane
+        keeps POLE_CLEAR_M clear of each surveyed pole (`poles`)."""
         poly = shapely.make_valid(poly)
+        if key.startswith("lane") and not pole_clear.is_empty:
+            poly = poly.difference(pole_clear)
         for pg in shapely.get_parts(poly):
             if pg.geom_type != "Polygon" or pg.area < 0.05:
                 continue
@@ -2229,13 +2248,13 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False):
                     ix[k] = len(v)
                     v.append(list(k))
                 return ix[k]
-            hz = lambda x, y: zd(x, y) + lift + raise_
+            hz = lambda x, y: (zd(x, y) + lift) * landf(x, y) + raise_
             f += [[vi(x, y, hz(x, y)) for x, y in t.exterior.coords[:3]] for t in tris]
             if raise_ > 0:                      # its sides, as a kerb's face
                 for ring in [dense.exterior] + list(dense.interiors):
                     c = list(ring.coords)
                     for (ax_, ay_), (bx_, by_) in zip(c, c[1:]):
-                        a0, b0 = vi(ax_, ay_, zd(ax_, ay_) + lift), vi(bx_, by_, zd(bx_, by_) + lift)
+                        a0, b0 = vi(ax_, ay_, (zd(ax_, ay_) + lift) * landf(ax_, ay_)), vi(bx_, by_, (zd(bx_, by_) + lift) * landf(bx_, by_))
                         a1, b1 = vi(ax_, ay_, hz(ax_, ay_)), vi(bx_, by_, hz(bx_, by_))
                         f += [[a0, b0, b1], [a0, b1, a1]]
             if f or flat_only:

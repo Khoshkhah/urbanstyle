@@ -100,9 +100,12 @@ scratch folder, not in the repository. Agreed from them:
    sidewalk (Avenue Pasteur at w49209427, seen in Street View). A SUMO part that overlaps a footprint by a little is reported as "under
    a roof?", not as a fault.
 
-Tried and not kept: moving each road line to the middle between our block edges (run 6). It fixed Avenue Pasteur but moved 260 road
-lines by more than 4 m, and the parts in buildings went from 7,614 to 7,865 m² across Monaco. Our block edges are pulled in to
-building footprints, and a footprint can be a roof, so the "middle" moved away from the real street.
+7. **Each road line moves to the middle between the block edges on its two sides** (run 6): the median of (left - right) / 2, every
+   2 m, where both sides reach a block edge within 25 m; the line keeps its shape. Avenue Pasteur (w1549110515): OSM's line lies 2.1 m
+   off the middle; moved, its lanes no longer reach into the buildings, and the narrow sidewalk next to w49209427 matches Street View
+   (that footprint is the roof). Still open: 260 of 1,206 lines move more than 4 m, and across Monaco the parts in building footprints
+   went from 7,614 to 7,865 m². The block edges are its input, so the roof rule of `blocks.md` (a building pulls the edge in only by
+   more than 1.5 m) comes first; then the large moves are checked again.
 
 ## Open questions
 

@@ -164,7 +164,7 @@ No source gives these values yet (`bridge_profile.py`). Each one is in the profi
 
 | value | | rule |
 |---|---|---|
-| the deck's height | 5 % up from the nearest point where a road on the bridge meets a ground road, 27 m at most | `GRADE`, `TOP_M` |
+| the deck's height | 5 % up from the nearest point where a road on a bridge meets a ground road, measured along the bridge roads of the whole area; 27 m at most (see "Heights with no measurement" below) | `GRADE`, `TOP_M` |
 | deck and girders | 1.8 m thick | `DECK_M` |
 | parapet | 1.1 m | `RAIL_M` |
 | a pier | every 50 m along the longest axis, where the deck is 3 m or more above the ground, 1.5 m thick | `PIER_M`, `PIER_MIN_M`, `PIER_W` |
@@ -274,4 +274,44 @@ The end of a2 had three more faults:
   less than 1 m outside its edge, moves to 0.5 m inside the edge, and its popup says so. The aerial photo shows the poles of ramp
   a2 on its barrier.
 - **Street View** in 3D also follows the bridge's axes (`window.brAxes`), because the map's roads do not go onto the bridge.
+
+## Heights with no measurement
+
+Where there is no LiDAR and no heights file (`bridge-heights.md`), `urbanstyle bridge` sets each deck height with one rule. The rule
+uses only the bridges themselves. It does not use what passes under them.
+
+### The network
+
+All the road ways that OSM tags `bridge=*` in the area are one network. Two ways that share a node are joined there, also when they
+belong to different bridges (different `man_made=bridge` outlines). A node is **on the ground** when a road that is not on a bridge
+also uses that node.
+
+### The rule
+
+1. A node on the ground has the height 0.
+2. For each node, D is the shortest distance along the network to a node on the ground.
+3. The height is h = min(27 m, 0.05 × D).
+
+At a node where branches meet in the air, D is the smallest distance through any of its branches, so all branches get the same height
+there. For a point on a branch, at distance s from its start node A and L − s from its end node B:
+
+D = min(s + D(A), (L − s) + D(B))
+
+A node on the ground has D = 0, so a branch from a ground end E gives D = min(s, (L − s) + D(B)). A group of bridges with no node on
+the ground uses its loose ends as the ground.
+
+Example: a branch 100 m long from a ground end E to a junction J in the air, where D(J) = 40 m. At 80 m from E,
+D = min(80, 20 + 40) = 60 m, and h = 3 m.
+
+### What it replaced
+
+Until 2026-10-14, D was the straight distance on the map to the nearest ground end, and each bridge was computed alone. On Boulevard
+du Larvotto (Monaco) a road came down to 0.37 m in the middle of one OSM bridge, near the ground end of a ramp that it does not
+connect to there.
+
+### Limits
+
+- The heights are chosen, not measured (`source: urbanstyle`, `method: chosen`). Measured heights replace them.
+- Where a branch starts on the ground beside another branch that the rule puts high, the two cannot share one deck. Boulevard du
+  Larvotto's ramp a2 starts 8 m beside a1, which is about 9 m high there (check BR11). The 3D model then needs one deck for each.
 

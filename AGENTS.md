@@ -113,6 +113,8 @@ PYTHONPATH=src $P -m urbanstyle check data/monaco.duckdb data/sodermalm.duckdb
 # a fix in division.py or ground.py: only those steps, from the copy the last full build kept (OUT.before-division): Monaco minutes,
 # not 27 min; the build prints each step's time
 PYTHONPATH=src $P -m urbanstyle build ../duckOSM/monaco.duckdb data/monaco.duckdb --from division
+# a unit with a bridge model: --bridge PROFILE gives the profile's ways to the bridge model (the ground draws no lanes on them)
+PYTHONPATH=src $P -m urbanstyle build data/units/broadway-granville.osm.duckdb data/units/broadway-granville.space.duckdb --bridge data/bridges-measured/granville-bridge.bridge.json
 
 # dashboard: system python3 (roadstyle 0.13.1 from PyPI), then serve it; Street View needs http
 PYTHONPATH=src python3 -m urbanstyle dashboard data/monaco.duckdb viz/monaco.html

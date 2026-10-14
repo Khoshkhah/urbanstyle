@@ -5,8 +5,8 @@
     chains          the bounding roads joined end to end between junctions, simplified by SIMPLIFY_M
     faces           the areas the chains enclose, closed by the edge of the area (the clip's box)
     street side     each side of a chain within a face gets one distance from the road line, so the block's edge there runs parallel to
-                    the road: the parcels' median line (a city's `space.parcel`), else OSM's sidewalks + SIDEWALK_BACK_M, else half the
-                    class's right-of-way (HALF_ROW); pulled in to the nearest parcel (and, where no parcel sets the side, to the
+                    the road: OSM's sidewalks + SIDEWALK_BACK_M, else the parcels' median line (a city's `space.parcel`), else half the
+                    class's right-of-way (HALF_ROW); pulled in to the nearest parcel where no sidewalk sets it (and, where no parcel sets the side, to the
                     nearest building), so no plot is cut; a building is drawn whole even where its OSM outline reaches over the line
     block           what is left of a face, if at least MIN_BLOCK_M2 and MIN_BLOCK_W_M wide; corners are sharp (each edge line runs on
                     past the junction)
@@ -26,11 +26,13 @@ STREET = ("motorway", "trunk", "primary", "secondary", "tertiary", "unclassified
 HALF_ROW = {"motorway": 18, "trunk": 16, "primary": 15, "secondary": 12, "tertiary": 10, "unclassified": 10, "residential": 10,
             "living_street": 8, "pedestrian": 10}  # half right-of-way by class where neither parcels nor sidewalks give it (chosen)
 SIMPLIFY_M = 1.0        # OSM's small wiggles are not the street's shape
-STEP_M = 5.0            # lines square to the road, every
+STEP_M = 2.5            # lines square to the road, every (a block's edge follows the sidewalks at this step)
 REACH_M = 25.0          # looked for out to
 HIT_CAP = 1.5           # a parcel or sidewalk counts within this many times the class's half right-of-way (not the next street's)
 SIDEWALK_BACK_M = 1.0   # a sidewalk is drawn along its middle: the property line is about this far behind it
 ALONG_COS = 0.82        # a sidewalk runs along the road: within ~35 degrees
+CORNER_M = 10.0         # the edge follows the sidewalks, but not within this of a junction: there two edges meet in a sharp corner, as
+                        # the city's blocks do (rounded round a corner's sidewalk, the division found no intersection there: i0-877917415)
 ROOF_M = 1.5            # a building pulls the street's edge in only by more than this: a roof reaches about this far over the wall
                         # (Avenue Pasteur, Monaco: the footprint of w49209427 is its roof, over the sidewalk; Kaveh, 2026-10-13)
 MIN_BLOCK_M2, MIN_BLOCK_W_M = 400.0, 8.0    # a thinner or smaller piece (between a divided road's carriageways) is street
@@ -120,7 +122,7 @@ def build(con, epsg):
         x, cl = ch["geom"], ch["cl"].replace("_link", "")
         cap = HIT_CAP * HALF_ROW.get(cl, 10)
         n = max(2, int(x.length // STEP_M))
-        par, sw, nray = [], [], 0
+        par, sw, nray, at = [], [], 0, []      # at: (t, distance) of each line that reached a sidewalk
         for i in range(n):
             t = x.length * (i + .5) / n
             a, b = x.interpolate(max(t - 1, 0)), x.interpolate(min(t + 1, x.length))
@@ -149,10 +151,11 @@ def build(con, epsg):
                     hits.append(q.distance(hp))
             if hits:
                 sw.append(min(hits) + SIDEWALK_BACK_M)
-        if nray and len(par) >= max(2, nray / 2):
-            d, basis, method = statistics.median(par), "parcels", "measured"
-        elif len(sw) >= 3:
+                at.append((t, sw[-1]))
+        if len(sw) >= 3:            # footways first: most areas (Monaco) have no parcels, so the street is read the same way everywhere
             d, basis, method = statistics.median(sw), "sidewalks", "measured"
+        elif nray and len(par) >= max(2, nray / 2):
+            d, basis, method = statistics.median(par), "parcels", "measured"
         else:
             d, basis, method = float(HALF_ROW.get(cl, 10)), "class", "chosen"
         zone = x.buffer(sg * REACH_M, single_sided=True).intersection(f)
@@ -165,13 +168,41 @@ def build(con, epsg):
         pd, pk = min(pnear, default=(1e9, None))
         if basis == "parcels":      # a surveyed property line is the edge: an OSM outline (drawn from photos, often shifted) does not move it
             bd = 1e9
+        if basis == "sidewalks":    # the footways set the edge: a parcel line does not move it
+            pd = 1e9
         if d - bd <= ROOF_M:        # a building at most ROOF_M nearer does not move the edge: OSM often draws a building by its roof
             bd = 1e9
         if min(bd, pd) < d:
             if bd <= pd:    # the street ends at a wall, never inside a building
                 return round(bd, 2), "building", "measured", round(d, 2), f"{bmeta[bk][1]}:{bmeta[bk][2]}"
             return round(pd, 2), "parcel", "measured", round(d, 2), f"vancouver:{pmeta[pk][0]}"
-        return round(d, 2), basis, method, None, None
+        return round(d, 2), basis, method, None, None, (at if basis == "sidewalks" else None)
+
+    def follow(x, sg, at, ends):
+        """The street between road line x and its sidewalks on side sg: each line square to the road out to its own distance (at:
+        [(t, distance)]); within CORNER_M of an end straight on at the distance there, and past each junction end (ends)."""
+        at = sorted(at)         # each line the median of it and its neighbours: one line that reaches another path is no spike
+        at = [(t, statistics.median([d_ for _, d_ in at[max(k - 1, 0):k + 2]])) for k, (t, _) in enumerate(at)]
+        ts = [(t, d_) for t, d_ in at if CORNER_M <= t <= x.length - CORNER_M] or [(x.length / 2, statistics.median([d_ for _, d_ in at]))]
+        ts = [(0.0, ts[0][1])] + ts + [(x.length, ts[-1][1])]
+        road, edge = [], []
+        for t, d_ in ts:
+            a, b = x.interpolate(max(t - 1, 0)), x.interpolate(min(t + 1, x.length))
+            dx, dy = b.x - a.x, b.y - a.y
+            h = (dx * dx + dy * dy) ** .5 or 1
+            q = x.interpolate(t)
+            road.append((q.x, q.y))
+            edge.append((q.x - sg * dy / h * d_, q.y + sg * dx / h * d_))
+        out_ = [shapely.make_valid(shapely.Polygon(road + edge[::-1]))]
+        c = list(x.coords)
+        for e, (p, q) in ((0, (c[0], c[1])), (-1, (c[-1], c[-2]))):
+            if e in ends:       # straight on past the junction at its end's distance: two edges meet in a sharp corner
+                dx, dy = p[0] - q[0], p[1] - q[1]
+                h = (dx * dx + dy * dy) ** .5 or 1
+                o = (p[0] + dx / h * 2 * REACH_M, p[1] + dy / h * 2 * REACH_M)
+                seg = shapely.LineString([o, p] if e == 0 else [p, o])
+                out_.append(seg.buffer(sg * ts[0 if e == 0 else -1][1], single_sided=True))
+        return shapely.union_all(out_)
 
     def extend(x, e, ends):
         c = list(x.coords)
@@ -216,9 +247,14 @@ def build(con, epsg):
             ds = []
             for sg in sgs:
                 r = side_width(ch, sg, f)
+                at = r[5] if len(r) > 5 else None
+                r = r[:5]
                 ds.append(r[0])
                 # the edge line runs on past a junction, so two edges meet in a corner, as two parallel offsets do
-                strips.append(extend(x, 2 * REACH_M, ends).buffer(sg * r[0], single_sided=True))
+                if at:          # where sidewalks set it, the edge follows them piece by piece, SIDEWALK_BACK_M behind each
+                    strips.append(follow(x, sg, at, ends))
+                else:
+                    strips.append(extend(x, 2 * REACH_M, ends).buffer(sg * r[0], single_sided=True))
                 srows.append((j, r))
             for e in (0, -1):
                 if e not in ends:       # a dead end inside the face
@@ -250,7 +286,7 @@ def build(con, epsg):
         mine = [parcels[k] for k in (ptree.query(f) if ptree is not None else []) if parcels[k].intersection(f).area > 0.5 * parcels[k].intersection(box).area]   # (a parcel cut by the area's edge: its part inside)
         joined = poly(shapely.union_all(mine).buffer(PARCEL_CLOSE_M, join_style="mitre").buffer(-PARCEL_CLOSE_M, join_style="mitre")
                       .intersection(f, grid_size=0.01).difference(carriage, grid_size=0.01)) if mine else shapely.Polygon()
-        if mine and joined.area >= PARCEL_SHARE * sum(b.area for b in road_blocks):
+        if mine and not any(r[1] == "sidewalks" for _, r in srows) and joined.area >= PARCEL_SHARE * sum(b.area for b in road_blocks):
             for q in shapely.get_parts(joined):
                 if q.area >= MIN_BLOCK_M2 and q.buffer(-MIN_BLOCK_W_M / 2).area > 0:
                     out.append((shapely.Polygon(q.exterior), srows, f))     # (a hole would be a courtyard: still the block's)

@@ -24,6 +24,7 @@ FADE_M = 2.0        # an arm's weight fades to 0 over this to the edge of its la
 OUT_FADE_M = 10.0   # ... and to nothing over this beyond its lanes and past its end (smooth: no step)
 END_FADE_M = 10.0   # ... and over this to its end
 LAND_PAST_M = 3.0   # ... a ground lane it lands on reaches this far past the bridge's end (it continues it)
+LAND_LANE_M = 2.75  # a ground lane at least this wide is a lane: a bridge lane landing on it takes its edges
 LAND_BLEND_M = 30.0 # a bridge lane moves to the street's lane it lands on over this
 LIFT = {True: 0.05, False: 0.10}   # above the deck: a lane (True), a path (False); clear of each other, no flicker
 LINE_LIFT_M = 0.15  # a painted line above both
@@ -1751,9 +1752,10 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False, poles=None
                     if c is None:
                         c = on(sf)
                     u = 1.0 if d <= 0 else 0.0 if d >= LAND_BLEND_M else 0.5 * (1 + math.cos(math.pi * d / LAND_BLEND_M))
-                    # to the ground lane's middle, keeping its own width (the street's lanes under a landing can be narrower than
-                    # real: on ramp a2 our islands left them 1.3 m and the ramp's two lanes looked like one)
-                    v = v * (1 - u) + ((c[0] + c[1]) / 2 + (base - (L0 + R0) / 2)) * u
+                    # to the ground lane's edges, so the lanes go on with no step and no gap between them (a3's landing: a gap
+                    # between its two lanes took a barrier, barrier @-71,-454, Kaveh, 2026-10-14); to its middle, keeping its own
+                    # width, where the ground lane is narrower than a lane (on ramp a2 our islands left them 1.3 m)
+                    v = v * (1 - u) + (c[k] if c[0] - c[1] >= LAND_LANE_M else (c[0] + c[1]) / 2 + (base - (L0 + R0) / 2)) * u
                 return v
             return f
         return blend(L0, 0), blend(R0, 1)

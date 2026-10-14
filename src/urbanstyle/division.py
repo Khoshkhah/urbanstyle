@@ -47,6 +47,8 @@ JOIN_EDGE_M = 2.0        # two sections whose spaces share this much edge (no in
 JOIN_COS = 0.7           # ... when their axes there are this near in line (cos of the angle: 45°; 0.85 left Monaco's Avenue de
                          # Monte-Carlo, 0.848 at s0-w4097656r~w4224972r.16/1, with a step in its roadway, Kaveh 2026-10-13)
 FOLLOW_MAX_M = 30.0      # a section's axis runs on along its main road past the middle between the blocks by at most this
+ALONG_COS = math.cos(math.radians(40.0))    # a road within 40° of a section's axis runs along it: a carriageway (a slip lane merging at 30°,
+                         # w74226310 into the Granville Bridge's ramp, is one until it merges; Kaveh, 2026-10-14)
 ISLAND_JOIN_M = 6.0      # island paths (footway=traffic_island) this near each other are one island
 ISLAND_POLE_M = 3.0      # a city's pole this near an island stands on it
 POLE_CLEAR_M = 0.4       # a pole stands this far inside a kerb (as the kerbs of the streets)
@@ -112,7 +114,7 @@ def arrow_shape(tip, h, ways):
         pieces.append([(px - dx * 0.8 - dy * 0.4, py - dy * 0.8 + dx * 0.4), (px, py), (px - dx * 0.8 + dy * 0.4, py - dy * 0.8 - dx * 0.4)])
     return shapely.MultiLineString(pieces)
 
-def build(con, epsg):
+def build(con, epsg, bridges=()):
     import duckdb
     import numpy as np
     import shapely
@@ -436,6 +438,10 @@ def build(con, epsg):
     for oid, (tg_c, _) in CORR.items():       # (and their tags OSM's)
         if oid in osm_tags:
             osm_tags[oid].update(tg_c)
+    # the ways of a bridge that has a model (its profile, `--bridge`) are the bridge model's (bridge3d: its lanes, guards, sidewalks),
+    # never the ground's, even where nothing passes under them (the Granville Bridge's ramp w304881410 on its fill: the ground drew
+    # lanes under the bridge's; Kaveh, 2026-10-14). A bridge with no model (West Broadway's w473723218) stays the ground's
+    bridge_ways = {int(w[1:]) for pf in bridges for ax_ in json.load(open(pf)).get("axes", []) for w in ax_.get("ways", [])}
     otree = shapely.STRtree(objs) if objs else None
 
     def objects_in(ax, Q, sg):
@@ -487,7 +493,7 @@ def build(con, epsg):
             t = (x.x - p.x) * -uy + (x.y - p.y) * ux       # + left of the axis
             rt = r[7].project(x)
             rx, ry = tangent(r[7], rt)
-            if abs(rx * ux + ry * uy) < cosf:              # a road crossing the section, not running along it
+            if abs(rx * ux + ry * uy) < ALONG_COS:         # a road crossing the section, not running along it
                 continue
             fw = rx * ux + ry * uy > 0
             al, ag = lanes_of(r, fw)
@@ -659,14 +665,14 @@ def build(con, epsg):
         for k in range(int(axis.length // 2) + 1):
             sv = min(k * 2.0, axis.length)
             pr = profile(axis, P, sv)
-            keys.append((sv, tuple((round(c[0] / 2), c[2], c[3]) for c in pr)))
+            keys.append((sv, tuple((round(c[0] / 2), c[2], c[3], c[4][0] in bridge_ways) for c in pr)))
         runs = []
         for sv, key in keys:
             if runs and runs[-1][2] == key:
                 runs[-1][1] = sv
             else:
                 runs.append([sv, sv, key])
-        lanes_sig = lambda key: tuple((a, b) for _, a, b in key)
+        lanes_sig = lambda key: tuple((a, b, br) for _, a, b, br in key)     # (a bridge's start cuts as a lane change does)
 
         def short(j):       # a run shorter than SUB_MIN_M joins a neighbour, unless OSM's lane count changes there (then LANES_MIN_M)
             L_ = runs[j][1] - runs[j][0]
@@ -675,7 +681,9 @@ def build(con, epsg):
         while len(runs) > 1 and any(short(j) for j in range(len(runs))):
             j = min((j for j in range(len(runs)) if short(j)), key=lambda j: runs[j][1] - runs[j][0])
             nbs = [x for x in (j - 1, j + 1) if 0 <= x < len(runs)]     # the neighbour with the same lanes first, then the longer
-            nb = max(nbs, key=lambda x: (lanes_sig(runs[x][2]) == lanes_sig(runs[j][2]), runs[x][1] - runs[x][0]))
+            deck = lambda key: any(c[3] for c in key)                     # (ground joins ground, a bridge's piece a bridge's)
+            nb = max(nbs, key=lambda x: (deck(runs[x][2]) == deck(runs[j][2]), lanes_sig(runs[x][2]) == lanes_sig(runs[j][2]),
+                                         runs[x][1] - runs[x][0]))
             lo, hi = min(j, nb), max(j, nb)
             runs[lo] = [runs[lo][0], runs[hi][1], runs[nb][2]]
             del runs[hi]
@@ -917,13 +925,15 @@ def build(con, epsg):
         prs = [profile(ax, Q, min(k * 4.0 + 2.0, ax.length)) for k in range(n)]
         prs = [p for p in prs if p] or [[]]
         # the carriageways: their offsets and widths, the median over the subsection (they run parallel to the axis)
-        nc = statistics.median_low([len(p) for p in prs])
+        nc = max(statistics.multimode([len(p) for p in prs]))      # the count most of its lines have (the more where two tie)
         same = [p for p in prs if len(p) == nc]
         cw = []
         for k in range(nc):
             cs = [p[k] for p in same]
-            cw.append(dict(t=statistics.median([c[0] for c in cs]), w=statistics.median([c[1] for c in cs]), al=cs[0][2], ag=cs[0][3], road=cs[0][4],
-                           fw=cs[0][5]))
+            top = statistics.mode([c[4][0] for c in cs])      # the road most of its lines cross (not the first line's: a short link)
+            c0 = next(c for c in cs if c[4][0] == top)
+            cw.append(dict(t=statistics.median([c[0] for c in cs]), w=statistics.median([c[1] for c in cs]), al=c0[2], ag=c0[3], road=c0[4],
+                           fw=c0[5]))
         cw = sorted(cw, key=lambda c: c["t"])
         # the block on each side
         hs = [across(ax, min(k * 4.0 + 2.0, ax.length)) for k in range(n)]
@@ -1070,6 +1080,11 @@ def build(con, epsg):
         br[eb] = (nr - c0) * sgn
         edB[-1][1][eb], edB[0][0][eb] = klB[eb], krB[eb]
 
+        def decks(lay_, e, s_, cc):     # a bridge deck's room at the joint, in A's frame
+            return [tuple(sorted((s_ * float(ed_[0][e]) + cc, s_ * float(ed_[1][e]) + cc))) for C, ed_ in zip(lay_[1], lay_[0][6])
+                    if C["rd"][0] in bridge_ways]
+        DK = decks(la, ea, 1, 0.0) + decks(lb, eb, sgn, c0)
+
         def pieces(lay_, e, s_):
             out = []
             for k, C in enumerate(lay_[1]):
@@ -1082,6 +1097,8 @@ def build(con, epsg):
                         key = (typ, None)
                     cc = c0 if lay_ is lb else 0.0
                     a_, b_ = sorted((s_ * float(ed[0][e]) + cc, s_ * float(ed[1][e]) + cc))
+                    if C["rd"][0] in bridge_ways or any(lo_ <= (a_ + b_) / 2 <= hi_ for lo_, hi_ in DK):
+                        continue        # (lanes going onto a bridge: the bridge model meets them, at their full width)
                     out.append(dict(key=key, ed=ed, e=e, k=k, s=s_, c=cc, a=a_, b=b_))
             return sorted(out, key=lambda r: (r["a"], r["b"]))
 
@@ -1392,6 +1409,10 @@ def build(con, epsg):
             al_dir, ag_dir, shared, rule, lane_pv = (C[x] for x in ("al_dir", "ag_dir", "shared", "rule", "lane_pv"))
             side_pv = lambda typ, sd, pp=C["park_pv"], bp=C["bike_pv"]: (pp if typ == "parking" else bp).get(sd) or \
                 ("urbanstyle", "derived", "the width holds it (the fit)")
+            if rd[0] in bridge_ways:       # the bridge model draws all of it: one part, no lanes, no lines
+                add(sub, "bridge deck", band2(ax, lo, hi, Q), width_m=round(mean(hi - lo), 2), width_method="derived", direction=None, lane=None,
+                    **common, **PV("osm", "mapped", f"w{rd[0]} bridge=yes: drawn by the bridge model"), **POS(k_both))
+                continue
             osm_total += osm_n or 0
             add(sub, "shoulder", band2(ax, lo, ie[0][0], Q), width_m=round(mean(ie[0][0] - lo), 2), width_method="derived", direction=None, lane=None,
                 **common, **PV("urbanstyle", "derived", "the room left beside the lanes"), **POS(k_both))

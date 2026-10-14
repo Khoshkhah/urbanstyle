@@ -75,6 +75,17 @@ def _frames(con, db, bridges):
                                          "color": d.PART_COLORS.get(key) or d.PART_COLORS.get(key.split(" ")[0]) or
                                          {"barrier median": "#cfc8bd", "median": "#6b7280", "buffer": "#c4b5a0"}.get(key, "#9ca3af"), "geometry": g}
                                         for mm in ms for pr, key, g in mm["flat"]], geometry="geometry", crs=4326) if ms else None
+    # a bridge deck at ground level (division: a way OSM tags bridge=yes) is the bridge model's: the page draws of it only what the model
+    # does not cover (between the model's wall and the street beside it), so nothing lies twice and nothing is left open
+    deck = parts["type"] == "bridge deck"
+    if deck.any() and out["bridge2d"] is not None:
+        import numpy as np
+        import shapely
+        import geopandas as gpd_
+        model = shapely.union_all(shapely.buffer(shapely.make_valid(np.asarray(out["bridge2d"].to_crs(ep).geometry)), 0.05))
+        rest = shapely.buffer(shapely.buffer(shapely.difference(shapely.make_valid(np.asarray(parts[deck].to_crs(ep).geometry)), model), -0.05), 0.05)
+        parts.loc[deck, "geometry"] = gpd_.GeoSeries(rest, crs=ep).to_crs(4326).values
+        out["parts"] = parts = parts[~(deck & parts.geometry.is_empty)]
     # the street objects, one per real object from every source: in 2D a dot where it stands, in 3D its model
     place = d.placer(con, ep)
     try:

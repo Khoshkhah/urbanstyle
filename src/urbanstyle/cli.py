@@ -9,6 +9,8 @@ def main(argv=None):
     b = sub.add_parser("build", help="build the space schema from a duckOSM database")
     b.add_argument("osm", help="duckOSM .duckdb (a copy with features is made next to OUT if it has none)")
     b.add_argument("out", help="output .duckdb")
+    b.add_argument("--bridge", action="append", default=[], metavar="PROFILE",
+                   help="a bridge profile (<name>.bridge.json): its ways are the bridge model's, the ground draws none of them")
     b.add_argument("--from", dest="start", choices=["division"], help="only the street division and the steps after it, from the copy "
                    "the last full build kept (OUT.before-division): for a fix in division.py or ground.py")
     ck = sub.add_parser("check", help="conformance checks; exit 1 if a hard check fails")
@@ -71,7 +73,7 @@ def main(argv=None):
 
     if a.cmd == "build":
         from .container import build, counts, with_features
-        c = build(with_features(a.osm, a.out.replace(".duckdb", ".osm.duckdb")), a.out, a.start)
+        c = build(with_features(a.osm, a.out.replace(".duckdb", ".osm.duckdb")), a.out, a.start, a.bridge)
         print("level  type       n")
         for l, t, n in counts(c):
             print(f"{l:>5}  {t:<9} {n}")

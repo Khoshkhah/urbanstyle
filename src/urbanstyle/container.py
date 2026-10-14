@@ -903,7 +903,7 @@ def intersection_shapes(con):
 FROM = ("division",)        # where `build --from` can start: the steps before it are kept in OUT.before-<step>
 
 
-def build(osm, out, start=None):
+def build(osm, out, start=None, bridges=()):
     """The space container of `osm` in `out`. start="division": the street division and the steps after it only, from the copy the
     last full build kept before it (OUT.before-division): a fix in division.py or ground.py takes minutes, not a full build (Monaco 27
     min; Kaveh, 2026-10-13: "consider I want to fix 100 issues"). Each step prints its time."""
@@ -930,7 +930,7 @@ def build(osm, out, start=None):
         con.execute(f"CREATE OR REPLACE TEMP VIEW osm_boundary AS SELECT {'geometry' if 'geometry' in cols else 'geom'} AS geometry FROM osm.main.boundary")
     if start is not None:
         lon = con.execute("SELECT avg(ST_X(ST_Centroid(geometry))) FROM space.element").fetchone()[0]
-        return _from_division(con, f"EPSG:{32600 + int((lon + 180) // 6) + 1}", done)
+        return _from_division(con, f"EPSG:{32600 + int((lon + 180) // 6) + 1}", done, bridges)
     con.execute(BUILD)
     con.execute(ROADS)
     from . import buildings
@@ -976,13 +976,13 @@ def build(osm, out, start=None):
     done("blocks")
     con.execute("CHECKPOINT")      # (the file as it is before the division, for `build --from division`)
     shutil.copy(out, out + ".before-division")
-    return _from_division(con, epsg, done)
+    return _from_division(con, epsg, done, bridges)
 
 
-def _from_division(con, epsg, done):
+def _from_division(con, epsg, done, bridges=()):
     """The steps from the street division on: they rewrite the level-0 rows the steps before them made, so they start from those."""
     from . import division, ground
-    division.build(con, epsg)      # the street divided between the blocks, and the inside of each piece, at level 0 (steps 2-5)
+    division.build(con, epsg, bridges)      # the street divided between the blocks, and the inside of each piece, at level 0 (steps 2-5)
     done("division")
     ground.build(con, epsg)        # layer 0: every piece of the area is street, plot, green, ... (docs/design/space-layers.md)
     ground.surfaces(con, epsg)     # layer 1: the surfaces inside each ground item

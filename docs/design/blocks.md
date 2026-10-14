@@ -53,15 +53,21 @@ Two other ideas were tried and rejected:
 4. **One edge per street side.** Each side of each chain gets **one distance** from the road line, so the block's edge on that side runs
    parallel to the road. The distance comes from the best source that has it, measured on lines square to the road every 5 m, inside
    that face only:
-   - **the parcels** (a city's property lots, `space.parcel`): the median distance to the nearest parcel, when at least half the lines
-     reach one;
-   - **else the sidewalks**: the median distance to OSM's sidewalk lines that run along the road (within 35°), plus 1 m (a sidewalk is
-     drawn along its middle);
+   - **the sidewalks** (2026-10-14: first, because most areas, Monaco among them, have no parcels; one rule reads every area the same
+     way): the median distance to OSM's sidewalk lines that run along the road (within 35°), plus 1 m (a sidewalk is drawn along its
+     middle), when at least 3 lines reach one;
+   - **else the parcels** (a city's property lots, `space.parcel`): the median distance to the nearest parcel, when at least half the
+     lines reach one;
    - **else the road class**: half the usual right-of-way for that class (living street 8 m; residential, unclassified, tertiary and
      pedestrian 10 m; secondary 12 m; primary 15 m; trunk 16 m; motorway 18 m).
    
    Each line's hit is taken only when it is within 1.5 × the class's half width, so a parcel or sidewalk of the next street does not count.
+   **The edge follows the sidewalks piece by piece** (2026-10-14): each line square to the road (every 2.5 m) ends 1 m behind the
+   sidewalk it reaches, the median of it and its two neighbours (one line that reaches another path makes no spike). Within 10 m of a
+   junction (`CORNER_M`) the edge goes straight on at the distance it has there, so two edges meet in a sharp corner: an edge rounded
+   round a corner's sidewalk left the division no intersection there (i0-877917415).
 5. **No parcel is cut** (2026-10-10). The distance is pulled in to the nearest parcel on that side, so a block holds its parcels whole.
+   Where the sidewalks set the side (2026-10-14), a parcel does not move it: the sidewalks are the edge.
    **Where parcels set the side, an OSM building does not move it:** the parcel line is surveyed, and an OSM outline (drawn from an
    aerial photo, a tall building's roof shifted) can be a few metres off. Such a building is drawn whole and reaches over the edge
    (check B1 counts them: 99 at Broadway × Granville, 1,771 m²). Where no parcel sets the side, the nearest building still pulls it in,
@@ -72,7 +78,7 @@ Two other ideas were tried and rejected:
    city's own blocks have sharp corners too: over 320 corners of rectangular blocks, the median rounding is 0.02 m.
 7. **What is a block.** What is left of each face is a block if it is at least 400 m² and at least 8 m wide; a thinner piece (the strip
    between a divided road's two carriageways) is street.
-8. **Where a city has parcels, the block is its parcels** (2026-10-11). A parallel edge is one straight line, so where the parcels
+8. **Where a city has parcels, the block is its parcels** (2026-10-11). Only in a face where no side is set by sidewalks (2026-10-14). A parallel edge is one straight line, so where the parcels
    along it step back (land a city keeps for its street in front of some lots), the block held ground that no parcel holds. So, in each
    face:
    - take the parcels that lie more than half in the face (for a parcel that the area's edge cuts: half of its part inside the area);
@@ -86,6 +92,10 @@ Two other ideas were tried and rejected:
    Until 2026-10-11 the street grew into its blocks after the cuts, up to the parcels' front ("step 3b"). Each street piece grew
    separately, so each special case (a lane mouth, a slit, a corner strip, a crumb) needed its own rule. It is removed: the parcels
    now set the block before the cuts, and the cuts need no change.
+
+   With sidewalks first (2026-10-14), Broadway × Granville: 51 blocks (454,828 m²); 201 street sides, 186 from sidewalks, 11 from a
+   parcel, 4 from the class; B1 113 → 25 buildings over an edge; B6 47 of 51, median overlap 0.93 (was 1.00). The edges fall within
+   about 1 m of the parcels' on almost every block. The block b0-w74226311r.2 (508 m²) is gone.
 
    Broadway × Granville: 52 blocks (427,492 m²), none in more than one part; 217 street sides, 210 from the joined parcels, 5 from a
    parcel, 2 from sidewalks; the street is one piece; B6 47 of the city's 51 blocks, median overlap 1.00. The four not matched: two

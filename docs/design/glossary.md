@@ -98,6 +98,7 @@ containers' above.
 | `parking`, `no parking` (part types) | a shoulder where parking is mapped or signed; one where signs forbid it |
 | **lot (`space.lot`)** | an off-street car park (OSM `amenity=parking` on the ground, not `parking=lane` / `street_side` / ...): private ground beside the street, like a building's plot. Id `w<way>`, with name, operator, parking, access, fee. The street space stops at its edge; its parking aisles (`service=parking_aisle`) are no street (2026-10-10) |
 | `verge` (part type) | the raised ground by the kerb where OSM maps no sidewalk; nobody walks on it |
+| `bridge deck` (part type) | at level 0, the band of a way that a bridge profile models (`build --bridge`): the bridge model draws it; the page draws only what the model does not cover |
 | `ring`, `shoulder` (part types) | a roundabout's circulating roadway as one part; the strip between the outer lane and the measured kerb (parking, a hard strip) |
 | `space.turn` | one row per lane-to-lane move through an intersection: `from_edge`/`from_lane` → `to_edge`/`to_lane` (lanes counted from the right), `turn` left / straight / right, `source` `sumo` ([the roadway from SUMO](space-parts.md#the-roadway-from-sumo)) |
 | **linear referencing** | giving a position as `s` (distance along a reference line) and `t` (offset across it), as OpenDRIVE and IFC do |

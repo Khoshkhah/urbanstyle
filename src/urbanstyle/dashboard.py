@@ -130,7 +130,7 @@ PART_COLORS = {"lane circulating": "#4b5260", "ring": "#4b5260", "junction area"
                "parking lot": "#94a3b8", "carriageway": "#4b5260", "bus lane": "#9b2c2c",
                "cycle lane": "#2f855a", "cycle crossing": "#38a169", "crosswalk": "#4b5260", "island": "#8fbf6f",
                "sidewalk": "#d8d2c6", "furnishing": "#b9a58b", "frontage": "#ece6da", "open": "#e9e4d6", "bus stop": "#93c5fd",
-               "tree pit": "#6b4f2a", "driveway": "#a8a29e", "verge": "#c9c4b8"}   # asphalt, paving; crosswalks are asphalt under their zebra bars
+               "tree pit": "#6b4f2a", "driveway": "#a8a29e", "verge": "#c9c4b8", "bridge deck": "#c9c4b8"}   # asphalt, paving; crosswalks are asphalt under their zebra bars
 SEEN_COLORS = {"parking": "#2563eb", "no parking": "#9333ea", "give way": "#f97316", "stop": "#dc2626", "traffic light": "#ef4444",
                "street light": "#facc15", "bin": "#65a30d", "bench": "#84cc16", "lane arrow": "#06b6d4", "zebra": "#ffffff"}
 PHOTOS_PER_SPACE = 6

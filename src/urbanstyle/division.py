@@ -847,6 +847,10 @@ def build(con, epsg):
                             # parking lane where the width held one; Kaveh, 2026-10-14)
                             if (park[1] is False and pl) or (park[-1] is False and pr) or (bike[1] is False and bl) or (bike[-1] is False and br):
                                 continue
+                            # (a bike lane only where a source says so: OSM's cycleway tags, a city's bikeway; never to fill a width;
+                            # Kaveh, 2026-10-14: "don't add cycle lanes when it's not in any sources")
+                            if (bike[1] is not True and bl) or (bike[-1] is not True and br):
+                                continue
                             lo = 2 * GUTTER_M + n * TRAVEL_M[0] + (pl + pr) * PARK_M[0] + (bl + br) * BIKE_M[0]
                             hi = 2 * GUTTER_M + n * TRAVEL_M[1] + (pl + pr) * PARK_M[1] + (bl + br) * BIKE_M[1]
                             sc = 3.0 * max(lo - W, W - hi, 0.0)

@@ -358,7 +358,12 @@ function ref(f){const p=f.properties; if(XP.includes(f.layer.id))return p._layer
   const o=ovOf(f); if(!o)return null; const mp=OVMAP[o.label];
   if(mp&&p[mp[1]]!=null)return [mp[0],String(p[mp[1]]),mp[1],mp[2]];
   const k=OWNKEY.find(k=>p[k]!=null&&p[k]!==''); return k?[o.label,String(p[k]),k,null]:null}
-function hit2d(pt){const ls=live2d(); if(!ls.length)return null; return M().queryRenderedFeatures(pt,{layers:ls}).find(ref)||null}
+// (a click takes the smallest thing under the mouse, not the top layer: a sidewalk, not the street space drawn over it; Kaveh,
+// 2026-10-13: "I click on a sidewalk and you say it is a space")
+const RANK=['Street objects','On the parts','Parts','Bridge 2D','Buildings','Parking lots','Subsection axes','Subsections','Intersections','Spaces','Sections','Blocks','Ground'];
+const rank=f=>{const o=XP.includes(f.layer.id)?null:ovOf(f), i=o?RANK.indexOf(o.label):-1; return o?(i<0?RANK.length:i):-1};
+function hit2d(pt){const ls=live2d(); if(!ls.length)return null;
+  const hs=M().queryRenderedFeatures(pt,{layers:ls}).filter(ref); return hs.reduce((b,f)=>!b||rank(f)<rank(b)?f:b,null)}
 // (the whole thing under the mouse, from the full data: the map draws a large area in tiles, and the drawn feature is only the tile's
 // piece; one block lit in a different piece at every tile: Kaveh, 2026-10-13, b0-w4224972r.13)
 const fullIdx={};

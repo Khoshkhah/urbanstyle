@@ -26,6 +26,12 @@ parking aisles and driveways no street, kerbs from the evidence (two-way roads c
 roadway, tree pits, one stop line per approach, a crosswalk to its street's junction, no sliver spaces, lanes through SUMO's nodes, and
 check U14 with the rule that gives street ground left to no space to a neighbour.
 
+## Next: the street from SUMO (proposed 2026-10-13)
+
+All the geometry of the street (lanes, sidewalks, junction areas, crossings, walking areas, connections) comes from SUMO, and a wrong
+shape is fixed only in SUMO's input or settings. The rules, the inputs and the open questions:
+[The street from SUMO](design/street-from-sumo.md). First step: a test on three Monaco places, reviewed on the dashboard.
+
 ## To do (2026-10-10)
 
 In order; each item is a general rule, checked on Broadway x Granville before and after.

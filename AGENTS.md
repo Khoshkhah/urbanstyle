@@ -168,6 +168,9 @@ mkdocs build --strict                                  # needs pip install ".[do
   Tunnels in 3D (`u3d-tun`): flat under level 0's ground (the map draws nothing below 0); they show where level 0 is faded or hidden.
   "low buildings" (and a selected street object): buildings at most `LOW_M` (3 m) high. Each level but 0 has its own 3D layer (`u3d-deck<l>`,
   `u3d-tun<l>`), so every level button fades or hides its own level in 3D.
+- A unit's city data (`<unit>.vancouver.json`, the dossier `<unit>.duckdb`, `<unit>.space.duckdb.mapillary.json`) is found by the
+  output's file name: build to `<unit>.space.duckdb` in the same folder (or link those files beside a scratch build of that name).
+  A build named otherwise gets no parcels, no kerb evidence from the city and no bikeways, and nothing fails (2026-10-14).
 - Heavy imports (shapely, pandas, geopandas, roadstyle) stay inside functions so the CLI starts fast.
 
 ## Rules

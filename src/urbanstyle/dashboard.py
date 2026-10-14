@@ -1174,9 +1174,12 @@ function brPaint(){Object.values(LAYERS).forEach(L=>(L.pick||[]).forEach(m=>m.ma
   brMarked.has(m.userData.id)?0xff9100:m.baseHex)));
   map.triggerRepaint()}
 window.brMark=ids=>{brMarked=new Set(ids||[]); brPaint()};
-window.brAt=pt=>brOn()&&!!brHit(pt);
+// a street object under the mouse takes the hover and the click before the bridge: objects are small, the mouse on one means it
+// (Kaveh, 2026-10-13: a lamp by the ramp could not be clicked, the bridge's lanes took every click)
+const objAt=pt=>!!map.getLayer('u3d-furn')&&map.queryRenderedFeatures(pt,{layers:['u3d-furn']}).length>0;
+window.brAt=pt=>brOn()&&!objAt(pt)&&!!brHit(pt);
 let brQ=false, brLast=null;
-map.on('mousemove',e=>{brLast=e; if(brQ)return; brQ=true; requestAnimationFrame(()=>{brQ=false; const m=brOn()?brHit(brLast.point):null;
+map.on('mousemove',e=>{brLast=e; if(brQ)return; brQ=true; requestAnimationFrame(()=>{brQ=false; const m=brOn()&&!objAt(brLast.point)?brHit(brLast.point):null;
   if(m)map.getCanvas().style.cursor='pointer';
   if(m&&m===brLit){brTip.setLngLat(brLast.lngLat); return}                  // lit already: the tooltip follows the mouse
   clearTimeout(brT); if(brLit){brLit=null; brPaint(); brTip.remove()}       // another thing: the last one off at once
@@ -1188,7 +1191,7 @@ window.brOpacity=a=>{Object.values(LAYERS).forEach(L=>{if(!L.scene)return; L.sce
   L.scene.traverse(o=>{(Array.isArray(o.material)?o.material:o.material?[o.material]:[]).forEach(m=>{m.transparent=a<1; m.opacity=a;
     m.depthWrite=a>=1; m.needsUpdate=true})})}); map.triggerRepaint()};
 window.brPick=id=>{let hit=null; Object.values(LAYERS).forEach(L=>(L.pick||[]).forEach(m=>{if(m.userData.id===id)hit=m})); brSel=hit; brPaint(); return !!hit};
-map.on('click',e=>{const m=brOn()?brHit(e.point):null; if(!m||m===brSel){brDeselect(); return}
+map.on('click',e=>{const m=brOn()&&!objAt(e.point)?brHit(e.point):null; if(!m||m===brSel){brDeselect(); return}
   if(window.xpOnPick&&window.xpOnPick('bridge',m.userData,e))return;      // (the Explore panel selects it)
   deselect3d(); brSel=m; brPaint(); if(brPop){const p_=brPop; brPop=null; p_.remove()}
   const p=m.userData, rows=BR_POPUP.filter(k=>p[k]!==undefined&&p[k]!==null&&p[k]!=='').map(k=>`<tr><td><b>${k}</b></td><td>${p[k]}</td></tr>`).join('');

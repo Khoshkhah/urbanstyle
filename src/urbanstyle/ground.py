@@ -31,6 +31,7 @@ SQUARE_LAND = ("pedestrian", "square", "plaza")
 SLIVER_M2 = 5.0     # unknown ground smaller than this, or thinner than SLIVER_W_M on average (twice its area over its outline), is a sliver
 SLIVER_W_M = 2.0    # between sources' edges (a path, a park, a parcel, a bridge almost meeting): it joins its neighbour
 PATH_W_M = 2.0       # a footpath's width where OSM gives none (chosen)
+ALLEY_W_M = 6.0      # an alley's width where OSM gives none (chosen: Vancouver's lanes are 6 m)
 ALLEY_MIN_W_M = 2.0  # an alley (ground between parcels a road runs through) is at least this wide; narrower, a sliver between parcels
 MIN_M2 = 0.5        # a piece of ground smaller than this is left to its neighbours (a sliver between two sources' edges)
 
@@ -103,14 +104,20 @@ def build(con, epsg):
         gaps = poly(shapely.union_all(blocks_).difference(shapely.union_all([x for *_, x in plots[0][0]]), grid_size=0.01))
         # only ground at least ALLEY_MIN_W_M wide: the slivers between parcels (a line drawn twice) are no lane; they join a plot later
         gaps = shapely.get_parts(poly(gaps.buffer(-ALLEY_MIN_W_M / 2, join_style="mitre").buffer(ALLEY_MIN_W_M / 2, join_style="mitre").intersection(gaps, grid_size=0.01)))
-        roads_ = [(f"w{o}", n, g(w)) for o, n, w in rows(f"SELECT osm_id, name, {m()} FROM space.element WHERE type = 'road' AND level_min = 0")]
-        rt = shapely.STRtree([x for *_, x in roads_]) if roads_ else None
+        roads_ = [(f"w{o}", n, g(w), wd) for o, n, w, wd in rows(f"""SELECT e.osm_id, e.name, {m('e.geometry')}, try_cast(w.tags['width'] AS DOUBLE)
+                  FROM space.element e LEFT JOIN osm.raw.ways w USING (osm_id) WHERE e.type = 'road' AND e.level_min = 0""")]
+        rt = shapely.STRtree([x[2] for x in roads_]) if roads_ else None
         lane = []
         for p in gaps:
             on = sorted(((p.intersection(roads_[k][2]).length, k) for k in (rt.query(p) if rt is not None else [])), reverse=True)
             if on and on[0][0] > 5.0:
-                ref, name, _ = roads_[on[0][1]]
-                lane.append((f"{ref}-{round(p.centroid.x)}-{round(p.centroid.y)}", name, p))
+                # the alley is the road itself, as wide as OSM says (else ALLEY_W_M), inside the gap: not the whole gap, which can be most
+                # of a block where the city's parcels are missing (w37127121: 5,000 m2 of buildings and yards; Kaveh, 2026-10-14)
+                ks = [k for ln_, k in on if ln_ > 5.0]
+                band = shapely.union_all([roads_[k][2].buffer((roads_[k][3] or ALLEY_W_M) / 2, cap_style="flat") for k in ks])
+                ref, name, *_ = roads_[ks[0]]
+                for q in shapely.get_parts(poly(p.intersection(band, grid_size=0.01))):
+                    lane.append((f"{ref}-{round(q.centroid.x)}-{round(q.centroid.y)}", name, q))
         order.append(("alley", lane, "osm+vancouver", "derived"))      # an OSM road through a gap between the city's parcels
     order += [("plot", items, src, meth) for items, src, meth in plots[1:]]
     # OSM's driveways (duckOSM's driving network; not in space.element): a drivable strip inside the block, as wide as OSM's width or
@@ -161,18 +168,31 @@ def build(con, epsg):
     left = []
     # what is left that a path or a road runs through is that path's or that street's ground (a greenway's corridor, a road under a
     # bridge's ramp): by the line with the most length in it
-    lines = [(t, f"w{o}", n, g(w)) for t, o, n, w in rows(f"""SELECT type, osm_id, name, {m()} FROM space.element
-                                                             WHERE type IN ('road', 'walkway', 'cycleway') AND level_min = 0""")]
+    lines = [(t, f"w{o}", n, g(w), wd) for t, o, n, w, wd in rows(f"""SELECT e.type, e.osm_id, e.name, {m('e.geometry')},
+                    try_cast(w.tags['width'] AS DOUBLE) FROM space.element e LEFT JOIN osm.raw.ways w USING (osm_id)
+                    WHERE e.type IN ('road', 'walkway', 'cycleway') AND e.level_min = 0""")]
     ltree = shapely.STRtree([x[3] for x in lines]) if lines else None
     kept = []
     for p in rest:
         on = sorted(((p.intersection(lines[k][3]).length, k) for k in (ltree.query(p) if ltree is not None else [])), reverse=True)
         if on and on[0][0] > 1.0:
-            t, ref, name, _ = lines[on[0][1]]
+            t, ref, name, *_ = lines[on[0][1]]
             # inside a block a road is a back lane, a driveway, a parking aisle: an alley, not the street
             in_block = land_ is not None and p.intersection(land_).area > 0.5 * p.area
             # in a block a road through it is an alley; a footpath is not ground (space.path lies on it, whole): its ground is yard
             kind = ("alley" if t == "road" else "yard") if in_block else ("street" if t == "road" else "path")
+            if kind == "alley":
+                # the alley is the road itself, as wide as OSM says (else ALLEY_W_M), not the whole piece: where a city's parcels are
+                # missing, the piece is most of a block (w37127121: 2,938 m2 of buildings' yards; Kaveh, 2026-10-14). The rest is
+                # what is left
+                band = shapely.union_all([lines[k][3].buffer((lines[k][4] or ALLEY_W_M) / 2, cap_style="flat") for L_, k in on
+                                          if L_ > 1.0 and lines[k][0] == "road"])
+                lane_ = poly(p.intersection(band, grid_size=0.01))
+                for q in shapely.get_parts(lane_):
+                    if q.area >= MIN_M2:
+                        out.append((f"g0-alley-{ref}-{round(q.centroid.x)}-{round(q.centroid.y)}", "alley", name, "osm", "mapped", ref, q))
+                kept += [q for q in shapely.get_parts(poly(p.difference(lane_, grid_size=0.01))) if q.area >= MIN_M2]
+                continue
             out.append((f"g0-{kind}-{ref}-{round(p.centroid.x)}-{round(p.centroid.y)}", kind, name, "osm", "mapped", ref, p))
         else:
             kept.append(p)

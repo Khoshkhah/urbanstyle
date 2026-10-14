@@ -92,6 +92,9 @@ the area (level 0)
   other kind only fills the blocks; a road inside a block (a back lane, a driveway, a parking aisle) is an `alley`, not street.
   Where a city has parcels, the ground between them that a road runs through is an alley, taken before OSM's land use, which is often
   drawn over a whole block, its lanes too.
+  **An alley is the road itself** (2026-10-14): the road's line widened to OSM's `width`, else 6 m (`ALLEY_W_M`, chosen: Vancouver's
+  lanes), inside that ground; not the whole piece the road runs through, which can be most of a block where a city's parcels are
+  missing (w37127121: 2,938 m² of yards and courtyards, now 955 m²). The rest is what is left: a yard in a block.
 - **No plots inside the blocks** (2026-10-10). A city's parcels cut buildings into pieces (271 of 432 buildings at Broadway × Granville),
   so they are not items. They set the block edges and find the alleys only. Inside a block the kinds are, in this order: `building`
   (each building whole, before all other kinds), water, rail, square, structure, public green, `alley`, `car park`, `construction site`,

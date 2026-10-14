@@ -244,6 +244,17 @@ crumbs: a strip under 5 m² joins its neighbour.
   5 m² never joins a lane or a shoulder, and a shoulder never joins another strip, so the lanes keep their shape to the joint.
   Broadway × Granville: R4 234 -> 5 edges with no partner; R1 1 -> 0; R2 19 -> 16; R3 1 -> 1; no hole over 1 m² and no lane wider
   than 5 m anywhere (before and after).
+- **A section's axis is OSM's road line** (2026-10-14). The middle line between the two blocks still finds the section (where its two
+  blocks face each other, and its cuts), but the lines inside it (kerbs, lanes, painted lines) are offsets of the OSM line of the
+  section's main road (the road with the most length in it), clipped to the section. Before, they were offsets of the middle line: where
+  one block's edge is slanted (a set-back, a plaza, a car park), the middle line slanted and every lane with it, although OSM's road runs
+  straight (West 6th Avenue, s0-w23189661l.6~w74226311r/3: lanes 1.3 m off, 2° off; Kaveh, 2026-10-13). The blocks now set only how
+  far each side reaches. Where the road's line covers less than 80 % of the section (`ROAD_AXIS_SHARE`), the middle line stays the
+  axis. Offsets are to the millimetre (`moved`): an offset of 0 is the axis itself (GEOS failed on an offset of 8e-12 m).
+  Vancouver: R4 16 -> 9, R1 3 -> 2, U12 6 -> 3, U10 6 -> 10, R3 2 -> 3 (INFO).
+- **A crossing point with no road line through it** (OSM cuts Pine Street at the Arbutus Greenway; the crossing is a node of the greenway
+  only) takes its direction from the path it lies on: the walk goes along the path, across the road. A marked crossing on a path where
+  no roadway is near gets its zebra bars across that path (`PATH_CROSS_W_M`, 4 m, where OSM gives no width).
 - **A section's axis follows its road past the middle between the blocks** (2026-10-11, `division.follow_road`). Where a block steps back
   (the entrance of a service road), the middle line between the two blocks bends away or stops 5 m or more before the section's end.
   The axis then runs on along the OSM line of the section's main road, moved to start at the axis end, to the section's edge (30 m at

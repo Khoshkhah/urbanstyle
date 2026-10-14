@@ -209,6 +209,12 @@ def build(db, out, bridges=None):
     from .parts import KERB_TOP_M, RAISED
     con = duckdb.connect(db, read_only=True)
     con.execute("LOAD spatial")
+    # (with no bridge model, a deck is drawn flat in the air with no lanes: Monaco's page was built so, and no one saw why; Kaveh,
+    # 2026-10-14)
+    n_br = con.execute("SELECT count(DISTINCT osm_id) FROM space.element WHERE type = 'road' AND level_min > 0").fetchone()[0]
+    if n_br and not bridges:
+        print(f"WARNING: {n_br} road ways are on bridges but no --bridge profile is given: their decks are drawn flat in the air, with no "
+              "lanes. Make the profiles first: `urbanstyle bridge OSM GMNS DIR`, then `--bridge DIR/*.bridge.json` (AGENTS.md)")
     F = _frames(con, db, bridges)
     ovs = _overlays(F)
     for o in ovs:

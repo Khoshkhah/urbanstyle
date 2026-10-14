@@ -5,6 +5,7 @@ method. `bridge3d.model` draws the 3D model from the file only.
     urbanstyle bridge profile OSM_DB GMNS_DB (NAME | --all) OUT_DIR
 """
 import json
+import math
 import re
 
 FORMAT = "urbanstyle.bridge/1"
@@ -58,6 +59,7 @@ def profiles(osm_db, gmns_db, name=None):
                                          AND coalesce(tags['bridge'], 'no') = 'no'""").fetchall()}
     lines = {oid: (shapely.LineString([pts[r] for r in rs]), rs, dict(t)) for oid, rs, t in ways
              if len(rs) >= 2 and all(r in pts for r in rs)}
+    to_ground = _to_ground(lines, pts, ground)
     found, used = [], set()
     for oid, rs, t in sorted(outl, key=lambda r: -len(r[1])):
         if len(rs) < 4 or any(r not in pts for r in rs):
@@ -96,8 +98,48 @@ def profiles(osm_db, gmns_db, name=None):
     out = []
     for nm, deck, outline, on in found:
         n = names[nm] = names.get(nm, 0) + 1
-        out.append(_profile(g, tr, nm if n == 1 else f"{nm} {n}", epsg, deck, outline, on, lines, pts, ground, osm_db, gmns_db))
+        out.append(_profile(g, tr, nm if n == 1 else f"{nm} {n}", epsg, deck, outline, on, lines, pts, ground, osm_db, gmns_db, to_ground))
     return out
+
+
+def _to_ground(lines, pts, ground):
+    """Each bridge node's distance to the ground along the bridge roads of the whole area: bridges that meet in the air get their
+    heights together, not each alone (Kaveh, 2026-10-14). A group of bridges with no node on the ground: from its loose ends."""
+    import heapq
+    adj = {}
+    for ln, rs, tg in lines.values():
+        if tg.get("highway") in PATHS:
+            continue
+        for a, b in zip(rs, rs[1:]):
+            d = math.dist(pts[a], pts[b])
+            adj.setdefault(a, []).append((b, d))
+            adj.setdefault(b, []).append((a, d))
+    src, seen = set(), set()
+    for n0 in adj:          # each connected group: its ground nodes, else its loose ends
+        if n0 in seen:
+            continue
+        comp, todo = [], [n0]
+        seen.add(n0)
+        while todo:
+            n = todo.pop()
+            comp.append(n)
+            for m, _ in adj[n]:
+                if m not in seen:
+                    seen.add(m)
+                    todo.append(m)
+        on_ground = [n for n in comp if n in ground]
+        src |= set(on_ground or [n for n in comp if len({m for m, _ in adj[n]}) == 1])
+    dist = {n: 0.0 for n in src}
+    heap = [(0.0, n) for n in src]
+    while heap:
+        d, n = heapq.heappop(heap)
+        if d > dist.get(n, math.inf):
+            continue
+        for m, w in adj[n]:
+            if d + w < dist.get(m, math.inf):
+                dist[m] = d + w
+                heapq.heappush(heap, (d + w, m))
+    return dist
 
 
 def _strip(line, lo, hi):
@@ -112,7 +154,7 @@ def _strip(line, lo, hi):
     return side(hi).union(side(lo))
 
 
-def _profile(g, tr, name, epsg, deck, outline, on, lines, pts, ground, osm_db, gmns_db):
+def _profile(g, tr, name, epsg, deck, outline, on, lines, pts, ground, osm_db, gmns_db, to_ground):
     import datetime
 
     import shapely
@@ -153,7 +195,9 @@ def _profile(g, tr, name, epsg, deck, outline, on, lines, pts, ground, osm_db, g
         if not ways:
             continue
         L = ax.length
-        zs = [(s, min(TOP_M, GRADE * ends.distance(ax.interpolate(s)))) for s in [i * STEP_M for i in range(int(L // STEP_M) + 1)] + [L]]
+        at_ = [(ax.project(shapely.Point(pts[r])), to_ground[r]) for w in ways for r in lines[w][1] if r in to_ground]
+        far_ = lambda s: min([abs(s - s_) + d_ for s_, d_ in at_] or [0.0])     # (along the axis to a node, then the network)
+        zs = [(s, min(TOP_M, GRADE * far_(s))) for s in [i * STEP_M for i in range(int(L // STEP_M) + 1)] + [L]]
         axes.append({"id": f"a{k + 1}", "ways": [f"w{w}" for w in ways],
                      "line": _val([[round(x, 2), round(y, 2)] for x, y in ax.coords], "osm: " + ", ".join(f"w{w}" for w in ways), "mapped"),
                      "length_m": round(L, 2),
@@ -161,7 +205,7 @@ def _profile(g, tr, name, epsg, deck, outline, on, lines, pts, ground, osm_db, g
                          (f"n{r}" for w in ways for r in lines[w][1] if shapely.Point(pts[r]).distance(p) < 0.05), None)}
                          for s, p in ((0.0, shapely.Point(ax.coords[0])), (round(L, 2), shapely.Point(ax.coords[-1])))],
                      "vertical": {"points": _collinear_out([[round(s, 2), round(z, 2)] for s, z in zs]), "source": "urbanstyle",
-                                  "method": "chosen", "rule": f"{GRADE:.0%} up from the nearest end where a road on it meets a ground road, "
+                                  "method": "chosen", "rule": f"{GRADE:.0%} up from the nearest end where a road meets a ground road, along the bridge roads of the whole area, "
                                                               f"at most {TOP_M} m"},
                      "sections": _sections(ax, ways, tr_link, lanes, lines)})
     piers = place_piers(axes)

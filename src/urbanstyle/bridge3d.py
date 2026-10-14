@@ -323,7 +323,12 @@ def model_checks(surf, deck, road_ends, S, axes):
     lane_g = {}
     for sf, g in lanes_:
         lane_g.setdefault(sf["props"]["id"].split(" #")[0], []).append(g)
-    bare = [shapely.union_all(gs) for gs in lane_g.values() if not any(g.intersects(arrows) for g in gs)]
+    from .parts import ARROW_M
+
+    def long_(g):           # (a lane piece too short for an arrow gets none, as the arrows' own rule says: 4 m pieces in Monaco)
+        c = list(g.minimum_rotated_rectangle.exterior.coords) if not g.is_empty else []
+        return len(c) > 2 and max(math.dist(c[0], c[1]), math.dist(c[1], c[2])) >= ARROW_M + 2.0
+    bare = [u for u in (shapely.union_all(gs) for gs in lane_g.values() if not any(g.intersects(arrows) for g in gs)) if long_(u)]
     # the rules of 2026-10-12 (Kaveh: "the bridge can't have free space", "all boundary of the bridge must have barrier", "between driving
     # lane and other lanes must have barrier", the steps in the guards): no deck that no part covers; a barrier wherever a lane meets a path,
     # but at a crosswalk; no step in the deck's height

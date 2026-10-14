@@ -32,7 +32,7 @@ LAYERS = {
     "Street spaces": ("space.unit", "unit_id", None),
     "Bridge parts": ("space.bridge_part", "id", None),
 }
-SEARCH_COLS = ("name", "road", "class", "type", "use", "ref", "osm", "kind", "subtype", "axis", "details", "sources")
+SEARCH_COLS = ("name", "road", "class", "type", "use", "ref", "osm", "kind", "subtype", "axis", "details", "sources", "edge_id", "lane_id")
 KIND_COLS = ("type", "class", "kind", "use")      # a result's label: its type, then its name
 NAME_COLS = ("name", "road")
 # a query the agent writes: one SELECT or WITH, nothing that writes, loads or reads files
@@ -68,8 +68,10 @@ class Area:
     def _bridge_parts(self, bridges, db=None):
         """space.bridge_part: every part of each bridge's model (the flat outlines bridge2d draws), with its id and fields."""
         c = self.con
+        # (a lane's duckOSM edge and GMNS lane ids as their own fields, to find and to quote: Kaveh, 2026-10-14)
         c.execute("""CREATE TABLE space.bridge_part (id VARCHAR, type VARCHAR, kind VARCHAR, bridge VARCHAR, axis VARCHAR, direction VARCHAR,
-                     width_m DOUBLE, osm VARCHAR, source VARCHAR, method VARCHAR, fields JSON, geometry GEOMETRY)""")
+                     width_m DOUBLE, osm VARCHAR, edge_id VARCHAR, lane_id VARCHAR, source VARCHAR, method VARCHAR, fields JSON,
+                     geometry GEOMETRY)""")
         if not bridges:
             return
         import shapely
@@ -77,9 +79,10 @@ class Area:
         ms = bridge_models(c, bridges, db)[0]
         num = lambda v: float(v) if isinstance(v, (int, float)) else None
         rows = [(p.get("id"), p.get("type") or key, key, m["name"], p.get("axis"), p.get("direction"), num(p.get("width_m")),
-                 str(p["osm"]) if p.get("osm") else None, p.get("source"), p.get("method"), json.dumps(p, default=str), shapely.to_wkb(g))
+                 str(p["osm"]) if p.get("osm") else None, str(p["edge_id"]) if p.get("edge_id") else None, p.get("lane_id"), p.get("source"),
+                 p.get("method"), json.dumps(p, default=str), shapely.to_wkb(g))
                 for m in ms for p, key, g in m["flat"]]
-        c.executemany("INSERT INTO space.bridge_part VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ST_GeomFromWKB(?))", rows)
+        c.executemany("INSERT INTO space.bridge_part VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ST_GeomFromWKB(?))", rows)
 
     def _street_objects(self, db):
         """space.street_object: the area's street objects, one per real object, matched from every source (OSM, the city's survey,

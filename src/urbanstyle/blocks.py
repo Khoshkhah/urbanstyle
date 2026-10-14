@@ -22,7 +22,9 @@ import json
 import os
 import statistics
 
-STREET = ("motorway", "trunk", "primary", "secondary", "tertiary", "unclassified", "residential", "living_street", "pedestrian")
+# (a pedestrian street is no bounding road: it lies inside a block as a footway does, and like one it sets the edge of the block beside
+# it; Monaco's 219 pedestrian pieces cut its old town into blocks as streets do; Kaveh, 2026-10-14)
+STREET = ("motorway", "trunk", "primary", "secondary", "tertiary", "unclassified", "residential", "living_street")
 HALF_ROW = {"motorway": 18, "trunk": 16, "primary": 15, "secondary": 12, "tertiary": 10, "unclassified": 10, "residential": 10,
             "living_street": 8, "pedestrian": 10}  # half right-of-way by class where neither parcels nor sidewalks give it (chosen)
 SIMPLIFY_M = 1.0        # OSM's small wiggles are not the street's shape

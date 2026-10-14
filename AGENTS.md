@@ -113,8 +113,14 @@ PYTHONPATH=src $P -m urbanstyle check data/monaco.duckdb data/sodermalm.duckdb
 # a fix in division.py or ground.py: only those steps, from the copy the last full build kept (OUT.before-division): Monaco minutes,
 # not 27 min; the build prints each step's time
 PYTHONPATH=src $P -m urbanstyle build ../duckOSM/monaco.duckdb data/monaco.duckdb --from division
-# a unit with a bridge model: --bridge PROFILE gives the profile's ways to the bridge model (the ground draws no lanes on them)
-PYTHONPATH=src $P -m urbanstyle build data/units/broadway-granville.osm.duckdb data/units/broadway-granville.space.duckdb --bridge data/bridges-measured/granville-bridge.bridge.json
+# an area with bridges (every area whose roads reach level 1): their profiles first, then every later step with --bridge. Without them
+# a deck is drawn flat in the air with no lanes (`dashboard` warns). Monaco, 2026-10-14: 11 profiles in 1 s, the checks ~2 min
+../duckOSM/.venv/bin/duckosm gmns ../duckOSM/monaco.duckdb --out data/monaco_gmns.duckdb -m driving     # the lanes (GMNS)
+PYTHONPATH=src $P -m urbanstyle bridge ../duckOSM/monaco.duckdb data/monaco_gmns.duckdb data/bridges-monaco   # one profile per road bridge
+#   heights: LiDAR where there is some (`bridge-measure`), else `bridge-heights` with a heights file; the profile's own rule otherwise
+PYTHONPATH=src $P -m urbanstyle build ../duckOSM/monaco.duckdb data/monaco.duckdb --bridge data/bridges-monaco/*.bridge.json
+PYTHONPATH=src $P -m urbanstyle check data/monaco.duckdb --bridge data/bridges-monaco/*.bridge.json        # BR1-BR12 per bridge
+#   (every command takes --bridge with one or more profiles, and the option can repeat)
 
 # dashboard: system python3 (roadstyle 0.13.1 from PyPI), then serve it; Street View needs http
 PYTHONPATH=src python3 -m urbanstyle dashboard data/monaco.duckdb viz/monaco.html

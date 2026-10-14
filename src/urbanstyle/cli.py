@@ -9,18 +9,18 @@ def main(argv=None):
     b = sub.add_parser("build", help="build the space schema from a duckOSM database")
     b.add_argument("osm", help="duckOSM .duckdb (a copy with features is made next to OUT if it has none)")
     b.add_argument("out", help="output .duckdb")
-    b.add_argument("--bridge", action="append", default=[], metavar="PROFILE",
+    b.add_argument("--bridge", action="extend", nargs="+", default=[], metavar="PROFILE",
                    help="a bridge profile (<name>.bridge.json): its ways are the bridge model's, the ground draws none of them")
     b.add_argument("--from", dest="start", choices=["division"], help="only the street division and the steps after it, from the copy "
                    "the last full build kept (OUT.before-division): for a fix in division.py or ground.py")
     ck = sub.add_parser("check", help="conformance checks; exit 1 if a hard check fails")
     ck.add_argument("db", nargs="+")
-    ck.add_argument("--bridge", nargs="+", default=[], help="bridge profiles: the bridge model's checks too (BR1-BR12)")
+    ck.add_argument("--bridge", action="extend", nargs="+", default=[], help="bridge profiles: the bridge model's checks too (BR1-BR12)")
     sub.add_parser("quality", help="shape quality of the sections").add_argument("db", nargs="+")
     d = sub.add_parser("dashboard", help="an offline HTML map with the hierarchy tree (needs roadstyle)")
     d.add_argument("db")
     d.add_argument("out")
-    d.add_argument("--bridge", action="append", metavar="PROFILE",
+    d.add_argument("--bridge", action="extend", nargs="+", metavar="PROFILE",
                    help="draw a bridge as a 3D model from its profile (<name>.bridge.json, `urbanstyle bridge`)")
     ly = sub.add_parser("layers", help="an offline HTML page of the layers: 0 the ground, 1 the surfaces (needs roadstyle)")
     ly.add_argument("db")
@@ -59,16 +59,16 @@ def main(argv=None):
     b3 = sub.add_parser("bridge3d", help="only the bridges' 3D models, to viz/bridge3d.json, which the dashboard page reads: reload the page")
     b3.add_argument("db", help="the unit's space db (its street's lanes for the landings)")
     b3.add_argument("out", help="the JSON file beside the page, e.g. viz/bridge3d.json")
-    b3.add_argument("--bridge", action="append", required=True, help="a bridge profile, as for the dashboard")
+    b3.add_argument("--bridge", action="extend", nargs="+", required=True, help="a bridge profile, as for the dashboard")
     sv = sub.add_parser("serve", help="the dashboard page with the Explore panel (search, filters, AI questions) on a local server")
     sv.add_argument("db", help="the unit's space db")
     sv.add_argument("page", help="a page `urbanstyle dashboard` built, e.g. viz/broadway-granville-v92.html (its folder is served)")
-    sv.add_argument("--bridge", action="append", default=[], help="a bridge profile: its parts can be searched too")
+    sv.add_argument("--bridge", action="extend", nargs="+", default=[], help="a bridge profile: its parts can be searched too")
     sv.add_argument("--port", type=int, default=8784, help="8784: the port Street View's key allows")
     pb = sub.add_parser("publish", help="the dashboard as static files for a web site with no server (docs/design/online-dashboard.md)")
     pb.add_argument("db", help="the unit's space db")
     pb.add_argument("out_dir", help="the folder to write: index.html, static.js, bridge3d.json, data/")
-    pb.add_argument("--bridge", action="append", default=[], help="a bridge profile, as for the dashboard")
+    pb.add_argument("--bridge", action="extend", nargs="+", default=[], help="a bridge profile, as for the dashboard")
     a = p.parse_args(argv)
 
     if a.cmd == "build":

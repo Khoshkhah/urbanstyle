@@ -25,7 +25,7 @@ body.xp-off #xp{display:none}
 #xpcard td:first-child{color:#64748b}#xpcard .go{margin-top:6px;display:flex;flex-wrap:wrap;gap:4px}
 #xpcard .go button{border:1px solid #d6c8ff;background:#fff;border-radius:12px;padding:2px 8px;cursor:pointer;color:#5b21b6;font-size:11.5px}
 #xplayers{border-bottom:1px solid #e2e8f0;padding:6px 12px;max-height:38vh;overflow:auto;flex:none}
-#xplayers summary{cursor:pointer;font:600 12px system-ui;color:#475569;padding:2px 0}
+#xplayers summary{cursor:pointer;font:600 12px system-ui;color:#475569;padding:2px 0;position:sticky;top:-6px;background:#fff;z-index:2}   /* (stays while the layers scroll) */
 #xplayers h5{margin:8px 0 3px;font:600 11px system-ui;letter-spacing:.04em;text-transform:uppercase;color:#94a3b8}
 #xplayers label{display:block;font-size:12px;padding:1px 0;cursor:pointer}
 #xplys .lt{margin-left:14px;border-left:1px solid #e2e8f0;padding-left:6px}#xplys small{color:#94a3b8;margin-left:4px}

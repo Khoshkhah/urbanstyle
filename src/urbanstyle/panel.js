@@ -313,11 +313,15 @@ function levels2d(){const m=M(); if(!m||d3()||typeof OVERLAYS==='undefined'||typ
     rsFilter(rsQuery(keep,o.label),o.label)});
   // a faded level: its things at FADE in every layer, by their level (only show / hide was done here, so levels -1, -2, -3 never
   // faded; Kaveh, 2026-10-14). Level 0 fades the basemap and the buildings, level 1 the bridge (applyLooks)
+  // and drawn on top of the others: under an opaque level 0 a faint level below it was not seen (Kaveh, 2026-10-14)
   const faded=Object.keys(L).filter(l=>L[l]==='fade'&&+l!==0&&+l!==1).map(Number), m2=M();
+  const SORT={fill:'fill-sort-key',line:'line-sort-key',circle:'circle-sort-key'};
   OVERLAYS.forEach(o=>{if(['Bridge 2D','Buildings'].includes(o.label)||/3D/.test(o.label))return;
     (o.layers||[]).forEach(id=>{const ly=m2.getLayer(id), k=ly&&OPA[ly.type]; if(!k)return;
       if(!(id+k in orig))orig[id+k]=m2.getPaintProperty(id,k)??1;
-      m2.setPaintProperty(id,k,faded.length?['case',['in',['coalesce',['get','level'],0],['literal',faded]],FADE,orig[id+k]]:orig[id+k])})});
+      const fd=['in',['coalesce',['get','level'],0],['literal',faded]];
+      m2.setPaintProperty(id,k,faded.length?['case',fd,FADE,orig[id+k]]:orig[id+k]);
+      if(SORT[ly.type])m2.setLayoutProperty(id,SORT[ly.type],faded.length?['case',fd,100,['coalesce',['get','level'],0]]:undefined)})});
   if(waiting&&lvTries++<60)setTimeout(levels2d,1000)}
 let lvTries=0;
 function applyLooks(){const m=M(); if(!m)return; if(!m.isStyleLoaded())return setTimeout(applyLooks,200); const L=look();
@@ -332,6 +336,9 @@ function applyLooks(){const m=M(); if(!m)return; if(!m.isStyleLoaded())return se
   if(d3()){const lv=id=>{const x=/^u3d-(deck|tun)(-?\d+)$/.exec(id); return x?+x[2]:null};     // (a deck or a tunnel: its own level's look)
     m.getStyle().layers.forEach(l=>{if(!l.id.startsWith('u3d-')||['u3d-bld','u3d-bld-on'].includes(l.id))return;
       const k=lv(l.id); set(l.id,k===null?g:(L[k]||'full'))});
+    // (a faded tunnel above the ground, so it shows through: on top of the ground's parts, under the kerbs; else back under the ground)
+    m.getStyle().layers.map(l=>l.id).filter(id=>/^u3d-tun-\d+$/.test(id)).forEach(id=>{const top=(L[lv(id)]||'full')==='fade';
+      const to=top?(m.getLayer('u3d-kerb')?'u3d-kerb':undefined):(m.getLayer('u3d-gnd')?'u3d-gnd':undefined); if(to)m.moveLayer(id,to)});
     if(window.bldLook)window.bldLook(g);     // (the buildings: the 3D page fades them itself, by focus and selection too)
     const F=eff(), onBr=focusU?/^\w1-/.test(focusU):F&&F.bridge>0;      // (a focus on the ground: the bridge faint)
     const upF=F&&!onBr&&up==='full'?'fade':up;

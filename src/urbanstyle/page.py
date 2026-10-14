@@ -26,7 +26,7 @@ def _frames(con, db, bridges):
     out["edges"]["edge_id"] = out["edges"]["edge_id"].astype("Int64")
     out["buildings"] = f("""SELECT ST_AsWKB(geometry) AS geometry, source_id AS id, source, name, class, level_min, level_max, level_src,
         CASE WHEN coalesce(class, 'yes') = 'yes' THEN 'building' ELSE 'building (' || class || ')' END AS type,
-        -- its real size (space.element floors, height_m: before levels are clamped to -2..2), else one floor
+        -- its real size (space.element floors, height_m: before levels are clamped to LEVELS), else one floor
         coalesce(floors, greatest(level_max, 0) + 1) AS floors, coalesce(height_m, round((greatest(level_max, 0) + 1) * 3.2, 1)) AS height_m,
         "use" || ' (' || use_source || ', ' || use_method || ')' AS "use", ground_use || ' (' || ground_source || ', ' || ground_method || ')' AS ground_floor,
         uses AS evidence FROM space.element WHERE type = 'building'""")

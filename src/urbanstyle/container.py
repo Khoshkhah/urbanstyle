@@ -12,7 +12,7 @@ import os
 
 import duckdb
 
-LEVELS = (-2, 2)  # ponytail: only these levels are kept; spans are clamped to them
+LEVELS = (-5, 5)  # only these levels are kept; spans are clamped to them (Monaco: OSM layers -4 .. 3; Kaveh, 2026-10-13)
 FLOOR_M = 3.0  # ponytail: flat 3 m/floor when only height is known; per-class heights if it matters
 
 BUILD = f"""
@@ -25,7 +25,7 @@ SELECT 'osm' AS source, left(osm_type, 1) || osm_id AS source_id, 'building' AS 
   name, kind AS class, geom AS geometry,
   NULL::DOUBLE AS width_m, NULL::BIGINT AS osm_id, NULL::VARCHAR AS zone, NULL::VARCHAR AS container_id,
   NULL::BIGINT AS src, NULL::BIGINT AS dst, NULL::VARCHAR AS subtype, NULL::BOOLEAN AS oneway,
-  -- a building's real size, before levels are clamped to -2..2 (CLAMP): its floors and its height (3D draws it at that height)
+  -- a building's real size, before levels are clamped to LEVELS (CLAMP): its floors and its height (3D draws it at that height)
   coalesce(fl, round(h / {FLOOR_M})::INT) AS floors, round(coalesce(h, fl * {FLOOR_M}), 1) AS height_m,
   NULL::VARCHAR AS width_src   -- where a road's or a path's width_m comes from
 FROM (SELECT *, try_cast(tags['building:levels'] AS INT) AS fl, try_cast(tags['building:levels:underground'] AS INT) AS ug,

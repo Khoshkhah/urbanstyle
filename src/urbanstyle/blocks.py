@@ -31,6 +31,8 @@ REACH_M = 25.0          # looked for out to
 HIT_CAP = 1.5           # a parcel or sidewalk counts within this many times the class's half right-of-way (not the next street's)
 SIDEWALK_BACK_M = 1.0   # a sidewalk is drawn along its middle: the property line is about this far behind it
 ALONG_COS = 0.82        # a sidewalk runs along the road: within ~35 degrees
+ROOF_M = 1.5            # a building pulls the street's edge in only by more than this: a roof reaches about this far over the wall
+                        # (Avenue Pasteur, Monaco: the footprint of w49209427 is its roof, over the sidewalk; Kaveh, 2026-10-13)
 MIN_BLOCK_M2, MIN_BLOCK_W_M = 400.0, 8.0    # a thinner or smaller piece (between a divided road's carriageways) is street
 PARCEL_CLOSE_M = 6.0    # a block's parcels are closed across gaps narrower than twice this (a back lane, a slit between two parcels)
 LANE_LEAST_M = 3.0      # a lane is at least this wide: a road's carriageway is never inside a block
@@ -162,6 +164,8 @@ def build(con, epsg):
                  if parcels[k].intersects(zone) and not parcels[k].intersects(x) and not parcels[k].intersection(zone).is_empty]
         pd, pk = min(pnear, default=(1e9, None))
         if basis == "parcels":      # a surveyed property line is the edge: an OSM outline (drawn from photos, often shifted) does not move it
+            bd = 1e9
+        if d - bd <= ROOF_M:        # a building at most ROOF_M nearer does not move the edge: OSM often draws a building by its roof
             bd = 1e9
         if min(bd, pd) < d:
             if bd <= pd:    # the street ends at a wall, never inside a building

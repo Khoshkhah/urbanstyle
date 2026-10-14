@@ -64,7 +64,9 @@ Two other ideas were tried and rejected:
 5. **No parcel is cut** (2026-10-10). The distance is pulled in to the nearest parcel on that side, so a block holds its parcels whole.
    **Where parcels set the side, an OSM building does not move it:** the parcel line is surveyed, and an OSM outline (drawn from an
    aerial photo, a tall building's roof shifted) can be a few metres off. Such a building is drawn whole and reaches over the edge
-   (check B1 counts them: 99 at Broadway × Granville, 1,771 m²). Where no parcel sets the side, the nearest building still pulls it in.
+   (check B1 counts them: 99 at Broadway × Granville, 1,771 m²). Where no parcel sets the side, the nearest building still pulls it in,
+   but only by more than 1.5 m (`ROOF_M`, 2026-10-13): OSM often draws a building by its roof, which reaches over the sidewalk
+   (Avenue Pasteur, Monaco, building w49209427, seen in Street View). A building nearer by 1.5 m or less does not move the edge.
    Result: 194 of 201 sides set by parcels; the match with the city's blocks (B6) 47 of 51, median overlap 0.99 (was 0.97).
 6. **Sharp corners.** Each edge line is continued past the junction, so two edges meet in a corner, as two parallel offsets do. The
    city's own blocks have sharp corners too: over 320 corners of rectangular blocks, the median rounding is 0.02 m.

@@ -60,5 +60,11 @@
     "lanes:forward": 2,
     "lanes:backward": 2,
     "note": "Fir Street: 2 lanes each way on the 2018 aerial photo (Kaveh, 2026-10-15); OSM says 3 (1 + 2)"
+  },
+  "w37127118": {
+    "lanes": 4,
+    "lanes:forward": 2,
+    "lanes:backward": 2,
+    "note": "West 5th Avenue east of Fir Street: 2 lanes each way in Street View, also through the junction (Kaveh, 2026-10-16); OSM says 2"
   }
 }

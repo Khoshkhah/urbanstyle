@@ -80,6 +80,20 @@ def unit_v(v):
     return (v[0] / h, v[1] / h)
 
 
+def shift_line(ln, d):
+    """ln moved sideways by d (left +), vertex by vertex along the local normal: the same vertices, the same direction. (shapely's
+    offset_curve reverses or empties a line for a negative offset, and the move was silently lost.)"""
+    import shapely
+    c = list(ln.coords)
+    out = []
+    for i, (x, y) in enumerate(c):
+        a = c[max(i - 1, 0)]
+        b = c[min(i + 1, len(c) - 1)]
+        nx, ny = unit_v((-(b[1] - a[1]), b[0] - a[0]))
+        out.append((x + nx * d, y + ny * d))
+    return shapely.LineString(out)
+
+
 def straight(ln):
     """ln as the straight line between its ends where it stays within STRAIGHT_M of that line, else ln (a real curve)."""
     import shapely
@@ -516,9 +530,7 @@ def build(con, epsg, bridges=()):
             align(a, b, "end" if not b["flip"] else "start")
     for r in runs:
         if abs(r["shift"]) > 1e-6:
-            moved = r["xline"].offset_curve(r["shift"], join_style="mitre")
-            if moved.geom_type == "LineString" and not moved.is_empty:
-                r["xline"] = moved
+            r["xline"] = shift_line(r["xline"], r["shift"])
         r["cw"] = poly(at_joints(r, band(r["xline"], r["kr"], r["kl"])))
 
     # ---- 5. junctions
@@ -859,6 +871,10 @@ def build(con, epsg, bridges=()):
                         seg_ = max(shapely.get_parts(seg_), key=lambda q: q.length, default=None)
                         if seg_ is None or seg_.geom_type != "LineString" or seg_.length < 2:
                             break
+                        seg_ = at_joints(r_, seg_)      # (each subsection's piece ends at its joint: no two rails over the joint)
+                        seg_ = max((q for q in shapely.get_parts(seg_) if q.geom_type == "LineString"), key=lambda q: q.length, default=None)
+                        if seg_ is None or seg_.length < 0.5:
+                            continue
                         pts_.append(seg_.difference(J_all) if not J_all.is_empty else seg_)
                     if pts_:
                         barriers.append((shapely.union_all(pts_), f"{prof.get('name')}: median barrier (corrections/bridges.json), continued on the ground from axis {ax['id']}'s landing"))

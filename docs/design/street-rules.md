@@ -30,6 +30,7 @@ is a FAIL with links to the places (`?at=`).
 | J2 | A junction area has a piece larger than 40 m² and than a tenth of the junction outside its arms' bands. An arm's band is its subsection's line as drawn, as wide as its roadway plus 2.5 m on each side, run on 25 m past its ends. A corner fillet of 4 m is at most 40 m² (a 30° corner), and a traffic circle's ring is under a tenth, so they do not count. |
 | X1 | A crossing way over the roadway has crosswalk parts on less than 80 % of its stretch over the roadway. |
 | M1 | A lane line, or a centre line with a real source, lies in a space whose lanes have the source `urbanstyle` (a chosen count). |
+| K2 | (INFO) A kerb line ends where no other kerb and no crosswalk is within 0.3 m. |
 | K1 | (INFO) The kerb of a subsection is more than 1.5 m from the city's catch basins (the median over 2 or more basins within 6 m of the roadway). With no catch basins in the area the check says "no kerb evidence here". |
 
 The ids A1-A3 are not L1-L3, because L1 and L2 are the checks of layer 1 (the surfaces).

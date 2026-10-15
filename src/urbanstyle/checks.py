@@ -279,8 +279,21 @@ def rule_checks(c, epsg):
         k = ktree.nearest(b)
         by_u.setdefault(kerbs[k][0], []).append((kerbs[k][1].distance(b), b))
     offkerb = [at(ds[len(ds) // 2][1]) for u, ds in by_u.items() if len(ds) >= 2 and sorted(ds)[len(ds) // 2][0] > 1.5]
+    # K2: loose kerb ends: an end of a kerb line that touches no other kerb and no crosswalk within 0.3 m (a kerb ends only at a crossing)
+    kerb_t = shapely.STRtree([g for _, g in kerbs]) if kerbs else None
+    xw_t = shapely.union_all([g for u, t, ref, src, g in parts if t in ("crosswalk", "cycle crossing")] or [shapely.Polygon()])
+    service = shapely.union_all([geo(w) for (w,) in c.execute(f"""SELECT {m('geometry')} FROM space.element WHERE type IN ('road', 'walkway')
+                                 AND level_min = 0 AND class = 'service'""").fetchall()] or [shapely.LineString()])
+    loose = []
+    for i_, (u, g) in enumerate(kerbs):
+        for pt_ in (shapely.Point(g.coords[0]), shapely.Point(g.coords[-1])):
+            if any(k != i_ and kerbs[k][1].distance(pt_) < 0.3 for k in kerb_t.query(pt_.buffer(0.3))) or xw_t.distance(pt_) < 0.3 \
+                    or service.distance(pt_) < 3.0 or area.distance(pt_) > 0:      # (a dropped kerb at an alley's mouth; the area's edge)
+                continue
+            loose.append(at(pt_))
     return [
         ("A1", f"carriageways whose lanes are off their OSM line (median of the middle > {STRAIGHT_M} m)", len(off), True, off),
+        ("K2", "loose kerb ends (not at another kerb, a crosswalk, an alley's mouth or the area's edge)", len(loose), False, loose),
         ("A2", "parking or cycle lanes with no real source (source urbanstyle)", len(nosrc), True, nosrc),
         ("A3", "stretches of a road line over 2 m with no roadway under it", len(bare), True, bare),
         ("J1", "intersections with no junction node (3 or more road ends)", len(nojn), True, nojn),

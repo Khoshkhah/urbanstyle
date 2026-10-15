@@ -24,6 +24,7 @@ LANE_RANGE = (2.5, 4.5)  # a lane from OSM's width shared by its lanes, kept in 
 PARK_M, BIKE_M = 2.4, 1.75  # a parking lane, a bike lane (chosen)
 FURNISH_M, CLEAR_M = 1.0, 1.8   # the pedestrian side: the furnishing zone at the kerb, the clear path (chosen)
 KERB_RADIUS_M = 4.0
+ALLEY_HALF_M = 2.5      # the kerb is dropped this far either side of where a service road (an alley, a driveway) joins the roadway (chosen)
 SLIVER_M2 = 20.0        # a subsection whose roadway outside the junctions is smaller than this joins the junction it touches (chosen)
 CUT_M = 60.0            # a roadway cut (stop line, joint) runs this far to each side across the sidewalks to the blocks
 MERGE_DEG = 45.0        # a road continues into another at a node when their headings are within this angle (chosen)
@@ -1063,8 +1064,6 @@ def build(con, epsg, bridges=()):
         for tp in r.get("tapers", []):
             add(uid, "carriageway", tp["geom"].difference(taken_), source="osm", method="derived", ref=tp["ref"], position_source="osm",
                 position_method="derived", position_ref="a taper between the two subsections' kerbs", **common)
-        mark(uid, "kerb", G.boundary.intersection(R.buffer(0.05)) if not R.is_empty else shapely.LineString(), "urbanstyle", "derived",
-             f"the edge of w{r['oid']}'s lanes")
         for at_end in (True, False):    # a stop line across the lanes that enter a junction, STOP_BACK_M before it
             q_ = shapely.Point(ln.coords[-1] if at_end else ln.coords[0])
             if J_all.is_empty or J_all.distance(q_) > 0.5:
@@ -1094,7 +1093,6 @@ def build(con, epsg, bridges=()):
             add(j["id"], "carriageway", q, source="osm", method="derived", ref=gap_ref)
         add(j["id"], "junction area", j["geom"], source="osm", method="derived",
             ref="the junction of " + ", ".join(f"n{i}" for i in j["nodes"]) if j["nodes"] else "the arms' carriageways where they meet")
-        mark(j["id"], "kerb", j["geom"].boundary.intersection(R.buffer(0.05)) if not R.is_empty else shapely.LineString())
         ped(j["id"], j["geom"], R)
         junction_rows += [(j["id"], i, 0, j["id"]) for i in j["nodes"]]
 
@@ -1247,6 +1245,30 @@ def build(con, epsg, bridges=()):
                 pid[u] = pid.get(u, 0) + 1
                 parts.append(dict(ps_[0], part_id=f"{u}#{pid[u]}", geom=q))
     parts = [p_ for p_ in parts if not p_["geom"].is_empty and p_["geom"].area > 0.05]
+    # ---- the kerbs: one line for the whole level, the boundary between the roadway (lanes, paved strips, junction areas, crosswalks)
+    # and the pedestrian side (sidewalks, furnishing, frontage, islands), then cut by the spaces. (A kerb per space, from its own
+    # parts, broke at every joint and wherever the sidewalk beside a lane belongs to the next space: 242 loose ends; Kaveh 2026-10-16)
+    # (the roadway's whole outer edge: against the pedestrian side, and against a yard or a plot where the block reaches the lanes
+    # with no sidewalk between; not along the area's edge, where the roadway is only cut; and not where a service road (an alley, a
+    # driveway) joins the roadway: the kerb is dropped there over the alley's width, Kaveh 2026-10-16 "kerb-134 is in front of an alley")
+    rw_all = shapely.union_all([p_["geom"] for p_ in parts if p_["type"] in ROAD_T + ("crosswalk", "cycle crossing")] or [shapely.Polygon()])
+    kerb_all = rw_all.buffer(0.02).buffer(-0.02).boundary if not rw_all.is_empty else shapely.LineString()     # (hairline gaps closed)
+    if not area.is_empty and not kerb_all.is_empty:
+        kerb_all = kerb_all.difference(area.boundary.buffer(0.5))
+    service = [g(w) for (w,) in rows(f"""SELECT {m()} FROM space.element WHERE type IN ('road', 'walkway') AND level_min = 0
+                                       AND class = 'service'""")]
+    if service and not kerb_all.is_empty:
+        mouths = [q_.centroid for ln_ in service for q_ in shapely.get_parts(ln_.intersection(kerb_all.buffer(0.3))) if not q_.is_empty]
+        if mouths:
+            kerb_all = kerb_all.difference(shapely.union_all([pt_.buffer(ALLEY_HALF_M) for pt_ in mouths]))
+    kerb_all = shapely.line_merge(kerb_all) if not kerb_all.is_empty else kerb_all
+    marks = [m_ for m_ in marks if m_[1] != "kerb"]
+    for u, k, s_, x in units:
+        if x.is_empty:
+            continue
+        for q in shapely.get_parts(kerb_all.intersection(x.buffer(0.05))):
+            if q.geom_type == "LineString" and q.length > 0.3:
+                marks.append((u, "kerb", q, "urbanstyle", "derived", "the roadway's outer edge"))
     urows = [(u, k, s, COLORS[k], shapely.to_wkb(x)) for u, k, s, x in units if not x.is_empty]
     if urows:       # (a map with no street at level 0: nothing to write)
         con.executemany(f"INSERT INTO space.unit (unit_id, kind, section_id, level, color, geometry) VALUES (?, ?, ?, 0, ?, {to_ll})", urows)

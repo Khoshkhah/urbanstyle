@@ -663,6 +663,15 @@ def build(con, epsg, bridges=()):
     # ---- 7. the pedestrian side: the street less the roadway, each piece to the nearest roadway
     realm = poly(street.difference(roadway)) if not street.is_empty else shapely.Polygon()
     edge_ = shapely.union_all([blocks.boundary, area.boundary]) if not area.is_empty else blocks.boundary
+    edge_rings = [q for q in shapely.get_parts(edge_) if q.geom_type == "LineString"]
+    edge_buf = [q.buffer(0.3) for q in edge_rings]       # (once: buffering the whole area's edge for every piece took hours on Monaco)
+    edge_tree = shapely.STRtree(edge_rings) if edge_rings else None
+
+    def along_edge(q):
+        """How far q's boundary runs along a block's or the area's edge (within 0.3 m)."""
+        if edge_tree is None:
+            return 0.0
+        return sum(q.boundary.intersection(edge_buf[k]).length for k in edge_tree.query(q.buffer(0.3)))
     # (a strip narrower than GAP_M between two roadways, away from the blocks, is one paved surface with them: our chosen lane widths
     # leave it, no source makes it an island (Fir Street's two one-way ways, Kaveh 2026-10-14); it is an island only where OSM maps a
     # kerb, an object or a path along it)
@@ -882,8 +891,7 @@ def build(con, epsg, bridges=()):
         between roadways only: an island (a median of a divided road, a traffic island), not a sidewalk."""
         if R.is_empty:
             return
-        isl = [q for q in shapely.get_parts(R) if q.boundary.intersection(edge_.buffer(0.3)).length < ISLAND_TOUCH_M
-               and q.area >= ISLAND_MIN_M2 and not q.buffer(-0.5).is_empty]
+        isl = [q for q in shapely.get_parts(R) if along_edge(q) < ISLAND_TOUCH_M and q.area >= ISLAND_MIN_M2 and not q.buffer(-0.5).is_empty]
         if isl:
             add(uid, "island", shapely.union_all(isl), source="osm", method="derived",
                 ref="between roadways only: a median or a traffic island (no block reaches it)")

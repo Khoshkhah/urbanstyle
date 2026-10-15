@@ -9,7 +9,8 @@ database: buildings, the street space between them (right-of-way) split into tra
 links between levels (−2 … 2). Design and decisions: `docs/design/street-space.md` (**read it first**). What goes
 *inside* a street space (objects, strips, boundaries, the (s, t) standard): `docs/design/street-objects.md`. How others
 partition a street space and whether an intersection belongs to a street: `docs/design/partitioning-research.md`.
-The order of work: `docs/plan.md`.
+The order of work: `docs/plan.md`. The state at the last session's end and the open items: `docs/HANDOFF.md` (read it before
+starting work).
 
 ## Layout
 

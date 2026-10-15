@@ -134,7 +134,7 @@ def rule_checks(c, epsg):
     import re
     import shapely
     import pyproj
-    from .network import STREET, STRAIGHT_M, TAPER_M, straight
+    from .network import LANE_M, STREET, STRAIGHT_M, TAPER_M, straight
     if not c.execute("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'space' AND table_name = 'part'").fetchone()[0]:
         return []
     m = lambda g: f"ST_AsWKB(ST_Transform({g}, 'EPSG:4326', '{epsg}', always_xy := true))"
@@ -176,11 +176,16 @@ def rule_checks(c, epsg):
     import shapely.ops
     lines = {o: drawn(v) for o, v in lines.items()}
     # A1: per space and OSM way, the middle of its lanes on cross lines every 5 m along the way's line; failed if the median is > 0.5 m
-    groups = {}
-    for u, t, ref, src, g in parts:
+    groups, widened = {}, {}
+    wide_rows = {(u, pid): w for u, pid, w in c.execute("""SELECT unit_id, part_id, width_m FROM space.part WHERE level = 0 AND type = 'lane'
+                                                          AND holds = 'parking'""").fetchall()}
+    pids = [pid for (pid,) in c.execute("SELECT part_id FROM space.part WHERE level = 0").fetchall()]
+    for (u, t, ref, src, g), pid in zip(parts, pids):
         if t == "lane":
             for o in re.findall(r"w(\d+)", ref.split(" ")[0]):     # (a lane along several ways: checked against each)
                 groups.setdefault((u, int(o)), []).append(g)
+                if (u, pid) in wide_rows:       # (an outer lane widened to the kerb evidence, parking in it: its extra moves the middle)
+                    widened.setdefault((u, int(o)), []).append((g, wide_rows[(u, pid)] - LANE_M))
     area = shapely.union_all([geo(w) for (w,) in c.execute(f"SELECT {m('geometry')} FROM space.area").fetchall()]).buffer(-2.0)
     off = []
     for (u, o), gs in groups.items():
@@ -201,7 +206,12 @@ def rule_checks(c, epsg):
                 hit = shapely.LineString([(p.x - nx * 20, p.y - ny * 20), (p.x + nx * 20, p.y + ny * 20)]).intersection(U)
                 ts = [(x - p.x) * nx + (y - p.y) * ny for q_ in shapely.get_parts(hit) if q_.geom_type == "LineString" for x, y in q_.coords]
                 if ts:
-                    ds.append(abs((max(ts) + min(ts)) / 2))
+                    # (the widened outer lanes' extras, left minus right, move the middle by half of it: expected, not off)
+                    exp_ = 0.0
+                    for g_, ex_ in widened.get((u, o), []):
+                        q_ = g_.centroid
+                        exp_ += ex_ / 2 if ((q_.x - p.x) * nx + (q_.y - p.y) * ny) > 0 else -ex_ / 2
+                    ds.append(abs((max(ts) + min(ts)) / 2 - exp_))
         if ds and sorted(ds)[len(ds) // 2] > STRAIGHT_M:       # (the OSM line's drawing error: a subsection's lanes continue the last one's)
             off.append(at(U))
     # A2: a parking or cycle lane that no real source gives

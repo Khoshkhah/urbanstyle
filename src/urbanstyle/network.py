@@ -372,15 +372,12 @@ def build(con, epsg, bridges=()):
                         h_ = math.hypot(b_.x - a_.x, b_.y - a_.y) or 1
                         t_ = (-(p_.x - q_.x) * (b_.y - a_.y) + (p_.y - q_.y) * (b_.x - a_.x)) / h_
                         ts_[1 if t_ > 0 else -1].append(abs(t_))
-                    for sg in (1, -1):
-                        if len(ts_[sg]) >= 2 and not ex[sg]:
-                            med_ = sorted(ts_[sg])[len(ts_[sg]) // 2]
-                            extra = med_ - W / 2
-                            if 0.3 <= extra <= PARK_EXTRA_M:
-                                wide[sg] = round(extra, 2)
-                kl = W / 2 + wide[1] + sum(w for _, w, _ in ex[1])
-                kr = -W / 2 - wide[-1] - sum(w for _, w, _ in ex[-1])
-                runs.append(dict(oid=oid, name=nm, cl=cl, ow=ow, line=straight(piece), f=f, b=b, lw=lw, wsrc=wsrc, lsrc=lsrc, ex=ex, kl=kl, kr=kr, W=W, wide=wide))
+                else:
+                    ts_ = {1: [], -1: []}
+                kl = W / 2 + sum(w for _, w, _ in ex[1])
+                kr = -W / 2 - sum(w for _, w, _ in ex[-1])
+                runs.append(dict(oid=oid, name=nm, cl=cl, ow=ow, line=straight(piece), f=f, b=b, lw=lw, wsrc=wsrc, lsrc=lsrc, ex=ex, kl=kl, kr=kr, W=W,
+                                 wide=wide, basins=ts_, no_park={sg: no_("parking", s) for sg, s in ((1, "left"), (-1, "right"))}))
 
     # ---- 6a. sections between junctions: a road is often several OSM ways (split at a crossing node, or where its lanes change), so
     # the runs are chained where two of them meet at a node that is no junction; a run that continues the one before it with the same
@@ -477,6 +474,39 @@ def build(con, epsg, bridges=()):
             else:
                 b.setdefault("trans", {})["start" if not b["flip"] else "end"] = a
     runs = runs2
+    # ---- 6a'. width is a section property (docs/design/joints.md, rule 1): the city's meters and the kerb evidence are judged once
+    # for the whole section, so the kerb does not step where two subsections meet (a parking part from the meters in one half and
+    # not in the other bulged Fir Street; Kaveh 2026-10-16)
+    by_sid1 = {}
+    for r in runs:
+        by_sid1.setdefault(r["sid"], []).append(r)
+    for sid, rs in by_sid1.items():
+        sec_side = lambda r_, sg: sg if not r_["flip"] else -sg       # a run's side in the section's frame
+        # the meters' parking on a side anywhere in the section: on that side in every piece whose way does not say no
+        for sg in (1, -1):
+            park = next((e for r_ in rs for e in r_["ex"][sec_side(r_, sg)] if e[0] == "parking" and e[2][0] == "vancouver"), None)
+            if park is None:
+                continue
+            for r_ in rs:
+                s_ = sec_side(r_, sg)
+                if not any(e[0] == "parking" for e in r_["ex"][s_]) and not r_["no_park"][s_]:
+                    r_["ex"][s_].append(("parking", PARK_M, (park[2][0], park[2][1], park[2][2] + " (along the section)")))
+        # the kerb evidence: one median per side of the section; each piece's outer lane widens to it by its own extra
+        for sg in (1, -1):
+            ts_ = [t for r_ in rs for t in r_["basins"][sec_side(r_, sg)]]
+            if len(ts_) < 2:
+                continue
+            med_ = sorted(ts_)[len(ts_) // 2]
+            for r_ in rs:
+                s_ = sec_side(r_, sg)
+                if r_["wsrc"][0] != "urbanstyle" or r_["ex"][s_]:
+                    continue
+                extra = med_ - r_["W"] / 2
+                if 0.3 <= extra <= PARK_EXTRA_M:
+                    r_["wide"][s_] = round(extra, 2)
+        for r_ in rs:
+            r_["kl"] = r_["W"] / 2 + r_["wide"][1] + sum(w for _, w, _ in r_["ex"][1])
+            r_["kr"] = -r_["W"] / 2 - r_["wide"][-1] - sum(w for _, w, _ in r_["ex"][-1])
 
     def half_plane(p, n, side, far=300.0):
         t = (-n[1], n[0])

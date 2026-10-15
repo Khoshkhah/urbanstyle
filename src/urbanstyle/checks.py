@@ -127,6 +127,89 @@ def surface_checks(c, q, m):
     ]
 
 
+def rule_checks(c, epsg):
+    """A1-A3, J1: the agreed street rules (docs/design/street-rules.md), at level 0. Each row has the places that fail (lon, lat).
+    A1: a carriageway's lanes not on their OSM line; A2: a parking or cycle lane with no real source; A3: a road line with no roadway
+    under it; J1: an intersection with no junction node (3 or more road ends; a road through the node counts 2)."""
+    import re
+    import shapely
+    import pyproj
+    from .network import STREET
+    if not c.execute("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'space' AND table_name = 'part'").fetchone()[0]:
+        return []
+    m = lambda g: f"ST_AsWKB(ST_Transform({g}, 'EPSG:4326', '{epsg}', always_xy := true))"
+    to_ll = pyproj.Transformer.from_crs(epsg, "EPSG:4326", always_xy=True).transform
+    at = lambda g: to_ll(*g.representative_point().coords[0])
+    geo = lambda w: shapely.make_valid(shapely.from_wkb(bytes(w)))
+    parts = [(u, t, ref, src, geo(w)) for u, t, ref, src, w in c.execute(f"""SELECT unit_id, type, coalesce(ref, ''), coalesce(source, ''),
+                 {m('geometry')} FROM space.part WHERE level = 0""").fetchall()]
+    streets = tuple(STREET)
+    roads = [(o, cl, geo(w)) for o, cl, w in c.execute(f"""SELECT osm_id, class, {m('geometry')} FROM space.element
+                 WHERE type IN ('road', 'walkway') AND level_min = 0 AND replace(coalesce(class, ''), '_link', '') IN {streets}""").fetchall()]
+    lines = {}
+    for o, cl, g in roads:
+        lines.setdefault(o, []).append(g)
+    lines = {o: shapely.line_merge(shapely.union_all(v)) for o, v in lines.items()}
+    # A1: per space and OSM way, the middle of its lanes on cross lines every 5 m along the way's line; failed if the median is > 0.5 m
+    groups = {}
+    for u, t, ref, src, g in parts:
+        k = re.match(r"w(\d+)", ref)
+        if t == "lane" and k:
+            groups.setdefault((u, int(k.group(1))), []).append(g)
+    off = []
+    for (u, o), gs in groups.items():
+        ln, U = lines.get(o), shapely.union_all(gs)
+        if ln is None or U.is_empty:
+            continue
+        ds = []
+        for piece in shapely.get_parts(ln):
+            for k in range(int(piece.length // 5) + 1):
+                s_ = min(k * 5.0, piece.length)
+                p, a, b = piece.interpolate(s_), piece.interpolate(max(s_ - 1, 0)), piece.interpolate(min(s_ + 1, piece.length))
+                h = ((b.x - a.x) ** 2 + (b.y - a.y) ** 2) ** .5 or 1
+                nx, ny = -(b.y - a.y) / h, (b.x - a.x) / h
+                hit = shapely.LineString([(p.x - nx * 20, p.y - ny * 20), (p.x + nx * 20, p.y + ny * 20)]).intersection(U)
+                ts = [(x - p.x) * nx + (y - p.y) * ny for q_ in shapely.get_parts(hit) if q_.geom_type == "LineString" for x, y in q_.coords]
+                if ts:
+                    ds.append(abs((max(ts) + min(ts)) / 2))
+        if ds and sorted(ds)[len(ds) // 2] > 0.5:
+            off.append(at(U))
+    # A2: a parking or cycle lane that no real source gives
+    nosrc = [at(g) for u, t, ref, src, g in parts if t in ("parking", "cycle lane") and src == "urbanstyle"]
+    # A3: a stretch of a road line over 2 m with no roadway under it, inside the area (not at its edge)
+    road_t = ("lane", "junction area", "carriageway", "bridge deck", "bus lane", "bus zone", "parking", "shoulder", "cycle lane")
+    cover = shapely.union_all([g for u, t, ref, src, g in parts if t in road_t]).buffer(0.3)
+    area = shapely.union_all([geo(w) for (w,) in c.execute(f"SELECT {m('geometry')} FROM space.area").fetchall()]).buffer(-2.0)
+    bare = []
+    for o, cl, g in roads:
+        if cl in (None, "pedestrian"):
+            continue
+        for q_ in shapely.get_parts(g.intersection(area).difference(cover)):
+            if q_.geom_type == "LineString" and q_.length > 2.0:
+                bare.append(at(q_))
+    # J1: an intersection with no junction node in it
+    tree = shapely.STRtree([g for _, _, g in roads])
+
+    def deg(pt):
+        d = 0
+        for k in tree.query(pt.buffer(0.5)):
+            ln = roads[k][2]
+            if ln.distance(pt) <= 0.5:
+                s_ = ln.project(pt)
+                d += 1 if (s_ < 0.5 or s_ > ln.length - 0.5) else 2
+        return d
+    nodes = [shapely.Point(q_) for _, _, g in roads for q_ in (g.coords[0], g.coords[-1])]
+    jn = shapely.MultiPoint([pt for pt in nodes if deg(pt) >= 3]) if nodes else shapely.MultiPoint()
+    nojn = [at(g) for u, g in ((u, geo(w)) for u, w in c.execute(f"""SELECT unit_id, {m('geometry')} FROM space.unit
+                 WHERE level = 0 AND kind = 'intersection'""").fetchall()) if jn.is_empty or g.buffer(0.5).disjoint(jn)]
+    return [
+        ("A1", "carriageways whose lanes are off their OSM line (median of the middle > 0.5 m)", len(off), True, off),
+        ("A2", "parking or cycle lanes with no real source (source urbanstyle)", len(nosrc), True, nosrc),
+        ("A3", "stretches of a road line over 2 m with no roadway under it", len(bare), True, bare),
+        ("J1", "intersections with no junction node (3 or more road ends)", len(nojn), True, nojn),
+    ]
+
+
 def roadway_mismatch(c, q, m):
     """Along each cut line, the roadway (lanes, shoulders, bus / cycle lanes, crosswalks, junction area) on the intersection side and on the
     road side should be the same width: the arm and the road meet there."""
@@ -238,13 +321,16 @@ def run(path):
                                     ST_Transform(n.p, 'EPSG:4326', '{epsg}', always_xy := true)) > 3"""), False))
     if q("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'space' AND table_name = 'unit'"):
         rows += unit_checks(c, q, epsg)
+        rows += rule_checks(c, epsg)
     total = q("SELECT count(*) FROM space.container")
     print(f"\n== {path}  ({total} containers, all levels)")
     failed = False
-    for cid, what, value, hard in rows:
+    for cid, what, value, hard, *at in rows:
         status = "PASS" if value == 0 else ("FAIL" if hard else "INFO")
         failed |= status == "FAIL"
         print(f"  {cid:3s} {status:5s} {value:6d}  {what}")
+        for x, y in (at[0] if at else [])[:5]:      # where: a page link opens there (dashboard ?at=)
+            print(f"            ?at={x:.6f},{y:.6f},20,60,0")
     return failed
 
 

@@ -176,7 +176,7 @@ def measure(profile, tiles, survey="City of Vancouver LiDAR 2022", osm_db=None):
             # it ends where the junction space begins: before each junction node on it or within NEAR_M beside it, by the crossing
             # street's half right-of-way (blocks.HALF_ROW) and the junction's reach into each arm (division.ARM_M), as the street is cut
             from .blocks import HALF_ROW
-            from .division import ARM_M
+            from .network import ARM_M
             bx0, by0, bx1, by1 = road.buffer(NEAR_M).bounds
             (lo0, la0), (lo1, la1) = to_ll_(bx0, by0), to_ll_(bx1, by1)
             reach = min(road.length, EXT_MAX_M)

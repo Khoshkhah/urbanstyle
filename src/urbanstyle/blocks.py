@@ -96,8 +96,10 @@ def build(con, epsg):
     roads = [(cl, n, oid, x) for cl, n, oid, x, lv in cand if lv == 0 or not any(ground_lines[k].crosses(x) for k in gtree.query(x))]
     if not roads:
         return 0
+    # (a road of a street class is never a footway line, whatever its type: a private road duckOSM puts in the walking network only
+    # measured its own centre line as its sidewalk, and its street came out 2 m wide; Route de l'Hopital w257071677, Kaveh, 2026-10-14)
     side = [g(w) for (w,) in rows(f"""SELECT {m()} FROM space.element WHERE type = 'walkway' AND level_min = 0
-                                     AND coalesce(subtype, '') <> 'crossing'""")]
+                                     AND coalesce(subtype, '') <> 'crossing' AND replace(coalesce(class, ''), '_link', '') NOT IN {STREET}""")]
     stree = shapely.STRtree(side)
     pmeta = rows(f"SELECT parcel_id, {m()} FROM space.parcel")
     parcels = [g(w) for _, w in pmeta]
@@ -187,6 +189,12 @@ def build(con, epsg):
         at = [(t, statistics.median([d_ for _, d_ in at[max(k - 1, 0):k + 2]])) for k, (t, _) in enumerate(at)]
         ts = [(t, d_) for t, d_ in at if CORNER_M <= t <= x.length - CORNER_M] or [(x.length / 2, statistics.median([d_ for _, d_ in at]))]
         ts = [(0.0, ts[0][1])] + ts + [(x.length, ts[-1][1])]
+        # (every STEP_M along the road and at its bends, the distance between the lines that hit a sidewalk interpolated: straight chords
+        # between those lines cut across a curve, Avenue Saint-Laurent)
+        import numpy as np
+        tq = sorted({round(t, 3) for t in [k * STEP_M for k in range(int(x.length // STEP_M) + 1)] + [x.length]
+                     + [x.project(shapely.Point(c)) for c in x.coords]})
+        ts = list(zip(tq, np.interp(tq, [t for t, _ in ts], [d_ for _, d_ in ts])))
         road, edge = [], []
         for t, d_ in ts:
             a, b = x.interpolate(max(t - 1, 0)), x.interpolate(min(t + 1, x.length))
@@ -228,6 +236,17 @@ def build(con, epsg):
         h = (dx * dx + dy * dy) ** .5 or 1
         return {sg for sg in (1, -1) if shapely.Point(mid.x - sg * dy / h * 0.5, mid.y + sg * dx / h * 0.5).within(f)}
 
+    # a bounding road's carriageway is street, even where the city's parcels cover it: OSM's lanes (else one each way), each
+    # LANE_LEAST_M wide at least, either side of its line
+    tags = {o: (ln, ow) for o, ln, ow in rows("""SELECT osm_id, tags['lanes'], tags['oneway'] FROM osm.raw.ways
+                                                 WHERE osm_id IN (SELECT DISTINCT osm_id FROM space.element WHERE type = 'road')""")}
+    def lanes_of(oid):
+        ln, ow = tags.get(oid, (None, None))
+        try:
+            return max(1, int(float(str(ln).split(";")[0])))
+        except (TypeError, ValueError):
+            return 1 if ow in ("yes", "-1") else 2
+    carriage = shapely.union_all([x.buffer(lanes_of(oid) * LANE_LEAST_M / 2, cap_style="flat") for cl, n, oid, x in roads])
     ctree = shapely.STRtree([ch["geom"] for ch in chains])
     lines = shapely.union_all([ch["geom"] for ch in chains] + [box.boundary])      # (boundary: an area of several parts, Monaco)
     faces = [f for f in shapely.get_parts(shapely.polygonize(list(shapely.get_parts(shapely.line_merge(lines))))) if f.within(box.buffer(0.1))]
@@ -261,7 +280,14 @@ def build(con, epsg):
             for e in (0, -1):
                 if e not in ends:       # a dead end inside the face
                     strips.append(shapely.Point(x.coords[e]).buffer(max(ds)))
-        b = poly(f.difference(shapely.union_all(strips) if strips else shapely.Polygon(), grid_size=0.01))
+        # (and never over a bounding road's carriageway: a sidewalk edge cut across a curve and covered Avenue Saint-Laurent; Kaveh,
+        # 2026-10-14)
+        cut_ = shapely.make_valid(shapely.union_all(strips)) if strips else shapely.Polygon()
+        try:
+            b = poly(f.difference(cut_, grid_size=0.01))
+        except shapely.errors.GEOSException:      # (GEOS "ring edge missing" on the grid, a footway-following edge: off the grid)
+            b = poly(f.difference(cut_))
+        b = poly(shapely.make_valid(b).difference(carriage))     # (no grid here: on the grid GEOS failed, "ring edge missing")
         for p in shapely.get_parts(b):
             if p.area >= MIN_BLOCK_M2 and p.buffer(-MIN_BLOCK_W_M / 2).area > 0:
                 out.append((p, srows, f))
@@ -273,17 +299,6 @@ def build(con, epsg):
     for p, srows, f in out:
         by_face.setdefault(id(f), (f, srows, []))[2].append(p)
     out, from_parcels = [], set()
-    # a bounding road's carriageway is street, even where the city's parcels cover it: OSM's lanes (else one each way), each
-    # LANE_LEAST_M wide at least, either side of its line
-    tags = {o: (ln, ow) for o, ln, ow in rows("""SELECT osm_id, tags['lanes'], tags['oneway'] FROM osm.raw.ways
-                                                 WHERE osm_id IN (SELECT DISTINCT osm_id FROM space.element WHERE type = 'road')""")}
-    def lanes_of(oid):
-        ln, ow = tags.get(oid, (None, None))
-        try:
-            return max(1, int(float(str(ln).split(";")[0])))
-        except (TypeError, ValueError):
-            return 1 if ow in ("yes", "-1") else 2
-    carriage = shapely.union_all([x.buffer(lanes_of(oid) * LANE_LEAST_M / 2, cap_style="flat") for cl, n, oid, x in roads])
     for f, srows, road_blocks in by_face.values():
         mine = [parcels[k] for k in (ptree.query(f) if ptree is not None else []) if parcels[k].intersection(f).area > 0.5 * parcels[k].intersection(box).area]   # (a parcel cut by the area's edge: its part inside)
         joined = poly(shapely.union_all(mine).buffer(PARCEL_CLOSE_M, join_style="mitre").buffer(-PARCEL_CLOSE_M, join_style="mitre")

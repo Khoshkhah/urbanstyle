@@ -223,7 +223,7 @@ def surface(P, x0=0.0, y0=0.0, edges_of=None):
     # the gore between two roads that meet at a node in the air at under 90 degrees: deck, out to where their lanes are GORE_MAX_M apart,
     # so no slit ringed with a guard is left between them; at 90 degrees or more nothing is filled and each keeps its own edge
     # (Boulevard du Larvotto, a1 and a2 at J; Kaveh, 2026-10-14)
-    at_node = {}
+    at_node, gores = {}, []
     for ln, a in axes:
         for k, e in enumerate(a.get("ends", [])[:2]):
             if e.get("node") and not e.get("ground"):
@@ -244,7 +244,9 @@ def surface(P, x0=0.0, y0=0.0, edges_of=None):
                 disk = shapely.Point(pa).buffer(r)
                 sa = la.buffer(wa / 2 + DECK_MARGIN_M, cap_style="flat").intersection(disk)
                 sb = lb.buffer(wb / 2 + DECK_MARGIN_M, cap_style="flat").intersection(disk)
-                pieces.append(shapely.union_all([sa, sb]).convex_hull.intersection(disk))
+                gore_ = shapely.union_all([sa, sb]).convex_hull.intersection(disk)
+                pieces.append(gore_)
+                gores.append(gore_)
     # notches under 1 m closed (where OSM's outline meets a landing, a short guard ran across the sidewalk: the end of a7)
     deck = shapely.make_valid(shapely.union_all(pieces).buffer(NOTCH_M, join_style="mitre").buffer(-NOTCH_M, join_style="mitre"))
     deck = max(shapely.get_parts(deck), key=lambda p: p.area) if deck.geom_type != "Polygon" else deck
@@ -316,7 +318,7 @@ def surface(P, x0=0.0, y0=0.0, edges_of=None):
         tot = sum(w for w, _ in use)
         return sum(w * hz for w, hz in use) / tot if tot > 1e-12 else m0
 
-    return {"axes": axes, "deck": deck, "fill": fill, "z": z, "frame": frame}
+    return {"axes": axes, "deck": deck, "fill": fill, "z": z, "frame": frame, "gores": shapely.union_all(gores) if gores else shapely.Polygon()}
 
 
 def model_checks(surf, deck, road_ends, S, axes):
@@ -2623,6 +2625,14 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False, poles=None
             if by_edge:
                 path_extra.setdefault(max(by_edge)[1], []).append(g)
                 continue
+        # (the gore where two roads meet in the air, surface(): part of their junction, not a median; median @-3,121 where a2 joins a1,
+        # Boulevard du Larvotto; Kaveh, 2026-10-14)
+        if not S["gores"].is_empty and g.intersection(S["gores"]).area > 0.5:
+            J_ = J_.union(g.intersection(S["gores"]))
+            g = max([x_ for x_ in shapely.get_parts(shapely.make_valid(g.difference(S["gores"]))) if x_.geom_type == "Polygon"] or [shapely.Polygon()],
+                    key=lambda x_: x_.area)
+            if g.is_empty or g.area < 0.5:
+                continue
         if not J_.is_empty and g.distance(J_) < 0.3:
             J_ = J_.union(g)
             continue
@@ -2717,7 +2727,9 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False, poles=None
         deck = max(shapely.get_parts(deck_), key=lambda g_: g_.area) if deck_.geom_type != "Polygon" else deck_
     what = {"footway": "the deck between the lanes and the guard", "median": "the deck between two carriageways",
             "buffer": "the deck between a path and the guard"}
-    for g in fill["median"]:      # a guardrail in each median, along its edge beside one carriageway (between the two directions)
+    # a guardrail in a median only where a source says so (corrections/bridges.json, checked by hand: Granville); else the median is deck
+    # with its painted lines (Boulevard du Larvotto got a 91 m one where a2 joins a1, barrier @-11,94; Kaveh, 2026-10-14)
+    for g in (fill["median"] if bridge_corr_(P["name"]).get("median") == "barrier" else []):
         G_ = next((G for G in groups.values() if G.distance(g) < 0.3), None)
         if G_ is None:
             continue
@@ -2790,7 +2802,7 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False, poles=None
             strip(g, LINE.get(ln_["kind"], 0.12), f"mark {ln_['kind']}", PAINT_LIFT_M, (3.0, 6.0) if ln_["kind"] == "lane line" else None)
     # guide lines through the junctions on the deck (SUMO's moves: the profile's connectors), as the street's; an arrow in every lane,
     # one each ARROW_EVERY_M (one in the middle of a shorter lane) and, before a junction, one with a head for each way SUMO lets it go
-    from .division import arrow_shape
+    from .network import arrow_shape
     from .parts import ARROW_M
     cons = [(c, shapely.LineString(rel(c["line"]))) for c in P.get("connectors", []) if c not in joins_]
     for _, cl in cons:

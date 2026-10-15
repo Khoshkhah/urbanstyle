@@ -20,7 +20,8 @@ def _frames(con, db, bridges):
     f = lambda sql: d.frame(con, sql)
     out = {}
     out["edges"] = f("""SELECT ST_AsWKB(geometry) AS geometry, class AS highway, name, level_min AS level, type, container_id,
-        CASE WHEN level_src = 'bridge' THEN 'yes' END AS bridge, CASE WHEN level_src = 'tunnel' THEN 'yes' END AS tunnel,
+        CASE WHEN level_min > 0 OR level_src = 'bridge' THEN 'yes' END AS bridge,
+        CASE WHEN level_max < 0 OR level_src = 'tunnel' THEN 'yes' END AS tunnel,       -- (by its level: most bridges get it from `layer`)
         level_min AS layer, try_cast(source_id AS BIGINT) AS edge_id, coalesce(oneway, false) AS oneway, round(width_m, 2) AS width_m, width_src
         FROM space.element WHERE type <> 'building'""")
     out["edges"]["edge_id"] = out["edges"]["edge_id"].astype("Int64")

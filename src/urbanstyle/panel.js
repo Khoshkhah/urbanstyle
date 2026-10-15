@@ -112,8 +112,10 @@ function select(f,at){shut(); if(!f)return; selF=f; const p=f.properties; pick(p
 const PICK3D={'u3d-furn':['Street objects','refs','id'],'u3d-bld':['Buildings','id','source_id'],'u3d-gnd':['Ground','ground_id','ground_id'],
   'u3d-lot':['Car parks','id','lot_id'],'u3d-ground':['Street parts','part_id','part_id'],'u3d-raised':['Street parts','part_id','part_id'],
   bridge:['Bridge parts','id','id']};
-window.xpOnPick=(lid,p,e)=>{const k=PICK3D[lid]; if(!k||!p||p[k[1]]==null||!meta)return false;
-  const at=e&&e.lngLat?[e.lngLat.lng,e.lngLat.lat]:null;
+window.xpOnPick=(lid,p,e)=>{const at=e&&e.lngLat?[e.lngLat.lng,e.lngLat.lat]:null;
+  // (a kerb: no table of its own on the server; its fields as the 3D page has them, in the card, not a popup: Kaveh, 2026-10-14)
+  if(lid==='u3d-kerb'&&p&&p.kerb_id!=null){select({type:'Feature',geometry:null,properties:{...p,_layer:'Kerbs',_label:'kerb',_id:p.kerb_id}},at); return true}
+  const k=PICK3D[lid]; if(!k||!p||p[k[1]]==null||!meta)return false;
   post('/api/query',{layer:k[0],where:[{field:k[2],op:'=',value:String(p[k[1]])}]}).then(fc=>{if(fc.features&&fc.features[0])select(fc.features[0],at)});
   return true};
 function card(f){const p=f.properties, rows=Object.entries(p).filter(([k,v])=>!k.startsWith('_')&&v!==null&&v!==''&&k!=='fields')

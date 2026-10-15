@@ -26,11 +26,13 @@ The order of work: `docs/plan.md`.
 - `src/urbanstyle/blocks.py` (called before `ground.build`): the blocks of `docs/design/blocks.md` (step 1): `space.block` (id
   `b<level>-w<way><side>`), `space.block_side` (each street side's distance and what set it: parcels, sidewalks, class, building),
   `space.area` (the area's edge), `space.city_block` (a city's own blocks, only for check B6).
-- `src/urbanstyle/division.py` (after `blocks.build`): at level 0 the street divided between the blocks (sections, their subsections,
-  intersections) and the inside of each (lanes, shoulders, medians, NACTO's pedestrian zones, one junction area, pedestrian corners;
-  kerbs, lane and centre lines, stop lines, zebras), as strips parallel to each subsection's axis. It replaces the level-0 rows that
-  `spaces.py` and `parts.py` make (`space.unit`, `space.part`, `space.mark`, `space.cut`, `space.subsection`, `space.width`); those two
-  still make the other levels. `docs/design/blocks.md`. The test it came from: `scripts/blocks_test.py`.
+- `src/urbanstyle/network.py` (after `blocks.build`): the street at level 0 from the road network, data first (`docs/design/pipeline.md`
+  steps 2-7, rules in `docs/design/street-rules.md`, junctions in `docs/design/junctions.md`): lanes from OSM centred on each road's OSM
+  line; parking and bike lanes only from OSM or a city's meters and bikeways; the kerb is the lanes' outer edge (never guessed); junctions
+  only at nodes of 3+ road ends; sections along each road (`s0-w<way>[.n]/1`); the pedestrian side shared to the nearest roadway, a piece
+  between roadways an island; stop lines, zebras. It writes the level-0 rows of `space.unit`, `part`, `mark`, `subsection`, `junction`
+  (other levels: `spaces.py`, `parts.py`). Not yet: SUMO's turn paths and arrows. There is one version: the old block-first division is
+  removed (2026-10-14).
 - `src/urbanstyle/ground.py` (called at the end of `build`): layer 0 of `docs/design/space-layers.md`, `space.ground`: every piece of the
   area at level 0 is water, rail, street, path, square, structure, green, plot or unknown (checks G1, G2); `space.parcel`, a city's
   parcels, is the property line the street reaches (`subsections.building_line`). `ground.surfaces`: layer 1, `space.surface`, the
@@ -62,7 +64,7 @@ The order of work: `docs/plan.md`.
   duckOSM's `to_sumo` with them, `from_sumo()` fills every unit; without SUMO `classic()` builds the roadway from bands. `urbanstyle check`
   U1-U10 test them; U11-U13 report the lanes entering each junction (`space.approach`),
   G1-G2 the ground (`space.ground`), L1-L2 the surfaces (`space.surface`), B1 and B6 the blocks (`space.block`); R1-R4 the roadway at
-  level 0: R1 its edges at the joints, R4 the lanes that meet their continuation there (`division.join_lanes`, tapers).
+  level 0: R1 its edges at the joints, R4 the lanes that meet their continuation there (tapers).
   `urbanstyle check DB --bridge PROFILE` adds BR1-BR8, the bridge model's own checks (`bridge3d.model_checks`: guard on a lane,
   holes, guard gaps, paths on paths, slivers, lanes of two axes overlapping, lanes with no arrow, steps at landings) and BR9-BR11 (deck no
   part covers, a lane meeting a path with no barrier but at a crosswalk, steps in the deck's height) and BR12 (a surveyed or OSM street object standing inside a lane near the ground: the lane is wrong there), each with `?at=` links.
@@ -110,7 +112,7 @@ URBANSTYLE_BRIDGE_TESTS=1 $P -m pytest -q tests/test_bridge_rules.py   # the bri
 PYTHONPATH=src $P -m urbanstyle build ../duckOSM/monaco.duckdb data/monaco.duckdb
 PYTHONPATH=src $P -m urbanstyle build ../duckOSM/data/db/sodermalm.duckdb data/sodermalm.duckdb
 PYTHONPATH=src $P -m urbanstyle check data/monaco.duckdb data/sodermalm.duckdb
-# a fix in division.py or ground.py: only those steps, from the copy the last full build kept (OUT.before-division): Monaco minutes,
+# a fix in network.py or ground.py: only those steps, from the copy the last full build kept (OUT.before-division): Monaco minutes,
 # not 27 min; the build prints each step's time
 PYTHONPATH=src $P -m urbanstyle build ../duckOSM/monaco.duckdb data/monaco.duckdb --from division
 # an area with bridges (every area whose roads reach level 1): their profiles first, then every later step with --bridge. Without them

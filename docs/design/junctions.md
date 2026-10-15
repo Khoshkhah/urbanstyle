@@ -37,9 +37,9 @@ Junctions whose shapes overlap are one junction (a complex junction with several
 
 ## Where in the code
 
-`src/urbanstyle/junctions.py` (`shape`, `apply`), called by `division.build` after the roundabouts and before the subsections.
+`src/urbanstyle/network.py` (step 5 of `pipeline.md`), which replaces the old division (2026-10-14).
 
-## Not yet (step 2)
+## Step 2: sections along each road
 
-Sections are still made between blocks that face each other. Two roads that share no node but lie close together can still be in one
-section, and their lanes can meet (Ruelle Saint-Jean beside Boulevard du Larvotto). Step 2 makes each section along its own road.
+Done in `network.py` (2026-10-14). Each section runs along its own road between junctions, so two roads that share no node are two
+sections, also where they lie close together (Ruelle Saint-Jean beside Boulevard du Larvotto); their lanes do not meet.

@@ -227,7 +227,8 @@ def rule_checks(c, epsg):
             continue
         g = lines[o].intersection(g.buffer(3.0)) if o in lines else g
         for q_ in shapely.get_parts(g.intersection(area).difference(cover)):
-            if q_.geom_type == "LineString" and q_.length > 2.0:
+            # (not within TAPER_M of the line's ends: a road that merges one-sidedly keeps its heading there, off OSM's last bend)
+            if q_.geom_type == "LineString" and q_.length > 2.0 and min(g.project(q_.centroid), g.length - g.project(q_.centroid)) > TAPER_M:
                 bare.append(at(q_))
     # J1: an intersection with no junction node in it
     nojn = [at(g) for u, g in ((u, geo(w)) for u, w in c.execute(f"""SELECT unit_id, {m('geometry')} FROM space.unit

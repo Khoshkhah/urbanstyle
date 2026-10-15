@@ -609,6 +609,35 @@ def build(con, epsg, bridges=()):
     for r in runs:
         if abs(r["shift"]) > 1e-6:
             r["xline"] = shift_line(r["xline"], r["shift"])
+    # ---- 6d. a one-sided merge (docs/design/joints.md, rule 4): a road that ends on a road running through the node (a Y) keeps its
+    # heading over its last TAPER_M: the last bend of its OSM line towards the node is the drawing of the merge, not a movement of the
+    # road; its far kerb runs straight to the trunk and the lane blends into the trunk's roadway (the slip lane into the Granville
+    # ramp bent 3 m east and the sidewalk bulged with it; Kaveh 2026-10-16)
+    rtree = shapely.STRtree([r["line"] for r in runs]) if runs else None
+    for i, (k, e, pt) in enumerate(ends_):
+        r = runs[k]
+        if jtree is not None and any(jn[j].distance(pt) < 0.6 for j in jtree.query(pt.buffer(0.6))):
+            continue
+        here = [j for j in etree2.query(pt.buffer(0.3)) if ends_[j][2].distance(pt) <= 0.3]
+        sids = [runs[ends_[j][0]]["sid"] for j in here]
+        if sids.count(r["sid"]) > 1:
+            continue                                        # (a joint of its own section: chained on)
+        through = any(sids.count(sd) > 1 for sd in set(sids) if sd != r["sid"]) or any(
+            k2 != k and runs[k2]["line"].distance(pt) < 0.6 and 0.5 < runs[k2]["line"].project(pt) < runs[k2]["line"].length - 0.5
+            for k2 in (rtree.query(pt.buffer(0.6)) if rtree is not None else []))
+        if not through:
+            continue
+        xl = r["xline"]
+        if xl.length < TAPER_M + 2.0:
+            continue
+        s_end = xl.length if e == 1 else 0.0
+        s_from = s_end - TAPER_M if e == 1 else TAPER_M
+        a_, b_ = xl.interpolate(s_from), xl.interpolate(s_from + (-1.0 if e == 1 else 1.0))
+        hd = unit_v((a_.x - b_.x, a_.y - b_.y))         # the heading at s_from, towards the end
+        keep = substring(xl, 0.0, s_from) if e == 1 else substring(xl, s_from, xl.length)
+        tip = (a_.x + hd[0] * TAPER_M, a_.y + hd[1] * TAPER_M)
+        r["xline"] = shapely.LineString(list(keep.coords) + [tip]) if e == 1 else shapely.LineString([tip] + list(keep.coords))
+    for r in runs:
         r["cw"] = poly(at_joints(r, band(r["xline"], r["kr"], r["kl"])))
 
     # ---- 5. junctions

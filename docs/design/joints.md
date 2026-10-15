@@ -16,6 +16,10 @@ change at a joint and what cannot. The code is in `network.py`, steps 6a to 6c.
    the merge side in step 6c; the transition in step 8; the taper wedge in step 6b. Not yet: `turn:lanes` to name the side.*
 4. **A fork is a merge read backwards.** The leaving road's lane continues out of the outer lane on its side, cut on the joint's
    bisector. *Code: the same `crosses()` and `align()` as a merge; a fork's lane continuity is not yet checked.*
+   **A one-sided merge** (a road ends on a road that runs through the node, a Y; the ramp from West 6th into the Granville on-ramp
+   at n2792935203): the merging road's lane should run on along the trunk's kerb on its side and narrow to nothing over 15 m. *Not in
+   the code: a first version (2026-10-16) put the tail in the trunk's space and broke U2, U8, U9 and M1 at other merges; the merging
+   road ends at the node today, with a gap to the trunk.*
 5. **A merge or a fork is a joint, not a junction.** The road ends at a node are paired into streams; the node is a junction only
    where a road ends with no continuation or two streams cross. *Code: `crosses()`, `junctions.md` rule 1.*
 

@@ -11,8 +11,9 @@ OSM line, added parking or shoulders to fill the space, broke the lane joints an
 
 1. **Blocks.** The land between the streets.
     - The street roads at level 0 make the faces. Paths and pedestrian streets do not make faces.
-    - Each block edge follows the footways piece by piece, 1 m behind each footway. Where no footway is, the edge follows the
-      parcels, else half the road class's width.
+    - Each block edge follows the footway, 1 m behind it, simplified by 0.5 m so that it is straight where the footway is straight
+      and bends only where the footway bends. It never bends with the road where the road bends away from the footway. Where no
+      footway is, the edge follows the parcels, else the carriageway plus 1.5 m.
     - Corners are sharp. A block never covers a carriageway.
 2. **Road network.**
     - The street roads at level 0 from OSM. The ways of a bridge that has a profile go to the bridge model.
@@ -25,18 +26,38 @@ OSM line, added parking or shoulders to fill the space, broke the lane joints an
 4. **Kerbs.** The outer edge of step 3, on each side. The kerb is never guessed.
 5. **Junctions.** At each junction node:
     - the area where the arms' carriageways overlap (the core);
-    - out to each arm's stop line: the far edge of a crosswalk that OSM maps across the arm within 15 m, else 3 m past the core;
+    - out to each arm's stop line: the far edge of a crosswalk that OSM maps across the arm within 15 m, else 3 m past the core; the
+      arm is cut square across its own line there, never by a circle round the node;
     - corners rounded by 4 m (chosen).
     - Junctions that overlap are one junction.
-6. **Sections.** Each road from the edge of one junction to the edge of the next. A section is cut into subsections where its lanes
-   change.
+6. **Sections.** Each road from the edge of one junction to the edge of the next: the OSM ways chained where two of them meet at a node
+   that is no junction (OSM splits a road at a crossing node or where its lanes change). The section is named by its longest way
+   (`s0-w<way>[.n]`). It is cut into subsections (`/1`, `/2`, ...) where its cross-section changes; ways with one cross-section are one
+   subsection. At the joint the two roadways are cut on the bisector of their directions.
+    - **Continuity.** The lanes that run on through a joint keep their position. The kerb on the side where no road merges
+      continues straight; where the width is the same on both sides, both kerbs continue and only the centre line moves (a turn
+      pocket). Where OSM's line of the next way is not the centre of its lanes by up to 2 m (the line's drawing error), the whole
+      subsection's line is moved sideways by that much, so its lanes, kerbs and lines continue the previous subsection's. The fixed
+      piece of a section is the one at a bridge landing (the bridge's lanes and the ground's meet there), else the first; the shifts
+      run away from it to both ends. A lane on the side a road merges from is that road's lane running on: it has no taper.
+    - **Transition.** A larger step, or a width change with no merging road, slides over 15 m (chosen) in the subsection with fewer
+      lanes: a lane the neighbour has not opens from the kerb, a lane this subsection has not narrows to nothing; the parking lanes
+      follow the lanes' outer edge; a step between the two kerbs that is left is a carriageway taper. Never a kerb across a lane.
+    - A subsection whose roadway outside the junctions is under 20 m² (a sliver between a junction and a crossing node) joins the
+      junction it touches.
 7. **Pedestrian side.** From each kerb out to the block edge: the furnishing zone, the sidewalk (on OSM's sidewalk line) and the
    frontage. A junction's corners take the sidewalks of their two arms.
     - A strip between two roadways that is narrower than 8 m and does not touch a block is roadway (part `carriageway`). It is an
       island only where OSM maps a kerb, an object (a tree, a sign, a pole) or a path along it.
     - A piece that touches no block and is smaller than 4 m² is not an island. It is part of the sidewalk.
-8. **Crosswalks, lines and arrows.** Crosswalks from OSM's crossings; lane lines, centre lines and stop lines; turn arrows from
-   SUMO's moves.
+8. **Crosswalks, lines and arrows.**
+    - A crosswalk part for every crossing way over the roadway, 3 m wide (chosen) or OSM's `width`, and for every crossing node on a
+      road that no crossing way maps: a band across that road's carriageway. The lanes and the junction area give way to it.
+    - Its paint from `crossing:markings`: zebra bars (also for `zebra`, `marked`, `uncontrolled` and `yes`), two crossing lines
+      (`lines`, `dashes`, `dots`; `ladder` gets both), none for `unmarked` or `no`, and none where no markings are mapped.
+    - Lane lines only between lanes OSM counts (`lanes`), with the count's source. The centre line between the two directions also
+      where the count is chosen, as urbanstyle's own (source `urbanstyle`, method `chosen`). Stop lines 1 m before the junction. Turn
+      arrows from SUMO's moves.
 9. **Bridges and tunnels.**
     - A bridge model comes from its profile. Its heights come from LiDAR, else from the network rule (`bridge-profile.md`, "Heights
       with no measurement").
@@ -45,8 +66,9 @@ OSM line, added parking or shoulders to fill the space, broke the lane joints an
     - A1: lanes on their OSM line;
     - A2: no parking or bike lane without a source;
     - A3: every road line on a roadway;
-    - J1: every junction on a real junction node.
-    - Kerb evidence (catch basins, poles, sidewalk lines) is only compared with the result. It never moves anything.
+    - J1: every junction on a real junction node; J2: no junction reaching outside its arms;
+    - X1: every crossing way over the roadway has its crosswalk; M1: no line where the lane count is chosen;
+    - K1: kerb evidence (the city's catch basins) is only compared with the result and reported. It never moves anything.
 11. **Ground and dashboard.** The ground layers, then the dashboard page.
 
 ## What changes in the code

@@ -29,8 +29,10 @@ The order of work: `docs/plan.md`.
 - `src/urbanstyle/network.py` (after `blocks.build`): the street at level 0 from the road network, data first (`docs/design/pipeline.md`
   steps 2-7, rules in `docs/design/street-rules.md`, junctions in `docs/design/junctions.md`): lanes from OSM centred on each road's OSM
   line; parking and bike lanes only from OSM or a city's meters and bikeways; the kerb is the lanes' outer edge (never guessed); junctions
-  only at nodes of 3+ road ends; sections along each road (`s0-w<way>[.n]/1`); the pedestrian side shared to the nearest roadway, a piece
-  between roadways an island; stop lines, zebras. It writes the level-0 rows of `space.unit`, `part`, `mark`, `subsection`, `junction`
+  only at nodes of 3+ road ends, each arm cut square at its stop line; sections along each road between junctions, the OSM ways chained
+  (`s0-w<way>[.n]/<k>`: the longest way names it, `/k` its subsections where the cross-section changes), tapers at their joints; the
+  pedestrian side shared to the nearest roadway, a piece between roadways an island; stop lines, crosswalk parts with their paint from
+  `crossing:markings`. It writes the level-0 rows of `space.unit`, `part`, `mark`, `subsection`, `junction`
   (other levels: `spaces.py`, `parts.py`; a level-1 way it puts on the ground loses its level-1 copy). `src/urbanstyle/turns.py` (after
   `network.build`): SUMO's lane-to-lane moves at level 0 (`space.turn`, `guide line` and `arrow` marks). There is one version: the old block-first division is
   removed (2026-10-14).
@@ -64,7 +66,8 @@ The order of work: `docs/plan.md`.
   at intersections). The roadway (lanes, junction shapes, turns) comes from SUMO: the subsections measure the lanes, `sumo.py` runs
   duckOSM's `to_sumo` with them, `from_sumo()` fills every unit; without SUMO `classic()` builds the roadway from bands. `urbanstyle check`
   U1-U10 test them; U11-U13 report the lanes entering each junction (`space.approach`),
-  G1-G2 the ground (`space.ground`), L1-L2 the surfaces (`space.surface`), B1 and B6 the blocks (`space.block`); R1-R4 the roadway at
+  G1-G2 the ground (`space.ground`), L1-L2 the surfaces (`space.surface`), B1 and B6 the blocks (`space.block`); A1-A3, J1-J2, X1, M1, K1 the
+  agreed street rules (`docs/design/street-rules.md`); R1-R4 the roadway at
   level 0: R1 its edges at the joints, R4 the lanes that meet their continuation there (tapers).
   `urbanstyle check DB --bridge PROFILE` adds BR1-BR8, the bridge model's own checks (`bridge3d.model_checks`: guard on a lane,
   holes, guard gaps, paths on paths, slivers, lanes of two axes overlapping, lanes with no arrow, steps at landings) and BR9-BR11 (deck no
@@ -125,8 +128,10 @@ PYTHONPATH=src $P -m urbanstyle build ../duckOSM/monaco.duckdb data/monaco.duckd
 PYTHONPATH=src $P -m urbanstyle check data/monaco.duckdb --bridge data/bridges-monaco/*.bridge.json        # BR1-BR12 per bridge
 #   (every command takes --bridge with one or more profiles, and the option can repeat)
 
-# dashboard: system python3 (roadstyle 0.13.1 from PyPI), then serve it; Street View needs http
-PYTHONPATH=src python3 -m urbanstyle dashboard data/monaco.duckdb viz/monaco.html
+# dashboard: system python3 with the development roadstyle (../roadstyle/src; PyPI's 0.13.1 lacks `color_col`), then serve it; Street View
+# needs http. The CARTO base map needs CARTO_API_KEY in the environment when the page is BUILT (~/.bashrc exports it; a non-interactive
+# shell does not read it: `export CARTO_API_KEY=...` first, else the tiles say API KEY REQUIRED)
+PYTHONPATH=src:../roadstyle/src python3 -m urbanstyle dashboard data/monaco.duckdb viz/monaco.html
 (cd viz && python3 -m http.server 8784 --bind 127.0.0.1)   # viz/<area>.html#c=<container id> opens one container
 # Street View's linked panorama: GOOGLE_MAPS_KEY, set when the page is BUILT (the roadstyle conda env sets it on activate; with the
 # system python3: `source ~/miniconda3/envs/roadstyle/etc/conda/activate.d/google_maps_key.sh` first). Its Google restriction allows

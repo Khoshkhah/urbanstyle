@@ -54,7 +54,7 @@ def part_checks(c, q, m):
          q("SELECT count(DISTINCT unit_id) FROM space.part WHERE level = 0 AND type = 'lane' AND source = 'osm' AND width_m < 2.75"), False),
         ("R2", "guide lines (SUMO's moves) leaving the roadway by more than 0.5 m", q(f"""WITH rw AS (SELECT ST_Union_Agg(ST_MakeValid(
                                   ST_Buffer({m('geometry')}, 0.1))) AS g FROM space.part WHERE level = 0 AND type IN ('lane', 'shoulder', 'parking',
-                                  'bus zone', 'cycle lane', 'junction area'))
+                                  'bus zone', 'cycle lane', 'junction area', 'carriageway', 'crosswalk', 'cycle crossing'))
                                   SELECT count(*) FROM space.mark, rw WHERE type = 'guide line' AND level = 0
                                   AND ST_Length(ST_Difference({m('space.mark.geometry')}, rw.g)) > 0.5"""), False),
     ] + approach_checks(q) + ground_checks(c, q, m)
@@ -134,7 +134,7 @@ def rule_checks(c, epsg):
     import re
     import shapely
     import pyproj
-    from .network import STREET, straight
+    from .network import STREET, STRAIGHT_M, TAPER_M, straight
     if not c.execute("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'space' AND table_name = 'part'").fetchone()[0]:
         return []
     m = lambda g: f"ST_AsWKB(ST_Transform({g}, 'EPSG:4326', '{epsg}', always_xy := true))"
@@ -178,18 +178,23 @@ def rule_checks(c, epsg):
     # A1: per space and OSM way, the middle of its lanes on cross lines every 5 m along the way's line; failed if the median is > 0.5 m
     groups = {}
     for u, t, ref, src, g in parts:
-        k = re.match(r"w(\d+)", ref)
-        if t == "lane" and k:
-            groups.setdefault((u, int(k.group(1))), []).append(g)
+        if t == "lane":
+            for o in re.findall(r"w(\d+)", ref.split(" ")[0]):     # (a lane along several ways: checked against each)
+                groups.setdefault((u, int(o)), []).append(g)
+    area = shapely.union_all([geo(w) for (w,) in c.execute(f"SELECT {m('geometry')} FROM space.area").fetchall()]).buffer(-2.0)
     off = []
     for (u, o), gs in groups.items():
         ln, U = lines.get(o), shapely.union_all(gs)
-        if ln is None or U.is_empty:
+        if ln is None or U.is_empty or not area.contains(U):     # (a stub cut by the area's edge is not measured)
             continue
         ds = []
         for piece in shapely.get_parts(ln):
+            if not piece.intersects(U.buffer(0.5)):
+                continue
             for k in range(int(piece.length // 5) + 1):
                 s_ = min(k * 5.0, piece.length)
+                if s_ < TAPER_M or s_ > piece.length - TAPER_M:      # (the lanes slide to the next subsection's positions over TAPER_M)
+                    continue
                 p, a, b = piece.interpolate(s_), piece.interpolate(max(s_ - 1, 0)), piece.interpolate(min(s_ + 1, piece.length))
                 h = ((b.x - a.x) ** 2 + (b.y - a.y) ** 2) ** .5 or 1
                 nx, ny = -(b.y - a.y) / h, (b.x - a.x) / h
@@ -197,14 +202,15 @@ def rule_checks(c, epsg):
                 ts = [(x - p.x) * nx + (y - p.y) * ny for q_ in shapely.get_parts(hit) if q_.geom_type == "LineString" for x, y in q_.coords]
                 if ts:
                     ds.append(abs((max(ts) + min(ts)) / 2))
-        if ds and sorted(ds)[len(ds) // 2] > 0.5:
+        if ds and sorted(ds)[len(ds) // 2] > STRAIGHT_M:       # (the OSM line's drawing error: a subsection's lanes continue the last one's)
             off.append(at(U))
     # A2: a parking or cycle lane that no real source gives
     nosrc = [at(g) for u, t, ref, src, g in parts if t in ("parking", "cycle lane") and src == "urbanstyle"]
     # A3: a stretch of a road line over 2 m with no roadway under it, inside the area (not at its edge)
-    road_t = ("lane", "junction area", "carriageway", "bridge deck", "bus lane", "bus zone", "parking", "shoulder", "cycle lane")
-    cover = shapely.union_all([g for u, t, ref, src, g in parts if t in road_t]).buffer(0.3)
-    area = shapely.union_all([geo(w) for (w,) in c.execute(f"SELECT {m('geometry')} FROM space.area").fetchall()]).buffer(-2.0)
+    road_t = ("lane", "junction area", "carriageway", "bridge deck", "bus lane", "bus zone", "parking", "shoulder", "cycle lane", "crosswalk",
+              "cycle crossing")
+    cover0 = shapely.union_all([g for u, t, ref, src, g in parts if t in road_t])
+    cover = cover0.buffer(0.3)
     bare = []
     for o, cl, g in roads:
         if cl in (None, "pedestrian"):
@@ -216,11 +222,73 @@ def rule_checks(c, epsg):
     # J1: an intersection with no junction node in it
     nojn = [at(g) for u, g in ((u, geo(w)) for u, w in c.execute(f"""SELECT unit_id, {m('geometry')} FROM space.unit
                  WHERE level = 0 AND kind = 'intersection'""").fetchall()) if jn.is_empty or g.buffer(0.5).disjoint(jn)]
+    # J2: a junction area outside its arms: each subsection's line as drawn, as wide as its roadway (+2.5 m: parking on one side puts the
+    # line off the middle), run on 25 m past its ends, is an arm's band; a piece of a junction area over 5 m2 outside every band (a 4 m
+    # corner fillet is 3.4 m2) means the junction reaches where no arm is (a disc round the node did, 2026-10-15)
+    import math
+
+    def extend(ln, d=25.0):
+        pts = list(ln.coords)
+        if len(pts) < 2:
+            return ln
+        (x0, y0), (x1, y1) = pts[0], pts[1]
+        h = math.hypot(x1 - x0, y1 - y0) or 1
+        a_ = (x0 - (x1 - x0) / h * d, y0 - (y1 - y0) / h * d)
+        (x0, y0), (x1, y1) = pts[-2], pts[-1]
+        h = math.hypot(x1 - x0, y1 - y0) or 1
+        b_ = (x1 + (x1 - x0) / h * d, y1 + (y1 - y0) / h * d)
+        return shapely.LineString([a_] + pts + [b_])
+    subs = c.execute(f"SELECT width_m, {m('geometry')} FROM space.subsection WHERE level = 0 AND width_m IS NOT NULL").fetchall()
+    # (and every road line itself, as wide as its lanes (element.width_m): an arm a junction takes whole has no subsection)
+    subs += c.execute(f"""SELECT width_m, {m('geometry')} FROM space.element WHERE type = 'road' AND level_min = 0 AND width_m IS NOT NULL
+                          AND replace(coalesce(class, ''), '_link', '') IN {streets}""").fetchall()
+    bands = shapely.union_all([extend(q_).buffer(wd / 2 + 2.5, cap_style="flat") for wd, w in subs for q_ in shapely.get_parts(geo(w))
+                               if q_.geom_type == "LineString"] or [shapely.Polygon()])
+    jover = []      # (a piece over 40 m2, a 30 degree corner's fillet of 4 m, and over a tenth of the junction: a traffic circle's ring is less)
+    for u, t, ref, src, g in parts:
+        if t == "junction area" and any(q_.geom_type == "Polygon" and q_.area > max(40.0, 0.1 * g.area) for q_ in shapely.get_parts(g.difference(bands))):
+            jover.append(at(g.difference(bands)))
+    # X1: a crossing way over the roadway with no crosswalk part on it (under 80 % of its stretch over the roadway covered)
+    xw_u = shapely.union_all([g for u, t, ref, src, g in parts if t in ("crosswalk", "cycle crossing")] or [shapely.Polygon()]).buffer(0.3)
+    xways = {}
+    for o, w in c.execute(f"""SELECT osm_id, {m('geometry')} FROM space.element WHERE type IN ('walkway', 'cycleway') AND level_min = 0
+                              AND subtype = 'crossing'""").fetchall():
+        xways.setdefault(o, []).append(geo(w))
+    noxw = []
+    for o, gs in xways.items():     # (per way: its pieces together; a bare end under 1 m, a kerb ramp, does not count)
+        x = shapely.union_all(gs).intersection(cover0.intersection(area))
+        if x.length > 1.0 and x.length - x.intersection(xw_u).length > max(1.0, 0.2 * x.length):
+            noxw.append(at(x.difference(xw_u) if not x.difference(xw_u).is_empty else x))
+    # M1: a lane line, or a centre line with a real source, where the lane count is chosen (no source maps the lanes, so none maps a
+    # line between them; the centre line between the directions is drawn as urbanstyle's own there)
+    chosen = {u for u, t, ref, src, g in parts if t == "lane" and src == "urbanstyle"}
+    nolines = [at(geo(w)) for u, t, src, w in c.execute(f"""SELECT unit_id, type, source, {m('geometry')} FROM space.mark WHERE level = 0
+                 AND type IN ('centre line', 'lane line')""").fetchall() if u in chosen and (t == "lane line" or src != "urbanstyle")]
+    # K1: the kerb against a city's kerb evidence: catch basins stand in the gutter at the kerb; a subsection whose kerb lies more than
+    # 1.5 m from them (the median of 2 or more) has a kerb the data does not confirm: parking at the kerb that no source maps, or a wrong
+    # lane width. A report, not a fault: the kerb is the lanes' edge by the agreed rule and never moves for evidence
+    from .blocks import _city
+    basins = [shapely.Point(pyproj.Transformer.from_crs("EPSG:4326", epsg, always_xy=True).transform(*f["geometry"]["coordinates"]))
+              for f in (_city(c).get("sewer-catch-basins") or {}).get("features", []) if (f.get("geometry") or {}).get("type") == "Point"]
+    kerbs = [(u, geo(w)) for u, w in c.execute(f"SELECT unit_id, {m('geometry')} FROM space.mark WHERE level = 0 AND type = 'kerb'").fetchall()]
+    ktree = shapely.STRtree([g for _, g in kerbs]) if kerbs else None
+    by_u = {}
+    for b in basins:
+        if ktree is None or cover0.distance(b) > 6.0:
+            continue
+        k = ktree.nearest(b)
+        by_u.setdefault(kerbs[k][0], []).append((kerbs[k][1].distance(b), b))
+    offkerb = [at(ds[len(ds) // 2][1]) for u, ds in by_u.items() if len(ds) >= 2 and sorted(ds)[len(ds) // 2][0] > 1.5]
     return [
-        ("A1", "carriageways whose lanes are off their OSM line (median of the middle > 0.5 m)", len(off), True, off),
+        ("A1", f"carriageways whose lanes are off their OSM line (median of the middle > {STRAIGHT_M} m)", len(off), True, off),
         ("A2", "parking or cycle lanes with no real source (source urbanstyle)", len(nosrc), True, nosrc),
         ("A3", "stretches of a road line over 2 m with no roadway under it", len(bare), True, bare),
         ("J1", "intersections with no junction node (3 or more road ends)", len(nojn), True, nojn),
+        ("J2", "junction areas reaching over 40 m2 (and a tenth of their area) outside their arms' bands", len(jover), True, jover),
+        ("X1", "crossing ways over the roadway with no crosswalk part on them", len(noxw), True, noxw),
+        ("M1", "lane lines, or centre lines with a real source, where the lane count is chosen", len(nolines), True, nolines),
+        ("K1", f"subsections whose kerb is over 1.5 m from the city's catch basins (median)" + ("" if basins else " (no kerb evidence here)"),
+         len(offkerb), False, offkerb),
     ]
 
 

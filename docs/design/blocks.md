@@ -63,7 +63,7 @@ Two other ideas were tried and rejected:
      pedestrian 10 m; secondary 12 m; primary 15 m; trunk 16 m; motorway 18 m).
    
    Each line's hit is taken only when it is within 1.5 × the class's half width, so a parcel or sidewalk of the next street does not count.
-   **The edge follows the sidewalks piece by piece** (2026-10-14): each line square to the road (every 2.5 m) ends 1 m behind the
+   **The edge is straight** (2026-10-15, Kaveh: "their edges must be straight"): one distance for the whole side, the median of the lines square to the road (every 2.5 m) that end 1 m behind the
    sidewalk it reaches, the median of it and its two neighbours (one line that reaches another path makes no spike). Within 10 m of a
    junction (`CORNER_M`) the edge goes straight on at the distance it has there, so two edges meet in a sharp corner: an edge rounded
    round a corner's sidewalk left the division no intersection there (i0-877917415).

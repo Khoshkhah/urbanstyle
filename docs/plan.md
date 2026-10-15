@@ -26,6 +26,17 @@ parking aisles and driveways no street, kerbs from the evidence (two-way roads c
 roadway, tree pits, one stop line per approach, a crosswalk to its street's junction, no sliver spaces, lanes through SUMO's nodes, and
 check U14 with the rule that gives street ground left to no space to a neighbour.
 
+## Now: one general pipeline for every area (2026-10-15)
+
+The rule (Kaveh, 2026-10-15): the pipeline must work for other areas too, so the code is general and has as few exceptions as it
+can; every rule is written down ([The agreed street rules](design/street-rules.md)) and has a check. A fault seen in one place is
+fixed in the rule, and the fix is shown on both pilots.
+
+Done on 2026-10-15 after the Vancouver review ([the review](design/street-rules.md) lists the checks): junctions cut square across
+each arm (J2), crosswalk parts with their paint from `crossing:markings` (X1), lines only between mapped lanes (M1), the kerb
+reported against the city's catch basins (K1). Still an exception: the Granville Bridge's correction files (`corrections/`), read by
+the bridge model only.
+
 ## Next: the street from SUMO (proposed 2026-10-13)
 
 All the geometry of the street (lanes, sidewalks, junction areas, crossings, walking areas, connections) comes from SUMO, and a wrong

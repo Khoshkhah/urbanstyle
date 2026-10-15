@@ -65,7 +65,7 @@ def _frames(con, db, bridges):
     marks = f("""SELECT ST_AsWKB(geometry) AS geometry, unit_id, level, type, coalesce(arm, '') AS arm, length_m, width_m, width_source,
         width_method, source, method, ref FROM space.mark ORDER BY level""")
     out["marks"] = marks
-    kerbs = marks[marks["type"] == "kerb"].copy()
+    kerbs = marks[marks["type"].isin(["kerb", "barrier"])].copy()     # (a guardrail stands like a kerbstone in 3D, for now)
     kerbs = kerbs.set_geometry(kerbs.to_crs(ep).buffer(d.LINE["kerb"] / 2, cap_style="flat").to_crs(4326))
     kerbs["kerb_id"] = [f"kerb-{k}" for k in range(len(kerbs))]
     out["kerbs3d"] = kerbs

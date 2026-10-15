@@ -128,7 +128,7 @@ def tree_data(con, epsg):
 PART_COLORS = {"lane circulating": "#4b5260", "ring": "#4b5260", "junction area": "#4b5260", "lane in": "#4b5260", "lane out": "#454c59", "lane forward": "#4b5260", "lane backward": "#454c59",
                "lane both": "#4b5260", "lane": "#4b5260", "shoulder": "#5c6370", "parking": "#64748b", "no parking": "#4b5260", "bus zone": "#7f1d1d",
                "parking lot": "#94a3b8", "carriageway": "#4b5260", "bus lane": "#9b2c2c",
-               "cycle lane": "#2f855a", "cycle crossing": "#38a169", "crosswalk": "#4b5260", "island": "#8fbf6f",
+               "cycle lane": "#2f855a", "cycle crossing": "#38a169", "crosswalk": "#6b7280", "island": "#8fbf6f",
                "sidewalk": "#d8d2c6", "furnishing": "#b9a58b", "frontage": "#ece6da", "open": "#e9e4d6", "bus stop": "#93c5fd",
                "tree pit": "#6b4f2a", "driveway": "#a8a29e", "verge": "#c9c4b8", "bridge deck": "#c9c4b8"}   # asphalt, paving; crosswalks are asphalt under their zebra bars
 SEEN_COLORS = {"parking": "#2563eb", "no parking": "#9333ea", "give way": "#f97316", "stop": "#dc2626", "traffic light": "#ef4444",
@@ -140,7 +140,7 @@ PHOTOS_PER_SPACE = 6
 # the line between the two directions is yellow and solid. A guide line is no paint: SUMO's move through a junction, thin amber dots)
 MARKS = [(t, c, LINE[t], d) for t, c, d in (("guide line", "#f59e0b", [1, 4]), ("arrow", "#ffffff", None), ("kerb", "#9ca3af", None),
          ("centre line", "#facc15", None), ("lane line", "#ffffff", [25, 50]), ("edge line", "#ffffff", None), ("stop line", "#ffffff", None),
-         ("give-way line", "#ffffff", [1, 1]), ("zebra", "#ffffff", None))]
+         ("give-way line", "#ffffff", [1, 1]), ("zebra", "#ffffff", None), ("crossing line", "#ffffff", None), ("barrier", "#6b7280", None))]
 PANEL = """
 <style>.co-lg{display:none}  /* no road legend: the panel says what is drawn */
 body.u3d .rs-tip{display:none!important}#map{left:340px!important}body.us-off #map{left:0!important}body.us-off #us{display:none}
@@ -978,7 +978,9 @@ def furniture_3d(con, epsg, place, objs, decks=()):
             blk(0, W, W, 0, H, "#374151")
         elif cls == "vegetation.tree":          # trunk W thick (a city's survey: the trunk's diameter); the crown from the height (derived)
             blk(0, W, W, 0, H * 0.35, "#78350f")
-            out.append((p.buffer(max(1.2, H * 0.27), quad_segs=4), H * 0.35, H, "#4d9a52", cls, lv, refs, sources, H, details, methods))
+            R_ = max(1.2, H * 0.27)           # the crown in three layers, widest in the middle: it reads as a round crown (Kaveh, 2026-10-15)
+            for r_, z0, z1, col in ((0.72, 0.35, 0.55, "#3f8a44"), (1.0, 0.55, 0.8, "#4d9a52"), (0.6, 0.8, 1.0, "#5aa85f")):
+                out.append((p.buffer(R_ * r_, quad_segs=5), H * z0, H * z1, col, cls, lv, refs, sources, H, details, methods))
         elif cls == "utility.manhole":          # in the ground: a cover W across
             out.append((p.buffer(W / 2, quad_segs=6), 0, H, "#3f3f46", cls, lv, refs, sources, 0, details, methods))
         elif cls == "utility.catch_basin":      # a drain grate at the kerb, W along the road

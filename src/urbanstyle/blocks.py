@@ -32,6 +32,7 @@ STEP_M = 2.5            # lines square to the road, every (a block's edge follow
 REACH_M = 25.0          # looked for out to
 HIT_CAP = 1.5           # a parcel or sidewalk counts within this many times the class's half right-of-way (not the next street's)
 SIDEWALK_BACK_M = 1.0   # a sidewalk is drawn along its middle: the property line is about this far behind it
+EDGE_SIMPLIFY_M = 0.5   # a block edge that follows a footway is simplified by this: straight where the footway is straight (chosen)
 ALONG_COS = 0.82        # a sidewalk runs along the road: within ~35 degrees
 CORNER_M = 10.0         # the edge follows the sidewalks, but not within this of a junction: there two edges meet in a sharp corner, as
                         # the city's blocks do (rounded round a corner's sidewalk, the division found no intersection there: i0-877917415)
@@ -121,14 +122,15 @@ def build(con, epsg):
     blds = [g(r[0]) for r in bmeta]
     btree = shapely.STRtree(blds)
 
-    # chains: the bounding roads joined between junctions
+    # chains: the bounding roads joined between junctions (a road within STRAIGHT_M of straight is straight, as network.py draws it)
+    from .network import straight
     rtree = shapely.STRtree([x for *_, x in roads])
     chains = []
     for x in shapely.get_parts(shapely.line_merge(shapely.union_all([x for *_, x in roads]))):
         if x.length < 1:
             continue
         k = max(rtree.query(x), key=lambda k: roads[k][3].intersection(x.buffer(0.1)).length)
-        chains.append(dict(geom=x.simplify(SIMPLIFY_M), cl=roads[k][0], name=roads[k][1]))
+        chains.append(dict(geom=straight(x.simplify(SIMPLIFY_M)), cl=roads[k][0], name=roads[k][1]))
 
     def side_width(ch, sg, f):
         """One distance for a street side (sg 1 = left, -1 = right of the chain) inside face f: (distance, basis, method, unpulled,
@@ -220,6 +222,10 @@ def build(con, epsg):
             q = x.interpolate(t)
             road.append((q.x, q.y))
             edge.append((q.x - sg * dy / h * d_, q.y + sg * dx / h * d_))
+        # (the edge simplified by EDGE_SIMPLIFY_M: straight where the footway is straight, bending only where it bends; the footway's
+        # own small wiggles are not the block's shape, b0-w23189661l.6; the edge never bends with the road where the road bends away
+        # from the footway, b0-w48524371r: Kaveh 2026-10-15)
+        edge = list(shapely.LineString(edge).simplify(EDGE_SIMPLIFY_M).coords)
         out_ = [shapely.make_valid(shapely.Polygon(road + edge[::-1]))]
         c = list(x.coords)
         for e, (p, q) in ((0, (c[0], c[1])), (-1, (c[-1], c[-2]))):
@@ -289,7 +295,7 @@ def build(con, epsg):
                 r = r[:5]
                 ds.append(r[0])
                 # the edge line runs on past a junction, so two edges meet in a corner, as two parallel offsets do
-                if at:          # where sidewalks set it, the edge follows them piece by piece, SIDEWALK_BACK_M behind each
+                if at:          # where sidewalks set it, the edge follows the footway, SIDEWALK_BACK_M behind it, simplified
                     strips.append(follow(x, sg, at, ends))
                 else:
                     strips.append(extend(x, 2 * REACH_M, ends).buffer(sg * r[0], single_sided=True))

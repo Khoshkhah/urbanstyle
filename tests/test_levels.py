@@ -47,12 +47,12 @@ def test_level_rules(tmp_path):
         (3, {}, SQUARE),                                                           # unknown -> 0..0
         (4, {"building:levels": "2", "building:levels:underground": "1"}, SQUARE),  # -1..1
         (5, {"location": "underground"}, SQUARE),                                  # -1..-1
-        (6, {"building:levels": "10", "building:levels:underground": "4"}, SQUARE),  # clamped to -2..2
-        (7, {"building:levels": "3", "building:min_level": "5"}, SQUARE),          # floors 5..7: above the kept range, dropped
+        (6, {"building:levels": "10", "building:levels:underground": "4"}, SQUARE),  # -4..9, clamped to -4..5 (LEVELS)
+        (7, {"building:levels": "3", "building:min_level": "5"}, SQUARE),          # floors 5..7: clamped to 5..5
     ])
     con = urbanstyle.build(osm, str(tmp_path / "out.duckdb"))
     got = dict(con.execute("SELECT source_id, [level_min, level_max] FROM space.element WHERE type = 'building'").fetchall())
-    assert got == {"w1": [0, 2], "w2": [0, 2], "w3": [0, 0], "w4": [-1, 1], "w5": [-1, -1], "w6": [-2, 2]}
+    assert got == {"w1": [0, 2], "w2": [0, 2], "w3": [0, 0], "w4": [-1, 1], "w5": [-1, -1], "w6": [-4, 5], "w7": [5, 5]}
 
 
 def test_containers(tmp_path):
@@ -154,11 +154,12 @@ def test_rail_and_stations(tmp_path):
                    stations=[(1, "station", {}, pt(59.3102), "Beside the tunnel"), (2, "station", {"level": "-1"}, pt(59.35), "Tagged"),
                              (3, "station", {}, pt(59.36), "Nowhere")])
     con = urbanstyle.build(osm, str(tmp_path / "out.duckdb"))
-    assert con.execute("SELECT level_min, type, class FROM space.element WHERE type = 'rail'").fetchall() == [(-2, "rail", "subway")]
-    assert con.execute("SELECT container_id, kind, n_rail FROM space.container WHERE level = -2 AND kind = 'rail'").fetchall() == [("r-2-500", "rail", 1)]
-    assert con.execute("SELECT zone FROM space.zone WHERE container_id = 'r-2-500'").fetchall() == [("track",)]
+    # (layer -3 is kept as it is: LEVELS is -5..5)
+    assert con.execute("SELECT level_min, type, class FROM space.element WHERE type = 'rail'").fetchall() == [(-3, "rail", "subway")]
+    assert con.execute("SELECT container_id, kind, n_rail FROM space.container WHERE level = -3 AND kind = 'rail'").fetchall() == [("r-3-500", "rail", 1)]
+    assert con.execute("SELECT zone FROM space.zone WHERE container_id = 'r-3-500'").fetchall() == [("track",)]
     got = dict(con.execute("SELECT name, level FROM space.station").fetchall())
-    assert got == {"Beside the tunnel": -2, "Tagged": -1, "Nowhere": 0}, got
+    assert got == {"Beside the tunnel": -3, "Tagged": -1, "Nowhere": 0}, got
 
 
 def test_entrance_tied_to_station(tmp_path):

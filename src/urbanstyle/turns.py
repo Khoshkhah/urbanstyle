@@ -31,15 +31,15 @@ def build(con, epsg):
     lanes = []      # (unit, oid, direction, lane, width, polygon)
     for u, d, n, ref, w, x in con.execute(f"""SELECT unit_id, direction, lane, ref, width_m, {m()} FROM space.part
                                               WHERE level = 0 AND type = 'lane' AND direction IN ('forward', 'backward')""").fetchall():
-        k = re.match(r"w(\d+)", ref or "")
-        if k and n:
-            lanes.append((u, int(k.group(1)), d, int(n), w, g(x)))
+        ws = re.findall(r"w(\d+)", ref or "")      # (a lane can run along several OSM ways: one subsection with one cross-section)
+        if ws and n:
+            lanes.append((u, int(ws[0]), d, int(n), w, g(x), [int(o) for o in ws]))
     inter = [(u, g(x)) for u, x in con.execute(f"SELECT unit_id, {m()} FROM space.unit WHERE level = 0 AND kind = 'intersection'").fetchall()]
     if not lanes or not inter:
         return dict(turns=0, arrows=0)
     # SUMO gets our lane count and width for each direction of a way
     count, width = {}, {}
-    for _, o, d, n, w, _ in lanes:
+    for _, o, d, n, w, _, _ in lanes:
         count[(o, d)] = max(count.get((o, d), 0), n)
         width.setdefault((o, d), []).append(w or 3.25)
     try:        # (a network with no duckOSM driving edges or no is_reverse: no moves)
@@ -87,8 +87,9 @@ def build(con, epsg):
         if iid in ix:
             jat[node] = ix[iid]
     by_way = {}
-    for k, (_, o, d, *_rest) in enumerate(lanes):
-        by_way.setdefault((o, d), []).append(k)
+    for k, (_, _, d, _, _, _, os_) in enumerate(lanes):
+        for o in os_:
+            by_way.setdefault((o, d), []).append(k)
 
     def unit(h):
         d = math.hypot(*h) or 1.0
@@ -134,7 +135,7 @@ def build(con, epsg):
         return shapely.LineString([((1 - t) ** 2 * pa[0] + 2 * (1 - t) * t * q[0] + t * t * pb[0],
                                     (1 - t) ** 2 * pa[1] + 2 * (1 - t) * t * q[1] + t * t * pb[1]) for t in [i / 12 for i in range(13)]])
 
-    turns, marks, comes = [], [], {}    # comes: (from edge, SUMO lane) -> [our lane, junction, entry point, heading, [moves]]
+    cands = []
     for f, fl, t, tl, dr, _, veh in net["conns"]:
         if dr not in WAY:
             continue
@@ -142,7 +143,27 @@ def build(con, epsg):
         b = ours(t, tl, False)
         if a is None or b is None or a[1] != b[1]:      # (both ends at one junction of ours)
             continue
+        cands.append([f, fl, t, tl, dr, veh, a, b])
+    # at a merge (two or more roads going straight on into one, lane for lane) the lanes keep their order across the road: the
+    # leftmost lane coming in goes to the leftmost lane going out. SUMO sorted the roads by the angle of their last piece, which at
+    # a shallow merge put the ramp's lanes on the wrong side (Granville Bridge ramp into Fir Street, Kaveh 2026-10-15)
+    by_t = {}
+    for c_ in cands:
+        by_t.setdefault(c_[2], []).append(c_)
+    for t, cs in by_t.items():
+        if len({c_[0] for c_ in cs}) < 2 or any(c_[4] != "s" for c_ in cs) or len(cs) != n_of.get(t, -1) or len({c_[3] for c_ in cs}) != len(cs):
+            continue
+        hb = cs[0][7][3]                    # the heading going out; left of it is +
+        lat = lambda p: -(p[0]) * hb[1] + (p[1]) * hb[0]
+        ins = sorted(cs, key=lambda c_: lat(c_[6][2]))
+        outs = [(c_[3], c_[7]) for c_ in sorted(cs, key=lambda c_: lat(c_[7][2]))]
+        for c_, (tl_, b_) in zip(ins, outs):
+            c_[3], c_[7] = tl_, b_
+    turns, marks, comes = [], [], {}    # comes: (from edge, SUMO lane) -> [our lane, junction, entry point, heading, [moves]]
+    for f, fl, t, tl, dr, veh, a, b in cands:
         guide = curve(a[2], a[3], b[2], b[3])
+        if not inter[a[1]][1].buffer(0.5).contains(guide):       # (a sharp turn in a narrow junction: the curve bulges out of it)
+            guide = shapely.LineString([a[2], b[2]])
         iid = inter[a[1]][0]
         turns.append((iid, 0, elem_of(f), fl + 1, elem_of(t), tl + 1, WAY[dr], "sumo", veh, None, shapely.to_wkb(guide)))
         if way_of[f][0] not in ring and way_of[t][0] not in ring:

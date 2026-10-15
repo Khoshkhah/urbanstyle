@@ -690,7 +690,13 @@ def build(con, epsg, bridges=()):
         cutlines.append(shapely.LineString([(pc[0] - t_[0] * CUT_M, pc[1] - t_[1] * CUT_M), (pc[0] + t_[0] * CUT_M, pc[1] + t_[1] * CUT_M)]))
     share = {}
     if owners and not realm.is_empty:
-        pieces_ = shapely.get_parts(poly(realm.difference(shapely.union_all(cutlines).buffer(0.002)))) if cutlines else shapely.get_parts(realm)
+        # (the realm's boundary and the cut lines noded together and polygonized: the pieces inside the realm. A difference with the
+        # buffered lines took an hour on Monaco's 1,500 cuts)
+        if cutlines:
+            noded = shapely.unary_union([realm.boundary] + [c_ for c_ in cutlines if c_.intersects(realm)])
+            pieces_ = [q for q in shapely.get_parts(shapely.polygonize(shapely.get_parts(noded))) if realm.contains(q.representative_point())]
+        else:
+            pieces_ = list(shapely.get_parts(realm))
         otree = shapely.STRtree([G for _, G in owners])
         for q in pieces_:
             if q.area < 0.01:

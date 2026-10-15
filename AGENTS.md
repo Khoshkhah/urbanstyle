@@ -143,6 +143,8 @@ PYTHONPATH=src:../roadstyle/src python3 -m urbanstyle dashboard data/monaco.duck
 PYTHONPATH=src $P -m urbanstyle bridge3d data/units/broadway-granville.space.duckdb viz/broadway-granville.bridge3d.json --bridge data/bridges-measured/granville-bridge.bridge.json
 
 # the dashboard with its panel (search, filters, the tree, the AI agent): system python3 with roadstyle; then http://localhost:8784/
+# One server serves ONE area (its /api/ answers for that db: levels, tree, search): a second area's page in the same viz/ needs its own
+# server on another port (Monaco: --port 8785), else the page shows the first area's levels (2026-10-16).
 PYTHONPATH=src:../roadstyle/src python3 -m urbanstyle serve data/units/broadway-granville.space.duckdb viz/<page>.html --bridge data/bridges-measured/granville-bridge.bridge.json
 PYTHONPATH=src python3 -m pytest -q tests/test_serve.py    # the Gemini test needs google-genai: the system python3 has it, the venv not
 

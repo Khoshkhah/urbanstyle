@@ -312,6 +312,9 @@ connect to there.
 ### Limits
 
 - The heights are chosen, not measured (`source: urbanstyle`, `method: chosen`). Measured heights replace them.
-- Where a branch starts on the ground beside another branch that the rule puts high, the two cannot share one deck. Boulevard du
-  Larvotto's ramp a2 starts 8 m beside a1, which is about 9 m high there (check BR11). The 3D model then needs one deck for each.
+- Where a branch starts on the ground beside another branch that the rule puts high, they keep their own heights in the 3D model
+  (`bridge3d.surface`, 2026-10-14): two roads blend their heights only where they meet at a node (a fork), or where they lie side by
+  side within 4.5 m (3 × `MEET_M`) of the same height. A point of the deck takes its height from the road whose lanes are nearest.
+  Boulevard du Larvotto: ramp a2 starts on the ground 7 m beside a1, which is about 8 m up there; before, the deck between them was
+  stretched from 0 to 8 m.
 

@@ -236,6 +236,11 @@ def surface(P, x0=0.0, y0=0.0, edges_of=None):
                 max((b["t"] + b["width"]["value"] / 2 for b in bs), default=3.0) + 1.0)
 
     ground_end = {a["id"]: [bool(len(a.get("ends", [])) > k and a["ends"][k].get("ground")) for k in (0, 1)] for _, a in axes}
+    # the nodes where axes meet (their ends): only there do two axes' heights blend (a fork); two axes that only lie side by side keep
+    # each its own height (Boulevard du Larvotto: ramp a2 starts on the ground 7 m beside a1, 9 m up; blended, the deck between them
+    # was stretched from 0 to 9 m; Kaveh, 2026-10-14)
+    ends_of = {a["id"]: {(e.get("node") or f"{a['id']}.{k}"): shapely.Point(ln.coords[-k]) for k, e in enumerate(a.get("ends", [])[:2])}
+               for ln, a in axes}
     sm = lambda u: (lambda c: c * c * (3 - 2 * c))(min(max(u, 0.0), 1.0))
 
     def z(x, y):
@@ -246,7 +251,15 @@ def surface(P, x0=0.0, y0=0.0, edges_of=None):
         end) made steps of up to 0.7 m across the deck at the forks, seen as steps in the guards (Kaveh, 2026-10-12)."""
         p = shapely.Point(x, y)
         ws, near = [], []
+        def out_(la):           # how far p lies outside that axis's lanes (0 on them)
+            r_ = reach(la[1], la[0].project(p))
+            return max(0.0, la[0].distance(p) - max(-r_[0], r_[1]))
+        ln0, a0 = min(axes, key=lambda la: (out_(la), la[0].distance(p)))     # (the axis whose deck this is: the nearest lanes)
+        own, h_own = a0["id"], _h(a0["vertical"], ln0.project(p))
+        fork = {n for n, q in ends_of[own].items() if q.distance(p) < BLEND_M}
         for ln, a in axes:
+            if a["id"] != own and not (fork & set(ends_of[a["id"]])) and abs(_h(a["vertical"], ln.project(p)) - h_own) > 3 * MEET_M:
+                continue            # (beside it at another height, not meeting it here: no say)
             d = ln.distance(p)
             sv = ln.project(p)
             hz = _h(a["vertical"], sv)

@@ -71,6 +71,7 @@ BAR_JOIN_M = 4.0    # two pieces of a barrier with ends this near are one (no cr
 PATH_BAR_NEAR_M = 2.5  # a path this near the lanes has a barrier on its side towards them, at the lanes' edge (the deck between is footway too: Kaveh, 2026-10-12, "separate driving roads from footway and cycling by barrier")
 JOIN_EDGE_M = 3.0   # a strip of deck joins a path only where they share this much edge
 PATH_OVER_M = 0.5   # a path runs on this far past each end of its OSM line
+GORE_MAX_M = 2.0    # the gore between two roads meeting at under 90 degrees is deck out to where their lanes are this far apart (chosen)
 NOTCH_M = 0.5       # the deck's notches narrower than twice this are closed
 HOLE_MIN_M2 = 20.0  # a hole in the deck smaller than this is filled (a slit where two pieces of the deck meet)
 RECT_ROOM_M = 12.0  # a rectangle axis is a rectangle where no other axis's lanes come this near its own (past its fork)
@@ -219,6 +220,31 @@ def surface(P, x0=0.0, y0=0.0, edges_of=None):
             fr_ = [frame(ln, sec["s0"] + (sec["s1"] - sec["s0"]) * i / n) for i in range(n + 1)]
             pieces.append(shapely.Polygon([(x + nx * hi, y + ny * hi) for x, y, nx, ny in fr_] +
                                           [(x + nx * lo, y + ny * lo) for x, y, nx, ny in fr_][::-1]).buffer(0))
+    # the gore between two roads that meet at a node in the air at under 90 degrees: deck, out to where their lanes are GORE_MAX_M apart,
+    # so no slit ringed with a guard is left between them; at 90 degrees or more nothing is filled and each keeps its own edge
+    # (Boulevard du Larvotto, a1 and a2 at J; Kaveh, 2026-10-14)
+    at_node = {}
+    for ln, a in axes:
+        for k, e in enumerate(a.get("ends", [])[:2]):
+            if e.get("node") and not e.get("ground"):
+                p0 = ln.coords[0] if k == 0 else ln.coords[-1]
+                p1 = ln.interpolate(min(10.0, ln.length) if k == 0 else max(ln.length - 10.0, 0.0)).coords[0]
+                sec = a["sections"][0] if k == 0 else a["sections"][-1]
+                bs = [b for b in sec["bands"] if b["type"] == "lane"] or sec["bands"]
+                w = (max((b["t"] + b["width"]["value"] / 2 for b in bs), default=3.0) - min((b["t"] - b["width"]["value"] / 2 for b in bs), default=-3.0))
+                at_node.setdefault(e["node"], []).append((ln, p0, (p1[0] - p0[0], p1[1] - p0[1]), w))
+    for node, arms in at_node.items():
+        for i, (la, pa, da, wa) in enumerate(arms):
+            for lb, pb, db, wb in arms[i + 1:]:
+                ha, hb = math.hypot(*da) or 1, math.hypot(*db) or 1
+                ang = math.degrees(math.acos(max(-1.0, min(1.0, (da[0] * db[0] + da[1] * db[1]) / (ha * hb)))))
+                if ang >= 90.0 or ang < 1.0:
+                    continue
+                r = (GORE_MAX_M + (wa + wb) / 2) / (2 * math.sin(math.radians(ang) / 2))
+                disk = shapely.Point(pa).buffer(r)
+                sa = la.buffer(wa / 2 + DECK_MARGIN_M, cap_style="flat").intersection(disk)
+                sb = lb.buffer(wb / 2 + DECK_MARGIN_M, cap_style="flat").intersection(disk)
+                pieces.append(shapely.union_all([sa, sb]).convex_hull.intersection(disk))
     # notches under 1 m closed (where OSM's outline meets a landing, a short guard ran across the sidewalk: the end of a7)
     deck = shapely.make_valid(shapely.union_all(pieces).buffer(NOTCH_M, join_style="mitre").buffer(-NOTCH_M, join_style="mitre"))
     deck = max(shapely.get_parts(deck), key=lambda p: p.area) if deck.geom_type != "Polygon" else deck
@@ -2135,6 +2161,9 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False, poles=None
         bs = sec["bands"] if sec else []
         lo = min((b["t"] - b["width"]["value"] / 2 for b in bs), default=-4.0) + 0.5
         hi = max((b["t"] + b["width"]["value"] / 2 for b in bs), default=4.0) - 0.5
+        if hi - lo <= COLUMN_M:     # (a road narrower than a column: one column on its middle; a one-lane road had none, a2 of
+            mid_ = (lo + hi) / 2    # Boulevard du Larvotto; Kaveh, 2026-10-14)
+            lo, hi = mid_ - COLUMN_M / 2 - 0.01, mid_ + COLUMN_M / 2 + 0.01
         cut = shapely.LineString([(x + nx * lo, y + ny * lo), (x + nx * hi, y + ny * hi)]).intersection(deck.buffer(0.5))
         h = _h(a["vertical"], q["s"]) - DECK_M
         for seg in shapely.get_parts(cut):
@@ -2239,14 +2268,28 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False, poles=None
 
     # where an axis reaches the ground (a landing on a ground road), the surfaces come down flush with the street over the last
     # LAND_FLAT_M: before, the lanes ended 0.1-0.2 m above the ground road, a step that looked like a kerb (a2.1; Kaveh, 2026-10-13)
+    # (on that road's own lanes only, by the distance along it from its ground end: a line 40 m each way also flattened a1 where ramp
+    # a2 starts on the ground 7 m beside it, a V down to the ground in a1, Boulevard du Larvotto; Kaveh, 2026-10-14)
     land_ = []
     for ln_l, a_l in axes:
         for e_l in a_l.get("ends", []):
             if e_l["ground"]:
-                xl, yl, nxl, nyl = frame(ln_l, e_l["s"])
-                land_.append(shapely.LineString([(xl - nxl * 40, yl - nyl * 40), (xl + nxl * 40, yl + nyl * 40)]))
-    land_u = shapely.union_all(land_) if land_ else None
-    landf = (lambda x, y: min(1.0, shapely.Point(x, y).distance(land_u) / LAND_FLAT_M)) if land_u is not None else (lambda x, y: 1.0)
+                sec_l = a_l["sections"][-1] if e_l["s"] > 0 else a_l["sections"][0]
+                bs_l = sec_l["bands"] or [{"t": 0.0, "width": {"value": 6.0}}]
+                lo_l = min(b_["t"] - b_["width"]["value"] / 2 for b_ in bs_l) - DECK_MARGIN_M - BARRIER_M[1]
+                hi_l = max(b_["t"] + b_["width"]["value"] / 2 for b_ in bs_l) + DECK_MARGIN_M + BARRIER_M[1]
+                land_.append((ln_l, e_l["s"], lo_l, hi_l))
+
+    def landf(x, y):
+        f_ = 1.0
+        for ln_l, s_l, lo_l, hi_l in land_:
+            sv = ln_l.project(shapely.Point(x, y))
+            if abs(sv - s_l) >= LAND_FLAT_M:
+                continue
+            xq, yq, nxq, nyq = frame(ln_l, sv)
+            if lo_l <= (x - xq) * nxq + (y - yq) * nyq <= hi_l:
+                f_ = min(f_, abs(sv - s_l) / LAND_FLAT_M)
+        return f_
 
     def mesh(poly, key, lift, props=None, raise_=0.0):
         """poly (model metres) as triangles on the deck's surface, lift above it (and raise_ more, with its sides down to the lift). A lane
@@ -2284,6 +2327,16 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False, poles=None
                     # anything else its type and place on the bridge (metres east, north of the bridge's middle)
                     c_ = pg.representative_point()
                     base_ = (props or {}).get("id") or f"{key.split()[0]} @{round(c_.x)},{round(c_.y)}"
+                    if key.startswith("barrier") and not props:
+                        # (a barrier's card: the road it guards, its height, what made it; it showed only its id: Kaveh, 2026-10-14)
+                        near_l = min(((shapely.Polygon([q_[:2] for q_ in l_["l"]] + [q_[:2] for q_ in l_["r"]][::-1]).distance(pg), l_["props"])
+                                      for l_ in lanes if l_["props"].get("type") == "lane" and len(l_["l"]) > 1), default=None, key=lambda r_: r_[0])
+                        props = {"height_m": round(raise_, 2), "source": "urbanstyle", "method": "derived",
+                                 "rule": {"barrier median": "between the two directions", "barrier": "along the deck's edge, or between the lanes and a path"}
+                                 .get(key, key)}
+                        if near_l and near_l[0] < 3.0:
+                            props.update({"road": near_l[1].get("name"), "osm": near_l[1].get("osm"), "edge_id": near_l[1].get("edge_id"),
+                                          "axis": near_l[1].get("axis"), "beside_lane": near_l[1].get("lane_id")})
                     n_ = ids_seen.get(base_, 0) + 1
                     ids_seen[base_] = n_
                     sf_["props"] = {**(props or {}), "type": (props or {}).get("type") or key, "id": base_ + (f" #{n_}" if n_ > 1 else "")}
@@ -2396,8 +2449,23 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False, poles=None
     for l in lanes:
         if l["props"]["type"] == "lane" and l["props"].get("lane_id"):
             by_lane_.setdefault(l["props"]["lane_id"], []).append(shapely.Polygon([p[:2] for p in l["l"]] + [p[:2] for p in l["r"]][::-1]).buffer(0))
+    # where lanes of two roads overlap, the road with fewer lanes (the branch that joins) gives way, so no two lanes lie on each other
+    # (a2 joining a1 at a shallow angle: 104 m2 of a1's lane under a2's, the colours fought; Kaveh, 2026-10-14, BR6)
+    ax_lanes, ax_n = {}, {}
+    for l in lanes:
+        if l["props"]["type"] == "lane":
+            ax_ = l["props"].get("axis")
+            ax_lanes.setdefault(ax_, []).append(shapely.Polygon([p[:2] for p in l["l"]] + [p[:2] for p in l["r"]][::-1]).buffer(0))
+            ax_n[ax_] = ax_n.get(ax_, 0) + 1
+    ax_u = {k_: shapely.union_all(v_) for k_, v_ in ax_lanes.items()}
+    rank_ = lambda k_: (-ax_n.get(k_, 0), str(k_))         # (more lanes first, then by id)
     for i, l in enumerate(lanes):
         pg = shapely.Polygon([p[:2] for p in l["l"]] + [p[:2] for p in l["r"]][::-1]).buffer(0)
+        if l["props"]["type"] == "lane":
+            over_ = [u_ for k_, u_ in ax_u.items() if rank_(k_) < rank_(l["props"].get("axis")) and u_.intersects(pg)]
+            if over_:
+                pg = pg.difference(shapely.union_all(over_))
+                pg = shapely.union_all([g_ for g_ in shapely.get_parts(pg) if g_.geom_type == "Polygon" and g_.area > 0.5]) if not pg.is_empty else pg
         src_ = (l["props"].get("lane_id") or "").split(">")[0] if ">" in (l["props"].get("lane_id") or "") else None
         if src_ and src_ in by_lane_:
             pg = pg.difference(shapely.union_all(by_lane_[src_]))
@@ -2566,6 +2634,31 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False, poles=None
             # one strip (Kaveh, 2026-10-12); beside strips only, outside them, it is OSM's old outline (cut: footway w871038559 at a4)
             join_(max(near_p, key=lambda k2: own[k2].area), g, not all(k2 in leftover_ for k2 in near_p))     # (to the bigger: a smooth edge)
             continue
+        # between two roads at different heights it is no deck: each keeps its own edge and guard, nothing between them (Boulevard du
+        # Larvotto: ramp a2 beside a1, 0 m against 8 m, got a median and a median barrier stretched between them; Kaveh, 2026-10-14)
+        # (decided every 2 m along it, not once for the whole piece: the gap between a1 and a2 runs from a2's ground start, 0 m
+        # against 8 m, to the junction, where both are 2.7 m; cut whole, it left a hole ringed with barriers)
+        ax_ids = sorted({aid_ for aid_, _ in touch})
+        if len(ax_ids) >= 2:
+            ln_g = by_id[ax_ids[0]][0]
+            zone_ = []
+            for k_ in range(int(ln_g.length // 2.0) + 1):
+                q_ = ln_g.interpolate(k_ * 2.0)
+                if g.distance(q_) > 20.0:
+                    continue
+                hs_ = [_h(by_id[i_][1]["vertical"], by_id[i_][0].project(q_)) for i_ in ax_ids]
+                if max(hs_) - min(hs_) > 3 * MEET_M:
+                    xq, yq, nxq, nyq = frame(ln_g, k_ * 2.0)
+                    zone_.append(shapely.LineString([(xq - nxq * 25, yq - nyq * 25), (xq + nxq * 25, yq + nyq * 25)]).buffer(1.05, cap_style="flat"))
+            if zone_:
+                cut_g = g.intersection(shapely.union_all(zone_))
+                if not cut_g.is_empty:
+                    cut_fill.append(cut_g)
+                    g = g.difference(shapely.union_all(zone_))
+                    g = max(shapely.get_parts(g), key=lambda x_: x_.area) if g.geom_type != "Polygon" and not g.is_empty else g
+                    if g.is_empty or g.area < 0.05:
+                        continue
+                    c_ = g.representative_point()
         # a median only between two opposite directions (their travel on the map, at the piece)
         c_ = g.representative_point()
         trav = []

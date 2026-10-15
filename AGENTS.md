@@ -137,10 +137,10 @@ PYTHONPATH=src:../roadstyle/src python3 -m urbanstyle dashboard data/monaco.duck
 # system python3: `source ~/miniconda3/envs/roadstyle/etc/conda/activate.d/google_maps_key.sh` first). Its Google restriction allows
 # http://localhost:8784/* only: serve the pages on port 8784. Clicks inside a focused space move the Street View window too (svHere in dashboard.py).
 
-# a bridge change: only its model, to viz/bridge3d.json, which every dashboard page reads when it opens (reload the page). The model is
+# a bridge change: only its model, to viz/<page>.bridge3d.json, which that page reads when it opens (reload the page). The model is
 # kept in data/cache/ (key: the profile, the street's lanes, corrections/*.json and bridge3d.py with the modules it reads): with no change
 # there, the page builds in ~30 s and this in ~2 s
-PYTHONPATH=src $P -m urbanstyle bridge3d data/units/broadway-granville.space.duckdb viz/bridge3d.json --bridge data/bridges-measured/granville-bridge.bridge.json
+PYTHONPATH=src $P -m urbanstyle bridge3d data/units/broadway-granville.space.duckdb viz/broadway-granville.bridge3d.json --bridge data/bridges-measured/granville-bridge.bridge.json
 
 # the dashboard with its panel (search, filters, the tree, the AI agent): system python3 with roadstyle; then http://localhost:8784/
 PYTHONPATH=src:../roadstyle/src python3 -m urbanstyle serve data/units/broadway-granville.space.duckdb viz/<page>.html --bridge data/bridges-measured/granville-bridge.bridge.json

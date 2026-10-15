@@ -233,8 +233,12 @@ def build(db, out, bridges=None):
     if F["models"]:      # the bridges' 3D models: written beside the page, which reads them when it opens
         col = {"deck": "#a8a29e", "girder": "#8f8b86", "rail": "#cfc8bd",
                "parts": {**d.PART_COLORS, **{f"mark {t}": c for t, c, *_ in d.MARKS}, "mark kerb": "#8f8b86", "barrier": "#cfc8bd", "railing": "#6b7280"}}
-        d.write_bridge3d(F["models"], os.path.join(os.path.dirname(os.path.abspath(out)), "bridge3d.json"))
-        tail += (d.BRIDGE_JS.replace("__BRNAMES__", ", ".join(mm["name"] for mm in F["models"])).replace("__BRCOL__", json.dumps(col))
+        # (one file per page, <page>.bridge3d.json: two areas' pages in one folder shared one file, and Monaco's models replaced
+        # Vancouver's, so its bridge was gone; 2026-10-16)
+        br_name = os.path.splitext(os.path.basename(out))[0] + ".bridge3d.json"
+        d.write_bridge3d(F["models"], os.path.join(os.path.dirname(os.path.abspath(out)), br_name))
+        tail += (d.BRIDGE_JS.replace("fetch('bridge3d.json'", f"fetch('{br_name}'").replace("viz/bridge3d.json", f"viz/{br_name}")
+                 .replace("__BRNAMES__", ", ".join(mm["name"] for mm in F["models"])).replace("__BRCOL__", json.dumps(col))
                  .replace("__BRPOPUP__", json.dumps(d.BR_POPUP)).replace("__BRUNITS__", json.dumps(F["under"])))
     tail += f'<script src="{PANEL_JS}"></script>'
     # (the head's end, then the body tag after it: the words "<body>" and "</body>" also stand in roadstyle's code, before and after)

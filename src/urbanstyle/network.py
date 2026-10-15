@@ -24,6 +24,7 @@ LANE_RANGE = (2.5, 4.5)  # a lane from OSM's width shared by its lanes, kept in 
 PARK_M, BIKE_M = 2.4, 1.75  # a parking lane, a bike lane (chosen)
 FURNISH_M, CLEAR_M = 1.0, 1.8   # the pedestrian side: the furnishing zone at the kerb, the clear path (chosen)
 KERB_RADIUS_M = 4.0
+PARK_EXTRA_M = 3.0      # an outer lane widens to the city's kerb evidence by at most this (a parking strip and the gutter; chosen)
 ALLEY_HALF_M = 2.5      # the kerb is dropped this far either side of where a service road (an alley, a driveway) joins the roadway (chosen)
 SLIVER_M2 = 20.0        # a subsection whose roadway outside the junctions is smaller than this joins the junction it touches (chosen)
 CUT_M = 60.0            # a roadway cut (stop line, joint) runs this far to each side across the sidewalks to the blocks
@@ -204,6 +205,8 @@ def build(con, epsg, bridges=()):
     bikeways = [(f"bikeways:{pr.get('object_id')}", x) for pr, x in city_geoms("bikeways")
                 if any(k in str(pr.get("bikeway_type") or "") for k in ("Painted", "Protected", "Separated"))]
     meter_t = shapely.STRtree([x for _, x in meters]) if meters else None
+    basins = [x for _, x in city_geoms("sewer-catch-basins") if x.geom_type == "Point"]     # (the city's kerb evidence: a basin stands in the gutter)
+    basin_t = shapely.STRtree(basins) if basins else None
     bike_t = shapely.STRtree([x for _, x in bikeways]) if bikeways else None
 
     def cross_section(oid, ow):
@@ -350,9 +353,34 @@ def build(con, epsg, bridges=()):
                         bw = [bikeways[k][0] for k in bike_t.query(zone) if bikeways[k][1].intersection(zone).length > 10]
                         if bw:
                             ex[sg].append(("cycle lane", BIKE_M, ("vancouver", "mapped", ", ".join(bw[:3]))))
-                kl = W / 2 + sum(w for _, w, _ in ex[1])
-                kr = -W / 2 - sum(w for _, w, _ in ex[-1])
-                runs.append(dict(oid=oid, name=nm, cl=cl, ow=ow, line=straight(piece), f=f, b=b, lw=lw, wsrc=wsrc, lsrc=lsrc, ex=ex, kl=kl, kr=kr, W=W))
+                # parking in the outer lane (Kaveh, 2026-10-16): where no source gives a lane width and the city's kerb evidence (catch
+                # basins, the median of 2 or more on a side) lies beyond the chosen lanes by up to PARK_EXTRA_M, the outer lane on that
+                # side widens to it, one lane that holds parking (a dashed edge line); the count stays OSM's. More than that stays a
+                # K1 report, and the lanes do not move
+                wide = {1: 0.0, -1: 0.0}
+                if basin_t is not None and wsrc[0] == "urbanstyle":
+                    ln_ = straight(piece)
+                    ts_ = {1: [], -1: []}
+                    for k in basin_t.query(ln_.buffer(12.0)):
+                        p_ = basins[k]
+                        if ln_.distance(p_) > 12.0:
+                            continue
+                        s_ = ln_.project(p_)
+                        if s_ < 2.0 or s_ > ln_.length - 2.0:
+                            continue
+                        q_, a_, b_ = ln_.interpolate(s_), ln_.interpolate(max(s_ - 1, 0)), ln_.interpolate(min(s_ + 1, ln_.length))
+                        h_ = math.hypot(b_.x - a_.x, b_.y - a_.y) or 1
+                        t_ = (-(p_.x - q_.x) * (b_.y - a_.y) + (p_.y - q_.y) * (b_.x - a_.x)) / h_
+                        ts_[1 if t_ > 0 else -1].append(abs(t_))
+                    for sg in (1, -1):
+                        if len(ts_[sg]) >= 2 and not ex[sg]:
+                            med_ = sorted(ts_[sg])[len(ts_[sg]) // 2]
+                            extra = med_ - W / 2
+                            if 0.3 <= extra <= PARK_EXTRA_M:
+                                wide[sg] = round(extra, 2)
+                kl = W / 2 + wide[1] + sum(w for _, w, _ in ex[1])
+                kr = -W / 2 - wide[-1] - sum(w for _, w, _ in ex[-1])
+                runs.append(dict(oid=oid, name=nm, cl=cl, ow=ow, line=straight(piece), f=f, b=b, lw=lw, wsrc=wsrc, lsrc=lsrc, ex=ex, kl=kl, kr=kr, W=W, wide=wide))
 
     # ---- 6a. sections between junctions: a road is often several OSM ways (split at a crossing node, or where its lanes change), so
     # the runs are chained where two of them meet at a node that is no junction; a run that continues the one before it with the same
@@ -976,7 +1004,13 @@ def build(con, epsg, bridges=()):
             rr = rr or r
             i = (rr["f"] - n) if d == "forward" else (rr["f"] + n - 1)
             t0 = -rr["W"] / 2 + i * rr["lw"]
-            return (t0, t0 + rr["lw"])
+            t1 = t0 + rr["lw"]
+            wd_ = rr.get("wide", {1: 0.0, -1: 0.0})
+            if i == 0:                      # (the outer lanes widened to the kerb evidence: parking in them)
+                t0 -= wd_[-1]
+            if i == rr["f"] + rr["b"] - 1:
+                t1 += wd_[1]
+            return (t0, t1)
 
         def in_frame(q, d, n, side):
             """The neighbour q's lane (d, n) as offsets in r's frame (q runs the other way: the directions and the sides swap), or
@@ -1034,8 +1068,13 @@ def build(con, epsg, bridges=()):
             t_own = own(d, n)
             side = 1 if (t_own[0] + t_own[1]) > 0 else -1
             at = {where: in_frame(q, d, n, side) for where, q in trans.items()}
-            lanes_.append((offs(t_own, at), i, d, n, lsrc, lane_ref, dict(width_m=round(r["lw"], 2), width_source=r["wsrc"][0], width_method=r["wsrc"][1],
-                           position_source="osm", position_method="mapped", position_ref=f"w{r['oid']}: the lanes' middle on its OSM line")))
+            wd_ = r["wide"][1] if i == r["f"] + r["b"] - 1 else r["wide"][-1] if i == 0 else 0.0
+            kw_ = dict(width_m=round(r["lw"] + wd_, 2), width_source=r["wsrc"][0], width_method=r["wsrc"][1],
+                       position_source="osm", position_method="mapped", position_ref=f"w{r['oid']}: the lanes' middle on its OSM line")
+            if wd_:
+                kw_.update(width_source="vancouver", width_method="measured", holds="parking",
+                           rule=f"the outer lane to the city's catch basins ({wd_} m beyond the chosen lane): one lane, parking in it")
+            lanes_.append((offs(t_own, at), i, d, n, lsrc, lane_ref, kw_))
         # the neighbour's lanes this subsection has not: each narrows to nothing from the joint to this subsection's lanes' edge
         for where, q in trans.items():
             mirror = r["flip"] != q["flip"]
@@ -1068,6 +1107,11 @@ def build(con, epsg, bridges=()):
             if i is not None and i > 0 and tg.get("lane_markings") != "no" and (lsrc[0] != "urbanstyle" or i == r["f"]):
                 mark(uid, "centre line" if i == r["f"] else "lane line", curve(lambda s_, f=f: f(s_)[0]).intersection(G.buffer(0.01)), lsrc[0],
                      "derived" if lsrc[0] != "urbanstyle" else "chosen", f"{lane_ref}: a line between the lanes")
+        for sg in (1, -1):          # (a dashed line at the chosen lane's width inside a widened outer lane: the parking's edge)
+            if r["wide"][sg]:
+                t_ = sg * r["W"] / 2
+                mark(uid, "parking line", xl.offset_curve(t_).intersection(G.buffer(0.01)) if abs(t_) > 1e-6 else shapely.LineString(),
+                     "vancouver", "derived", "the chosen lane's edge inside the lane widened to the kerb evidence")
         edge_fn = {1: lambda s_: max(f(s_)[1] for f, *_ in lanes_), -1: lambda s_: min(f(s_)[0] for f, *_ in lanes_)}
         for sg in (1, -1):          # parking and bike lanes, only from OSM's tags, outside the lanes' edge
             acc = [edge_fn[sg]]
@@ -1300,11 +1344,11 @@ def build(con, epsg, bridges=()):
     if parts:
         con.executemany(f"""INSERT INTO space.part (unit_id, part_id, level, type, arm, direction, lane, lane_id, width_m, width_source, width_method,
                             length_m, source, method, ref, position_source, position_method, position_ref, road, road_class, road_lanes, oneway, rule,
-                            geometry) VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, {to_ll})""",
+                            holds, geometry) VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, {to_ll})""",
                         [(p["unit_id"], p["part_id"], p["type"], p.get("arm"), p.get("direction"), p.get("lane"), p.get("lane_id"), p.get("width_m"),
                           p.get("width_source") or "urbanstyle", p.get("width_method"), round(p["geom"].length / 2, 1), p.get("source") or "urbanstyle",
                           p.get("method") or "derived", p.get("ref"), p.get("position_source"), p.get("position_method"), p.get("position_ref"),
-                          p.get("road"), p.get("road_class"), p.get("road_lanes"), p.get("oneway"), p.get("rule"), shapely.to_wkb(p["geom"])) for p in parts])
+                          p.get("road"), p.get("road_class"), p.get("road_lanes"), p.get("oneway"), p.get("rule"), p.get("holds"), shapely.to_wkb(p["geom"])) for p in parts])
     if marks:
         con.executemany(f"""INSERT INTO space.mark (unit_id, level, type, length_m, width_m, width_source, width_method, source, method, ref, geometry)
                             VALUES (?, 0, ?, ?, ?, 'urbanstyle', 'chosen', ?, ?, ?, {to_ll})""",

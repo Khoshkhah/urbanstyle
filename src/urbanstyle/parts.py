@@ -67,7 +67,7 @@ DRIVEWAY_M = 3.5       # a driveway's apron across the sidewalk, when OSM gives 
 CROSS_ON_M = 1.0       # a crossing point is a node of the road it crosses: this close to its line, else it crosses something else
 # urbanstyle's chosen width of each painted or built line (m), stored on every mark (space.mark.width_m) and drawn at it in 2D and 3D;
 # a kerb's width is its stone's, standing KERB_TOP_M above the roadway
-LINE = {"stop line": 0.4, "give-way line": 0.35, "zebra": 0.5, "crossing line": 0.15, "barrier": 0.3, "lane line": 0.12, "edge line": 0.12, "centre line": 0.12, "arrow": 0.15,
+LINE = {"stop line": 0.4, "give-way line": 0.35, "zebra": 0.5, "crossing line": 0.15, "barrier": 0.3, "parking line": 0.12, "lane line": 0.12, "edge line": 0.12, "centre line": 0.12, "arrow": 0.15,
         "guide line": 0.1, "kerb": 0.25}
 GROUND_NEAR_M = 15.0     # a city's object with a street-level road this near is on the street (it has no level of its own)
 KERB_TOP_M = 0.2

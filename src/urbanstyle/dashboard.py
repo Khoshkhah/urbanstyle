@@ -140,7 +140,7 @@ PHOTOS_PER_SPACE = 6
 # the line between the two directions is yellow and solid. A guide line is no paint: SUMO's move through a junction, thin amber dots)
 MARKS = [(t, c, LINE[t], d) for t, c, d in (("guide line", "#f59e0b", [1, 4]), ("arrow", "#ffffff", None), ("kerb", "#9ca3af", None),
          ("centre line", "#facc15", None), ("lane line", "#ffffff", [25, 50]), ("edge line", "#ffffff", None), ("stop line", "#ffffff", None),
-         ("give-way line", "#ffffff", [1, 1]), ("zebra", "#ffffff", None), ("crossing line", "#ffffff", None), ("barrier", "#6b7280", None))]
+         ("give-way line", "#ffffff", [1, 1]), ("zebra", "#ffffff", None), ("crossing line", "#ffffff", None), ("barrier", "#6b7280", None), ("parking line", "#ffffff", [8, 8]))]
 PANEL = """
 <style>.co-lg{display:none}  /* no road legend: the panel says what is drawn */
 body.u3d .rs-tip{display:none!important}#map{left:340px!important}body.us-off #map{left:0!important}body.us-off #us{display:none}

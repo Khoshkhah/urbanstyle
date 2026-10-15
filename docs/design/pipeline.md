@@ -23,6 +23,9 @@ OSM line, added parking or shoulders to fill the space, broke the lane joints an
     - The lanes come from OSM `lanes`. A two-way road with no `lanes` tag gets one lane in each direction.
     - The lanes are centred on the road's own OSM line. Each lane is 3.25 m wide (chosen), or the road is as wide as OSM `width`.
     - Parking, bike and bus lanes are added beside the lanes only where OSM or a city says so.
+    - Parking in the outer lane: where no source gives a lane width and the city's catch basins lie beyond the chosen lanes by 0.3 to
+      3 m on a side, the outer lane on that side widens to them. It stays one lane, `holds = parking`, with a dashed parking line at
+      the chosen lane's edge. The count stays OSM's.
 4. **Kerbs.** The outer edge of step 3, on each side. The kerb is never guessed. It is drawn once for the whole level (2026-10-16):
    the roadway's whole outer edge (lanes, paved strips, junction areas, crosswalks), against the pedestrian side and against a yard
    or a plot where the block reaches the lanes, then cut by the spaces, so a kerb line ends only at the area's edge. It is dropped

@@ -1354,7 +1354,7 @@ def build(con, epsg, bridges=()):
         mouths = [q_.centroid for ln_ in service for q_ in shapely.get_parts(ln_.intersection(kerb_all.buffer(0.3))) if not q_.is_empty]
         if mouths:
             kerb_all = kerb_all.difference(shapely.union_all([pt_.buffer(ALLEY_HALF_M) for pt_ in mouths]))
-    kerb_all = shapely.line_merge(kerb_all) if not kerb_all.is_empty else kerb_all
+    kerb_all = shapely.line_merge(kerb_all).simplify(0.03) if not kerb_all.is_empty else kerb_all     # (no arc crumbs: 4 vertices a metre read as a sawtooth in 3D)
     marks = [m_ for m_ in marks if m_[1] != "kerb"]
     for u, k, s_, x in units:
         if x.is_empty:

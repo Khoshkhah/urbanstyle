@@ -692,11 +692,23 @@ def build(con, epsg, bridges=()):
     if owners and not realm.is_empty:
         # (the realm's boundary and the cut lines noded together and polygonized: the pieces inside the realm. A difference with the
         # buffered lines took an hour on Monaco's 1,500 cuts)
+        parts_r = list(shapely.get_parts(realm))
+        rtree_r = shapely.STRtree(parts_r)
         if cutlines:
-            noded = shapely.unary_union([realm.boundary] + [c_ for c_ in cutlines if c_.intersects(realm)])
-            pieces_ = [q for q in shapely.get_parts(shapely.polygonize(shapely.get_parts(noded))) if realm.contains(q.representative_point())]
+            # (each cut line clipped to the realm's pieces first: whole 120 m lines crossing each other inside the blocks made a
+            # quadratic number of faces, and the Monaco build never finished)
+            cl2 = []
+            for c_ in cutlines:
+                for k_ in rtree_r.query(c_):
+                    cl2 += [q for q in shapely.get_parts(c_.intersection(parts_r[k_])) if q.geom_type == "LineString" and q.length > 0.01]
+            noded = shapely.unary_union([realm.boundary] + cl2)
+            pieces_ = []
+            for q in shapely.get_parts(shapely.polygonize(shapely.get_parts(noded))):
+                rp = q.representative_point()
+                if any(parts_r[k_].contains(rp) for k_ in rtree_r.query(rp)):
+                    pieces_.append(q)
         else:
-            pieces_ = list(shapely.get_parts(realm))
+            pieces_ = parts_r
         otree = shapely.STRtree([G for _, G in owners])
         for q in pieces_:
             if q.area < 0.01:

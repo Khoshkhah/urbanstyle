@@ -227,14 +227,19 @@ def build(con, epsg):
         # from the footway, b0-w48524371r: Kaveh 2026-10-15)
         edge = list(shapely.LineString(edge).simplify(EDGE_SIMPLIFY_M).coords)
         out_ = [shapely.make_valid(shapely.Polygon(road + edge[::-1]))]
-        c = list(x.coords)
-        for e, (p, q) in ((0, (c[0], c[1])), (-1, (c[-1], c[-2]))):
-            if e in ends:       # straight on past the junction at its end's distance: two edges meet in a sharp corner
+        # past each junction end the EDGE runs straight on in its own last direction (the footway's), so two edges meet in a sharp
+        # corner; it ran on in the road's end direction, which at a slip lane bending into the junction stuck a corner out of the
+        # footway line, a bump in the sidewalk (b0-w48524371r at West 8th; Kaveh 2026-10-16)
+        for e in (0, -1):
+            if e in ends and len(edge) >= 2:
+                p, q = (edge[0], edge[1]) if e == 0 else (edge[-1], edge[-2])
                 dx, dy = p[0] - q[0], p[1] - q[1]
                 h = (dx * dx + dy * dy) ** .5 or 1
                 o = (p[0] + dx / h * 2 * REACH_M, p[1] + dy / h * 2 * REACH_M)
-                seg = shapely.LineString([o, p] if e == 0 else [p, o])
-                out_.append(seg.buffer(sg * ts[0 if e == 0 else -1][1], single_sided=True))
+                d_ = ts[0 if e == 0 else -1][1]
+                rp = road[0] if e == 0 else road[-1]
+                ro = (rp[0] + dx / h * 2 * REACH_M, rp[1] + dy / h * 2 * REACH_M)
+                out_.append(shapely.make_valid(shapely.Polygon([rp, ro, o, p])))
         return shapely.union_all(out_)
 
     def extend(x, e, ends):

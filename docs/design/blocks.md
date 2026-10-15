@@ -65,7 +65,8 @@ Two other ideas were tried and rejected:
    Each line's hit is taken only when it is within 1.5 × the class's half width, so a parcel or sidewalk of the next street does not count.
    **The edge is straight** (2026-10-15, Kaveh: "their edges must be straight"): one distance for the whole side, the median of the lines square to the road (every 2.5 m) that end 1 m behind the
    sidewalk it reaches, the median of it and its two neighbours (one line that reaches another path makes no spike). Within 10 m of a
-   junction (`CORNER_M`) the edge goes straight on at the distance it has there, so two edges meet in a sharp corner: an edge rounded
+   junction (`CORNER_M`) the edge goes straight on in its own last direction (the footway's, not the road's: a slip lane bending into
+   the junction stuck a corner out of the footway line, 2026-10-16), so two edges meet in a sharp corner: an edge rounded
    round a corner's sidewalk left the division no intersection there (i0-877917415).
 5. **No parcel is cut** (2026-10-10). The distance is pulled in to the nearest parcel on that side, so a block holds its parcels whole.
    Where the sidewalks set the side (2026-10-14), a parcel does not move it: the sidewalks are the edge.

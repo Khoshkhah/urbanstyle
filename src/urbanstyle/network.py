@@ -512,6 +512,17 @@ def build(con, epsg, bridges=()):
         if len(sides) == 1:
             keep = -next(iter(sides))           # the kerb opposite the merging road continues
             b["merge"] = (next(iter(sides)), pj)      # (the side the road merges from, in b's frame, and where)
+            # (the merging road's end is cut on the joint's bisector too: its flat end at the node left a notch against the lane it
+            # runs into, and the kerb line ran a tail into the lane; kerb-162, Kaveh 2026-10-16)
+            n_ = next((n__ for p__, n__, _, _ in b["cuts"] if shapely.Point(p__).distance(pj) < 0.1), None)
+            if n_ is not None:
+                for i_ in etree2.query(pj.buffer(0.6)):
+                    k_, e_, p_ = ends_[i_]
+                    if runs[k_] is a or runs[k_] is b or p_.distance(pj) > 0.6:
+                        continue
+                    hd = head_of(i_)        # (away from the end: into the merging road)
+                    into = -(hd[0] * n_[0] + hd[1] * n_[1])      # > 0: the road runs into the joint along n
+                    runs[k_]["cuts"].append(((pj.x, pj.y), n_, -1 if into > 0 else 1, "end" if e_ == 1 else "start"))
         elif abs((ka[0] - ka[1]) - (kb[0] - kb[1])) < 0.05:
             keep = 1                            # the same width: both kerbs continue
         else:
@@ -650,6 +661,10 @@ def build(con, epsg, bridges=()):
                 wide, narrow, sn, kw_, kn_ = (a, b, sb, ka, kb) if ka > kb else (b, a, sa, kb, ka)
                 ln = narrow["line"]
                 at_start = (narrow is b) != narrow["flip"]          # (the joint at the narrow run's start, else at its end)
+                mg = wide.get("merge")          # (the wider side's extra width is a merging road's lane: no taper wedge there)
+                pj_ = shapely.Point(ln.coords[0] if at_start else ln.coords[-1])
+                if mg and mg[1].distance(pj_) < 1.0 and (sn if not (wide["flip"] != narrow["flip"]) else -sn) == mg[0]:
+                    continue
                 L = min(TAPER_M, ln.length)
                 stations = [k * 1.0 for k in range(int(L) + 1)] + [L]
                 pts_in, pts_out = [], []
@@ -913,6 +928,10 @@ def build(con, epsg, bridges=()):
         if R.is_empty:
             return
         isl = [q for q in shapely.get_parts(R) if along_edge(q) < ISLAND_TOUCH_M and q.area >= ISLAND_MIN_M2 and not q.buffer(-0.5).is_empty]
+        # (a small piece that touches an island is that island's: a sidewalk tip stood inside an island's end; Kaveh 2026-10-16)
+        if isl:
+            I_ = shapely.union_all(isl)
+            isl += [q for q in shapely.get_parts(R) if along_edge(q) < ISLAND_TOUCH_M and q not in isl and q.distance(I_) < 0.05]
         if isl:
             add(uid, "island", shapely.union_all(isl), source="osm", method="derived",
                 ref="between roadways only: a median or a traffic island (no block reaches it)")

@@ -491,7 +491,9 @@ def build(con, epsg, bridges=()):
                 s_ = sec_side(r_, sg)
                 if not any(e[0] == "parking" for e in r_["ex"][s_]) and not r_["no_park"][s_]:
                     r_["ex"][s_].append(("parking", PARK_M, (park[2][0], park[2][1], park[2][2] + " (along the section)")))
-        # the kerb evidence: one median per side of the section; each piece's outer lane widens to it by its own extra
+        # the kerb evidence: one median per side of the section; each piece's outer lane widens to it by its own extra. Not on a
+        # ramp or a through road (a `_link`, motorway, trunk: no kerbside parking), and not toward another roadway within reach (the
+        # basins there stand in a median's gutter, not at a parking kerb: the Granville ramp's lanes grew to 5.8 m, 2026-10-16)
         for sg in (1, -1):
             ts_ = [t for r_ in rs for t in r_["basins"][sec_side(r_, sg)]]
             if len(ts_) < 2:
@@ -499,11 +501,16 @@ def build(con, epsg, bridges=()):
             med_ = sorted(ts_)[len(ts_) // 2]
             for r_ in rs:
                 s_ = sec_side(r_, sg)
-                if r_["wsrc"][0] != "urbanstyle" or r_["ex"][s_]:
+                cl_ = r_["cl"] or ""
+                if r_["wsrc"][0] != "urbanstyle" or r_["ex"][s_] or cl_.endswith("_link") or cl_ in ("motorway", "trunk"):
                     continue
                 extra = med_ - r_["W"] / 2
-                if 0.3 <= extra <= PARK_EXTRA_M:
-                    r_["wide"][s_] = round(extra, 2)
+                if not (0.3 <= extra <= PARK_EXTRA_M):
+                    continue
+                zone_ = band(r_["line"], min(s_ * r_["W"] / 2, s_ * (med_ + LANE_M)), max(s_ * r_["W"] / 2, s_ * (med_ + LANE_M)))
+                if any(edges[k][0] != r_["oid"] and edges[k][6].intersection(zone_).length > 5.0 for k in tree.query(zone_)):
+                    continue        # (another road runs there: the strip is a median, not a parking kerb)
+                r_["wide"][s_] = round(extra, 2)
         for r_ in rs:
             r_["kl"] = r_["W"] / 2 + r_["wide"][1] + sum(w for _, w, _ in r_["ex"][1])
             r_["kr"] = -r_["W"] / 2 - r_["wide"][-1] - sum(w for _, w, _ in r_["ex"][-1])
@@ -1053,7 +1060,9 @@ def build(con, epsg, bridges=()):
                 t0, t1 = own(dq, n, q)
                 t0, t1 = ((-t1, -t0) if mirror else (t0, t1))
                 return (t0 + dz, t1 + dz)
-            return (side * q["W"] / 2 + dz, side * q["W"] / 2 + dz)
+            sq = side if not mirror else -side       # (q's kerb on that side, its widened outer lane included)
+            e_ = side * (q["W"] / 2 + q["wide"][sq]) + dz
+            return (e_, e_)
 
         def offs(t_own, at):
             """s -> (t0, t1) along xl: t_own away from the joints, sliding from `at[where]` over the transition's length."""
@@ -1114,12 +1123,12 @@ def build(con, epsg, bridges=()):
                     t0, t1 = own(dq, n, q)
                     tq = (-t1, -t0) if mirror else (t0, t1)
                     side = 1 if (tq[0] + tq[1]) > 0 else -1
+                    edge = (side * (r["W"] / 2 + r["wide"][side]), side * (r["W"] / 2 + r["wide"][side]))     # (this run's kerb there)
                     # (a lane on the side a road merges from is that road's lane running on: no taper of it here)
                     mg = q.get("merge")
                     if mg and mg[1].distance(shapely.Point(ln.coords[0] if where == "start" else ln.coords[-1])) < 1.0 \
                             and (side if not mirror else -side) == mg[0]:
                         continue
-                    edge = (side * r["W"] / 2, side * r["W"] / 2)
                     lanes_.append((offs(edge, {where: tq}), None, d, n, q["lsrc"], f"w{q['oid']}'s lane {n} narrows to nothing over {joint_s[where][1]:.0f} m (chosen)",
                                    dict(width_m=round(q["lw"], 2), width_source="urbanstyle", width_method="chosen", position_source="osm",
                                         position_method="derived", position_ref="a lane taper at the joint")))

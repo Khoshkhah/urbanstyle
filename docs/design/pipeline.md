@@ -47,8 +47,9 @@ OSM line, added parking or shoulders to fill the space, broke the lane joints an
       junction it touches.
 7. **Pedestrian side.** From each kerb out to the block edge: the furnishing zone, the sidewalk (on OSM's sidewalk line) and the
    frontage. A junction's corners take the sidewalks of their two arms.
-    - A strip between two roadways that is narrower than 8 m and does not touch a block is roadway (part `carriageway`). It is an
-      island only where OSM maps a kerb, an object (a tree, a sign, a pole) or a path along it.
+    - A strip between two roadways that is narrower than 8 m and touches a block by less than 2 m (a corner touch is no contact: the
+      gore where a slip lane leaves a junction) is paved roadway with no lane (part `carriageway`). It is an island only where OSM maps a
+      kerb, an object (a tree, a sign, a pole) or a path along it, or where a barrier runs along it (rule 12 of `street-rules.md`).
     - A piece that touches no block and is smaller than 4 m² is not an island. It is part of the sidewalk.
 8. **Crosswalks, lines and arrows.**
     - A crosswalk part for every crossing way over the roadway, 3 m wide (chosen) or OSM's `width`, and for every crossing node on a

@@ -672,6 +672,57 @@ def build(con, epsg, bridges=()):
                 narrow["road_g"] = poly(shapely.union_all([narrow["road_g"], wedge]))
     roadway = shapely.union_all([r["road_g"] for r in runs] + [J_all])
 
+    # ---- barriers continued from a bridge landing: a bridge whose corrections name a median barrier keeps it on the ground along the
+    # landing way's chain, on the side where a roadway of the other direction runs within GAP_M, until that roadway ends or a junction
+    # begins (the guardrail from the Granville ramp down to Fir Street; Kaveh 2026-10-15: OSM maps none, the bridge's correction is the source)
+    from .corrections import bridge as bridge_corr
+    cw_tree = shapely.STRtree([r["cw"] for r in runs]) if runs else None
+    barriers = []       # (line, ref)
+    for pf in bridges:
+        prof = json.load(open(pf))
+        if bridge_corr(prof.get("name", "")).get("median") != "barrier":
+            continue
+        for ax in prof.get("axes", []):
+            for ld in ax.get("landings", []):
+                oid_ = int(str(ld.get("way", "w0"))[1:])
+                r0 = next((r for r in runs if oid_ in r["oids"]), None)
+                if r0 is None:
+                    continue
+                for sg in (1, -1):      # the side with the other direction's roadway beside it
+                    chain_ = [r0]
+                    cur, end_ = r0, None
+                    while True:         # (the chain on through the joints)
+                        nxt_ = cur.get("trans", {})
+                        q_ = next((q for key_, q in nxt_.items()), None)
+                        if q_ is None or q_ in chain_:
+                            break
+                        chain_.append(q_)
+                        cur = q_
+                    pts_ = []
+                    for r_ in chain_:
+                        ln_ = r_["xline"]
+                        # (the rail stands at the lanes' outer edge, not at the kerb: a parking lane there is outside it)
+                        t_ = (r_["W"] / 2 if sg > 0 else -r_["W"] / 2) if not (r_["flip"] != r0["flip"]) else (-r_["W"] / 2 if sg > 0 else r_["W"] / 2)
+                        bedge_ = ln_.offset_curve(t_)
+                        if bedge_.geom_type != "LineString" or bedge_.is_empty:
+                            break
+                        probe = bedge_.offset_curve(sg * (GAP_M / 2) if not (r_["flip"] != r0["flip"]) else -sg * (GAP_M / 2))
+                        hit = [k_ for k_ in cw_tree.query(probe.buffer(GAP_M / 2)) if runs[k_] is not r_ and runs[k_] not in chain_
+                               and runs[k_]["ow"] and runs[k_]["cw"].distance(bedge_) < GAP_M]
+                        if not hit:
+                            break
+                        seg_ = bedge_.intersection(shapely.union_all([runs[k_]["cw"] for k_ in hit]).buffer(GAP_M))
+                        seg_ = max(shapely.get_parts(seg_), key=lambda q: q.length, default=None)
+                        if seg_ is None or seg_.geom_type != "LineString" or seg_.length < 2:
+                            break
+                        seg_ = at_joints(r_, seg_)      # (each subsection's piece ends at its joint: no two rails over the joint)
+                        seg_ = max((q for q in shapely.get_parts(seg_) if q.geom_type == "LineString"), key=lambda q: q.length, default=None)
+                        if seg_ is None or seg_.length < 0.5:
+                            continue
+                        pts_.append(seg_.difference(J_all) if not J_all.is_empty else seg_)
+                    if pts_:
+                        barriers.append((shapely.union_all(pts_), f"{prof.get('name')}: median barrier (corrections/bridges.json), continued on the ground from axis {ax['id']}'s landing"))
+
     # ---- 7. the pedestrian side: the street less the roadway, each piece to the nearest roadway
     realm = poly(street.difference(roadway)) if not street.is_empty else shapely.Polygon()
     edge_ = shapely.union_all([blocks.boundary, area.boundary]) if not area.is_empty else blocks.boundary
@@ -695,8 +746,12 @@ def build(con, epsg, bridges=()):
         objs += [g(w) for (w,) in rows(f"""SELECT {m()} FROM space.element WHERE type IN ('walkway', 'cycleway') AND level_min = 0
                                            AND coalesce(subtype, '') <> 'crossing'""")]
         o_tree = shapely.STRtree(objs) if objs else None
+        objs += [bl for bl, _ in barriers]      # (a barrier along the strip: it is an island, the bridge's guardrail continued, Kaveh 2026-10-16)
+        o_tree = shapely.STRtree(objs) if objs else None
         for q in shapely.get_parts(thin):
-            if (q.area > 0.5 and q.distance(edge_) > 0.3
+            # (a strip that touches a block only at a corner (under ISLAND_TOUCH_M) lies between roadways: the gore where a slip lane
+            # leaves a junction stood as a sidewalk wedge in the way of the turning lane, Kaveh 2026-10-16)
+            if (q.area > 0.5 and along_edge(q) < ISLAND_TOUCH_M
                     and (o_tree is None or not any(objs[i].intersection(q.buffer(0.2)).length > 2.0 or (objs[i].geom_type == "Point" and q.buffer(0.2).contains(objs[i]))
                                                      for i in o_tree.query(q.buffer(0.2))))):
                 gaps.append(q)
@@ -764,7 +819,7 @@ def build(con, epsg, bridges=()):
                 if best is not None:
                     share[best] = poly(shapely.union_all([share.get(best, shapely.Polygon()), q]))
 
-    gap_ref = f"between two roadways, narrower than {GAP_M} m, no kerb, object or path mapped on it: one paved surface"
+    gap_ref = f"paved roadway with no lane: a strip between two roadways narrower than {GAP_M} m with no kerb, object, path or barrier mapped on it"
 
     gap_of = {}     # (each roadway's share of the strips between roadways: its carriageway parts, no pedestrian side there)
     if not gaps_u.is_empty:
@@ -827,57 +882,6 @@ def build(con, epsg, bridges=()):
         xw2.append((X, mk, ref, seg, w))
     xw = xw2
     XW = taken_x
-
-    # ---- barriers continued from a bridge landing: a bridge whose corrections name a median barrier keeps it on the ground along the
-    # landing way's chain, on the side where a roadway of the other direction runs within GAP_M, until that roadway ends or a junction
-    # begins (the guardrail from the Granville ramp down to Fir Street; Kaveh 2026-10-15: OSM maps none, the bridge's correction is the source)
-    from .corrections import bridge as bridge_corr
-    cw_tree = shapely.STRtree([r["cw"] for r in runs]) if runs else None
-    barriers = []       # (line, ref)
-    for pf in bridges:
-        prof = json.load(open(pf))
-        if bridge_corr(prof.get("name", "")).get("median") != "barrier":
-            continue
-        for ax in prof.get("axes", []):
-            for ld in ax.get("landings", []):
-                oid_ = int(str(ld.get("way", "w0"))[1:])
-                r0 = next((r for r in runs if oid_ in r["oids"]), None)
-                if r0 is None:
-                    continue
-                for sg in (1, -1):      # the side with the other direction's roadway beside it
-                    chain_ = [r0]
-                    cur, end_ = r0, None
-                    while True:         # (the chain on through the joints)
-                        nxt_ = cur.get("trans", {})
-                        q_ = next((q for key_, q in nxt_.items()), None)
-                        if q_ is None or q_ in chain_:
-                            break
-                        chain_.append(q_)
-                        cur = q_
-                    pts_ = []
-                    for r_ in chain_:
-                        ln_ = r_["xline"]
-                        # (the rail stands at the lanes' outer edge, not at the kerb: a parking lane there is outside it)
-                        t_ = (r_["W"] / 2 if sg > 0 else -r_["W"] / 2) if not (r_["flip"] != r0["flip"]) else (-r_["W"] / 2 if sg > 0 else r_["W"] / 2)
-                        bedge_ = ln_.offset_curve(t_)
-                        if bedge_.geom_type != "LineString" or bedge_.is_empty:
-                            break
-                        probe = bedge_.offset_curve(sg * (GAP_M / 2) if not (r_["flip"] != r0["flip"]) else -sg * (GAP_M / 2))
-                        hit = [k_ for k_ in cw_tree.query(probe.buffer(GAP_M / 2)) if runs[k_] is not r_ and runs[k_] not in chain_
-                               and runs[k_]["ow"] and runs[k_]["cw"].distance(bedge_) < GAP_M]
-                        if not hit:
-                            break
-                        seg_ = bedge_.intersection(shapely.union_all([runs[k_]["cw"] for k_ in hit]).buffer(GAP_M))
-                        seg_ = max(shapely.get_parts(seg_), key=lambda q: q.length, default=None)
-                        if seg_ is None or seg_.geom_type != "LineString" or seg_.length < 2:
-                            break
-                        seg_ = at_joints(r_, seg_)      # (each subsection's piece ends at its joint: no two rails over the joint)
-                        seg_ = max((q for q in shapely.get_parts(seg_) if q.geom_type == "LineString"), key=lambda q: q.length, default=None)
-                        if seg_ is None or seg_.length < 0.5:
-                            continue
-                        pts_.append(seg_.difference(J_all) if not J_all.is_empty else seg_)
-                    if pts_:
-                        barriers.append((shapely.union_all(pts_), f"{prof.get('name')}: median barrier (corrections/bridges.json), continued on the ground from axis {ax['id']}'s landing"))
 
     # ---- parts and marks
     units, parts, marks, subrows, junction_rows = [], [], [], [], []

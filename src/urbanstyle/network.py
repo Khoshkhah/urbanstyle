@@ -25,6 +25,7 @@ PARK_M, BIKE_M = 2.4, 1.75  # a parking lane, a bike lane (chosen)
 FURNISH_M, CLEAR_M = 1.0, 1.8   # the pedestrian side: the furnishing zone at the kerb, the clear path (chosen)
 KERB_RADIUS_M = 4.0
 PARK_EXTRA_M = 3.0      # an outer lane widens to the city's kerb evidence by at most this (a parking strip and the gutter; chosen)
+ALLEY_W_M = 5.0         # a service road's width where OSM gives none (chosen): its driveway across the sidewalk
 ALLEY_HALF_M = 2.5      # the kerb is dropped this far either side of where a service road (an alley, a driveway) joins the roadway (chosen)
 SLIVER_M2 = 20.0        # a subsection whose roadway outside the junctions is smaller than this joins the junction it touches (chosen)
 CUT_M = 60.0            # a roadway cut (stop line, joint) runs this far to each side across the sidewalks to the blocks
@@ -719,8 +720,10 @@ def build(con, epsg, bridges=()):
             for sg in (1, -1):                  # the section's left (+) and right side
                 sa = sg if not a["flip"] else -sg
                 sb = sg if not b["flip"] else -sg
-                ka = a["kl"] if sa > 0 else -a["kr"]        # the kerb's distance from the line on that side
-                kb = b["kl"] if sb > 0 else -b["kr"]
+                # (the kerb's distance from the OSM line on that side, the continuity shift included: /2's three lanes moved 1.6 m
+                # looked wider than /1's two, and a taper wedge cut into the island; the Granville ramp, Kaveh 2026-10-16)
+                ka = (a["kl"] + a["shift"]) if sa > 0 else -(a["kr"] + a["shift"])
+                kb = (b["kl"] + b["shift"]) if sb > 0 else -(b["kr"] + b["shift"])
                 if abs(ka - kb) < 0.05:
                     continue
                 wide, narrow, sn, kw_, kn_ = (a, b, sb, ka, kb) if ka > kb else (b, a, sa, kb, ka)
@@ -987,6 +990,9 @@ def build(con, epsg, bridges=()):
         ps_ = [q for q in shapely.get_parts(x_) if q.geom_type == "LineString"]
         return max(ps_, key=lambda q: q.length) if ps_ else ln
 
+    service_in = [(g(w), num_f(dict(t or {}).get("width")) or ALLEY_W_M) for w, t in rows(f"""SELECT {m()}, tags FROM space.element e
+                     LEFT JOIN osm.raw.ways w ON w.osm_id = e.osm_id WHERE e.type IN ('road', 'walkway') AND e.level_min = 0 AND e.class = 'service'""")]
+
     def ped(uid, G, R):
         """The pedestrian side R of roadway G: furnishing, sidewalk, frontage; a piece that touches no block or the area's edge lies
         between roadways only: an island (a median of a divided road, a traffic island), not a sidewalk."""
@@ -1001,6 +1007,20 @@ def build(con, epsg, bridges=()):
             add(uid, "island", shapely.union_all(isl), source="osm", method="derived",
                 ref="between roadways only: a median or a traffic island (no block reaches it)")
             R = poly(R.difference(shapely.union_all(isl)))
+            if R.is_empty:
+                return
+        # a service road (an alley, a driveway) that reaches this roadway crosses the pedestrian side to it: a `driveway` part as wide as
+        # the service road (OSM width, else ALLEY_W_M), from the kerb to the block's edge (Kaveh 2026-10-16: "alleys must cross all
+        # frontage, sidewalk and furnishing till they touch the road")
+        dw = shapely.Polygon()
+        for ln_, w_ in service_in:
+            if ln_.distance(G) < 1.0 and ln_.intersects(R.buffer(0.5)):
+                piece = poly(ln_.buffer(w_ / 2, cap_style="flat").intersection(R))
+                piece = shapely.union_all([q for q in shapely.get_parts(piece) if q.distance(G) < 0.5] or [shapely.Polygon()])
+                dw = shapely.union_all([dw, piece])
+        if not dw.is_empty and dw.area > 0.5:
+            add(uid, "driveway", dw, source="osm", method="derived", ref="a service road crossing the pedestrian side to the roadway")
+            R = poly(R.difference(dw))
             if R.is_empty:
                 return
         f_ = poly(R.intersection(G.buffer(FURNISH_M)))

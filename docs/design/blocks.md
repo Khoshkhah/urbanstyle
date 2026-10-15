@@ -55,7 +55,8 @@ Two other ideas were tried and rejected:
    that face only:
    - **the sidewalks** (2026-10-14: first, because most areas, Monaco among them, have no parcels; one rule reads every area the same
      way): the median distance to OSM's sidewalk lines that run along the road (within 35°), plus 1 m (a sidewalk is drawn along its
-     middle), when at least 3 lines reach one;
+     middle), when at least 3 lines reach one. A sidewalk line counts only when it is at most 8 m beyond the carriageway (OSM's lanes ×
+     3.25 m): there is room for a parking lane and a verge, but a park path further away is not a sidewalk (2026-10-14);
    - **else the parcels** (a city's property lots, `space.parcel`): the median distance to the nearest parcel, when at least half the
      lines reach one;
    - **else the road class**: half the usual right-of-way for that class (living street 8 m; residential, unclassified, tertiary and
@@ -76,8 +77,9 @@ Two other ideas were tried and rejected:
    Result: 194 of 201 sides set by parcels; the match with the city's blocks (B6) 47 of 51, median overlap 0.99 (was 0.97).
 6. **Sharp corners.** Each edge line is continued past the junction, so two edges meet in a corner, as two parallel offsets do. The
    city's own blocks have sharp corners too: over 320 corners of rectangular blocks, the median rounding is 0.02 m.
-7. **What is a block.** What is left of each face is a block if it is at least 400 m² and at least 8 m wide; a thinner piece (the strip
-   between a divided road's two carriageways) is street.
+7. **What is a block.** What is left of each face, less its parts narrower than 8 m, is a block if it is at least 400 m². A part
+   narrower than 8 m (the strip between a divided road's two carriageways, also as a thin tail of a wider piece) is street
+   (2026-10-14: the two one-way ways of Fir Street made a block 190 m long and 2.7 m wide).
 8. **Where a city has parcels, the block is its parcels** (2026-10-11). Only in a face where no side is set by sidewalks (2026-10-14). A parallel edge is one straight line, so where the parcels
    along it step back (land a city keeps for its street in front of some lots), the block held ground that no parcel holds. So, in each
    face:
@@ -364,6 +366,7 @@ All are urbanstyle's own; none comes from a source.
 | looked for out to | 25 m | chosen |
 | a hit counts within | 1.5 × the class's half width | chosen |
 | the back of a sidewalk | its line + 1 m | chosen |
+| a sidewalk line counts within | 8 m beyond the carriageway (`SIDEWALK_ZONE_M`) | chosen |
 | half right-of-way by class | living street 8 m; residential, unclassified, tertiary, pedestrian 10 m; secondary 12 m; primary 15 m; trunk 16 m; motorway 18 m | chosen |
 | a block is at least | 400 m², 8 m wide | chosen |
 | parcels are closed across gaps narrower than | 12 m (grow 6 m, shrink 6 m) | chosen |

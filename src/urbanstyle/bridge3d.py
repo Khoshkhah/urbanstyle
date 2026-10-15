@@ -233,7 +233,8 @@ def surface(P, x0=0.0, y0=0.0, edges_of=None):
                 bs = [b for b in sec["bands"] if b["type"] == "lane"] or sec["bands"]
                 w = (max((b["t"] + b["width"]["value"] / 2 for b in bs), default=3.0) - min((b["t"] - b["width"]["value"] / 2 for b in bs), default=-3.0))
                 at_node.setdefault(e["node"], []).append((ln, p0, (p1[0] - p0[0], p1[1] - p0[1]), w))
-    for node, arms in at_node.items():
+    osm_outline = str(P["deck"]["outline"].get("source") or "").startswith("osm")     # (an OSM outline shapes its forks itself: Granville)
+    for node, arms in (at_node.items() if not osm_outline else []):
         for i, (la, pa, da, wa) in enumerate(arms):
             for lb, pb, db, wb in arms[i + 1:]:
                 ha, hb = math.hypot(*da) or 1, math.hypot(*db) or 1
@@ -452,6 +453,17 @@ def correct_sections(P):
                               taper={"s0": s_open, "s1": min(s_open + TAPER_M, sec["s1"]), "inner": inner, "out": o, "clear": clear_} if at_start else
                               {"s0": sec["s1"], "s1": max(sec["s1"] - TAPER_M, sec["s0"]), "inner": inner, "out": o} if at_end else None)
                     sec["bands"].append(nb)
+                # the lanes of a one-way road centred on its line, OSM's, as on the ground (street-rules.md, A1): the added lanes on the
+                # right only put a2's two lanes 1.6 m off OSM's line and off the street's lanes at its landing (Kaveh, 2026-10-14, "a2 has
+                # the wrong geometry", "does not match the lanes on the ground"). (Where an added lane opens at a fork, the fork moves
+                # the lanes onto the trunk's first: lane_join)
+                gr_ = [x for x in sec["bands"] if x["type"] == "lane" and x["direction"] == dr]
+                if len(dirs) == 1 and len(gr_) > len(grp):
+                    mid_ = (max(x["t"] + x["width"]["value"] / 2 for x in gr_) + min(x["t"] - x["width"]["value"] / 2 for x in gr_)) / 2
+                    for x in gr_:
+                        x["t"] = round(x["t"] - mid_, 2)
+                        if x.get("taper"):
+                            x["taper"]["inner"] -= mid_
             sec["bands"].sort(key=lambda b: -b["t"])
     return P
 
@@ -1167,6 +1179,8 @@ def rectangles(P):
     P["_rects"], P["_rect_axes"], P["_bars"], P["_bare"], P["_bare_zones"] = [], names, [], [], []
     P["_shift_zones"] = []      # (where the paths outside a path that ended move in: the deck freed there is that path's, model())
     ends_ = []      # (kind, axis id, point): where each axis's strips end, for the next axis's strips to start there (join)
+    xings_ = [shapely.LineString(g_["line"]) for g_ in P.get("paths", []) if len(g_["line"]) > 1
+              and (g_.get("footway") == "crossing" or g_.get("cycleway") == "crossing" or g_.get("crossing"))]
     for a in P["axes"]:
         if a["id"] not in names:
             continue
@@ -1434,9 +1448,21 @@ def rectangles(P):
                 slot = slot if fwd else slot[::-1]
                 # the strip on its own, square at both ends; OSM's line before and after it its own pieces (joined to it by a jump,
                 # the jump lay on a9's lanes and was cut into a slanted stub: Kaveh, 2026-10-12, "footway w538616396 #2 is not strips")
-                for part_ in (q[:ins[0]], q[ins[-1] + 1:]):
-                    if len(part_) >= 2 and shapely.LineString(part_).length >= RECT_PIECE_M:     # (a 2.4 m end: footway w871038563 #2)
-                        P["paths"].append({k_: v_ for k_, v_ in f.items() if k_ not in ("_slot", "rectangle", "line")} | {"line": [list(c) for c in part_], "_leftover": True})
+                for k_p, part_ in enumerate((q[:ins[0]], q[ins[-1] + 1:])):
+                    if len(part_) < 2:
+                        continue
+                    # (a short end that reaches a crossing goes on from the strip's end to it: the path meets its crosswalk; footway
+                    # w871038563 stopped 8 m before the crosswalk over a5, Kaveh, 2026-10-14, "must continue till it reaches the crosswalk")
+                    far_ = shapely.Point(part_[0] if k_p == 0 else part_[-1])
+                    to_x = any(x_.distance(far_) < 1.0 for x_ in xings_)
+                    if shapely.LineString(part_).length >= RECT_PIECE_M or to_x:     # (else a stub: a 2.4 m end, footway w871038563 #2)
+                        line_ = [list(c) for c in part_]
+                        if to_x and shapely.LineString(part_).length < RECT_PIECE_M:
+                            line_ = line_ + [list(slot[0])] if k_p == 0 else [list(slot[-1])] + line_
+                        if to_x:        # (and the gore it runs in to the crossing is that path, as "gore_paths" says: model())
+                            x_ = min(xings_, key=lambda x_: x_.distance(far_))
+                            P.setdefault("_gore_auto", []).append((a["id"], [list(c) for c in x_.coords], f["way"]))
+                        P["paths"].append({k_: v_ for k_, v_ in f.items() if k_ not in ("_slot", "rectangle", "line")} | {"line": line_, "_leftover": True})
                 f["line"] = [list(c) for c in slot]
                 f["_slot"] = {**joined(shifted(spec(p0_, p1_, tc), "t", cuts_, side), "path", [(p0_, tc), (p1_, tc)], width_=f["width"],
                                        way_=f"{f['type']} {f['way']}", side=side, rank=rank_), "pre": [], "post": [],
@@ -1532,7 +1558,7 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False, poles=None
     gl = [shapely.affinity.translate(g, -x0, -y0) for g in (ground or [])]
     pole_clear = shapely.union_all([shapely.Point(x - x0, y - y0).buffer(POLE_CLEAR_M) for x, y in (poles or [])])
     gtree = shapely.STRtree(gl) if gl else None
-    land = {}       # (axis id, section index, band index) -> [(end, the ground lane's edges at s, s_full)]
+    land = {}       # (axis id, section index, band index) -> [(end, the ground lane's edges at s, s_full, blend length)]
 
     def cross(ln, g, s):
         """The ground lane g's (left, right) edge offsets across the axis at s, or None where it does not cross."""
@@ -1572,7 +1598,13 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False, poles=None
                     if c is None or c[0] - c[1] < 0.8 * full:
                         break
                     sf += step
-                land.setdefault((a["id"], si, bi), []).append((e, (lambda ln_, g_: lambda s_: cross(ln_, g_, s_))(ln, g), sf))
+                # the move to the ground lane (LAND_BLEND_M before sf) stays inside this section: only its own bands move, and a move
+                # that began in the section before started with a step at the joint (a2.0 / a2.1 1.6 m apart, and a hole in the deck
+                # beside them: Kaveh, 2026-10-14, "not matched perfectly", "triangle barrier issue barrier @-387,-395")
+                sc_ = a["sections"][si]
+                sf = max(sf, min(sc_["s0"] + LAND_BLEND_M, sc_["s1"])) if e else min(sf, max(sc_["s1"] - LAND_BLEND_M, sc_["s0"]))
+                land.setdefault((a["id"], si, bi), []).append((e, (lambda ln_, g_: lambda s_: cross(ln_, g_, s_))(ln, g), sf,
+                                                               min(LAND_BLEND_M, sc_["s1"] - sc_["s0"]) or 1e-9))
 
     # a fork or a join, not a junction: a node where every move SUMO makes runs nearly straight on (under JOIN_ANGLE), as where the bridge's
     # divided road (a11, a12) joins the single road a10, or where the main span a1 splits into a9 and a4. OSM's ways meet at one node, so
@@ -1792,12 +1824,12 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False, poles=None
         def blend(base, k):
             def f(s):
                 v = base
-                for e, on, sf in tg:
+                for e, on, sf, bl in tg:
                     d = (sf - s) if e else (s - sf)         # how far before the ground lane's full width
                     c = on(s) if d <= 0 else on(sf)
                     if c is None:
                         c = on(sf)
-                    u = 1.0 if d <= 0 else 0.0 if d >= LAND_BLEND_M else 0.5 * (1 + math.cos(math.pi * d / LAND_BLEND_M))
+                    u = 1.0 if d <= 0 else 0.0 if d >= bl else 0.5 * (1 + math.cos(math.pi * d / bl))
                     # to the ground lane's edges, so the lanes go on with no step and no gap between them (a3's landing: a gap
                     # between its two lanes took a barrier, barrier @-71,-454, Kaveh, 2026-10-14); to its middle, keeping its own
                     # width, where the ground lane is narrower than a lane (on ramp a2 our islands left them 1.3 m)
@@ -2420,7 +2452,16 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False, poles=None
     # the gore between two branches from one node, "gore_paths": [[axis, axis, way]], is that way's footway, one shape with its strip
     # from the node to the strip's start, the deck under it (a7 and a2: the zebra over a7 lands on it and it runs on into footway
     # w871038545; Kaveh, 2026-10-12, "footway part from a4 to a2 is not smooth")
-    for ga_, gb_, way_ in bridge_corr_k(P["name"]).get("gore_paths", []):
+    # (and, with no entry, the gore a strip path runs in from its strip to the crossing OSM maps at its end: the other branch is the road
+    # that crossing goes over; footway w871038563 from a8 to the crosswalk over a5, Kaveh, 2026-10-14, "must continue till it reaches
+    # the crosswalk")
+    gore_l = [tuple(g_) for g_ in bridge_corr_k(P["name"]).get("gore_paths", [])]
+    for ga_, x_c, way_ in P.get("_gore_auto", []):
+        x_l = shapely.LineString(rel([c_[:2] for c_ in x_c]))
+        gb_ = min((aid_ for aid_ in by_id if aid_ != ga_), key=lambda aid_: by_id[aid_][0].distance(x_l), default=None)
+        if gb_ and by_id[gb_][0].distance(x_l) < 10.0 and not any(g_[2] == way_ for g_ in gore_l):
+            gore_l.append((ga_, gb_, way_))
+    for ga_, gb_, way_ in gore_l:
         k_g = next((k for k in own if (shared[k[1]][2] if k[0] == "s" else lanes[k[1]]["props"]).get("osm") == way_
                     and not own[k].is_empty), None)
         if k_g is None or ga_ not in by_id or gb_ not in by_id:
@@ -2432,7 +2473,8 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False, poles=None
                                    if l["props"]["type"] == "lane" and l["props"].get("axis") in (ga_, gb_)] + [own[k_g]])
         reach_ = shapely.Point(node_).buffer(own[k_g].distance(shapely.Point(node_)) + GORE_CLOSE_M)
         gore_ = base_.buffer(GORE_CLOSE_M).buffer(-GORE_CLOSE_M).difference(base_).intersection(reach_).difference(veh_)
-        gore_ = gore_.buffer(-PATH_MIN_M / 2, join_style="mitre").buffer(PATH_MIN_M / 2, join_style="mitre")
+        # (not over another path: the gore of cycleway w1316244489 at its crossing took 92 m2 of footway w871038551, BR4)
+        gore_ = gore_.difference(taken.difference(own[k_g])).buffer(-PATH_MIN_M / 2, join_style="mitre").buffer(PATH_MIN_M / 2, join_style="mitre")
         parts_ = [g_ for g_ in shapely.get_parts(gore_) if g_.geom_type == "Polygon" and g_.distance(own[k_g]) < 0.3]
         if parts_:
             own[k_g] = shapely.union_all([own[k_g]] + parts_).buffer(0.05, join_style="mitre").buffer(-0.05, join_style="mitre").difference(veh_)
@@ -2453,18 +2495,22 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False, poles=None
             by_lane_.setdefault(l["props"]["lane_id"], []).append(shapely.Polygon([p[:2] for p in l["l"]] + [p[:2] for p in l["r"]][::-1]).buffer(0))
     # where lanes of two roads overlap, the road with fewer lanes (the branch that joins) gives way, so no two lanes lie on each other
     # (a2 joining a1 at a shallow angle: 104 m2 of a1's lane under a2's, the colours fought; Kaveh, 2026-10-14, BR6)
-    ax_lanes, ax_n = {}, {}
+    # (but never to a joining lane that continues it, "<its lane>><next>": the join is drawn so on purpose; cut, a4's lane left a hole
+    # with a barrier round it where it joins a9 on the Granville Bridge, barrier @-151,-60; Kaveh, 2026-10-14)
+    osm_deck = str(P["deck"]["outline"].get("source") or "").startswith("osm")
+    ax_n, all_l = {}, []
     for l in lanes:
         if l["props"]["type"] == "lane":
             ax_ = l["props"].get("axis")
-            ax_lanes.setdefault(ax_, []).append(shapely.Polygon([p[:2] for p in l["l"]] + [p[:2] for p in l["r"]][::-1]).buffer(0))
+            all_l.append((ax_, str(l["props"].get("lane_id") or ""), shapely.Polygon([p[:2] for p in l["l"]] + [p[:2] for p in l["r"]][::-1]).buffer(0)))
             ax_n[ax_] = ax_n.get(ax_, 0) + 1
-    ax_u = {k_: shapely.union_all(v_) for k_, v_ in ax_lanes.items()}
     rank_ = lambda k_: (-ax_n.get(k_, 0), str(k_))         # (more lanes first, then by id)
     for i, l in enumerate(lanes):
         pg = shapely.Polygon([p[:2] for p in l["l"]] + [p[:2] for p in l["r"]][::-1]).buffer(0)
-        if l["props"]["type"] == "lane":
-            over_ = [u_ for k_, u_ in ax_u.items() if rank_(k_) < rank_(l["props"].get("axis")) and u_.intersects(pg)]
+        if l["props"]["type"] == "lane" and not osm_deck:     # (an OSM outline: its lanes as drawn, joins and all)
+            me_ = str(l["props"].get("lane_id") or "")
+            kin_ = lambda o_: bool(me_) and (o_.split(">")[0] == me_.split(">")[0] or me_ in o_.split(">") or o_ in me_.split(">"))
+            over_ = [g_ for k_, o_, g_ in all_l if rank_(k_) < rank_(l["props"].get("axis")) and not kin_(o_) and g_.intersects(pg)]
             if over_:
                 pg = pg.difference(shapely.union_all(over_))
                 pg = shapely.union_all([g_ for g_ in shapely.get_parts(pg) if g_.geom_type == "Polygon" and g_.area > 0.5]) if not pg.is_empty else pg
@@ -2649,7 +2695,7 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False, poles=None
         # (decided every 2 m along it, not once for the whole piece: the gap between a1 and a2 runs from a2's ground start, 0 m
         # against 8 m, to the junction, where both are 2.7 m; cut whole, it left a hole ringed with barriers)
         ax_ids = sorted({aid_ for aid_, _ in touch})
-        if len(ax_ids) >= 2:
+        if len(ax_ids) >= 2 and not osm_deck:      # (an OSM outline decides its deck: Granville's ramps share one at two heights)
             ln_g = by_id[ax_ids[0]][0]
             zone_ = []
             for k_ in range(int(ln_g.length // 2.0) + 1):
@@ -2722,7 +2768,12 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False, poles=None
         deck_ = shapely.make_valid(deck.difference(cut_o))
         deck = max(shapely.get_parts(deck_), key=lambda g_: g_.area) if deck_.geom_type != "Polygon" else deck_
     if cut_fill:        # (the guard's width beside the lanes stays; and where a crosswalk lands)
-        cut_ = shapely.union_all(cut_fill).difference(lanes_only.buffer(BARRIER_M[1] + 0.05, join_style="mitre")).difference(landings_)
+        cut_ = shapely.union_all(cut_fill)
+        # (and the deck's rim beside it, out to the edge: the pieces stop at the inner deck, and the thin rim left past them made a hole
+        # ringed with guards, a triangle beside a2.0; Kaveh, 2026-10-14, "triangle barrier issue barrier @-387,-395")
+        rim_z = deck.difference(deck.buffer(-BARRIER_M[1] - 0.05, join_style="mitre"))
+        cut_ = cut_.union(cut_.buffer(BARRIER_M[1] + 0.1, join_style="mitre").intersection(rim_z))
+        cut_ = cut_.difference(lanes_only.buffer(BARRIER_M[1] + 0.05, join_style="mitre")).difference(landings_)
         deck_ = shapely.make_valid(deck.difference(cut_))
         deck = max(shapely.get_parts(deck_), key=lambda g_: g_.area) if deck_.geom_type != "Polygon" else deck_
     what = {"footway": "the deck between the lanes and the guard", "median": "the deck between two carriageways",
@@ -2988,6 +3039,15 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False, poles=None
     for ln_m in shapely.get_parts(shapely.line_merge(miss_) if not miss_.is_empty else miss_):
         if ln_m.geom_type != "LineString" or ln_m.length < 0.5:
             continue
+        # an end next to a barrier runs on into it: cut back 0.35 m from the barriers above, it left a gap at each end (barriers @316,415
+        # and @327,406; Kaveh, 2026-10-14, "not completely fit", "not connect completely")
+        c_m = list(ln_m.coords)
+        for i_, j_ in ((0, 1), (-1, -2)):
+            if bars_f.distance(shapely.Point(c_m[i_])) < 0.5:
+                (ax_, ay_), (bx_, by_) = c_m[i_], c_m[j_]
+                h_ = math.hypot(ax_ - bx_, ay_ - by_) or 1
+                c_m[i_] = (ax_ + (ax_ - bx_) / h_ * 0.45, ay_ + (ay_ - by_) / h_ * 0.45)
+        ln_m = shapely.LineString(c_m)
         off = ln_m.offset_curve(BARRIER_SEP_M[0] / 2)
         if off.is_empty or off.geom_type != "LineString" or lanes_f.contains(off.interpolate(0.5, normalized=True)):
             off = ln_m.offset_curve(-BARRIER_SEP_M[0] / 2)

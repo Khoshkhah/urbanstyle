@@ -434,7 +434,6 @@ def test_strips_fill_the_zones_completely(tmp_path):
     assert {s[0] for s in strips} <= {"travel", "cycle", "frontage", "furnishing", "open", "sidewalk"}
 
 
-@pytest.mark.xfail(reason="network.py makes no SUMO turns yet (docs/design/pipeline.md step 8)", strict=True)
 def test_turns_at_a_t_junction_come_from_sumo(tmp_path):
     """A T junction of two-way streets: SUMO's lane-to-lane connections (space.turn) let the stem turn left and right, and the main
     street go straight on or turn into the stem; no U-turns."""

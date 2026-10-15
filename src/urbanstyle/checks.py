@@ -134,7 +134,7 @@ def rule_checks(c, epsg):
     import re
     import shapely
     import pyproj
-    from .network import STREET
+    from .network import STREET, straight
     if not c.execute("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'space' AND table_name = 'part'").fetchone()[0]:
         return []
     m = lambda g: f"ST_AsWKB(ST_Transform({g}, 'EPSG:4326', '{epsg}', always_xy := true))"
@@ -150,6 +150,31 @@ def rule_checks(c, epsg):
     for o, cl, g in roads:
         lines.setdefault(o, []).append(g)
     lines = {o: shapely.line_merge(shapely.union_all(v)) for o, v in lines.items()}
+    # (each way as network.py draws it: cut at its junction nodes, a piece within STRAIGHT_M of straight drawn straight)
+    tree = shapely.STRtree([g for _, _, g in roads])
+
+    def deg(pt):
+        d = 0
+        for k in tree.query(pt.buffer(0.5)):
+            ln = roads[k][2]
+            if ln.distance(pt) <= 0.5:
+                s_ = ln.project(pt)
+                d += 1 if (s_ < 0.5 or s_ > ln.length - 0.5) else 2
+        return d
+    nodes = [shapely.Point(q_) for _, _, g in roads for q_ in (g.coords[0], g.coords[-1])]
+    jn = shapely.MultiPoint([pt for pt in nodes if deg(pt) >= 3]) if nodes else shapely.MultiPoint()
+    jpts = list(shapely.get_parts(jn))
+
+    def drawn(ln):
+        out = []
+        for q_ in shapely.get_parts(ln):
+            if q_.geom_type != "LineString":
+                continue
+            cuts = sorted({0.0, q_.length} | {q_.project(pt) for pt in jpts if q_.distance(pt) < 0.6})
+            out += [straight(shapely.ops.substring(q_, a, b)) for a, b in zip(cuts, cuts[1:]) if b - a >= 0.5]
+        return shapely.MultiLineString(out) if out else ln
+    import shapely.ops
+    lines = {o: drawn(v) for o, v in lines.items()}
     # A1: per space and OSM way, the middle of its lanes on cross lines every 5 m along the way's line; failed if the median is > 0.5 m
     groups = {}
     for u, t, ref, src, g in parts:
@@ -184,22 +209,11 @@ def rule_checks(c, epsg):
     for o, cl, g in roads:
         if cl in (None, "pedestrian"):
             continue
+        g = lines[o].intersection(g.buffer(3.0)) if o in lines else g
         for q_ in shapely.get_parts(g.intersection(area).difference(cover)):
             if q_.geom_type == "LineString" and q_.length > 2.0:
                 bare.append(at(q_))
     # J1: an intersection with no junction node in it
-    tree = shapely.STRtree([g for _, _, g in roads])
-
-    def deg(pt):
-        d = 0
-        for k in tree.query(pt.buffer(0.5)):
-            ln = roads[k][2]
-            if ln.distance(pt) <= 0.5:
-                s_ = ln.project(pt)
-                d += 1 if (s_ < 0.5 or s_ > ln.length - 0.5) else 2
-        return d
-    nodes = [shapely.Point(q_) for _, _, g in roads for q_ in (g.coords[0], g.coords[-1])]
-    jn = shapely.MultiPoint([pt for pt in nodes if deg(pt) >= 3]) if nodes else shapely.MultiPoint()
     nojn = [at(g) for u, g in ((u, geo(w)) for u, w in c.execute(f"""SELECT unit_id, {m('geometry')} FROM space.unit
                  WHERE level = 0 AND kind = 'intersection'""").fetchall()) if jn.is_empty or g.buffer(0.5).disjoint(jn)]
     return [

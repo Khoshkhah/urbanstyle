@@ -5,8 +5,9 @@ LON, LAT = (18.0, 18.002), (59.3, 59.301)      # a square of streets, about 114 
 
 
 def test_a_block_is_parallel_to_its_streets_and_holds_its_buildings(tmp_path):
-    """Four residential streets around one block: no parcels, no sidewalks, so each side stands half the class's right-of-way (10 m)
-    from its street, except the south side, pulled in to a building 5 m from the street."""
+    """Four residential streets around one block: no parcels, no sidewalks, so each side stands 1.5 m behind its carriageway (two
+    lanes of 3.25 m: 4.75 m from its line; docs/design/blocks.md); the building 5 m from the south street is behind that edge, so it
+    pulls nothing."""
     xy = {1: (LON[0], LAT[0]), 2: (LON[1], LAT[0]), 3: (LON[1], LAT[1]), 4: (LON[0], LAT[1]),
           11: (LON[0] - 0.0001, LAT[0]), 12: (LON[1] + 0.0001, LAT[0]), 13: (LON[1] + 0.0001, LAT[1]), 14: (LON[0] - 0.0001, LAT[1]),
           15: (LON[0], LAT[0] - 0.0001), 16: (LON[1], LAT[0] - 0.0001), 17: (LON[1], LAT[1] + 0.0001), 18: (LON[0], LAT[1] + 0.0001)}
@@ -18,12 +19,13 @@ def test_a_block_is_parallel_to_its_streets_and_holds_its_buildings(tmp_path):
     bld = f"ST_GeomFromText('POLYGON((18.0008 {south}, 18.0012 {south}, 18.0012 59.3003, 18.0008 59.3003, 18.0008 {south}))')"
     osm = make_osm(tmp_path / "osm.duckdb", [(1, {"building": "yes"}, bld)], edges={"driving": edges})
     con = urbanstyle.build(osm, str(tmp_path / "out.duckdb"))
-    blocks = con.execute("SELECT block_id, area_m2 FROM space.block").fetchall()
-    assert [b for b, _ in blocks] == ["b0-w100l"]           # the smallest way bounding it, and its side
-    w = 0.002 * 111320 * 0.5105 - 2 * 10                    # between the west and east streets, less 10 m each side
-    h = 0.001 * 111320 - 10 - 5                             # between the south and north streets, less 10 m and 5 m
-    assert abs(blocks[0][1] - w * h) < 0.03 * w * h
+    blocks = dict(con.execute("SELECT block_id, area_m2 FROM space.block").fetchall())
+    assert "b0-w100l" in blocks                              # the smallest way bounding it, and its side
+    e = 2 * 3.25 / 2 + 1.5
+    w = 0.002 * 111320 * 0.5105 - 2 * e                     # between the west and east streets, less 4.75 m each side
+    h = 0.001 * 111320 - 2 * e                              # between the south and north streets
+    assert abs(blocks["b0-w100l"] - w * h) < 0.03 * w * h
     assert con.execute("""SELECT bool_and(ST_Within(ST_Buffer(e.geometry, -0.0000001), b.geometry)) FROM space.element e, space.block b
-                          WHERE e.type = 'building'""").fetchone()[0]
-    sides = dict(con.execute("SELECT way_id, basis FROM space.block_side").fetchall())
-    assert sides == {100: "building", 200: "class", 300: "class", 400: "class"}
+                          WHERE e.type = 'building' AND b.block_id = 'b0-w100l'""").fetchone()[0]
+    sides = dict(con.execute("SELECT way_id, basis FROM space.block_side WHERE block_id = 'b0-w100l'").fetchall())
+    assert sides == {100: "carriageway", 200: "carriageway", 300: "carriageway", 400: "carriageway"}

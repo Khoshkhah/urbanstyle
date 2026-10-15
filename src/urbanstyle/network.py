@@ -30,7 +30,18 @@ COLORS = {"subsection": "#94a3b8", "intersection": "#fbbf24"}
 YES_PARK = ("parallel", "diagonal", "perpendicular", "lane", "street_side", "on_street", "half_on_kerb", "on_kerb", "marked", "yes")
 YES_BIKE = ("lane", "track", "buffered_lane", "opposite_lane", "opposite_track")
 ARM_M = 3.0             # a junction reaches this far into each arm (bridge_lidar reads it)
+GAP_M = 8.0             # a strip between two roadways narrower than this (a block is at least this wide) is roadway, unless OSM maps a kerb, an object or a path on it
+STRAIGHT_M = 2.0        # a road between two junctions whose OSM line stays this near the straight line between its ends is drawn straight
+                        # (chosen: OSM's drawing error; Fir Street, Kaveh 2026-10-14)
+ISLAND_MIN_M2 = 4.0     # a pedestrian piece that touches no block and is smaller than this is no island: it is part of the sidewalk (chosen)
 from .parts import ARROW_M  # noqa: E402
+
+def straight(ln):
+    """ln as the straight line between its ends where it stays within STRAIGHT_M of that line, else ln (a real curve)."""
+    import shapely
+    ch = shapely.LineString([ln.coords[0], ln.coords[-1]])
+    return ch if ch.length > 0.5 and ln.hausdorff_distance(ch) <= STRAIGHT_M else ln
+
 
 # the level-0 tables this module writes, with their columns and types (other levels: spaces.py, parts.py)
 V, D, I, G_ = "VARCHAR", "DOUBLE", "INTEGER", "GEOMETRY"
@@ -99,7 +110,9 @@ def build(con, epsg, bridges=()):
     # has a profile are the bridge model's: one 'bridge deck' part on their band, no lanes)
     ground_lines = [c[6] for c in cand if c[7] == 0] + [g(w) for (w,) in rows(f"SELECT {m()} FROM space.element WHERE type = 'rail' AND level_min = 0")]
     gl_tree = shapely.STRtree(ground_lines) if ground_lines else None
-    edges = [c[:7] for c in cand if c[7] == 0 or gl_tree is None or not any(ground_lines[k].crosses(c[6]) for k in gl_tree.query(c[6]))]
+    keep_ = [c for c in cand if c[7] == 0 or gl_tree is None or not any(ground_lines[k].crosses(c[6]) for k in gl_tree.query(c[6]))]
+    edges = [c[:7] for c in keep_]
+    l1_ground = {c[0] for c in keep_ if c[7] == 1} - bridge_ways      # (drawn here on the ground: no copy at level 1, below)
     edges = [e for e in edges if e[6].geom_type == "LineString" and e[6].length > 0.2]
     oids = sorted({e[0] for e in edges})
     tags = {o: dict(t or {}) for o, t in rows("SELECT osm_id, tags FROM osm.raw.ways WHERE osm_id IN (SELECT unnest(?::BIGINT[]))", [oids])}
@@ -239,7 +252,7 @@ def build(con, epsg, bridges=()):
                             ex[sg].append(("cycle lane", BIKE_M, ("vancouver", "mapped", ", ".join(bw[:3]))))
                 kl = W / 2 + sum(w for _, w, _ in ex[1])
                 kr = -W / 2 - sum(w for _, w, _ in ex[-1])
-                runs.append(dict(oid=oid, name=nm, cl=cl, ow=ow, line=piece, f=f, b=b, lw=lw, wsrc=wsrc, lsrc=lsrc, ex=ex, kl=kl, kr=kr, W=W))
+                runs.append(dict(oid=oid, name=nm, cl=cl, ow=ow, line=straight(piece), f=f, b=b, lw=lw, wsrc=wsrc, lsrc=lsrc, ex=ex, kl=kl, kr=kr, W=W))
 
     for r in runs:
         r["cw"] = band(r["line"], r["kr"], r["kl"])
@@ -309,7 +322,25 @@ def build(con, epsg, bridges=()):
 
     # ---- 7. the pedestrian side: the street less the roadway, each piece to the nearest roadway
     realm = poly(street.difference(roadway)) if not street.is_empty else shapely.Polygon()
+    edge_ = shapely.union_all([blocks.boundary, area.boundary]) if not area.is_empty else blocks.boundary
+    # (a strip narrower than GAP_M between two roadways, away from the blocks, is one paved surface with them: our chosen lane widths
+    # leave it, no source makes it an island (Fir Street's two one-way ways, Kaveh 2026-10-14); it is an island only where OSM maps a
+    # kerb, an object or a path along it)
+    gaps = []
+    if not realm.is_empty:
+        thin = poly(roadway.buffer(GAP_M / 2).buffer(-GAP_M / 2).intersection(realm))     # (the roadway closed over its narrow gaps)
+        objs = [g(w) for (w,) in rows(f"""SELECT {m()} FROM space.object WHERE level = 0 AND source = 'osm'
+                                          AND class NOT LIKE 'crossing.%' AND class NOT LIKE 'access.%'""")]
+        objs += [g(w) for (w,) in rows(f"""SELECT {m()} FROM space.element WHERE type IN ('walkway', 'cycleway') AND level_min = 0
+                                           AND coalesce(subtype, '') <> 'crossing'""")]
+        o_tree = shapely.STRtree(objs) if objs else None
+        for q in shapely.get_parts(thin):
+            if (q.area > 0.5 and q.distance(edge_) > 0.3
+                    and (o_tree is None or not any(objs[i].intersection(q.buffer(0.2)).length > 2.0 or (objs[i].geom_type == "Point" and q.buffer(0.2).contains(objs[i]))
+                                                     for i in o_tree.query(q.buffer(0.2))))):
+                gaps.append(q)
     owners = [(r["sub"], r["road_g"]) for r in runs] + [(j["id"], j["geom"]) for j in junctions]
+    gaps_u = shapely.union_all([q for q in gaps if q.area >= 2.0]) if gaps else shapely.Polygon()     # (shared out below, as the realm)
     pts, lab = [], []
     for k, (_, G) in enumerate(owners):
         for q in shapely.get_parts(G):
@@ -350,6 +381,16 @@ def build(con, epsg, bridges=()):
                 if best is not None:
                     share[best] = poly(shapely.union_all([share.get(best, shapely.Polygon()), q]))
 
+    gap_ref = f"between two roadways, narrower than {GAP_M} m, no kerb, object or path mapped on it: one paved surface"
+
+    gap_of = {}     # (each roadway's share of the strips between roadways: its carriageway parts, no pedestrian side there)
+    if not gaps_u.is_empty:
+        for k in list(share):
+            gk = [q for q in shapely.get_parts(poly(share[k].intersection(gaps_u))) if q.area > 0.5]
+            if gk:
+                gap_of[k] = gk
+                share[k] = poly(share[k].difference(shapely.union_all(gk)))     # (exactly the pieces taken: a buffer of gaps_u lost some)
+
     # ---- parts and marks
     units, parts, marks, subrows, junction_rows = [], [], [], [], []
     pid = {}
@@ -371,14 +412,12 @@ def build(con, epsg, bridges=()):
         ps_ = [q for q in shapely.get_parts(x_) if q.geom_type == "LineString"]
         return max(ps_, key=lambda q: q.length) if ps_ else ln
 
-    edge_ = shapely.union_all([blocks.boundary, area.boundary]) if not area.is_empty else blocks.boundary
-
     def ped(uid, G, R):
         """The pedestrian side R of roadway G: furnishing, sidewalk, frontage; a piece that touches no block or the area's edge lies
         between roadways only: an island (a median of a divided road, a traffic island), not a sidewalk."""
         if R.is_empty:
             return
-        isl = [q for q in shapely.get_parts(R) if q.distance(edge_) > 0.3]
+        isl = [q for q in shapely.get_parts(R) if q.distance(edge_) > 0.3 and q.area >= ISLAND_MIN_M2 and not q.buffer(-0.5).is_empty]
         if isl:
             add(uid, "island", shapely.union_all(isl), source="osm", method="derived",
                 ref="between roadways only: a median or a traffic island (no block reaches it)")
@@ -396,8 +435,10 @@ def build(con, epsg, bridges=()):
     for k, r in enumerate(runs):
         G, ln, uid = r["road_g"], r["line"], r["sub"]
         R = share.get(k, shapely.Polygon())
-        U = poly(shapely.union_all([G, R]))
+        U = poly(shapely.union_all([G, R] + gap_of.get(k, [])))
         units.append((uid, "subsection", r["sid"], U))
+        for q in gap_of.get(k, []):
+            add(uid, "carriageway", q, source="osm", method="derived", ref=gap_ref)
         tg = tags.get(r["oid"], {})
         common = dict(road=r["name"], road_class=r["cl"], road_lanes=str(r["f"] + r["b"]), oneway=r["ow"])
         lsrc = r["lsrc"]
@@ -431,8 +472,11 @@ def build(con, epsg, bridges=()):
             q_ = shapely.Point(ln.coords[-1] if at_end else ln.coords[0])
             if J_all.is_empty or J_all.distance(q_) > 0.5:
                 continue
-            inside = ln.intersection(J_all)
-            s_j = (ln.length - inside.length) if at_end else inside.length       # (where the line leaves the junction)
+            # (only the junction at this end: the junction at the other end moved the stop line back ~10 m, Kaveh 2026-10-15)
+            jp_ = shapely.union_all([q for q in shapely.get_parts(J_all) if q.distance(q_) <= 0.5])
+            pc_ = [p for p in shapely.get_parts(ln.intersection(jp_)) if p.geom_type == "LineString" and p.distance(q_) < 0.5]
+            inside = sum(p.length for p in pc_)
+            s_j = (ln.length - inside) if at_end else inside       # (where the line leaves the junction)
             s_ = max(min(s_j - STOP_BACK_M if at_end else s_j + STOP_BACK_M, ln.length), 0.0)
             lo_, hi_ = (-r["W"] / 2, -r["W"] / 2 + r["f"] * r["lw"]) if at_end else (-r["W"] / 2 + r["f"] * r["lw"], r["W"] / 2)
             if hi_ - lo_ < 0.5:
@@ -448,7 +492,9 @@ def build(con, epsg, bridges=()):
     for j in junctions:
         k = len(runs) + junctions.index(j)
         R = share.get(k, shapely.Polygon())
-        units.append((j["id"], "intersection", None, poly(shapely.union_all([j["geom"], R]))))
+        units.append((j["id"], "intersection", None, poly(shapely.union_all([j["geom"], R] + gap_of.get(k, [])))))
+        for q in gap_of.get(k, []):
+            add(j["id"], "carriageway", q, source="osm", method="derived", ref=gap_ref)
         add(j["id"], "junction area", j["geom"], source="osm", method="derived",
             ref="the junction of " + ", ".join(f"n{i}" for i in j["nodes"]) if j["nodes"] else "the arms' carriageways where they meet")
         mark(j["id"], "kerb", j["geom"].boundary.intersection(R.buffer(0.05)) if not R.is_empty else shapely.LineString())
@@ -498,6 +544,20 @@ def build(con, epsg, bridges=()):
         except duckdb.Error:
             pass
     con.execute("DELETE FROM space.unit WHERE level = 0")
+    # a level-1 way this step puts on the ground (nothing passes under it) has no space at level 1 too (spaces.py made one: West
+    # Broadway's deck drawn in the air over its own street, s0-w473723218/1; Kaveh 2026-10-15)
+    eids = [str(e) for (e,) in rows("SELECT DISTINCT edge_id FROM osm.driving.edges WHERE osm_id IN (SELECT unnest(?::BIGINT[]))",
+                                    [sorted(l1_ground)])] if l1_ground else []
+    if eids:
+        for t in ("part", "mark", "width", "turn", "approach", "unit"):
+            try:
+                con.execute(f"DELETE FROM space.{t} WHERE level >= 1 AND regexp_extract(unit_id, '^s1-(-?[0-9]+)/', 1) IN (SELECT unnest(?::VARCHAR[]))", [eids])
+            except duckdb.Error:
+                pass
+        try:
+            con.execute("DELETE FROM space.subsection WHERE level >= 1 AND regexp_extract(subsection_id, '^s1-(-?[0-9]+)/', 1) IN (SELECT unnest(?::VARCHAR[]))", [eids])
+        except duckdb.Error:
+            pass
     from .parts import LINE
     clean = lambda x: poly(shapely.make_valid(shapely.set_precision(x, 0.01)))      # (on a 1 cm grid, valid: as division.py's)
     units = [(u, k, s_, clean(x)) for u, k, s_, x in units]
@@ -543,6 +603,26 @@ def build(con, epsg, bridges=()):
                     parts.append(np_)
                     by_u.setdefault(best, []).append(np_)
     units = [(u, v[0], v[1], v[2]) for u, v in U_.items()]
+    # parts of one space with the same type, source and lane that touch are one part (the pedestrian side and the strips between
+    # roadways are shared out in SAMPLE_M cells: one part per cell drew "bricks", i0-414553083; Kaveh 2026-10-15)
+    groups_ = {}
+    for p_ in parts:
+        groups_.setdefault((p_["unit_id"], p_["type"], p_.get("ref"), p_.get("direction"), p_.get("lane")), []).append(p_)
+    parts = []
+    for (u, *_), ps_ in groups_.items():
+        if len(ps_) == 1:
+            parts += ps_
+            continue
+        one = clean(shapely.union_all([p_["geom"] for p_ in ps_]).buffer(0.02).buffer(-0.02))     # (mitre joins lost a whole strip)
+        if one.is_empty or one.area < 0.9 * sum(p_["geom"].area for p_ in ps_):
+            parts += ps_        # (the closing failed: keep the pieces as they are)
+            continue
+        for i, q in enumerate(shapely.get_parts(one)):
+            if i < len(ps_):
+                parts.append(dict(ps_[i], geom=q))
+            else:
+                pid[u] = pid.get(u, 0) + 1
+                parts.append(dict(ps_[0], part_id=f"{u}#{pid[u]}", geom=q))
     parts = [p_ for p_ in parts if not p_["geom"].is_empty and p_["geom"].area > 0.05]
     urows = [(u, k, s, COLORS[k], shapely.to_wkb(x)) for u, k, s, x in units if not x.is_empty]
     if urows:       # (a map with no street at level 0: nothing to write)

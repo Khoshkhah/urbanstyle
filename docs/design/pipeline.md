@@ -32,6 +32,9 @@ OSM line, added parking or shoulders to fill the space, broke the lane joints an
    change.
 7. **Pedestrian side.** From each kerb out to the block edge: the furnishing zone, the sidewalk (on OSM's sidewalk line) and the
    frontage. A junction's corners take the sidewalks of their two arms.
+    - A strip between two roadways that is narrower than 8 m and does not touch a block is roadway (part `carriageway`). It is an
+      island only where OSM maps a kerb, an object (a tree, a sign, a pole) or a path along it.
+    - A piece that touches no block and is smaller than 4 m² is not an island. It is part of the sidewalk.
 8. **Crosswalks, lines and arrows.** Crosswalks from OSM's crossings; lane lines, centre lines and stop lines; turn arrows from
    SUMO's moves.
 9. **Bridges and tunnels.**

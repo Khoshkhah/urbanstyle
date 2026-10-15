@@ -31,7 +31,8 @@ The order of work: `docs/plan.md`.
   line; parking and bike lanes only from OSM or a city's meters and bikeways; the kerb is the lanes' outer edge (never guessed); junctions
   only at nodes of 3+ road ends; sections along each road (`s0-w<way>[.n]/1`); the pedestrian side shared to the nearest roadway, a piece
   between roadways an island; stop lines, zebras. It writes the level-0 rows of `space.unit`, `part`, `mark`, `subsection`, `junction`
-  (other levels: `spaces.py`, `parts.py`). Not yet: SUMO's turn paths and arrows. There is one version: the old block-first division is
+  (other levels: `spaces.py`, `parts.py`; a level-1 way it puts on the ground loses its level-1 copy). `src/urbanstyle/turns.py` (after
+  `network.build`): SUMO's lane-to-lane moves at level 0 (`space.turn`, `guide line` and `arrow` marks). There is one version: the old block-first division is
   removed (2026-10-14).
 - `src/urbanstyle/ground.py` (called at the end of `build`): layer 0 of `docs/design/space-layers.md`, `space.ground`: every piece of the
   area at level 0 is water, rail, street, path, square, structure, green, plot or unknown (checks G1, G2); `space.parcel`, a city's

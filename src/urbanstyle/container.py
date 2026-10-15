@@ -981,8 +981,9 @@ def build(osm, out, start=None, bridges=()):
 
 def _from_division(con, epsg, done, bridges=()):
     """The steps from the street division on: they rewrite the level-0 rows the steps before them made, so they start from those."""
-    from . import ground, network
+    from . import ground, network, turns
     network.build(con, epsg, bridges)      # the street at level 0 from the road network (docs/design/pipeline.md, steps 2-7)
+    turns.build(con, epsg)                 # SUMO's moves through each junction: turns, guide lines, turn arrows (step 8)
     done("division")
     ground.build(con, epsg)        # layer 0: every piece of the area is street, plot, green, ... (docs/design/space-layers.md)
     ground.surfaces(con, epsg)     # layer 1: the surfaces inside each ground item

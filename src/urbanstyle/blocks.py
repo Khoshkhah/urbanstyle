@@ -8,7 +8,7 @@
                     the road: OSM's sidewalks + SIDEWALK_BACK_M, else the parcels' median line (a city's `space.parcel`), else half the
                     class's right-of-way (HALF_ROW); pulled in to the nearest parcel where no sidewalk sets it (and, where no parcel sets the side, to the
                     nearest building), so no plot is cut; a building is drawn whole even where its OSM outline reaches over the line
-    block           what is left of a face, if at least MIN_BLOCK_M2 and MIN_BLOCK_W_M wide; corners are sharp (each edge line runs on
+    block           what is left of a face: its parts at least MIN_BLOCK_W_M wide, if at least MIN_BLOCK_M2; corners are sharp (each edge line runs on
                     past the junction)
 
 space.block       block_id, level, area_m2, source, method, geometry. Id `b<level>-w<way><side>`: the smallest OSM way among its bounding
@@ -35,6 +35,9 @@ SIDEWALK_BACK_M = 1.0   # a sidewalk is drawn along its middle: the property lin
 ALONG_COS = 0.82        # a sidewalk runs along the road: within ~35 degrees
 CORNER_M = 10.0         # the edge follows the sidewalks, but not within this of a junction: there two edges meet in a sharp corner, as
                         # the city's blocks do (rounded round a corner's sidewalk, the division found no intersection there: i0-877917415)
+SIDEWALK_ZONE_M = 8.0   # a footway is a street's sidewalk only this near its carriageway: room for a parking lane and a verge (chosen)
+MIN_EDGE_M = 1.5        # a side with nothing that sets it ends this far behind the carriageway (chosen: the kerb and a strip)
+LANE_M = 3.25           # a lane where OSM gives no width (as network.py)
 ROOF_M = 1.5            # a building pulls the street's edge in only by more than this: a roof reaches about this far over the wall
                         # (Avenue Pasteur, Monaco: the footprint of w49209427 is its roof, over the sidewalk; Kaveh, 2026-10-13)
 MIN_BLOCK_M2, MIN_BLOCK_W_M = 400.0, 8.0    # a thinner or smaller piece (between a divided road's carriageways) is street
@@ -61,6 +64,13 @@ def city_blocks(con):
     if rows:
         con.executemany("INSERT INTO space.city_block VALUES (?, ST_MakeValid(ST_GeomFromGeoJSON(?)))", rows)
     return len(rows)
+
+
+def wide(b):
+    """The parts of b at least MIN_BLOCK_W_M wide: a thinner tail (the strip between the two ways of a one-way pair) is street."""
+    import shapely
+    w = b.buffer(-MIN_BLOCK_W_M / 2, join_style="mitre").buffer(MIN_BLOCK_W_M / 2, join_style="mitre").intersection(b)
+    return shapely.union_all([q for q in shapely.get_parts(w) if q.geom_type == "Polygon"] or [shapely.Polygon()])
 
 
 def build(con, epsg):
@@ -125,6 +135,12 @@ def build(con, epsg):
         building)."""
         x, cl = ch["geom"], ch["cl"].replace("_link", "")
         cap = HIT_CAP * HALF_ROW.get(cl, 10)
+        # (a footway is this street's sidewalk only within SIDEWALK_ZONE_M of its carriageway (OSM's lanes x LANE_M): a park path 10 m
+        # from the kerb was taken for the sidewalk, and the park became street, s0-w37127120/1#6; Kaveh, 2026-10-14. The footway line
+        # itself is measured: West 6th Avenue's footway, 5.2 m behind the lanes past parking and a verge, was left out, b0-w23189661l.6)
+        oids_ = [r_[2] for r_ in (roads[k] for k in rtree.query(x.buffer(0.5))) if r_[2] is not None and r_[3].intersection(x.buffer(0.5)).length > 1]
+        half = max((lanes_of(o_) for o_ in oids_), default=2) * LANE_M / 2
+        cap_sw = min(cap, half + SIDEWALK_ZONE_M)
         n = max(2, int(x.length // STEP_M))
         par, sw, nray, at = [], [], 0, []      # at: (t, distance) of each line that reached a sidewalk
         for i in range(n):
@@ -151,7 +167,7 @@ def build(con, epsg):
                 tt = side[k].project(hp)
                 a2, b2 = side[k].interpolate(max(tt - 1, 0)), side[k].interpolate(min(tt + 1, side[k].length))
                 ex, ey = b2.x - a2.x, b2.y - a2.y
-                if abs(dx * ex + dy * ey) / (h * ((ex * ex + ey * ey) ** .5 or 1)) >= ALONG_COS and q.distance(hp) + SIDEWALK_BACK_M <= cap:
+                if abs(dx * ex + dy * ey) / (h * ((ex * ex + ey * ey) ** .5 or 1)) >= ALONG_COS and q.distance(hp) <= cap_sw:
                     hits.append(q.distance(hp))
             if hits:
                 sw.append(min(hits) + SIDEWALK_BACK_M)
@@ -161,7 +177,8 @@ def build(con, epsg):
         elif nray and len(par) >= max(2, nray / 2):
             d, basis, method = statistics.median(par), "parcels", "measured"
         else:
-            d, basis, method = float(HALF_ROW.get(cl, 10)), "class", "chosen"
+            d, basis, method = half + MIN_EDGE_M, "carriageway", "derived"      # (no sidewalk, parcel or building: the street ends at its
+                                                                                # carriageway, MIN_EDGE_M behind it; no guessed class width)
         zone = x.buffer(sg * REACH_M, single_sided=True).intersection(f)
         near = [(x.distance(blds[k].intersection(zone)), k) for k in btree.query(zone)
                 if blds[k].intersects(zone) and not blds[k].intersects(x)]
@@ -288,8 +305,8 @@ def build(con, epsg):
         except shapely.errors.GEOSException:      # (GEOS "ring edge missing" on the grid, a footway-following edge: off the grid)
             b = poly(f.difference(cut_))
         b = poly(shapely.make_valid(b).difference(carriage))     # (no grid here: on the grid GEOS failed, "ring edge missing")
-        for p in shapely.get_parts(b):
-            if p.area >= MIN_BLOCK_M2 and p.buffer(-MIN_BLOCK_W_M / 2).area > 0:
+        for p in shapely.get_parts(wide(b)):
+            if p.area >= MIN_BLOCK_M2:
                 out.append((p, srows, f))
 
     # where a city has parcels, a block is its face's parcels joined and closed across every gap narrower than 2 x PARCEL_CLOSE_M (a back
@@ -304,8 +321,8 @@ def build(con, epsg):
         joined = poly(shapely.union_all(mine).buffer(PARCEL_CLOSE_M, join_style="mitre").buffer(-PARCEL_CLOSE_M, join_style="mitre")
                       .intersection(f, grid_size=0.01).difference(carriage, grid_size=0.01)) if mine else shapely.Polygon()
         if mine and not any(r[1] == "sidewalks" for _, r in srows) and joined.area >= PARCEL_SHARE * sum(b.area for b in road_blocks):
-            for q in shapely.get_parts(joined):
-                if q.area >= MIN_BLOCK_M2 and q.buffer(-MIN_BLOCK_W_M / 2).area > 0:
+            for q in shapely.get_parts(wide(joined)):
+                if q.area >= MIN_BLOCK_M2:
                     out.append((shapely.Polygon(q.exterior), srows, f))     # (a hole would be a courtyard: still the block's)
                     from_parcels.add(len(out) - 1)
         else:

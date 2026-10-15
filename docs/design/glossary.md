@@ -53,6 +53,7 @@ containers' above.
 | **subsection** | a piece of a section between two cuts where its lanes, width or frontage change, at least 12 m long. Id `<section id>/<k>` | designed |
 | **axis** (of a subsection) | the middle line between its two blocks, straightened: every strip inside it runs parallel to it, at an offset (left +) | yes |
 | **shoulder** | the roadway between a carriageway's lanes and its kerb or median: at least 0.3 m (the gutter), wider where the lanes leave room | yes |
+| **carriageway** (part) | roadway between two roadways where no lane is: a strip narrower than 8 m that touches no block and has no kerb, object or path mapped on it in OSM (`network.GAP_M`) | yes |
 | **buffer / furnishing**, **clear path / sidewalk**, **frontage** | NACTO's zones of the pedestrian realm, from the kerb out: where trees, poles and furniture stand; the walking path (1.8 m around OSM's sidewalk line); the rest up to the block | yes |
 | **yard** (ground kind) | layer 0 inside a block that no other kind holds: private open ground around the buildings (a garden, a forecourt, a paved area). Inside the blocks there are no plots: each building is a ground item, whole | yes |
 | **alley** (ground kind) | layer 0 inside a block that a road runs through and no plot, green or path holds: a back lane, a driveway, a parking aisle. Not street: the street is the street spaces | yes |

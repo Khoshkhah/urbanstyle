@@ -12,7 +12,11 @@ is a screenshot of the page, never a separate drawing.
 ## 1. The hierarchy, and how each thing is detected
 
 Everything of the street at one level is inside this tree, rank by rank. Each rank is a kind of object with its own id and its own
-geometry. A thing of a lower rank is always inside one thing of the rank above, never in two and never in none. Rank 2 is a
+geometry. From rank 2 down, each rank partitions the rank above it: the subsections of a section cover the section exactly, the two
+sides cover the space exactly, the parts of a side cover the side exactly (checks U1, U8, U9), and the spaces cover the street area
+of the level, the area less the blocks. A thing of a lower rank is then always inside one thing of the rank above, never in two and
+never in none. Rank 1 is the one exception: a street is a group, not an area, and an intersection belongs to every street that
+arrives at it. Rank 2 is a
 stretch of the street: a section or an intersection. Rank 3 is a space, the thing that has sides and parts: a subsection, or the
 intersection itself. A section is divided into subsections; an intersection is never divided, so it is its own stretch and its own
 space, and it belongs to no section.

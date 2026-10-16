@@ -4,7 +4,8 @@ Status: written at the end of the 2026-10-15/16 session. Read `AGENTS.md` first,
 
 ## Where the work stands
 
-- Branch `network-first` and `main` are at the same commit (7d6015a). Every change of the session is committed and pushed.
+- Branch `network-first` holds steps 2 and 3 of `sections.md` and the rules from the Vancouver spots (2026-10-16, three commits, pushed);
+  `main` is behind it until Monaco is rebuilt and checked.
 - Vancouver (`data/units/broadway-granville.space.duckdb`) is built with the final code. Every rule check passes (A1-A3, J1-J2,
   X1, M1, U1-U13, G, L). The one fail, I3, is in the old container step and was there before.
 - Monaco (`data/monaco.duckdb`) is built with the code of commit cc5f19c, before the island and kerb rules. Its fails are listed
@@ -40,8 +41,38 @@ place-specific inputs. The code names no place.
 ## The agreed direction (2026-10-16, evening)
 
 `docs/design/sections.md`: one frame per section, merges and forks are junctions, a connector under 40 m belongs to the
-intersection, every lane-count change classified before it touches the frame (J4), the line-moving rules removed. Not in the
-code yet. This comes before every item below.
+intersection, every lane-count change classified before it touches the frame (J4), the line-moving rules removed. This comes before
+every item below. Its order of work:
+
+- Step 2 (rules 1-4: merges and forks as junctions, connectors, the intersection's area) is in `network.py` since 2026-10-16, tested on
+  two 250 m cuts of the Vancouver unit only (`data/cuts/west8th`, `data/cuts/rampfoot`; the review page
+  `viz/review/sections-step2/index.html`). Every hard check passes on both cuts. The unit and Monaco are not rebuilt with it.
+  To judge, from the review page: the West 8th T on Fir Street's east carriageway stays its own intersection (OSM maps no road between
+  the two carriageways), and a chain of merge nodes makes one intersection 80-90 m long (the on-ramp foot, West 4th × West 6th,
+  Granville × West 6th). New INFO rows: K2 4 loose kerb ends at the ramp foot, R2 1 guide line, not looked at.
+- The cuts: `scratch/cut.py NAME LON LAT TAG SRC` (clip, full build about 1 min, checks; `SRC` the source tree, so a `before` build
+  runs from `git archive HEAD src`), `scratch/compare.py NAME LON LAT [RADIUS] [OUT]` (before / after picture into
+  `viz/review/sections-step2/`). `scratch/` is git-ignored.
+- Step 3 (the frame per section, rules 5-8; the change classes of section 3 in `space.change`; J3 and J4; the shift, the one-sided merge
+  heading and the taper wedges removed; A1 at 0.5 m; R1 a FAIL except at a `real` change) is in `network.py` since 2026-10-16 (steps 6b
+  and 6c), tested on the same two cuts only: every hard check passes. The review page `viz/review/sections-step2/step3.html`. The code's
+  reading of the table is in `sections.md`, "How step 3 reads the table". To judge there: a piece narrower than its section's frame
+  gets paved roadway on both sides (the lanes stay centred on the OSM line: West Broadway's 4-lane piece east of Granville, 1.6 m
+  each side over 118 m; Hemlock Street north of West 7th); the strip between Fir Street's carriageways south of West 8th is one island
+  now (the taper wedge split it before, and the lower piece was paved roadway). Not detected yet: the island and guardrail class; the
+  kerb evidence narrowing a frame. The `real` class and its kerb taper have no case in the cuts (untested).
+- The `before` build of a cut must see `corrections/`: `corrections.py` reads it beside the source tree (`src/../corrections`), so link
+  `corrections/` next to the scratch copy of `src`, or the before build has no corrected lane counts (Fir Street 4 instead of 5).
+- The Vancouver unit is rebuilt with steps 2 and 3 (2026-10-16, evening) and Kaveh checked it spot by spot on his dashboard. Each
+  spot got one rule, listed in `sections.md`, "The rules from the Vancouver spots": the merge or fork keeps the far kerb (the bump at
+  West 8th, the one lane move, `subsection.left_extra`), an island begins where the strip is 2 m wide (the spike at West 4th × West
+  6th), a paved strip inside an intersection is junction area, the meters' parking only where the meters stand, an island's tip across
+  spaces (Fir × Broadway). Kaveh accepted all of them on the dashboard. The unit's final check: every rule check passes but I3 (the old
+  container step) and one BR12 (an object inside a bridge lane at the on-ramp foot, -123.135954 49.266514), not looked at.
+- Lesson of the evening: a spot Kaveh reports gets changed on his dashboard before any plan, cut or other area; a hard reload shows
+  it. The rebuild chain (`build --from division`, the page with the keys, the server on 8784, the checks) is `scratch/chain.sh`; it must
+  stop the server and any running check first, both hold the database.
+- Step 4 next: Monaco rebuilt (`build --from division`), the checks before and after, its page on 8785; then the J4 table of the unit.
 
 ## Open items, in the order I would take them
 

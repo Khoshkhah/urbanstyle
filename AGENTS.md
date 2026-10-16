@@ -10,7 +10,8 @@ links between levels (−2 … 2). Design and decisions: `docs/design/street-spa
 *inside* a street space (objects, strips, boundaries, the (s, t) standard): `docs/design/street-objects.md`. How others
 partition a street space and whether an intersection belongs to a street: `docs/design/partitioning-research.md`.
 The order of work: `docs/plan.md`. The state at the last session's end and the open items: `docs/HANDOFF.md` (read it before
-starting work).
+starting work). The agreed model of sections, intersections and the frame, which the code is being brought to:
+`docs/design/sections.md` (2026-10-16).
 
 ## Layout
 

@@ -1,5 +1,8 @@
 # Joints: what can change along a street
 
+**Superseded on 2026-10-16 by `sections.md`** (one frame per section, merges and forks as junctions, a connector inside the
+intersection, the change classes). Kept for the history of the joint rules.
+
 Status: agreed with Kaveh on 2026-10-16 ("we do not have a good protocol for a lane change, a fork or a merge"). A joint is where
 two subsections of one section meet: the road between two junctions, where its cross-section changes. The rules say what can
 change at a joint and what cannot. The code is in `network.py`, steps 6a to 6c.

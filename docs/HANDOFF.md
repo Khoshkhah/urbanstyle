@@ -37,6 +37,12 @@ All in `docs/design/street-rules.md` (rules 7 to 13) and `docs/design/pipeline.m
 photo, with the older Granville Bridge entries. `corrections/bridges.json`: the Granville Bridge only. These are the only
 place-specific inputs. The code names no place.
 
+## The agreed direction (2026-10-16, evening)
+
+`docs/design/sections.md`: one frame per section, merges and forks are junctions, a connector under 40 m belongs to the
+intersection, every lane-count change classified before it touches the frame (J4), the line-moving rules removed. Not in the
+code yet. This comes before every item below.
+
 ## Open items, in the order I would take them
 
 1. **Monaco.** Rebuild with the current code (`build --from division`, about 10 min), then the fails of the last build, rule by rule:

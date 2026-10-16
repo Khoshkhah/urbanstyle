@@ -196,9 +196,11 @@ document.addEventListener('keydown',e=>{if(e.key!=='Escape')return;
   if(in3d&&deselect3d())return;
   if(!in3d&&typeof _sel!=='undefined'&&_sel){rsDeselect(); document.querySelectorAll('.maplibregl-popup').forEach(x=>x.remove())}});
 // links: ?at=lon,lat,zoom,pitch,bearing opens the map there (a pitch over 0 is the 3D view); ?c=<id> or #c=<id> finds that thing in the
-// panel (a space, a part, an object). After the overlays' data is in (it loads after the map's own load event)
+// panel (a space, a part, an object). After the overlays' data is in (it loads after the map's own load event) and, on a page with
+// bridges (#br3don), after their models' list of the spaces they replace (window.brUnits, a 10 MB fetch): drawn before it lands, the
+// first 3D view showed a replaced space as a flat deck over the model (the Granville on-ramp; Kaveh, 2026-10-16)
 let tries=0;
-(function start(){if((rsQuery(()=>true,'Buildings').length===0||rsQuery(()=>true).length===0)&&tries++<100){setTimeout(start,200);return} fromHash()})();
+(function start(){if((rsQuery(()=>true,'Buildings').length===0||rsQuery(()=>true).length===0||(document.getElementById('br3don')&&!window.brUnits))&&tries++<100){setTimeout(start,200);return} fromHash()})();
 function fromHash(){
   const at=location.search.match(/[?&]at=([^&]+)/);
   if(at){const [x,y,z,p,b]=decodeURIComponent(at[1]).split(',').map(Number); map.jumpTo({center:[x,y],zoom:z||19,pitch:p||0,bearing:b||0}); setView()}

@@ -1117,6 +1117,7 @@ BRIDGE_JS = """<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128
 <label id=br3dbox style="position:absolute;right:10px;bottom:40px;z-index:5;background:#fff;padding:3px 8px;border-radius:4px;font:12px sans-serif;
   box-shadow:0 1px 3px #0003"><input type=checkbox id=br3don checked> bridges in 3D (__BRNAMES__)</label>
 <script>fetch('bridge3d.json',{cache:'no-store'}).then(r=>r.json()).then(BR=>{const BC=__BRCOL__; window.brUnits=__BRUNITS__;   // brUnits: the old level-1 spaces the models replace (draw3d)
+if(typeof draw3d==='function'&&document.body.classList.contains('u3d'))draw3d();   // (3D drawn before the list landed: again, without them)
 window.brAxes=BR.flatMap(M=>M.axes.map(cs=>({cs,name:M.name})));     // the bridges' roads, for Street View (svHere)
 const hex=c=>parseInt(c.slice(1),16);
 function brLayer(M){const o=maplibregl.MercatorCoordinate.fromLngLat(M.origin,0), s=o.meterInMercatorCoordinateUnits();

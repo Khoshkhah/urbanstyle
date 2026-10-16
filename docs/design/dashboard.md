@@ -33,7 +33,9 @@ One dashboard, the same for every area (Kaveh: "they must run the same script").
 - `urbanstyle publish` copies the three files beside the page, with the panel's data as files (no server).
 - **The first look:** every layer starts hidden, and a "Loading" veil covers the page. The panel waits until the layers' data and its
   server's first answer are in, sets every layer (its defaults, the levels, the grey buildings), and then lifts the veil. So nothing on
-  the page changes in front of the user while it loads.
+  the page changes in front of the user while it loads. On a page with bridges, the engine also waits for the bridge script's list of
+  the spaces the models replace (`window.brUnits`, from the 10 MB model file) before it opens a `?at=` link in 3D, and the bridge
+  script draws 3D again when the list lands: a 3D view drawn before it showed a replaced space as a flat deck over the model.
 - Opened as a file with no server, the page lifts the veil and shows the map alone.
 
 ## The page

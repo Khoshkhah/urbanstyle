@@ -22,7 +22,9 @@ each other. It was not anchored on the road network. This works for a street gri
    the node). Where the streams only touch, as a ramp that joins a road or two one-way lines of one street drawn into one node, the
    roads run through the node as one section, with the lane transition of `pipeline.md` step 6. At a Y (two roads merging into one,
    the Granville ramp into Fir Street) two streams share the end they continue into: no junction, the merging road's lanes join the
-   other's side by side, and a lane that opens at the joint never lies over the merging road's band.
+   other's side by side, and a lane that opens at the joint never lies over the merging road's band. **Changed on 2026-10-16**
+   (`sections.md` rules 2 and 3): a merge or a fork is a junction node, and a road under 40 m or a `_link` between two junction nodes
+   is a connector inside one intersection with both nodes.
 7. **Arm bands inside the junction.** Each arm's roadway is the band of its own line from the node to its stop line, cut square there.
    A curved arm leaves a curved junction edge (the slip lane w48524371 at the Granville ramp, 2026-10-15): open, to be decided.
 2. **Core.** The area where the carriageways of its arms overlap. An arm is a road line from the node, as wide as OSM's `width`, else

@@ -40,15 +40,17 @@ OSM line, added parking or shoulders to fill the space, broke the lane joints an
    that is no junction (OSM splits a road at a crossing node or where its lanes change). The section is named by its longest way
    (`s0-w<way>[.n]`). It is cut into subsections (`/1`, `/2`, ...) where its cross-section changes; ways with one cross-section are one
    subsection. At the joint the two roadways are cut on the bisector of their directions.
-    - **Continuity.** The lanes that run on through a joint keep their position. The kerb on the side where no road merges
-      continues straight; where the width is the same on both sides, both kerbs continue and only the centre line moves (a turn
-      pocket). Where OSM's line of the next way is not the centre of its lanes by up to 2 m (the line's drawing error), the whole
-      subsection's line is moved sideways by that much, so its lanes, kerbs and lines continue the previous subsection's. The fixed
-      piece of a section is the one at a bridge landing (the bridge's lanes and the ground's meet there), else the first; the shifts
-      run away from it to both ends. A lane on the side a road merges from is that road's lane running on: it has no taper.
-    - **Transition.** A larger step, or a width change with no merging road, slides over 15 m (chosen) in the subsection with fewer
-      lanes: a lane the neighbour has not opens from the kerb, a lane this subsection has not narrows to nothing; the parking lanes
-      follow the lanes' outer edge; a step between the two kerbs that is left is a carriageway taper. Never a kerb across a lane.
+    - **The frame** (`sections.md` rules 5-8, 2026-10-16). The section has one frame: the lanes and the strips a source gives at its
+      widest place, one width for the whole section. The lanes of each way stay centred on that way's line. Where a piece is narrower
+      than the frame, the rest is paved roadway with no lane (part `carriageway`, its `ref` names the frame and the class of the
+      change). No line is moved sideways and no kerb tapers. Only a `real` change (an OSM `width` on both sides) starts a new frame
+      piece, with a kerb taper over 15 m (chosen) in the narrower piece.
+    - **The change classes** (`sections.md` section 3). Every joint is classified before it touches the frame, and `space.change`
+      keeps the row (check J4): `turn pocket`, `merge`, `fork`, `parking`, `real`, `unknown`, or `none`. The meters' parking along the
+      section stops for a turn pocket on the pocket's kerb side.
+    - **Transition inside the frame.** At a joint the lanes slide from the neighbour's positions to their own over 15 m (chosen) in
+      the subsection with fewer lanes: a lane the neighbour has not opens from the lanes' edge, a lane this subsection has not
+      narrows to nothing. The strips a source gives follow the lanes' outer edge.
     - A subsection whose roadway outside the junctions is under 20 m² (a sliver between a junction and a crossing node) joins the
       junction it touches.
 7. **Pedestrian side.** From each kerb out to the block edge: the furnishing zone, the sidewalk (on OSM's sidewalk line) and the

@@ -31,8 +31,12 @@ starting work). The agreed model of sections, intersections and the frame, which
 - `src/urbanstyle/network.py` (after `blocks.build`): the street at level 0 from the road network, data first (`docs/design/pipeline.md`
   steps 2-7, rules in `docs/design/street-rules.md`, junctions in `docs/design/junctions.md`): lanes from OSM centred on each road's OSM
   line; parking and bike lanes only from OSM or a city's meters and bikeways; the kerb is the lanes' outer edge (never guessed); junctions
-  only at nodes of 3+ road ends, each arm cut square at its stop line; sections along each road between junctions, the OSM ways chained
-  (`s0-w<way>[.n]/<k>`: the longest way names it, `/k` its subsections where the cross-section changes), tapers at their joints; the
+  only at nodes of 3+ road ends where a road ends, merges, forks or two streams cross, each arm cut square at its stop line; a road under 40 m or a
+  `_link` between two junction nodes is a connector inside the intersection (`docs/design/sections.md` rules 1-4, 2026-10-16); sections along each road between junctions, the OSM ways chained
+  (`s0-w<way>[.n]/<k>`: the longest way names it, `/k` its subsections where the cross-section changes), one frame per section (the widest
+  cross-section, no line moved, no kerb taper; every tag change classified in `space.change`: `docs/design/sections.md` rules 5-8 and section 3, 2026-10-16; at a merge or fork the wider
+  section keeps the through arm's kerb, `subsection.left_extra`; an island begins where the strip between two frames is 2 m wide: the rules
+  from the Vancouver spots, 2026-10-16); the
   pedestrian side shared to the nearest roadway, a piece between roadways an island; stop lines, crosswalk parts with their paint from
   `crossing:markings`. It writes the level-0 rows of `space.unit`, `part`, `mark`, `subsection`, `junction`
   (other levels: `spaces.py`, `parts.py`; a level-1 way it puts on the ground loses its level-1 copy). `src/urbanstyle/turns.py` (after
@@ -70,7 +74,8 @@ starting work). The agreed model of sections, intersections and the frame, which
   U1-U10 test them; U11-U13 report the lanes entering each junction (`space.approach`),
   G1-G2 the ground (`space.ground`), L1-L2 the surfaces (`space.surface`), B1 and B6 the blocks (`space.block`); A1-A3, J1-J2, X1, M1, K1 the
   agreed street rules (`docs/design/street-rules.md`); R1-R4 the roadway at
-  level 0: R1 its edges at the joints, R4 the lanes that meet their continuation there (tapers).
+  level 0: R1 its edges at the joints (a step only at a `real` change), R4 the lanes that meet their continuation there (tapers); J3 every connector
+  inside an intersection, J4 (INFO) the tag changes along the sections with their classes.
   `urbanstyle check DB --bridge PROFILE` adds BR1-BR8, the bridge model's own checks (`bridge3d.model_checks`: guard on a lane,
   holes, guard gaps, paths on paths, slivers, lanes of two axes overlapping, lanes with no arrow, steps at landings) and BR9-BR11 (deck no
   part covers, a lane meeting a path with no barrier but at a crosswalk, steps in the deck's height) and BR12 (a surveyed or OSM street object standing inside a lane near the ground: the lane is wrong there), each with `?at=` links.

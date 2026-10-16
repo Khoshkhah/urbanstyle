@@ -1,17 +1,26 @@
 # Handoff: the street at level 0, 2026-10-16
 
-Status: written at the end of the 2026-10-15/16 session. Read `AGENTS.md` first, then this note, then `docs/design/street-rules.md`.
+Status: written at the end of the 2026-10-15/16 session, updated in the night of 2026-10-16 after the Monaco fails. Read `AGENTS.md`
+first, then this note, then `docs/design/street-rules.md` and `docs/design/sections.md`.
 
 ## Where the work stands
 
-- Branch `network-first` holds steps 2 and 3 of `sections.md` and the rules from the Vancouver spots (2026-10-16, three commits, pushed);
-  `main` is behind it until Monaco is rebuilt and checked.
-- Vancouver (`data/units/broadway-granville.space.duckdb`) is built with the final code. Every rule check passes (A1-A3, J1-J2,
-  X1, M1, U1-U13, G, L). The one fail, I3, is in the old container step and was there before.
-- Monaco (`data/monaco.duckdb`) is built with the code of commit cc5f19c, before the island and kerb rules. Its fails are listed
-  below. It must be rebuilt before anything else is done on it.
+- `main` and `network-first` are one (2026-10-16, night): steps 2 and 3 of `sections.md`, the rules from the Vancouver spots, the
+  dashboard's first-3D-draw fix, and the rules from the Monaco fails (`sections.md`, "The rules from the Monaco fails").
+- Vancouver (`data/units/broadway-granville.space.duckdb`) is rebuilt with the final code: no count changed. Its fails: I3 1 (the
+  old container step) and one BR12 (an object inside a bridge lane at the on-ramp foot, -123.135954 49.266514), as before.
+- Monaco (`data/monaco.duckdb`) is rebuilt with the final code (`build --from division`: division 28 min, ground 7 min). From the
+  start of the night to its end: U1 3, U4 3, U5 3, U6 2, U8 1, R1 4, J1 3, J2 1 all to 0; A3 12 to 1; A1 8 to 5; X1 0. Left: A1 5,
+  A3 1, BR3 4 (Avenue de France), BR5 2 + 3 (Avenue de la Costa, Boulevard du Ténao); see the open items. Its page is
+  `viz/monaco.html`, served on port 8785.
 - Two servers run on this machine: Vancouver on port 8784, Monaco on port 8785. One server serves one area: its `/api/` answers
   for one database (levels, tree, search). Street View works on 8784 only, because of the key's restriction.
+- Monaco cuts: `scratch/cut-monaco.py NAME LON LAT TAG SRC [RADIUS]` (a 250 m cut of `../duckOSM/monaco.duckdb`, a full build in 1-2
+  min, the checks; the bridge profiles whose axes reach the cut go with it). `scratch/plot-place.py DB LON LAT RADIUS OUT.png` draws
+  one place (parts, lines, units, junction nodes) into `viz/review/`. The Monaco duckOSM database is from an older duckOSM (no turn
+  tables): the clip warns and goes on.
+- Pictures of the night: `viz/review/monaco-*.png` (http://localhost:8785/review/monaco-spelugues.png and the others: before, and
+  `-cut` after).
 
 ## The rules added this session
 
@@ -76,9 +85,15 @@ every item below. Its order of work:
 
 ## Open items, in the order I would take them
 
-1. **Monaco.** Rebuild with the current code (`build --from division`, about 10 min), then the fails of the last build, rule by rule:
-   U1 12, U4/U5 4, U6 3, U8 11, U9 12, A1 6, A3 49. The A3 rise comes from the continuity shift: the check reads the OSM line with a
-   0.3 m cover. Bridges: BR3 4 on Avenue de France, BR5 2 + 3 on Avenue de la Costa and Boulevard du Ténao.
+1. **Monaco, what is left.** A1 5: four carriageways where a neighbour's lanes or its cycle lane lie in our lane's space and our lane
+   is cut at its edge, so its middle moves by half the overlap (Boulevard du Larvotto at the tunnel pair, 7.419119 43.735712, twice;
+   Avenue Princesse Grace 7.432746 43.746376 and 7.437639 43.749326). A conflict to decide, not a silent cut: split the overlap at
+   the midline and let A1 expect half of it (as it does for `left_extra`), or keep the lanes centred and narrow them. Kaveh has not
+   decided. One more on a closed one-way loop, Avenue des Ligures 7.418656 43.725372, whose near lane is half width for 20 m: cause
+   not established. A3 1: Avenue Marquet 7.413697 43.727264, the lane 1.65 m off its line, not looked at. The bridges: BR3 4 on
+   Avenue de France (deck edges with no parapet among its 27 connectors), BR5 2 + 3 on Avenue de la Costa and Boulevard du Ténao
+   (the model fills the free deck beside a 3 m lane with a path, and slivers under 0.5 m stay): bridge model rules, one part at a
+   time with Kaveh, as on Granville.
 2. **Lane width against a measured footway.** West of Fir Street's three southbound lanes the lanes (3 x 3.25 m, moved 1.62 m) reach
    the footway-set block edge by 0.3 m, so no sidewalk strip is left. Decide: a narrower chosen lane width, or lanes that give way
    to a measured footway. Kaveh has not decided.

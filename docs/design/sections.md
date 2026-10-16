@@ -124,3 +124,31 @@ Kaveh checked the rebuilt unit spot by spot on his dashboard. Each spot got one 
    `parking`, inside the frame. (The old rule spread it along the section: a strip stood at the West 8th fork 40 m from its meter.)
 5. **A piece of the walking part that touches no block and touches an island is that island's**, also an island of the next space.
    (The island's tip cut off into the Broadway junction was a raised furnishing triangle.)
+
+## The rules from the Monaco fails (2026-10-16, night)
+
+Monaco rebuilt with steps 2 and 3, its fails taken rule by rule. Each got one general rule, no place was patched:
+
+1. **A junction node of the ground has a level-0 road at it** (rule 1 above). A node that only a bridge's ways and the ramps from it
+   reach is the bridge's node. Avenue de France over Boulevard d'Italie: U1 3, J1 3, J2 1 to 0.
+2. **A joint's cut is local to the joint**: a disc of the band's reach past it, not an infinite half-plane. A half-plane also cut the
+   band wherever the line came back behind it, a hairpin or a long bend: Lacets Saint-Léon, Avenue des Spélugues and Avenue de La
+   Quarantaine had lost 30-100 m of lanes. A3 12 to 1, U6 2 to 0.
+3. **An arm is a run whose line ends at the node** (within 1 m), not one whose station there is near an end: a node beyond a line's
+   end has station 0 at any distance. Boulevard Rainier III, 110 m off, was an arm of Rue Grimaldi's junction and three junctions
+   along it became one cluster. U4 3, U5 3 to 0.
+4. **A crossing piece counts where it runs across the road**: it meets the road's line at 30° or more, or, crossing no line (over a
+   junction area), it is no longer than `XWALK_MAX_M` (40 m). A footway tagged crossing beside Boulevard du Larvotto for 80 m took
+   the outer 1.5 m of its lane. A1 8 to 5; check X1 skips such a way too.
+5. **A crossing is one object in one space**, in the parts too: the loser's crosswalk part goes where the winner's covers it
+   (Boulevard de Suisse). U8 1 to 0.
+
+The checks: R1 reads the shared boundary round the joint, its pieces across the road only (a folded section's two pieces run side
+by side round an island: no joint), at level 0, and a bridge's deck is roadway; A1 reads the lanes' run that holds the line point
+(a roundabout's far side 20 m on is not this place's). R1 4 to 0.
+
+Left open on Monaco: A1 5 (four where a neighbour's lanes or cycle lane lie in our lane's space and the lane is cut at its edge: a
+conflict to decide, split the overlap at the midline or narrow the lanes; one on a closed one-way loop, Avenue des Ligures, cause not
+established), A3 1 (Avenue Marquet, the lane 1.65 m off its line), and the bridge model's BR3 4 (Avenue de France: deck edges with
+no parapet among its connectors) and BR5 2 + 3 (Avenue de la Costa, Boulevard du Ténao: the model's own filling of the free deck
+beside a 3 m lane leaves slivers).

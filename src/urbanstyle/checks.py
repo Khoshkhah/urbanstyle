@@ -145,7 +145,7 @@ def rule_checks(c, epsg):
     import re
     import shapely
     import pyproj
-    from .network import LANE_M, STREET, TAPER_M, CONNECTOR_M, straight
+    from .network import LANE_M, STREET, TAPER_M, CONNECTOR_M, XWALK_MAX_M, straight
     A1_M = 0.5      # a carriageway's lanes are centred on their OSM line within this (sections.md: the 2 m tolerance of the shift era is gone)
     if not c.execute("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'space' AND table_name = 'part'").fetchone()[0]:
         return []
@@ -286,6 +286,11 @@ def rule_checks(c, epsg):
     noxw = []
     for o, gs in xways.items():     # (per way: its pieces together; a bare end under 1 m, a kerb ramp, does not count)
         x = shapely.union_all(gs).intersection(cover0.intersection(area))
+        # (a way over the roadway (the 0.3 m margin in, as network.py reads it) for longer than a crosswalk can be runs along the road, not
+        # across it: no crosswalk is due, as in network.py's crosses_road and spaces.XWALK_MAX_M; a footway tagged crossing beside
+        # Boulevard du Larvotto for 80 m, Monaco 2026-10-16)
+        if shapely.union_all(gs).intersection(cover.intersection(area)).length > XWALK_MAX_M:
+            continue
         if x.length > 1.0 and x.length - x.intersection(xw_u).length > max(1.0, 0.2 * x.length):
             noxw.append(at(x.difference(xw_u) if not x.difference(xw_u).is_empty else x))
     # M1: a lane line, or a centre line with a real source, where the lane count is chosen (no source maps the lanes, so none maps a

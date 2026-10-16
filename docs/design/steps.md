@@ -11,38 +11,49 @@ is a screenshot of the page, never a separate drawing.
 
 ## 1. The hierarchy, and how each thing is detected
 
-Everything of the street at one level is inside this tree. A thing of a lower rank is always inside one thing of the rank above,
-never in two and never in none.
+Everything of the street at one level is inside this tree, rank by rank. Each rank is a kind of object with its own id and its own
+geometry. A thing of a lower rank is always inside one thing of the rank above, never in two and never in none.
 
 ```mermaid
 flowchart TD
-    ST[street] --> SE[section]
-    SE --> SU[subsection]
-    ST --> IN[intersection]
-    SU --> P1[parts]
-    IN --> P2[parts]
-    P1 --> M1[marks]
-    P2 --> M2[marks]
+    ST[1 street] --> SE[2 section]
+    SE --> SU[3 subsection]
+    ST --> IN[3 intersection]
+    SU --> D1[4 driving side]
+    SU --> W1[4 walking side]
+    IN --> D2[4 driving side]
+    IN --> W2[4 walking side]
+    D1 --> P1[5 parts]
+    W1 --> P2[5 parts]
+    D2 --> P3[5 parts]
+    W2 --> P4[5 parts]
+    P1 --> M[6 marks]
+    P2 --> M
 ```
 
-**1. The street**, id `k0-<way>`, table `space.street`.
+Rank 4, the side, is agreed on 2026-10-16 and not in the data yet: today `space.part` holds the parts of both sides in one table,
+told apart by their type. The change: a table `space.side` (id `<space>:driving` / `<space>:walking`, its space, its kind, its
+polygon) and the column `side_id` on `space.part`; the checks test the partition at rank 4 and at rank 5; the page gets one switch
+per side.
+
+**Rank 1. The street**, id `k0-<way>`, table `space.street`.
 What: a named road with the intersections it arrives at.
 How: the sections that share a name and a node are one street. An unnamed road is its own street.
 
-**2. The section**, id `s0-w<way>` (or `s0-w<way>.n` when one way gives two sections), table `space.subsection` (its pieces).
+**Rank 2. The section**, id `s0-w<way>` (or `s0-w<way>.n` when one way gives two sections), table `space.subsection` (its pieces).
 What: the road from one junction to the next, whatever OSM ways it is made of.
 How: first the junction nodes: an OSM node with 3 or more road ends (a road through counts 2), where a road ends, two ends merge
 or fork, or two streams cross (rules 1-2, 13). Then the runs, one OSM way with one cross-section, are chained end to end across every
 node that is no junction. The chain is the section, named by its longest way.
 
-**3a. The subsection**, id `s0-w<way>/<k>`.
+**Rank 3a. The subsection**, id `s0-w<way>/<k>`.
 What: a piece of a section with one cross-section (the same lanes and strips all along it).
 Where: its line, the piece of the road's centre line, is in `space.subsection` with the frame's width, the strips and `left_extra`;
 its area, from block edge to block edge, is in `space.unit` under the same id. One object, two geometries.
 How: the section is cut where its lanes or its strips change. Each cut is a joint, classed `real`, `none`, `fork`, `merge`,
 `parking` or `unknown`; only a `real` change changes the section's frame (`sections.md` section 3, rules 5-8).
 
-**3b. The intersection**, id `i0-<node>`, at the same rank as the subsection.
+**Rank 3b. The intersection**, id `i0-<node>`, at the same rank as the subsection.
 What: the space where the arms of one or more junction nodes meet.
 Where: its nodes are in `space.junction`; its area in `space.unit`.
 How: for each junction node, its arms are the runs whose line ends at it. Each arm reaches to its stop line: the far edge of a
@@ -50,30 +61,33 @@ crossing within 15 m, else 3 m past where the other arms' lanes overlap it. The 
 under 40 m or a `_link` between two junction nodes, rule 3), joined where they touch, corners rounded by 4 m, make the intersection
 (rules 4, 5, 15).
 
-The area of a subsection or of an intersection is its roadway plus the pedestrian side given to it: the street (the area less the
+The area of a subsection or of an intersection is its roadway plus the walking side given to it: the street (the area less the
 blocks) less the roadway, each piece to the nearest roadway, cut at the arms' stop lines and at the block corners. The word
-"space" means this area (`space.unit`); it is not a rank of its own.
+"space" means this area (`space.unit`); it is the object of rank 3.
 
-**4. The parts**, id `<space>#<n>`, table `space.part`, inside one subsection or one intersection.
-What: a partition of the whole area of the subsection or of the intersection. Every point of the area lies in exactly one part: the
-driving parts and the walking parts together cover it with no overlap (checks U8, the parts add up to the space, and U9, no two
-parts of a space overlap).
+**Rank 4. The side**, two per space: `<space>:driving` and `<space>:walking` (`space.side`, to be built).
+What: the driving side is the frame, kerb to kerb: the roadway. The walking side is the rest, kerb to block edge. The two partition
+the space.
+How: the driving side is the section's frame, one width for the whole section, the lanes and the strips at its widest place
+(rules 5-8), inside an intersection the arms' frames to their stop lines with the connectors. The walking side is the space less the
+driving side.
+
+**Rank 5. The part**, id `<space>#<n>`, table `space.part`, one piece of one side, of one type.
+What: the parts of a side partition it. Every point of the side lies in exactly one part (checks U8, the parts add up to the space,
+and U9, no two parts of a space overlap).
 Driving side, built from the road's line outward: each lane is a band 3.25 m wide (or OSM's `width`), laid side by side from the
-frame's right edge to its left edge, centred on the carriageway's OSM line, as many as OSM counts; where the frame is wider than the
-lanes the rest is paved roadway (`carriageway`); a parking, bus or cycle strip is a band outside the lanes where a source gives it;
-in an intersection the junction area is the arms' frames to their stop lines plus the connectors; the crosswalks, bands as wide as
-the crossing on OSM's crossing ways, are cut out of all of them.
-Walking side, built from the kerb outward: the area less the roadway. Along the roadway's edge, the kerb, the first 1.0 m is
-furnishing, the next 1.8 m is the sidewalk (the clear path), the rest up to the block's edge is frontage; the three widths are
-chosen values (`FURNISH_M`, `CLEAR_M`). A driveway, as wide as its service road or 5 m, is cut across them where a service road
-reaches the roadway. A piece that touches no block, between two roadways, is an island.
-The types (`space.part.type`), at level 0: driving side `lane` (its direction in a column: forward, backward, both, in, out),
-`carriageway` (paved roadway with no lane), `junction area`, the strips `parking`, `no parking`, `shoulder`, `bus lane`,
-`bus zone`, `cycle lane`, the crossings `crosswalk` and `cycle crossing`, and `bridge deck` (a bridge way's band, its lanes drawn by
-the bridge model); walking side `furnishing`, `sidewalk`, `frontage`, `island`, `driveway`. Only at the levels the old partition
-still builds: `ring` and `lane circulating` (a roundabout's ring), `verge`, `open`, `bus stop`, `tree pit`, `parking lot`.
+frame's right edge to its left edge, centred on the carriageway's OSM line, as many as OSM counts (`lane`); where the frame is wider
+than the lanes the rest is paved roadway (`carriageway`); a strip is a band outside the lanes where a source gives it (`parking`,
+`no parking`, `shoulder`, `bus lane`, `cycle lane`); in an intersection the roadway is the `junction area`; a `crosswalk` or a
+`cycle crossing` is the roadway under a crossing way, a band as wide as the crossing, cut out of the others; a `bridge deck` is a
+bridge way's band, its lanes drawn by the bridge model.
+Walking side, built from the kerb outward: along the roadway's edge, the kerb, the first 1.0 m is `furnishing`, the next 1.8 m the
+`sidewalk` (the clear path), the rest up to the block's edge `frontage`; the three widths are chosen values (`FURNISH_M`, `CLEAR_M`).
+A `driveway`, as wide as its service road or 5 m, is cut across the bands where a service road reaches the roadway. A piece that
+touches no block, between two roadways, is an `island`. Only at the levels the old partition still builds: `ring` and
+`lane circulating` (a roundabout's ring), `verge`, `open`, `bus stop`, `tree pit`, `parking lot`.
 
-**5. The marks**, table `space.mark`, on the parts.
+**Rank 6. The mark**, table `space.mark`, on a part.
 Lane lines only between lanes OSM counts, the centre line, stop and give-way lines at the stop lines, zebras from
 `crossing:markings`, arrows and guide lines from SUMO's moves, the kerb line between the two sides.
 
@@ -173,16 +187,16 @@ not the order of execution. The order is this:
 | e | **Connectors** | the sections, the junction nodes | a section between two junction nodes under 40 m, or of `_link` ways, is a connector: it belongs to one intersection with both nodes (rule 3) |
 | f | **Change classes** | the subsections' lanes, `turn:lanes`, the junction nodes | each joint classed `real`, `none`, `fork`, `merge`, `parking`, `unknown` (`sections.md` section 3, check J4) |
 | g | **Kerb evidence** | a city's catch basins, poles, sidewalk lines, per section | the section's kerb from the evidence, judged once for the section (rule 9) |
-| h | **The frame** (driving) | the subsections of a section, the change classes, the kerb evidence | one width per section: the lanes and the strips a source gives at the section's widest place; only a `real` change starts a new frame piece, with a kerb taper (rules 5-8, 10); the carriageway band `cw`, cut at the joints |
+| h | **The frame** (the driving side) | the subsections of a section, the change classes, the kerb evidence | one width per section: the lanes and the strips a source gives at the section's widest place; only a `real` change starts a new frame piece, with a kerb taper (rules 5-8, 10); the carriageway band `cw`, cut at the joints |
 | i | **Merges and forks** | the frames, the classes `merge` and `fork` | the section that keeps the far kerb at a merge or fork, `left_extra` (rule 14) |
 | j | **Junctions** | the junction nodes, the runs' own lanes, the crossings, the connectors | for each node its arms (the runs whose line ends at it), each arm's core (how far the other arms' lanes overlap it) and stop line (the far edge of a crossing within 15 m, else 3 m past the core), its frame to the stop line; the shapes that touch and the connectors clustered into one intersection, corners rounded by 4 m (rules 4, 5, 15) |
 | k | **The sections' roadway** | the frames, the intersections | each section's carriageway less the intersections, less the roadway already taken by another run |
 | l | **Barriers from a bridge landing** | the bridge corrections | a median barrier continued on the ground, its strip an island (rule 12) |
-| m | **The pedestrian side** (walking) | the street (the area less the blocks), the roadway, the arms' stop lines, the service roads | the street less the roadway, each piece given to the nearest roadway; the strip between two roadways an island where it is 2 m wide, paved roadway where thinner (rule 15); the sidewalk cut square at each arm's stop line and at the block corners; a driveway where a service road crosses it |
+| m | **The walking side** | the street (the area less the blocks), the roadway, the arms' stop lines, the service roads | the street less the roadway, each piece given to the nearest roadway; the strip between two roadways an island where it is 2 m wide, paved roadway where thinner (rule 15); the sidewalk cut square at each arm's stop line and at the block corners; a driveway where a service road crosses it |
 | n | **Crosswalks** | OSM's crossing ways and crossing nodes, the roadway | a crosswalk part per crossing that runs across the road, its paint from `crossing:markings` (rule 7, check X1) |
 | o | **Parts and marks** | all of the above | the parts of every unit: lanes, paved roadway (`carriageway`), junction area, crosswalk, island, sidewalk, furnishing, frontage, driveway; the marks: kerb, centre, lane, stop and give-way lines (rules 8, M1) |
 | p | **Write** | the parts and marks | the level-0 rows of `space.unit`, `junction`, `subsection`, `change`, `part`, `mark`; a crosswalk is one object in one space (the loser's piece goes) |
-| q | **The kerbs** | the roadway, the pedestrian side | `space.kerb`: one line for the level, the boundary between the roadway and the pedestrian side |
+| q | **The kerbs** | the roadway, the walking side | `space.kerb`: one line for the level, the boundary between the roadway and the walking side |
 ![Sub-steps b to e and j: the junction nodes make the intersections (red) and the sections between them (blue). The roundabout and its neighbours are one intersection here, i0-25197679, by rule 3.](../img/steps/04-sections-intersections.png){ width=100% }
 
 *Sub-steps b to e and j: the junction nodes make the intersections (red) and the sections between them (blue). The roundabout and its neighbours are one intersection here, i0-25197679, by rule 3.*
@@ -234,7 +248,7 @@ flowchart LR
     XW[crossings] --> J
     H --> K[k the sections' roadway]
     J --> K
-    K --> M[m the pedestrian side, walking]
+    K --> M[m the walking side, walking]
     J --> M
     BL[the blocks] --> M
     K --> N[n crosswalks]
@@ -254,7 +268,7 @@ flowchart LR
 - The **intersections** (j) depend on the junction nodes (b), the runs' own lanes (c), the crossings and the connectors (e). They do
   not depend on the frames: an arm's frame is read, not changed, when the arm is cut at its stop line.
 - The **roadway** of a section (k) depends on its frame (h) and on the intersections (j).
-- The **pedestrian side** (m), the walking side, depends on the roadway (k), the arms' stop lines (j) and the blocks (step 7 of the
+- The **walking side** (m), the walking side, depends on the roadway (k), the arms' stop lines (j) and the blocks (step 7 of the
   build). The blocks depend on the street lines and the footways only, never on the intersections, so a change in (b), (e) or (j)
   leaves every block where it is.
 - The **crosswalks** (n) depend on the roadway (k); the parts (o) on everything; the turns (build step 9) on the subsections' lanes
@@ -265,7 +279,7 @@ flowchart LR
 - **Driving:** the frame of a section (h): one width for the whole section, the lanes OSM counts, centred on each carriageway's OSM
   line, plus the parking, bus and cycle strips a source gives; inside an intersection the arms' frames to their stop lines and the
   connectors' carriageways, as one junction area (j).
-- **Walking:** the pedestrian side (m): from the frame's edge, the kerb, to the block's edge, as the bands sidewalk, furnishing and
+- **Walking:** the walking side (m): from the frame's edge, the kerb, to the block's edge, as the bands sidewalk, furnishing and
   frontage (their widths in `parts.py`), with the islands between two roadways, the driveways across it, and the crosswalks over the
   roadway (n). It is cut at the arms' stop lines and at the block corners, so each piece belongs to one section or one intersection.
 
@@ -313,7 +327,8 @@ one hears for the same thing, so that a reader coming from OSM, SUMO or the stre
 | The thing | Our word | Also called |
 |---|---|---|
 | the integer floor of the area, 0 the ground, +1 above, -1 below | **level** (`level`, `level_min`, `level_max`, the level buttons) | layer (OSM's tag, and in talk); storey |
-| a position in the hierarchy: street, section, subsection and intersection, part, mark | **rank** | level (never: that is the floor), tier |
+| a position in the hierarchy: street, section, subsection and intersection, side, part, mark | **rank** | level (never: that is the floor), tier |
+| one of the two halves of a space: the roadway, or the rest to the block edge | **driving side**, **walking side** (`space.side`, rank 4) | pedestrian realm, travelway (old words) |
 | the floor 0 | **ground** | at grade, street level |
 | a road or path above the ground | **deck** | overpass, viaduct |
 | the structure that carries a deck: its profile and its 3D model | **bridge** | |
@@ -337,15 +352,15 @@ one hears for the same thing, so that a reader coming from OSM, SUMO or the stre
 | how far the other arms' lanes overlap an arm from its node | **core** | |
 | the line across an arm where its roadway ends and the intersection begins | **stop line** | |
 | a line across the street where one space ends and the next begins | **cut** | |
-| one width for a whole section: its lanes and strips at its widest place | **frame** (driving) | cross-section, profile |
+| one width for a whole section: its lanes and strips at its widest place; the driving side's shape | **frame** | cross-section, profile |
 | the lanes, the paved roadway and the strips | **roadway** | carriageway, travelway |
 | a band beside the lanes with a source: parking, bus, cycle | **strip** | |
 | the boundary between the roadway and the walking side | **kerb** | curb |
-| the space less the roadway, kerb to block edge | **pedestrian side** (walking) | pedestrian realm, sidewalk area |
-| the three bands of the pedestrian side, from the kerb | **furnishing**, **sidewalk**, **frontage** | furniture zone, clear path, building zone |
-| a piece of the pedestrian side between two roadways, touching no block | **island** | refuge, median |
+| the space less the roadway, kerb to block edge | **walking side** | walking side, pedestrian realm (old words) |
+| the three bands of the walking side, from the kerb | **furnishing**, **sidewalk**, **frontage** | furniture zone, clear path, building zone |
+| a piece of the walking side between two roadways, touching no block | **island** | refuge, median |
 | a band across the roadway on a crossing way | **crosswalk** | zebra, pedestrian crossing |
-| a service road's crossing of the pedestrian side | **driveway** | apron, alley mouth |
+| a service road's crossing of the walking side | **driveway** | apron, alley mouth |
 | one piece of a space, of one type | **part** (`space.part`) | polygon, feature |
 | a painted line, an arrow, a zebra, or the kerb line | **mark** (`space.mark`) | marking |
 | the land between the streets | **block** | |

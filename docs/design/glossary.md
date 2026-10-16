@@ -28,6 +28,7 @@ a column or a table name it is written in `code`. "Built" says whether it exists
 | **connector** | a road between two junction nodes shorter than 40 m (`CONNECTOR_M`), or one of `_link` ways only, not a bridge way: no section; its carriageway belongs to one intersection with both nodes, named in the junction area's `ref` (`sections.md` rule 3, 2026-10-16) | yes |
 | **zone** | what a part of a container is for: `travelway`, `pedestrian_realm` or `track`. One row of `space.zone` per container and zone | yes |
 | **travelway** | the part of the street space where vehicles move. Measured out to the kerb where a sidewalk is found, else the lane width | yes |
+| **side** | rank 4 of the street's hierarchy (`steps.md`): the two halves of a space, the driving side (the frame, kerb to kerb: the roadway) and the walking side (the rest, kerb to block edge); `space.side`, agreed 2026-10-16, to be built | no |
 | **pedestrian realm** | the rest of the street space beside the travelway: sidewalk, furnishing strip, open ground. Still a remainder, but its inner edge is the measured kerb where one was found | yes |
 | **track** | the zone of a rail space: the tracks plus a strip for the tunnel or embankment | yes |
 | **element** | one centerline or building in `space.element`: a `road`, `walkway`, `cycleway`, `rail` or `building`, with its level, width and OSM ids | yes |

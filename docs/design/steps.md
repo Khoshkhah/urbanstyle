@@ -22,6 +22,8 @@ arrives at it, so it stands outside the tree. Rank 3 is a space, the thing that 
 intersection itself. A section is divided into subsections; an intersection is never divided, so it is its own stretch and its own
 space, and it belongs to no section.
 
+The ground, rank 0 to rank 1: the whole area cut into its kinds.
+
 ```mermaid
 flowchart TD
     L0[0 the level: its whole area] --> K1[1 street]
@@ -32,7 +34,13 @@ flowchart TD
     L0 --> K6[1 water]
     L0 --> K7[1 rail]
     L0 --> K8[1 structure]
-    K1 --> SE[2 section]
+```
+
+The street, rank 1 to rank 6: the street kind divided down to the marks.
+
+```mermaid
+flowchart TD
+    K1[1 street] --> SE[2 section]
     SE --> SU[3 subsection]
     K1 --> IN[2 and 3: intersection]
     SU --> D1[4 driving side]

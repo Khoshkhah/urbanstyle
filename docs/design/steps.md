@@ -271,6 +271,11 @@ flowchart LR
 
 ## 6. The levels: how the build separates them
 
+The words (the glossary has them): a **level** is an integer floor of the area, 0 the **ground**, above it a **deck** (what a
+**bridge** carries), below it a **tunnel**, each in a **tube**; a tunnel meets the ground at a **portal**, a deck at a **landing**;
+a **link** joins two elements of different levels at a node. "Layer" is OSM's tag, or one of the model's layers of
+`space-layers.md`, never a level.
+
 ![The levels in 3D with level 0 faded: a tunnel's lanes lie flat under the ground, a deck 6 m above it, a bridge model at its profile's heights. Each level has its own button: full, faded, hidden.](../img/steps/12-levels.png){ width=100% }
 
 *The levels in 3D with level 0 faded: a tunnel's lanes lie flat under the ground, a deck 6 m above it, a bridge model at its profile's heights. Each level has its own button: full, faded, hidden.*

@@ -7,7 +7,14 @@ a column or a table name it is written in `code`. "Built" says whether it exists
 
 | term | meaning | built |
 |---|---|---|
-| **level** | an integer floor of the city: 0 = ground, positive = above (bridges, upper floors), negative = below (tunnels, basements, metro). Only -2 … 2 are kept; a road, walkway, rail line or station beyond that range is shown at the nearest kept level, a building lying wholly outside is dropped | yes |
+| **level** | an integer floor of the area: 0 is the ground, +1 one floor above, -1 one below. From OSM's `layer` tag, else a bridge is 1 and a tunnel -1; outside `LEVELS` clamped to the nearest kept level. Never "layer": that word is OSM's tag, or one of the model's layers of `space-layers.md` (ground, surfaces). | yes |
+| **ground** | level 0: the street the network step builds (`steps.md`). A level-1 way with nothing at level 0 passing under it is ground too, and loses its level-1 copy. | yes |
+| **deck** | a road or path at a level above the ground: what a bridge carries. Drawn 6 m a level above the ground when it has no bridge model. | yes |
+| **bridge** | the structure that carries a deck: in the model a profile (`<name>.bridge.json`, `bridge-profile.md`) and the 3D model made from it (`bridges-3d.md`). A bridge way is an OSM way a profile lists. | yes |
+| **tunnel** | a road or path at a level below the ground, in a tube. Drawn flat under the ground until `tunnels-3d.md` is built. | yes |
+| **tube** | the space of a tunnel or of a deck: its roadway and a narrow walkway, no blocks (`space-parts.md`). | yes |
+| **portal** | the node where a tunnel's way meets a ground way; the tunnel's lanes and the ground's lanes touch there. | yes |
+| **landing** | the node where a deck's way meets a ground way: the bridge's end on the ground (`bridge-profile.md`). | yes |
 | **street space** | the whole open strip of a street from the building (or wall) on one side to the one on the other: the right-of-way. It is *measured*, not drawn: see **section (cross-section)** | yes |
 | **ROW** | right-of-way. Another name for the street space; also the name used by the street-design guides (Seattle, NACTO) | yes |
 | **container** | one row of `space.container`: a named, non-overlapping piece of the street space at one level. Every point of the street space is in exactly one container. Its `kind` is `street`, `path`, `rail` or `intersection` | yes |

@@ -78,7 +78,8 @@ count, a missing `layer`, is fixed here and nowhere lower.
 **Rank 1. The ground**, table `space.ground` (every piece with its kind), `space.block` (the blocks).
 What: the whole area of rank 0 cut into eight kinds (`ground.py`): **street** (the street area between the blocks: the roads
 with their walking sides), **plot** (a block: the land between the streets, `space.block`), **path** (a space of footpaths with no
-road), **square** (a pedestrian place), **green**, **water**, **rail**, **structure**. Two kinds are divided further at rank 2: the
+road), **square** (a pedestrian place), **green**, **water**, **rail**, **structure** (the ground under a bridge: OSM's
+`man_made=bridge` outline, or the ground under a deck). Two kinds are divided further at rank 2: the
 street into sections and intersections, the plot into **building**, **yard**, **alley** (a service road inside the block), **car
 park** and **construction site** (`space.ground` holds these five as the plot's pieces). The kinds partition the area exactly (`ground.py`, 2026-10-16): each kind is cut in the order of
 precedence less every kind before it, and what no kind covers, whatever its size, joins the kind it shares the most edge with. The

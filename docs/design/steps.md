@@ -23,10 +23,17 @@ space, and it belongs to no section.
 
 ```mermaid
 flowchart TD
-    L0[0 the level: its whole area] --> G1[1 the ground: blocks, street area, water, rail, green]
-    G1 --> SE[2 section]
+    L0[0 the level: its whole area] --> K1[1 street]
+    L0 --> K2[1 plot: the blocks and their buildings]
+    L0 --> K3[1 path]
+    L0 --> K4[1 square]
+    L0 --> K5[1 green]
+    L0 --> K6[1 water]
+    L0 --> K7[1 rail]
+    L0 --> K8[1 structure]
+    K1 --> SE[2 section]
     SE --> SU[3 subsection]
-    G1 --> IN[2 and 3: intersection]
+    K1 --> IN[2 and 3: intersection]
     SU --> D1[4 driving side]
     SU --> W1[4 walking side]
     IN --> D2[4 driving side]
@@ -51,9 +58,12 @@ How: the roads come from duckOSM's networks and OSM's tags, with the override fi
 the level from OSM's `layer` tag, else bridge 1, tunnel -1, else 0. Checks: P1-P7 (the elements). A fault here, a wrong lane
 count, a missing `layer`, is fixed here and nowhere lower.
 
-**Rank 1. The ground**, table `space.ground` (its kinds), `space.block` (the blocks).
-What: the whole area of rank 0 cut into kinds: the blocks (plots, with the buildings), the street area between them, water, rail,
-green, path, square, structure. The kinds partition the area with nothing left over (G1: no piece of unknown kind; G2: no overlap).
+**Rank 1. The ground**, table `space.ground` (every piece with its kind), `space.block` (the blocks).
+What: the whole area of rank 0 cut into eight kinds: **street** (the street area between the blocks: the roads with their walking
+sides), **plot** (the blocks, with their buildings and yards), **path** (a space of footpaths with no road), **square** (a pedestrian
+place), **green**, **water**, **rail**, **structure**. The kinds partition the area with nothing left over (G1: no piece of unknown
+kind; G2: no overlap). Only the street kind is divided further, at rank 2; the other kinds end here, with their surfaces
+(`space.surface`, `space-layers.md`).
 How: the blocks from the street lines of rank 0, the footways and a city's parcels (`blocks.md`); the street area is what is left
 between the blocks; water, rail and green from OSM's areas. Checks: B1 and B6 (the blocks), G1 and G2 (the ground). A block edge off
 is fixed here.

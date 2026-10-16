@@ -36,6 +36,16 @@ def unit_checks(c, q, epsg):
     ] + part_checks(c, q, m)
 
 
+_R1 = {}
+
+
+def _r1(c, q, m):
+    if "v" not in _R1:
+        epsg = m("x").split("'")[3]
+        _R1["v"] = roadway_joints(c, epsg, bool(q("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'space' AND table_name = 'change'")))
+    return _R1["v"]
+
+
 def part_checks(c, q, m):
     """U8-U10: the parts of a space (space.part, docs/design/space-parts.md) cover it exactly."""
     if not q("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'space' AND table_name = 'part'"):
@@ -49,7 +59,7 @@ def part_checks(c, q, m):
                                   AND ST_Intersects(a.g, b.g) WHERE ST_Area(ST_Intersection(a.g, b.g)) > 0.5"""), True),
         ("U10", "cuts where the roadway differs by more than 0.5 m on the two sides", roadway_mismatch(c, q, m), False),
         ("R1", "joints between two subsections where the roadway's edges step by more than 0.1 m (the frame changes only at a 'real' change, J4)",
-         roadway_joints(q, m, bool(q("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'space' AND table_name = 'change'"))), True),
+         _r1(c, q, m)[0], True, _r1(c, q, m)[1]),
         ("R4", "edges of lanes, cycle lanes and parking at a joint with no edge on the other side (0.3 m in, within 0.25 m)", lane_joints(c, m), False),
         ("R3", "subsections where OSM's lane count does not fit between our kerbs (a lane under 2.75 m): our kerb is probably wrong",
          q("SELECT count(DISTINCT unit_id) FROM space.part WHERE level = 0 AND type = 'lane' AND source = 'osm' AND width_m < 2.75"), False),
@@ -210,7 +220,10 @@ def rule_checks(c, epsg):
                 h = ((b.x - a.x) ** 2 + (b.y - a.y) ** 2) ** .5 or 1
                 nx, ny = -(b.y - a.y) / h, (b.x - a.x) / h
                 hit = shapely.LineString([(p.x - nx * 20, p.y - ny * 20), (p.x + nx * 20, p.y + ny * 20)]).intersection(U)
-                ts = [(x - p.x) * nx + (y - p.y) * ny for q_ in shapely.get_parts(hit) if q_.geom_type == "LineString" for x, y in q_.coords]
+                # (the lanes' run that holds the line point, or the nearest one: on a bend or a loop the cross line meets the same road
+                # again 20 m on, and that run is not this place's; Avenue Hector Otto's roundabout, Monaco 2026-10-16)
+                runs_ = [[(x - p.x) * nx + (y - p.y) * ny for x, y in q_.coords] for q_ in shapely.get_parts(hit) if q_.geom_type == "LineString"]
+                ts = min(runs_, key=lambda tt: 0.0 if min(tt) <= 0 <= max(tt) else min(abs(min(tt)), abs(max(tt))), default=[])
                 if ts:
                     # (the widened outer lanes' extras, left minus right, move the middle by half of it: expected, not off)
                     exp_ = mshift.get(u, 0.0)
@@ -411,18 +424,58 @@ def lane_joints(c, m):
     return bad
 
 
-def roadway_joints(q, m, has_change=False):
+def roadway_joints(c, epsg, has_change=False):
     """Where two subsections of one section meet, the roadway (no median) reaches the joint at the same points from both sides: the frame
-    is one width for the section (sections.md rule 6). A joint at a 'real' change (space.change, J4) is allowed to step."""
-    road = "('lane', 'shoulder', 'parking', 'no parking', 'bus zone', 'bus lane', 'cycle lane', 'carriageway')"
-    real = f"AND NOT EXISTS (SELECT 1 FROM space.change ch WHERE ch.class = 'real' AND ST_DWithin({m('ch.geometry')}, j.g, 1.0))" if has_change else ""
-    return q(f"""WITH su AS (SELECT unit_id, section_id, ST_MakeValid({m('geometry')}) AS g FROM space.unit WHERE kind = 'subsection'),
-      rw AS (SELECT unit_id, ST_MakeValid(ST_Union_Agg(ST_MakeValid(ST_Buffer({m('geometry')}, 0.02)))) AS g FROM space.part WHERE type IN {road} GROUP BY unit_id),
-      j AS (SELECT a.unit_id AS ua, b.unit_id AS ub, ST_Intersection(a.g, b.g) AS g FROM su a JOIN su b ON a.section_id = b.section_id
-            AND a.unit_id < b.unit_id AND ST_Intersects(a.g, b.g)),
-      x AS (SELECT ST_Intersection(j.g, ra.g) AS xa, ST_Intersection(j.g, rb.g) AS xb FROM j JOIN rw ra ON ra.unit_id = j.ua
-            JOIN rw rb ON rb.unit_id = j.ub WHERE ST_Length(j.g) > 1 {real})
-      SELECT count(*) FROM x WHERE ST_Length(ST_Difference(xa, ST_Buffer(xb, 0.1))) + ST_Length(ST_Difference(xb, ST_Buffer(xa, 0.1))) > 0.1""")
+    is one width for the section (sections.md rule 6). A joint at a 'real' change (space.change, J4) is allowed to step. The joint is
+    the two spaces' shared boundary round the end of one line nearest the other, its pieces that run across the road (over 45° to
+    the line): two subsections of a section that folds back run side by side too, round an island, and that boundary is no joint
+    (Avenue des Spélugues' hairpin, Monaco 2026-10-16). Level 0 only, as R2-R4: the change classes exist at level 0 alone, and a joint
+    in the Tunnel Dorsale at level -2 stepped 8 m with no class to allow it. A bridge's deck is roadway: the model draws the lanes on
+    it, the ground's part is 'bridge deck'. Returns (count, [(lon, lat)])."""
+    import math
+    import pyproj
+    import shapely
+    m = lambda g: f"ST_AsWKB(ST_Transform({g}, 'EPSG:4326', '{epsg}', always_xy := true))"
+    geo = lambda w: shapely.make_valid(shapely.from_wkb(bytes(w)))
+    to_ll = pyproj.Transformer.from_crs(epsg, "EPSG:4326", always_xy=True).transform
+    road = ("lane", "shoulder", "parking", "no parking", "bus zone", "bus lane", "cycle lane", "carriageway", "bridge deck")
+    rw = {u: geo(w) for u, w in c.execute(f"""SELECT unit_id, ST_AsWKB(ST_Union_Agg(ST_MakeValid(ST_Buffer(ST_Transform(geometry, 'EPSG:4326', '{epsg}',
+                                              always_xy := true), 0.02)))) FROM space.part WHERE level = 0 AND type IN {road} GROUP BY 1""").fetchall()}
+    subs = {u: (sid, geo(w), wd) for u, sid, w, wd in c.execute(f"SELECT subsection_id, section_id, {m('geometry')}, width_m FROM space.subsection WHERE level = 0").fetchall()}
+    units = {u: geo(w) for u, w in c.execute(f"SELECT unit_id, {m('geometry')} FROM space.unit WHERE level = 0 AND kind = 'subsection'").fetchall()}
+    real = shapely.union_all([geo(w) for (w,) in c.execute(f"SELECT {m('geometry')} FROM space.change WHERE class = 'real'").fetchall()] or [shapely.Point()]) if has_change else shapely.Point()
+    by_sec = {}
+    for u, (sid, ln, wd) in subs.items():
+        by_sec.setdefault(sid, []).append(u)
+    bad = []
+    for sid, us in by_sec.items():
+        for i, a in enumerate(us):
+            for b in us[i + 1:]:
+                if a not in units or b not in units or not units[a].intersects(units[b]):
+                    continue
+                la, lb, half = subs[a][1], subs[b][1], (max(subs[a][2] or 0, subs[b][2] or 0) or 8.0) / 2 + 1.5
+                ca = list(la.coords)
+                p, q = (ca[0], ca[1]) if shapely.Point(ca[0]).distance(lb) <= shapely.Point(ca[-1]).distance(lb) else (ca[-1], ca[-2])
+                jp = shapely.Point(p)
+                if jp.distance(lb) > 1.0 or real.distance(jp) <= 1.0:
+                    continue                # (no common end: side by side, no joint; a 'real' change: a step is allowed)
+                d = (p[0] - q[0], p[1] - q[1]); h = math.hypot(*d) or 1.0
+                shared = units[a].intersection(units[b]).intersection(jp.buffer(half))
+                across = []
+                for g in shapely.get_parts(shared):
+                    if g.geom_type != "LineString" or g.length < 0.3:
+                        continue
+                    (x0, y0), (x1, y1) = g.coords[0], g.coords[-1]
+                    e = (x1 - x0, y1 - y0); he = math.hypot(*e) or 1.0
+                    if abs(d[0] * e[0] + d[1] * e[1]) / (h * he) < math.cos(math.radians(45)):
+                        across.append(g)
+                if not across:
+                    continue
+                jl = shapely.union_all(across)
+                xa, xb = jl.intersection(rw.get(a, shapely.Polygon())), jl.intersection(rw.get(b, shapely.Polygon()))
+                if xa.difference(xb.buffer(0.1)).length + xb.difference(xa.buffer(0.1)).length > 0.1:
+                    bad.append(to_ll(jp.x, jp.y))
+    return len(bad), bad
 
 
 def run(path):

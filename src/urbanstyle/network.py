@@ -21,6 +21,7 @@ division.py (space.unit, part, mark, subsection, junction) and replaces it when 
     marks        kerbs (the roadway's edge facing the pedestrian side), lane and centre lines only between lanes OSM maps, stop lines
 """
 import json
+import os
 import math
 
 STREET = ("motorway", "trunk", "primary", "secondary", "tertiary", "unclassified", "residential", "living_street")
@@ -653,8 +654,12 @@ def build(con, epsg, bridges=()):
         return shapely.LineString(c)
 
     def at_joints(r, geom):
+        # (the cut is local to the joint: the band runs past the joint by e (joint_line) and no more, so a disc of that reach round the
+        # joint holds all there is to trim. An infinite half-plane also cut the band wherever the line came back behind it, a hairpin
+        # or a long bend: Lacets Saint-Léon, Avenue des Spélugues and Avenue de La Quarantaine lost 30-100 m of lanes; Monaco 2026-10-16)
+        w = r.get("fkl", r["kl"]) - r.get("fkr", r["kr"])
         for p, n, side, where in r["cuts"]:
-            geom = geom.intersection(half_plane(p, n, side))
+            geom = geom.difference(half_plane(p, n, -side).intersection(shapely.Point(p).buffer(1.5 * w + 3.0)))
         return geom
     # the strips' changes (step 6b, after 6a'): a parking or cycle strip that starts or stops is class 'parking'; a joint where the lanes, the
     # width and the strips are the same is 'none' (another tag changes)
@@ -801,8 +806,11 @@ def build(con, epsg, bridges=()):
     arm_cuts = []       # (point, heading) where each arm's roadway is cut at its stop line: the sidewalk is cut on the same line
     for ni, n in enumerate(jn):
         # the arms: the runs that end at the node (a run that only passes near it shares no node with it: not an arm)
+        # (an end of the run's line within 1 m of the node, not the node's station on the line: a node beyond the line's end has
+        # station 0 at any distance, and Boulevard Rainier III, 110 m away, was an arm of Rue Grimaldi's junction, which then
+        # swallowed three junctions along it (i0-25194413, four nodes up to 98 m apart; Monaco 2026-10-16))
         arms = [runs[k] for k in (rtree.query(n.buffer(1.0)) if rtree is not None else [])
-                if min(runs[k]["line"].project(n), runs[k]["line"].length - runs[k]["line"].project(n)) < 1.0]
+                if min(shapely.Point(runs[k]["line"].coords[0]).distance(n), shapely.Point(runs[k]["line"].coords[-1]).distance(n)) < 1.0]
         out = []
         for i, r in enumerate(arms):
             ln = r["line"]
@@ -1086,10 +1094,24 @@ def build(con, epsg, bridges=()):
     rtree = shapely.STRtree([r["line"] for r in runs]) if runs else None        # (the runs as step 6 left them)
     roadway_x = shapely.union_all([roadway, gaps_u])      # (the strips between roadways are roadway too)
     xw = []     # [(polygon, markings, ref, axis line, width)]
+
+    def crosses_road(seg):
+        """The crossing piece runs across the road (30° or more to the nearest road line), not along it: a footway tagged crossing
+        that runs beside Boulevard du Larvotto for 80 m took the outer 1.5 m of its lane (A1; Monaco 2026-10-16)."""
+        mid = seg.interpolate(0.5, normalized=True)
+        ks = [k for k in (rtree.query(mid.buffer(8.0)) if rtree is not None else []) if runs[k]["line"].distance(mid) <= 8.0]
+        if not ks:
+            return True
+        ln = runs[min(ks, key=lambda k: runs[k]["line"].distance(mid))]["line"]
+        s_ = ln.project(mid)
+        a_, b_ = ln.interpolate(max(s_ - 1, 0)), ln.interpolate(min(s_ + 1, ln.length))
+        (x0, y0), (x1, y1) = seg.coords[0], seg.coords[-1]
+        h1, h2 = math.hypot(x1 - x0, y1 - y0) or 1, math.hypot(b_.x - a_.x, b_.y - a_.y) or 1
+        return abs((x1 - x0) * (b_.x - a_.x) + (y1 - y0) * (b_.y - a_.y)) / (h1 * h2) < math.cos(math.radians(30))
     for oid, x in xways:
         w = num_f(xtags.get(oid, {}).get("width")) or CROSSWALK_M
         for seg in shapely.get_parts(x.intersection(roadway_x.buffer(0.3))):
-            if seg.geom_type == "LineString" and seg.length >= 1.0:
+            if seg.geom_type == "LineString" and seg.length >= 1.0 and crosses_road(seg):
                 xw.append((poly(band(seg, -w / 2, w / 2).intersection(roadway_x)), markings(xtags.get(oid, {})), f"w{oid}", seg, w))
     for oid, tg, p in xnodes:
         if xw_tree is not None and any(xways[k][1].distance(p) < 2.0 for k in xw_tree.query(p.buffer(2.0))):

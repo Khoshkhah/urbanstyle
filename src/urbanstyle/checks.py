@@ -146,6 +146,7 @@ def rule_checks(c, epsg):
     import shapely
     import pyproj
     from .network import LANE_M, STREET, TAPER_M, CONNECTOR_M, XWALK_MAX_M, straight
+    from .blocks import street_sql
     A1_M = 0.5      # a carriageway's lanes are centred on their OSM line within this (sections.md: the 2 m tolerance of the shift era is gone)
     if not c.execute("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'space' AND table_name = 'part'").fetchone()[0]:
         return []
@@ -155,9 +156,8 @@ def rule_checks(c, epsg):
     geo = lambda w: shapely.make_valid(shapely.from_wkb(bytes(w)))
     parts = [(u, t, ref, src, geo(w)) for u, t, ref, src, w in c.execute(f"""SELECT unit_id, type, coalesce(ref, ''), coalesce(source, ''),
                  {m('geometry')} FROM space.part WHERE level = 0""").fetchall()]
-    streets = tuple(STREET)
-    roads = [(o, cl, geo(w)) for o, cl, w in c.execute(f"""SELECT osm_id, class, {m('geometry')} FROM space.element
-                 WHERE type IN ('road', 'walkway') AND level_min = 0 AND replace(coalesce(class, ''), '_link', '') IN {streets}""").fetchall()]
+    roads = [(o, cl, geo(w)) for o, cl, w in c.execute(f"""SELECT osm_id, class, {m('geometry')} FROM space.element e
+                 WHERE type IN ('road', 'walkway') AND level_min = 0 AND {street_sql('e')}""").fetchall()]
     lines = {}
     for o, cl, g in roads:
         lines.setdefault(o, []).append(g)
@@ -269,8 +269,8 @@ def rule_checks(c, epsg):
         return shapely.LineString([a_] + pts + [b_])
     subs = c.execute(f"SELECT width_m, {m('geometry')} FROM space.subsection WHERE level = 0 AND width_m IS NOT NULL").fetchall()
     # (and every road line itself, as wide as its lanes (element.width_m): an arm a junction takes whole has no subsection)
-    subs += c.execute(f"""SELECT width_m, {m('geometry')} FROM space.element WHERE type = 'road' AND level_min = 0 AND width_m IS NOT NULL
-                          AND replace(coalesce(class, ''), '_link', '') IN {streets}""").fetchall()
+    subs += c.execute(f"""SELECT width_m, {m('geometry')} FROM space.element e WHERE type = 'road' AND level_min = 0 AND width_m IS NOT NULL
+                          AND {street_sql('e')}""").fetchall()
     bands = shapely.union_all([extend(q_).buffer(wd / 2 + 2.5, cap_style="flat") for wd, w in subs for q_ in shapely.get_parts(geo(w))
                                if q_.geom_type == "LineString"] or [shapely.Polygon()])
     jover = []      # (a piece over 40 m2, a 30 degree corner's fillet of 4 m, and over a tenth of the junction: a traffic circle's ring is less)
@@ -316,8 +316,8 @@ def rule_checks(c, epsg):
     # K2: loose kerb ends: an end of a kerb line that touches no other kerb and no crosswalk within 0.3 m (a kerb ends only at a crossing)
     kerb_t = shapely.STRtree([g for _, g in kerbs]) if kerbs else None
     xw_t = shapely.union_all([g for u, t, ref, src, g in parts if t in ("crosswalk", "cycle crossing")] or [shapely.Polygon()])
-    service = shapely.union_all([geo(w) for (w,) in c.execute(f"""SELECT {m('geometry')} FROM space.element WHERE type IN ('road', 'walkway')
-                                 AND level_min = 0 AND class = 'service'""").fetchall()] or [shapely.LineString()])
+    service = shapely.union_all([geo(w) for (w,) in c.execute(f"""SELECT {m('geometry')} FROM space.element e WHERE type IN ('road', 'walkway')
+                                 AND level_min = 0 AND class = 'service' AND NOT {street_sql('e')}""").fetchall()] or [shapely.LineString()])
     loose = []
     for i_, (u, g) in enumerate(kerbs):
         for pt_ in (shapely.Point(g.coords[0]), shapely.Point(g.coords[-1])):

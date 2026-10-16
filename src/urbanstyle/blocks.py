@@ -25,6 +25,15 @@ import statistics
 # (a pedestrian street is no bounding road: it lies inside a block as a footway does, and like one it sets the edge of the block beside
 # it; Monaco's 219 pedestrian pieces cut its old town into blocks as streets do; Kaveh, 2026-10-14)
 STREET = ("motorway", "trunk", "primary", "secondary", "tertiary", "unclassified", "residential", "living_street")
+
+
+def street_sql(e="e"):
+    """SQL: the road `e` (a space.element) is a street: a street class, with its links, or a service road that carries a street's name
+    and no service=* kind (its subtype). Monaco tags whole quays and boulevard pieces as service, 39 ways, 3.5 km: Boulevard Albert
+    1er, Quai Antoine 1er, Avenue des Ligures (Kaveh, 2026-10-16). An unnamed service road, an alley, a driveway, a parking aisle
+    stays a service road: a driveway across the pedestrian side, no space of its own (docs/design/street-rules.md)."""
+    return (f"(replace(coalesce({e}.class, ''), '_link', '') IN {STREET} OR ({e}.class = 'service' AND {e}.name IS NOT NULL "
+            f"AND {e}.subtype IS NULL))")
 HALF_ROW = {"motorway": 18, "trunk": 16, "primary": 15, "secondary": 12, "tertiary": 10, "unclassified": 10, "residential": 10,
             "living_street": 8, "pedestrian": 10}  # half right-of-way by class where neither parcels nor sidewalks give it (chosen)
 SIMPLIFY_M = 1.0        # OSM's small wiggles are not the street's shape
@@ -99,8 +108,8 @@ def build(con, epsg):
     con.execute(f"INSERT INTO space.area VALUES (ST_Transform(ST_GeomFromWKB(?), '{epsg}', 'EPSG:4326', always_xy := true))", [shapely.to_wkb(box)])
 
     # bounding roads; a deck at level 1 bounds blocks only where nothing at ground level passes under it (works, not a bridge)
-    cand = [(cl, n, oid, g(w), lv) for cl, n, oid, w, lv in rows(f"""SELECT class, name, osm_id, {m()}, level_min FROM space.element
-              WHERE type IN ('road', 'walkway') AND replace(class, '_link', '') IN {STREET} AND level_min IN (0, 1)""")]
+    cand = [(cl, n, oid, g(w), lv) for cl, n, oid, w, lv in rows(f"""SELECT class, name, osm_id, {m()}, level_min FROM space.element e
+              WHERE type IN ('road', 'walkway') AND {street_sql('e')} AND level_min IN (0, 1)""")]
     ground_lines = [x for *_, x, lv in cand if lv == 0] + [g(w) for (w,) in rows(
         f"SELECT {m()} FROM space.element WHERE type = 'rail' AND level_min = 0")]
     gtree = shapely.STRtree(ground_lines)
@@ -109,8 +118,8 @@ def build(con, epsg):
         return 0
     # (a road of a street class is never a footway line, whatever its type: a private road duckOSM puts in the walking network only
     # measured its own centre line as its sidewalk, and its street came out 2 m wide; Route de l'Hopital w257071677, Kaveh, 2026-10-14)
-    side = [g(w) for (w,) in rows(f"""SELECT {m()} FROM space.element WHERE type = 'walkway' AND level_min = 0
-                                     AND coalesce(subtype, '') <> 'crossing' AND replace(coalesce(class, ''), '_link', '') NOT IN {STREET}""")]
+    side = [g(w) for (w,) in rows(f"""SELECT {m()} FROM space.element e WHERE type = 'walkway' AND level_min = 0
+                                     AND coalesce(subtype, '') <> 'crossing' AND NOT {street_sql('e')}""")]
     stree = shapely.STRtree(side)
     pmeta = rows(f"SELECT parcel_id, {m()} FROM space.parcel")
     parcels = [g(w) for _, w in pmeta]

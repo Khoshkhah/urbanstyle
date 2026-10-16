@@ -54,7 +54,8 @@ SELECT 'osm', edge_id::VARCHAR, t,
                        CASE highway WHEN 'motorway' THEN 14 WHEN 'trunk' THEN 12 WHEN 'primary' THEN 10
               WHEN 'secondary' THEN 8 WHEN 'tertiary' THEN 7 WHEN 'service' THEN 3.5 WHEN 'living_street' THEN 5 ELSE 6 END) END,
   e.osm_id, CASE t WHEN 'walkway' THEN 'pedestrian_realm' ELSE 'travelway' END, NULL, source, target,
-  CASE WHEN rw.tags['footway'] = 'crossing' OR rw.tags['highway'] = 'crossing' THEN 'crossing' WHEN rw.tags['footway'] = 'sidewalk' THEN 'sidewalk' END,
+  CASE WHEN rw.tags['footway'] = 'crossing' OR rw.tags['highway'] = 'crossing' THEN 'crossing' WHEN rw.tags['footway'] = 'sidewalk' THEN 'sidewalk'
+       WHEN highway = 'service' THEN rw.tags['service'] END,   -- (a service road's kind: alley, emergency_access, ...; none for most)
   coalesce(e.oneway, false),  -- the edge is kept in one direction only (twins are merged); arrows are right only for a genuine one-way road
   NULL, NULL,                 -- floors, height_m: a building's
   CASE WHEN t <> 'road' THEN 'urbanstyle, chosen for a ' || t

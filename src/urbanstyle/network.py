@@ -59,6 +59,7 @@ STRAIGHT_M = 2.0        # a road between two junctions whose OSM line stays this
 ISLAND_TOUCH_M = 2.0    # a pedestrian piece whose boundary runs less than this along a block's edge lies between roadways: an island (chosen)
 ISLAND_MIN_M2 = 4.0     # a pedestrian piece that touches no block and is smaller than this is no island: it is part of the sidewalk (chosen)
 from .parts import ARROW_M  # noqa: E402
+from .blocks import street_sql  # noqa: E402
 
 ROAD_T = ("lane", "carriageway", "junction area", "parking", "cycle lane", "bridge deck")     # the parts a crosswalk is cut from
 
@@ -181,8 +182,8 @@ def build(con, epsg, bridges=()):
     # ---- 2. the road network
     bridge_ways = {int(w[1:]) for pf in bridges for a in json.load(open(pf)).get("axes", []) for w in a.get("ways", [])}
     cand = [(oid, nm, cl, bool(ow), s_, d_, g(w), lv) for oid, nm, cl, ow, s_, d_, w, lv in rows(f"""SELECT osm_id, name, class, coalesce(oneway, false),
-                 src, dst, {m()}, level_min FROM space.element WHERE type IN ('road', 'walkway') AND level_min IN (0, 1)
-                 AND replace(class, '_link', '') IN {STREET}""")]
+                 src, dst, {m()}, level_min FROM space.element e WHERE type IN ('road', 'walkway') AND level_min IN (0, 1)
+                 AND {street_sql('e')}""")]
     # (a level-1 deck is the street at ground level where nothing at level 0 passes under it, as for the blocks; the ways of a bridge that
     # has a profile are the bridge model's: one 'bridge deck' part on their band, no lanes)
     ground_lines = [c[6] for c in cand if c[7] == 0] + [g(w) for (w,) in rows(f"SELECT {m()} FROM space.element WHERE type = 'rail' AND level_min = 0")]
@@ -1176,7 +1177,8 @@ def build(con, epsg, bridges=()):
         return max(ps_, key=lambda q: q.length) if ps_ else ln
 
     service_in = [(g(w), num_f(dict(t or {}).get("width")) or ALLEY_W_M) for w, t in rows(f"""SELECT {m()}, tags FROM space.element e
-                     LEFT JOIN osm.raw.ways w ON w.osm_id = e.osm_id WHERE e.type IN ('road', 'walkway') AND e.level_min = 0 AND e.class = 'service'""")]
+                     LEFT JOIN osm.raw.ways w ON w.osm_id = e.osm_id WHERE e.type IN ('road', 'walkway') AND e.level_min = 0 AND e.class = 'service'
+                     AND NOT {street_sql('e')}""")]
 
     def ped(uid, G, R):
         """The pedestrian side R of roadway G: furnishing, sidewalk, frontage; a piece that touches no block or the area's edge lies
@@ -1566,8 +1568,8 @@ def build(con, epsg, bridges=()):
     kerb_all = rw_all.buffer(0.02).buffer(-0.02).boundary if not rw_all.is_empty else shapely.LineString()     # (hairline gaps closed)
     if not area.is_empty and not kerb_all.is_empty:
         kerb_all = kerb_all.difference(area.boundary.buffer(0.5))
-    service = [g(w) for (w,) in rows(f"""SELECT {m()} FROM space.element WHERE type IN ('road', 'walkway') AND level_min = 0
-                                       AND class = 'service'""")]
+    service = [g(w) for (w,) in rows(f"""SELECT {m()} FROM space.element e WHERE type IN ('road', 'walkway') AND level_min = 0
+                                       AND class = 'service' AND NOT {street_sql('e')}""")]
     if service and not kerb_all.is_empty:
         mouths = [q_.centroid for ln_ in service for q_ in shapely.get_parts(ln_.intersection(kerb_all.buffer(0.3))) if not q_.is_empty]
         if mouths:

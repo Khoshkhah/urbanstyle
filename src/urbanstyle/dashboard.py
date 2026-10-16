@@ -1226,9 +1226,14 @@ def bridge_models(con, bridges, db=None):
         P_ = json.load(open(b))
         ol = shapely.Polygon(P_["deck"]["outline"]["value"])
         to_crs = f"ST_Transform(geometry, 'EPSG:4326', '{P_['crs']}', always_xy := true)"
-        # the street spaces above level 0 on this bridge: their parts and marks lie on the deck; their flat 3D drawing is hidden
-        us = [u for u, w in con.execute(f"SELECT unit_id, ST_AsWKB({to_crs}) FROM space.unit WHERE level > 0").fetchall()
-              if shapely.from_wkb(bytes(w)).intersects(ol)]
+        # the street spaces above level 0 on this bridge: their parts and marks lie on the deck; their flat 3D drawing is hidden.
+        # Those on the deck's outline, and those of the axes' own ways: a ramp runs on beyond OSM's deck outline, and its level-1
+        # space was drawn as a flat deck over the model (Avenue de France, axis a8 and the ramps; Kaveh, 2026-10-16)
+        ways = sorted({int(w[1:]) for a in P_.get("axes", []) for w in a.get("ways", [])})
+        cids = [c_ for (c_,) in con.execute("SELECT DISTINCT container_id FROM space.element WHERE type = 'road' AND level_min > 0 "
+                                            "AND osm_id IN (SELECT unnest(?::BIGINT[]))", [ways]).fetchall() if c_]
+        us = [u for u, sec, w in con.execute(f"SELECT unit_id, section_id, ST_AsWKB({to_crs}) FROM space.unit WHERE level > 0").fetchall()
+              if shapely.from_wkb(bytes(w)).intersects(ol) or sec in cids or any(u.startswith(c_ + "/") for c_ in cids)]
         under |= set(us)
         pf = ["part_id", "unit_id", "level", "type", "direction", "lane", "lane_id", "width_m", "road", "source", "method", "ref", "rule"]
         have = {r[0] for r in con.execute("SELECT column_name FROM information_schema.columns WHERE table_schema = 'space' AND table_name = 'part'").fetchall()}

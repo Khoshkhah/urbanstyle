@@ -101,6 +101,8 @@ In order; each item is a general rule, checked on Broadway x Granville before an
       surveyors do), every value gets closer to the truth and its stated accuracy gets smaller.
 - [ ] **Source dates** (proposed 2026-10-13, design note first): a `source_date` with each sourced value, and a manifest of the sources
       and their dates for each area file, so that two builds of one area can be compared by their stable ids.
+- [ ] **Paths** (design note `docs/design/paths.md`, a trial, 2026-10-16): a public pedestrian way cuts a block and is a street of its own
+      kind, with a width, path sections and path intersections, one side; tested on cuts first; after rule 3.
 - [ ] **Tunnels in 3D** (design note `docs/design/tunnels-3d.md`, proposed 2026-10-16): a tunnel model at its depth with a portal ramp, drawn like the
       bridges; levels −1 and −2 with the same full / faded / hidden buttons, built and checked on Monaco, then Södermalm.
 - [ ] **The second city: Södermalm**, with no new code, and its check report.

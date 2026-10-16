@@ -81,12 +81,14 @@ with their walking sides), **plot** (a block: the land between the streets, `spa
 road), **square** (a pedestrian place), **green**, **water**, **rail**, **structure** (the ground under a bridge: OSM's
 `man_made=bridge` outline, or the ground under a deck). Two kinds are divided further at rank 2: the
 street into sections and intersections, the plot into **building**, **yard**, **alley** (a service road inside the block), **car
-park** and **construction site** (`space.ground` holds these five as the plot's pieces). The kinds partition the area exactly (`ground.py`, 2026-10-16): each kind is cut in the order of
-precedence less every kind before it, and what no kind covers, whatever its size, joins the kind it shares the most edge with. The
-checks: G1, no piece of unknown kind; G2, no two kinds overlap by over 0.01 m²; G3, the area less the kinds' union is under
-0.01 m². Before this rule the measurement on Monaco gave overlaps of 34 m² and gaps of 32 m² in 2.39 km², slivers at the 5 cm
-simplification: a sliver under 0.5 m² was dropped, and a sliver joined its neighbour with a 1 cm buffer that overlapped the pieces
-round it. Only the street kind is divided further, at rank 2; the other kinds end here, with their surfaces (`space.surface`,
+park** and **construction site** (`space.ground` holds these five as the plot's pieces). The kinds partition the area exactly (`ground.py`, 2026-10-16), as one planar construction: every outline
+is noded with the others, the faces are polygonized, each face goes to the first kind in the order of precedence that holds its
+inner point, a face no kind holds goes to the neighbour face's kind it shares the most edge with, and each item's faces are merged.
+Faces share their edges, so no hairline is left. Measured on Monaco after it: the area is 2,390,512.6 m², the kinds add up to
+2,390,512.6 m², their union is 2,390,512.6 m², the gap 0.0 m², the overlaps 0. Before it, with each piece cut and snapped to the
+centimetre grid on its own, 7 km of shared edges left 36 m² of gaps and 12 m² of overlaps in hairlines. The checks: G1, no piece of
+unknown kind; G2, no two kinds overlap by over 0.05 m²; G3, the area less the kinds' union is under 1 m² (the lon/lat storage of
+the geometry leaves hairlines under those). Only the street kind is divided further, at rank 2; the other kinds end here, with their surfaces (`space.surface`,
 `space-layers.md`). A fix in `ground.py` is tested with `build --from ground` (Monaco: 7 min).
 How: the blocks from the street lines of rank 0, the footways and a city's parcels (`blocks.md`); the street area is what is left
 between the blocks; water, rail and green from OSM's areas. Checks: B1 and B6 (the blocks), G1 and G2 (the ground). A block edge off
@@ -146,7 +148,8 @@ touches no block, between two roadways, is an `island`. Only at the levels the o
 Lane lines only between lanes OSM counts, the centre line, stop and give-way lines at the stop lines, zebras from
 `crossing:markings`, arrows and guide lines from SUMO's moves, the kerb line between the two sides.
 
-Outside the tree: the **named street** (a group of stretches); the **links** between levels, which join two elements at a node; the
+Outside the tree, lying on it: the **paths** (every footpath whole, `space.path`, on the walking side, on a yard, on a crosswalk), the
+**street objects** (`space.object`); and the **named street** (a group of stretches); the **links** between levels, which join two elements at a node; the
 **bridge models**, drawn from a profile over the level-1 spaces they replace.
 
 On the page the layers follow the tree: **Sections** draws each section's area (its subsections' areas joined), **Subsections** each

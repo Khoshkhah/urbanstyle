@@ -220,22 +220,34 @@ def build(con, epsg):
         # blocks first: private ground no other kind holds is a yard (a garden, a forecourt, a paved lot); else unknown (G1)
         kind = "yard" if land_ is not None and p.intersection(land_).area > 0.5 * p.area else "unknown"
         out.append((f"g0-{kind}-{round(p.centroid.x)}-{round(p.centroid.y)}", kind, None, "urbanstyle", "derived", None, p))
-    # the partition made exact: each item less the items before it (the order is the precedence), and what the area still leaves,
-    # whatever its size, to the item sharing the most edge with it
-    taken = shapely.Polygon()
-    for i_ in range(len(out)):
-        piece = poly(out[i_][6].difference(taken, grid_size=0.01))
-        out[i_] = out[i_][:6] + (piece,)
-        taken = shapely.union_all([taken, piece], grid_size=0.01)
-    out = [o for o in out if not o[6].is_empty and o[6].area > 0]
-    tree = shapely.STRtree([x[6] for x in out]) if out else None
-    for p in shapely.get_parts(poly(area.difference(taken, grid_size=0.01))):
-        if p.is_empty or p.area <= 0 or tree is None:
-            continue
-        near = sorted(((p.boundary.intersection(out[k][6].buffer(0.02)).length, k) for k in tree.query(p.buffer(0.05))), reverse=True)
-        if near:
-            k = near[0][1]
-            out[k] = out[k][:6] + (poly(shapely.union_all([out[k][6], p], grid_size=0.01)),)
+    # the partition made exact, as one planar construction (rank 1 of steps.md, Kaveh 2026-10-16: "they must partition rank 0"):
+    # every outline noded together, the faces polygonized, each face given to the first item (the order is the precedence) that holds its
+    # inner point, a face no item holds to the neighbour it shares the most edge with, then each item's faces merged. Faces share their
+    # edges, so no hairline is left: pieces snapped to the grid on their own left 7 km of hairlines, 36 m2 of gaps and 12 m2 of overlaps
+    out = [o for o in out if o[1] != "unknown"]      # (an unknown sliver is an orphan face below: it joins its neighbour, G1 0)
+    noded = shapely.unary_union([area.boundary] + [o[6].boundary for o in out])
+    faces = [f for f in shapely.get_parts(shapely.polygonize(shapely.get_parts(noded))) if f.area > 0 and area.contains(f.representative_point())]
+    itree = shapely.STRtree([o[6] for o in out]) if out else None
+    mine = [[] for _ in out]
+    orphans = []
+    for f in faces:
+        rp = f.representative_point()
+        ks = sorted(k for k in (itree.query(rp) if itree is not None else []) if out[k][6].covers(rp))
+        if ks:
+            mine[ks[0]].append(f)
+        else:
+            orphans.append(f)
+    ftree = shapely.STRtree(faces)
+    owner = {}
+    for k, fs in enumerate(mine):
+        for f in fs:
+            owner[id(f)] = k
+    for f in orphans:       # (the neighbour face it shares the most edge with, that has an owner)
+        near = sorted(((f.boundary.intersection(faces[j].boundary).length, id(faces[j])) for j in ftree.query(f) if id(faces[j]) in owner), reverse=True)
+        if near and near[0][0] > 0:
+            mine[owner[near[0][1]]].append(f)
+    out = [o[:6] + (poly(shapely.unary_union(fs)),) for o, fs in zip(out, mine) if fs]
+    out = [o for o in out if not o[6].is_empty]
     con.execute("""CREATE OR REPLACE TABLE space.ground (ground_id VARCHAR, level INT, type VARCHAR, name VARCHAR, source VARCHAR,
                    method VARCHAR, ref VARCHAR, geometry GEOMETRY)""")
     if out:

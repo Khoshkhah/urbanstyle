@@ -82,6 +82,7 @@ nav:
       - "The street from SUMO (proposed)": design/street-from-sumo.md
       - "Bridges in 3D": design/bridges-3d.md
       - Tunnels in 3D (proposed): design/tunnels-3d.md
+      - Paths (proposed): design/paths.md
       - "Bridge profile": design/bridge-profile.md
       - "Bridge heights without LiDAR": design/bridge-heights.md
       - "Research: how standards layer a street": design/layers-research.md

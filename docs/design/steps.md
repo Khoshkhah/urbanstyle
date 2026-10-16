@@ -304,3 +304,50 @@ a **link** joins two elements of different levels at a node. "Layer" is OSM's ta
 - **The checks** run the street rules at level 0 (A, J, X, M, K, R); the space checks (U, P, S, I, C) at every level; the bridge
   rules (BR) per profile.
 
+
+## 7. The words
+
+One word per thing in the code, the ids, the tables and the docs. The second column is the word; the third gives the other words
+one hears for the same thing, so that a reader coming from OSM, SUMO or the street knows what is meant.
+
+| The thing | Our word | Also called |
+|---|---|---|
+| the integer floor of the area, 0 the ground, +1 above, -1 below | **level** (`level`, `level_min`, `level_max`, the level buttons) | layer (OSM's tag, and in talk); storey |
+| the floor 0 | **ground** | at grade, street level |
+| a road or path above the ground | **deck** | overpass, viaduct |
+| the structure that carries a deck: its profile and its 3D model | **bridge** | |
+| a road or path below the ground | **tunnel** | underpass, cut-and-cover |
+| the space of a tunnel or of a deck: roadway and a narrow walkway | **tube** | |
+| the node where a tunnel's way meets a ground way | **portal** | mouth |
+| the node where a deck's way meets a ground way | **landing** | abutment, ramp foot |
+| a ramp, stairs, an elevator, an entrance or a connection between two levels | **link** | |
+| the model's two sheets of the ground: what each piece is, and its surface | **layer 0, layer 1** of `space-layers.md` | |
+| a set of things the page draws and the panel switches | **map layer**, **overlay** (roadstyle's word) | |
+| an OSM node where roads meet and the traffic has to decide | **junction node** | node, junction |
+| the space where the arms of one or more junction nodes meet | **intersection** (`i0-<node>`) | junction, crossing, roundabout (a loop one) |
+| a road from one junction node's intersection to the next | **section** (`s0-w<way>`) | block face, link (in traffic models) |
+| a piece of a section with one cross-section | **subsection** (`s0-w<way>/<k>`) | segment |
+| the area of a subsection or of an intersection, block edge to block edge | **space** (`space.unit`) | street space, right-of-way |
+| a named road with its intersections | **street** (`k0-<way>`) | |
+| one OSM way with one cross-section, between two junction nodes | **run** | edge (duckOSM) |
+| where two subsections of a section meet | **joint** | |
+| a road under 40 m or a `_link` between two junction nodes, inside an intersection | **connector** | internal edge (SUMO) |
+| a run that ends at a junction node | **arm** | approach, leg |
+| how far the other arms' lanes overlap an arm from its node | **core** | |
+| the line across an arm where its roadway ends and the intersection begins | **stop line** | |
+| a line across the street where one space ends and the next begins | **cut** | |
+| one width for a whole section: its lanes and strips at its widest place | **frame** (driving) | cross-section, profile |
+| the lanes, the paved roadway and the strips | **roadway** | carriageway, travelway |
+| a band beside the lanes with a source: parking, bus, cycle | **strip** | |
+| the boundary between the roadway and the walking side | **kerb** | curb |
+| the space less the roadway, kerb to block edge | **pedestrian side** (walking) | pedestrian realm, sidewalk area |
+| the three bands of the pedestrian side, from the kerb | **furnishing**, **sidewalk**, **frontage** | furniture zone, clear path, building zone |
+| a piece of the pedestrian side between two roadways, touching no block | **island** | refuge, median |
+| a band across the roadway on a crossing way | **crosswalk** | zebra, pedestrian crossing |
+| a service road's crossing of the pedestrian side | **driveway** | apron, alley mouth |
+| one piece of a space, of one type | **part** (`space.part`) | polygon, feature |
+| a painted line, an arrow, a zebra, or the kerb line | **mark** (`space.mark`) | marking |
+| the land between the streets | **block** | |
+| the edge of a block where it faces a street | **block side** | |
+| a reading of the kerb's place from a city's data | **kerb evidence** | |
+| where OSM's tags change along a section, with its class | **change** (`space.change`, J4) | |

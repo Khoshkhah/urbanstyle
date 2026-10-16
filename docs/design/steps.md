@@ -313,6 +313,7 @@ one hears for the same thing, so that a reader coming from OSM, SUMO or the stre
 | The thing | Our word | Also called |
 |---|---|---|
 | the integer floor of the area, 0 the ground, +1 above, -1 below | **level** (`level`, `level_min`, `level_max`, the level buttons) | layer (OSM's tag, and in talk); storey |
+| a position in the hierarchy: street, section, subsection and intersection, part, mark | **rank** | level (never: that is the floor), tier |
 | the floor 0 | **ground** | at grade, street level |
 | a road or path above the ground | **deck** | overpass, viaduct |
 | the structure that carries a deck: its profile and its 3D model | **bridge** | |

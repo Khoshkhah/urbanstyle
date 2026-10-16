@@ -23,7 +23,7 @@ space, and it belongs to no section.
 
 ```mermaid
 flowchart TD
-    L0[0 the level: its road lines] --> G1[1 the ground: blocks, street area, water, rail, green]
+    L0[0 the level: its whole area] --> G1[1 the ground: blocks, street area, water, rail, green]
     G1 --> SE[2 section]
     SE --> SU[3 subsection]
     G1 --> IN[2 and 3: intersection]
@@ -44,16 +44,16 @@ told apart by their type. The change: a table `space.side` (id `<space>:driving`
 polygon) and the column `side_id` on `space.part`; the checks test the partition at rank 4 and at rank 5; the page gets one switch
 per side.
 
-**Rank 0. The level**: the ground, or a deck, or a tunnel, with its road lines.
-What: the road lines of the level (`space.element`: each with its level, its lanes forward and backward, its one-way, its class), the
-footways, the buildings. Everything below is cut from this.
+**Rank 0. The level**: the whole area of the level (`space.area`), the map at the ground, or at a deck, or at a tunnel.
+What: the whole area, with its content: the road lines of the level (`space.element`: each with its level, its lanes forward and
+backward, its one-way, its class), the footways, the buildings. Everything below is cut from this area.
 How: the roads come from duckOSM's networks and OSM's tags, with the override file for OSM's faults (`../duckOSM/osm_overrides`);
 the level from OSM's `layer` tag, else bridge 1, tunnel -1, else 0. Checks: P1-P7 (the elements). A fault here, a wrong lane
 count, a missing `layer`, is fixed here and nowhere lower.
 
 **Rank 1. The ground**, table `space.ground` (its kinds), `space.block` (the blocks).
-What: the level's area cut into kinds: the blocks (plots, with the buildings), the street area between them, water, rail, green,
-path, square, structure. The kinds partition the area.
+What: the whole area of rank 0 cut into kinds: the blocks (plots, with the buildings), the street area between them, water, rail,
+green, path, square, structure. The kinds partition the area with nothing left over (G1: no piece of unknown kind; G2: no overlap).
 How: the blocks from the street lines of rank 0, the footways and a city's parcels (`blocks.md`); the street area is what is left
 between the blocks; water, rail and green from OSM's areas. Checks: B1 and B6 (the blocks), G1 and G2 (the ground). A block edge off
 is fixed here.

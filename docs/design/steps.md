@@ -12,19 +12,18 @@ is a screenshot of the page, never a separate drawing.
 ## 1. The hierarchy, and how each thing is detected
 
 Everything of the street at one level is inside this tree. A thing of a lower rank is always inside one thing of the rank above,
-never in two and never in none.
+never in two and never in none. "Space" is the word for the area of a subsection or of an intersection (`space.unit`): not a rank of
+its own, the same object with its polygon.
 
 ```mermaid
 flowchart TD
     ST[street k0-way] --> SE[section s0-way]
-    SE --> SU[subsection s0-way/k]
-    ST --> IN[intersection i0-node]
-    SU --> SP[space: one per subsection]
-    IN --> SP2[space: one per intersection]
-    SP --> PD[driving parts: lanes, paved roadway, strips]
-    SP --> PW[walking parts: sidewalk, furnishing, frontage, island, driveway]
-    SP2 --> PJ[driving parts: junction area, crosswalks]
-    SP2 --> PW2[walking parts: sidewalk, island]
+    SE --> SU[subsection s0-way/k: its line in space.subsection, its area in space.unit]
+    ST --> IN[intersection i0-node: its nodes in space.junction, its area in space.unit]
+    SU --> PD[driving parts: lanes, paved roadway, strips, crosswalks]
+    SU --> PW[walking parts: sidewalk, furnishing, frontage, island, driveway]
+    IN --> PJ[driving parts: junction area, crosswalks]
+    IN --> PW2[walking parts: sidewalk, island]
     PD --> MK[marks: lines, zebras, arrows, kerb]
     PW --> MK
 ```
@@ -35,8 +34,7 @@ flowchart TD
 | **Intersection** (`i0-<node>`) | the space where the arms meet, from each node to each arm's stop line | each node's arms are the runs whose line ends at it; each arm reaches to its stop line (the far edge of a crossing within 15 m, else 3 m past where the other arms' lanes overlap it); the arms' frames to there, plus the connectors (a road under 40 m or a `_link` between two junction nodes, rule 3), joined where they touch, corners rounded by 4 m (rule 4). |
 | **Street** (`k0-<way>`) | a named road with the intersections it arrives at | the sections that share a name and a node, grouped; an unnamed road is its own street. |
 | **Section** (`s0-w<way>[.n]`) | the road from junction to junction | the runs (one OSM way with one cross-section) chained end to end across every node that is no junction; named by its longest way. |
-| **Subsection** (`s0-w<way>/<k>`) | a piece of a section with one cross-section | the section cut where its lanes or its strips change; every such joint classed `real`, `none`, `fork`, `merge`, `parking` or `unknown` (`sections.md` section 3); only a `real` change changes the section's frame (rules 5-8). |
-| **Space** (`space.unit`) | the area of one subsection or one intersection, from block edge to block edge | the subsection's or the intersection's roadway, plus the pedestrian side given to it: the street less the roadway, each piece to the nearest roadway, cut at the arms' stop lines and at the block corners. |
+| **Subsection** (`s0-w<way>/<k>`) | a piece of a section with one cross-section: its line (`space.subsection`, with the frame's width, the strips, `left_extra`) and its area (`space.unit`, from block edge to block edge), one object in two tables under one id | the section cut where its lanes or its strips change; every such joint classed `real`, `none`, `fork`, `merge`, `parking` or `unknown` (`sections.md` section 3); only a `real` change changes the section's frame (rules 5-8). Its area: its roadway plus the pedestrian side given to it, the street less the roadway, each piece to the nearest roadway, cut at the arms' stop lines and at the block corners. The intersection's area is made the same way (`space.unit`, `i0-<node>`). |
 | **Parts, driving** | the roadway of a space | the lanes OSM counts, centred on the carriageway's OSM line, at the section's one width (the frame); paved roadway where the frame is wider than the lanes; the junction area inside an intersection; the parking, bus and cycle strips a source gives; the crosswalks cut out of them. |
 | **Parts, walking** | the rest of the space | the space less the roadway: an island where a strip between two roadways is 2 m wide, else sidewalk, furnishing and frontage from the kerb to the block's edge, a driveway where a service road crosses it. |
 | **Marks** | the paint and the kerb | lane lines only between lanes OSM counts, the centre line, stop and give-way lines at the stop lines, zebras from `crossing:markings`, arrows and guide lines from SUMO's moves, the kerb line between the two sides. |

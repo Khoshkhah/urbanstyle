@@ -67,6 +67,11 @@ Walking side, built from the kerb outward: the area less the roadway. Along the 
 furnishing, the next 1.8 m is the sidewalk (the clear path), the rest up to the block's edge is frontage; the three widths are
 chosen values (`FURNISH_M`, `CLEAR_M`). A driveway, as wide as its service road or 5 m, is cut across them where a service road
 reaches the roadway. A piece that touches no block, between two roadways, is an island.
+The types (`space.part.type`), at level 0: driving side `lane` (its direction in a column: forward, backward, both, in, out),
+`carriageway` (paved roadway with no lane), `junction area`, the strips `parking`, `no parking`, `shoulder`, `bus lane`,
+`bus zone`, `cycle lane`, the crossings `crosswalk` and `cycle crossing`, and `bridge deck` (a bridge way's band, its lanes drawn by
+the bridge model); walking side `furnishing`, `sidewalk`, `frontage`, `island`, `driveway`. Only at the levels the old partition
+still builds: `ring` and `lane circulating` (a roundabout's ring), `verge`, `open`, `bus stop`, `tree pit`, `parking lot`.
 
 **5. The marks**, table `space.mark`, on the parts.
 Lane lines only between lanes OSM counts, the centre line, stop and give-way lines at the stop lines, zebras from

@@ -23,7 +23,8 @@ space, and it belongs to no section.
 
 ```mermaid
 flowchart TD
-    ST[1 street] --> SE[2 section]
+    L0[0 the level: its roads and its blocks] --> ST[1 street]
+    ST --> SE[2 section]
     SE --> SU[3 subsection]
     ST --> IN[2 and 3: intersection]
     SU --> D1[4 driving side]
@@ -42,6 +43,14 @@ Rank 4, the side, is agreed on 2026-10-16 and not in the data yet: today `space.
 told apart by their type. The change: a table `space.side` (id `<space>:driving` / `<space>:walking`, its space, its kind, its
 polygon) and the column `side_id` on `space.part`; the checks test the partition at rank 4 and at rank 5; the page gets one switch
 per side.
+
+**Rank 0. The level**, its roads and its blocks: the ground, or a deck, or a tunnel.
+What: the road lines of the level (`space.element`: each with its level, its lanes forward and backward, its one-way, its class) and
+the blocks of the level (`space.block`), which leave the street area between them. Everything below is cut from this.
+How: the roads come from duckOSM's networks and OSM's tags, with the override file for OSM's faults (`../duckOSM/osm_overrides`);
+the level from OSM's `layer` tag, else bridge 1, tunnel -1, else 0; the blocks from the street lines, the footways and a city's
+parcels (`blocks.md`). Checks: P1-P7 (the elements), B1 and B6 (the blocks), G1 and G2 (the ground). A fault here, a wrong lane
+count, a missing `layer`, a block edge off, is fixed here and nowhere lower.
 
 **Rank 1. The street**, id `k0-<way>`, table `space.street`.
 What: a named road with the intersections it arrives at.
@@ -334,7 +343,7 @@ one hears for the same thing, so that a reader coming from OSM, SUMO or the stre
 | The thing | Our word | Also called |
 |---|---|---|
 | the integer floor of the area, 0 the ground, +1 above, -1 below | **level** (`level`, `level_min`, `level_max`, the level buttons) | layer (OSM's tag, and in talk); storey |
-| a position in the hierarchy: street, section, subsection and intersection, side, part, mark | **rank** | level (never: that is the floor), tier |
+| a position in the hierarchy: the level (0), street, section, subsection and intersection, side, part, mark | **rank** | level (never: that is the floor), tier |
 | one of the two halves of a space: the roadway, or the rest to the block edge | **driving side**, **walking side** (`space.side`, rank 4) | pedestrian realm, travelway (old words) |
 | the floor 0 | **ground** | at grade, street level |
 | a road or path above the ground | **deck** | overpass, viaduct |

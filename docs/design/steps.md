@@ -16,8 +16,9 @@ geometry. From rank 2 down, each rank partitions the rank above it: the subsecti
 sides cover the space exactly, the parts of a side cover the side exactly (checks U1, U8, U9), and the spaces cover the street area
 of the level, the area less the blocks. A thing of a lower rank is then always inside one thing of the rank above, never in two and
 never in none. Rank 1 is the ground: the level's area cut into the blocks, the street area between them, water, rail and green.
-Rank 2 is a stretch of the street area: a section or an intersection. The named street, `k0-<way>`, is a group of stretches, not a
-rank: an intersection belongs to every street that arrives at it, so it stands outside the tree. Rank 3 is a space, the thing that has sides and parts: a subsection, or the
+Rank 2 divides the street kind of rank 1 only, into its stretches: sections and intersections; the seven other kinds end at
+rank 1. The named street, `k0-<way>`, is a group of stretches, not a rank: an intersection belongs to every named street that
+arrives at it, so it stands outside the tree. Rank 3 is a space, the thing that has sides and parts: a subsection, or the
 intersection itself. A section is divided into subsections; an intersection is never divided, so it is its own stretch and its own
 space, and it belongs to no section.
 
@@ -68,10 +69,10 @@ How: the blocks from the street lines of rank 0, the footways and a city's parce
 between the blocks; water, rail and green from OSM's areas. Checks: B1 and B6 (the blocks), G1 and G2 (the ground). A block edge off
 is fixed here.
 
-**The street**, id `k0-<way>`, table `space.street`: not a rank. A named road with the intersections it arrives at: the sections
-that share a name and a node, grouped; an unnamed road is its own street.
+**The named street**, id `k0-<way>`, table `space.street`: not a rank. A named road with the intersections it arrives at: the
+sections that share a name and a node, grouped; an unnamed road is its own named street.
 
-**Rank 2. The section**, id `s0-w<way>` (or `s0-w<way>.n` when one way gives two sections), table `space.subsection` (its pieces).
+**Rank 2. The section**, a stretch of the street kind, id `s0-w<way>` (or `s0-w<way>.n` when one way gives two sections), table `space.subsection` (its pieces).
 What: the road from one junction to the next, whatever OSM ways it is made of.
 How: first the junction nodes: an OSM node with 3 or more road ends (a road through counts 2), where a road ends, two ends merge
 or fork, or two streams cross (rules 1-2, 13). Then the runs, one OSM way with one cross-section, are chained end to end across every
@@ -84,7 +85,7 @@ its area, from block edge to block edge, is in `space.unit` under the same id. O
 How: the section is cut where its lanes or its strips change. Each cut is a joint, classed `real`, `none`, `fork`, `merge`,
 `parking` or `unknown`; only a `real` change changes the section's frame (`sections.md` section 3, rules 5-8).
 
-**Rank 2 and 3. The intersection**, id `i0-<node>`: a stretch of the street area of its own, and the space of that stretch.
+**Rank 2 and 3. The intersection**, id `i0-<node>`: a stretch of the street kind of its own, and the space of that stretch.
 What: the space where the arms of one or more junction nodes meet.
 Where: its nodes are in `space.junction`; its area in `space.unit`.
 How: for each junction node, its arms are the runs whose line ends at it. Each arm reaches to its stop line: the far edge of a
@@ -122,7 +123,7 @@ touches no block, between two roadways, is an `island`. Only at the levels the o
 Lane lines only between lanes OSM counts, the centre line, stop and give-way lines at the stop lines, zebras from
 `crossing:markings`, arrows and guide lines from SUMO's moves, the kerb line between the two sides.
 
-Outside the tree: the **street** (a group of stretches); the **links** between levels, which join two elements at a node; the
+Outside the tree: the **named street** (a group of stretches); the **links** between levels, which join two elements at a node; the
 **bridge models**, drawn from a profile over the level-1 spaces they replace.
 
 On the page the layers follow the tree: **Sections** draws each section's area (its subsections' areas joined), **Subsections** each
@@ -375,7 +376,7 @@ one hears for the same thing, so that a reader coming from OSM, SUMO or the stre
 | a road from one junction node's intersection to the next | **section** (`s0-w<way>`) | block face, link (in traffic models) |
 | a piece of a section with one cross-section | **subsection** (`s0-w<way>/<k>`) | segment |
 | the area of a subsection or of an intersection, block edge to block edge | **space** (`space.unit`) | street space, right-of-way |
-| a named road with its intersections | **street** (`k0-<way>`) | |
+| a named road with its intersections, a group of stretches | **named street** (`k0-<way>`) | street (also the rank-1 kind: say which) |
 | one OSM way with one cross-section, between two junction nodes | **run** | edge (duckOSM) |
 | where two subsections of a section meet | **joint** | |
 | a road under 40 m or a `_link` between two junction nodes, inside an intersection | **connector** | internal edge (SUMO) |

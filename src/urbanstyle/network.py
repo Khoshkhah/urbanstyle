@@ -320,11 +320,18 @@ def build(con, epsg, bridges=()):
                 if (i, j) < (k, l) and len({i, j, k, l}) == 4 and between(ang[k], ang[i], ang[j]) != between(ang[l], ang[i], ang[j]):
                     return True     # (the streams cross)
         return False
+    # (a node that only a bridge's ways reach, and the ramps from it, with no level-0 road at it, is the bridge's node: its junction is
+    # the bridge's (level 1), not the ground's. Monaco, Avenue de France over Boulevard d'Italie: two ground intersections for the
+    # bridge's nodes lay over the real one, 2026-10-16. A landing keeps its junction: a level-0 road is there)
+    l0 = [c[6] for c in cand if c[7] == 0]
+    t0 = shapely.STRtree(l0) if l0 else None
+    on_bridge = lambda p: any(edges[k][0] in bridge_ways for k in tree.query(p.buffer(0.5)) if edges[k][6].distance(p) <= 0.5)
+    on_ground = lambda p: t0 is not None and any(l0[k].distance(p) <= 0.5 for k in t0.query(p.buffer(0.5)))
     jn = []
     for e in edges:
         for q in (e[6].coords[0], e[6].coords[-1]):
             p = shapely.Point(q)
-            if all(p.distance(o) > 1.0 for o in jn) and deg(p) >= 3 and crosses(p):
+            if all(p.distance(o) > 1.0 for o in jn) and deg(p) >= 3 and crosses(p) and (on_ground(p) or not on_bridge(p)):
                 jn.append(p)
 
     # ---- 3-4. carriageways: runs of one way with one cross-section, split at the junction nodes

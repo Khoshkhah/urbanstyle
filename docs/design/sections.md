@@ -13,7 +13,11 @@ moves.
 ## 1. Where the roads meet
 
 1. **Junction nodes.** An OSM node where 3 or more road ends meet (a road that runs through counts 2), and where a road ends
-   there or two streams cross. The streams: each road end is paired with the end most opposite to it (within 45°).
+   there or two streams cross. The streams: each road end is paired with the end most opposite to it (within 45°). A junction
+   node of the ground has a level-0 road at it: a node that only a bridge's ways (a profile's axes) and the ramps from it reach is
+   the bridge's node, and its junction is the bridge's at level 1, not the ground's (Monaco, Avenue de France over Boulevard
+   d'Italie: two ground intersections for the bridge's nodes lay over the real one; 2026-10-16). A landing keeps its junction, a
+   level-0 road is there.
 2. **Merges and forks are junction nodes.** A Y, a ramp joining a road, a slip lane leaving a road: roads meet there, whatever
    the angle. (Until 2026-10-16 a Y was a joint inside a section; the connector became a section of its own, with a walking wedge
    beside it: the bump at West 8th and the slip lane.)

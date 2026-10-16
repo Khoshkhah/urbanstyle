@@ -95,6 +95,10 @@ const L3D={'u3d-furn':['fill-extrusion-color','refs',['get','color'],OBJ_POPUP],
   'u3d-gnd':['fill-color','ground_id',['get','color'],C.groundpopup],
   'u3d-kerb':['fill-extrusion-color','kerb_id','#8f8b86',['type','unit_id','arm','length_m','source','method','ref']],
   'u3d-ground':['fill-color','part_id',['get','color'],null],'u3d-raised':['fill-extrusion-color','part_id',['get','color'],null]};
+// the other levels' parts too: a tunnel's lanes (flat under the ground) and a deck's, hovered and picked like the ground's (Kaveh,
+// 2026-10-16: "I can't select a tunnel lane, the hover doesn't work on them")
+OTHER_LEVELS.forEach(l=>{L3D[l<0?'u3d-tun'+l:'u3d-deck'+l]=[l<0?'fill-color':'fill-extrusion-color','part_id',['get','color'],null]});
+const isPart=id=>/^u3d-(ground|raised|tun-?\d+|deck\d+)$/.test(id);
 // (xpMarked: the Explore panel's results that are 3D things themselves, orange (Kaveh, 2026-10-13: the list apart from the one selected): in 3D they are not drawn a second time)
 let xpMarked=[], xpFocus=null;
 window.mark3d=ids=>{xpMarked=ids||[]; paint3d()};
@@ -108,15 +112,15 @@ function paint3d(){Object.entries(L3D).forEach(([id,[prop,key,base]])=>{if(!map.
   const marked=!xpMarked.length?false:key==='refs'?['any',...xpMarked.map(is)]:['in',['get',key],['literal',xpMarked]];
   // (in the space in focus its own colours win over the results' orange; outside it all is faint. A street object belongs to the space
   // it stands in, its `space`: Kaveh, 2026-10-13, "show all objects in that space too")
-  const fk={'u3d-ground':'unit_id','u3d-raised':'unit_id','u3d-kerb':'unit_id','u3d-furn':'space'}[id];
+  const fk=isPart(id)||id==='u3d-kerb'?'unit_id':id==='u3d-furn'?'space':undefined;
   // (a focus: {units, parts, ground, blds, lots, objs}, any of them: a street space, a block, or a group from Browse)
   const F=xpFocus, lit=(k,vs)=>vs&&vs.length?['in',['get',k],['literal',vs]]:false, units=F?(F.units||(F.unit?[F.unit]:[])):[];
   let inF=false;
   if(F){if(id==='u3d-bld')inF=lit('id',F.blds); else if(id==='u3d-gnd')inF=lit('ground_id',F.ground); else if(id==='u3d-lot')inF=lit('id',F.lots);
-    else{const a=[fk&&lit(fk,units),['u3d-ground','u3d-raised'].includes(id)&&lit('part_id',F.parts),
+    else{const a=[fk&&lit(fk,units),isPart(id)&&lit('part_id',F.parts),
       id==='u3d-furn'&&(F.objs||[]).length&&['any',...F.objs.map(is)]].filter(Boolean); inF=a.length?['any',...a]:false}}
   // (crosswalks keep their colours in every focus, as the painted lines do: Kaveh, 2026-10-13)
-  const always=['u3d-ground','u3d-raised'].includes(id)?['in',['get','type'],['literal',['crosswalk','cycle crossing']]]:false;
+  const always=isPart(id)?['in',['get','type'],['literal',['crosswalk','cycle crossing']]]:false;
   map.setPaintProperty(id,prop,['case',is(sel3d||'\u0000'),'#7c4dff',is(hov3d||'\u0000'),'#b388ff',inF,base,marked,'#ff9100',always,base,
     !F?base:'#ebe8e3'])}); bldFade()}
 // buildings fade by their opacity out of a focus (white walls in a faint grey read as no change, Kaveh 2026-10-13). Those in focus,

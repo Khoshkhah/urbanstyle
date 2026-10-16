@@ -48,11 +48,15 @@ class Area:
         self.lock = threading.Lock()
         self.con = c = duckdb.connect()
         c.execute("LOAD spatial")
+        # the space db read into memory, then let go: a DuckDB file is held by readers or by one writer, never both across processes,
+        # so a server that kept the file open blocked every build, and every build stopped the server (Kaveh, 2026-10-16: "every
+        # time I want to check something in the dashboard it's down"). A rebuilt db shows after a restart.
         c.execute(f"ATTACH '{db}' AS unit (READ_ONLY)")
         c.execute("CREATE SCHEMA space")
         for (t,) in c.execute("SELECT table_name FROM information_schema.tables WHERE table_catalog = 'unit' "
                               "AND table_schema = 'space'").fetchall():
-            c.execute(f'CREATE VIEW space."{t}" AS SELECT * FROM unit.space."{t}"')
+            c.execute(f'CREATE TABLE space."{t}" AS SELECT * FROM unit.space."{t}"')
+        c.execute("DETACH unit")
         lon = c.execute("SELECT avg(ST_X(ST_Centroid(geometry))) FROM space.container").fetchone()[0]
         self.epsg = f"EPSG:{32600 + int((lon + 180) // 6) + 1}"
         self.name = os.path.basename(db).split(".")[0]

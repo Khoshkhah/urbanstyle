@@ -34,7 +34,7 @@ const store={get:k=>{try{return localStorage.getItem(k)}catch(e){return null}},s
 const newId=()=>Math.random().toString(36).slice(2);
 let session=store.get('xp-session')||newId(); store.set('xp-session',session);
 const $=id=>document.getElementById(id), COL='#ff9100', SRC='xp-res';
-let meta=null, last=null;
+let meta=null, last=null, offline=false;   // (offline: no server, the page as plain files)
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const km=m=>m>=1000?(m/1000).toFixed(2)+' km':Math.round(m)+' m';
 // the results on the map: one GeoJSON source, a fill, a line and a dot layer in orange (one thing selected: deep purple), in 2D and in 3D, on top
@@ -112,7 +112,8 @@ function select(f,at){shut(); if(!f)return; selF=f; const p=f.properties; pick(p
 const PICK3D={'u3d-furn':['Street objects','refs','id'],'u3d-bld':['Buildings','id','source_id'],'u3d-gnd':['Ground','ground_id','ground_id'],
   'u3d-lot':['Car parks','id','lot_id'],'u3d-ground':['Street parts','part_id','part_id'],'u3d-raised':['Street parts','part_id','part_id'],
   bridge:['Bridge parts','id','id']};
-window.xpOnPick=(lid,p,e)=>{const at=e&&e.lngLat?[e.lngLat.lng,e.lngLat.lat]:null;
+[-5,-4,-3,-2,-1].forEach(l=>PICK3D['u3d-tun'+l]=['Street parts','part_id','part_id']); [1,2,3,4,5].forEach(l=>PICK3D['u3d-deck'+l]=['Street parts','part_id','part_id']);
+window.xpOnPick=(lid,p,e)=>{if(offline)return false; const at=e&&e.lngLat?[e.lngLat.lng,e.lngLat.lat]:null;
   // (a kerb: no table of its own on the server; its fields as the 3D page has them, in the card, not a popup: Kaveh, 2026-10-14)
   if(lid==='u3d-kerb'&&p&&p.kerb_id!=null){select({type:'Feature',geometry:null,properties:{...p,_layer:'Kerbs',_label:'kerb',_id:p.kerb_id}},at); return true}
   const k=PICK3D[lid]; if(!k||!p||p[k[1]]==null||!meta)return false;
@@ -399,7 +400,7 @@ function hovSrc(f){const m=M(); if(!m||!m.isStyleLoaded())return; const fc={type
     m.addLayer({id:'xp-hov-pt',source:'xp-hov',type:'circle',filter:['==',['geometry-type'],'Point'],paint:{'circle-color':'#b388ff','circle-radius':8}})}
   else m.getSource('xp-hov').setData(fc)}
 let hovKey=null, hovT2=0;
-function wire2d(){const m=M();
+function wire2d(){if(offline)return; const m=M();     // (no server: roadstyle's own hover and popups)
   m.on('mousemove',e=>{if(is3d()){if(hovKey){hovKey=null; hovSrc(null)} return}
     const f=hit2d(e.point), r=f&&ref(f), key=r?r[0]+'|'+r[1]:null; m.getCanvas().style.cursor=r?'pointer':'';
     if(key===hovKey)return; clearTimeout(hovT2); if(hovKey){hovKey=null; hovSrc(null)}
@@ -411,7 +412,7 @@ function wire2d(){const m=M();
     const g=full(f), p=Object.fromEntries(Object.entries(f.properties).filter(([k])=>k!=='color'));     // (a layer the panel has no table for: its own fields)
     select({type:'Feature',geometry:g.geometry,properties:{...p,_layer:r[0],_id:r[1],_label:p.type||p.class||r[0]}},at)});
   // (roadstyle's own popup and its hover tooltip: off for every layer, the panel shows them)
-  if(typeof OVERLAYS!=='undefined')OVERLAYS.forEach(o=>{o.interactive=false; o.tooltip=[]})}
+  if(typeof OVERLAYS!=='undefined'&&!offline)OVERLAYS.forEach(o=>{o.interactive=false; o.tooltip=[]})}     // (no server: roadstyle's popups show the fields)
 const LAYERS_ID={'Buildings':'source_id','Bridge parts':'id','Street spaces':'unit_id','Street parts':'part_id','Ground':'ground_id','Car parks':'lot_id','Blocks':'block_id','Street objects':'id'};
 // ---- the start: the server's first answer (meta) and the layers' data in, the first look set, then the veil lifted (nothing changes in
 // front of the user while the page loads). No server (a page opened as a file): the map alone.
@@ -419,6 +420,10 @@ let tries=0;
 const lift=()=>{const v=$('xpveil'); if(v)v.remove()};
 function start(){const m=M(), data=typeof OVERLAYS!=='undefined'&&typeof rsQuery==='function'&&OVERLAYS.every(o=>/3D/.test(o.label)||rsQuery(()=>true,o.label).length);
   if((!m||!m.isStyleLoaded()||!meta||!data)&&tries++<150)return setTimeout(start,200);
+  if(meta.street_levels===null){     // no server: the levels from the page's own data (every layer's `level`), so the level buttons still work
+    const ls=new Set([0]), take=p=>{if(p.level!=null)ls.add(+p.level); return false};
+    OVERLAYS.forEach(o=>{if(!/3D/.test(o.label))rsQuery(take,o.label)}); rsQuery(take);
+    meta.street_levels=[...ls].sort((a,b)=>a-b); meta.street_levels.forEach(l=>{if(l!==0&&l!==1&&!(l in LOOKS['2d']))LOOKS['2d'][l]='off'})}
   OVERLAYS.forEach(o=>{if(!HIDE_LY(o.label))rsSetOverlay(o.label,allow.has(o.label))}); roadsOn(allow.has('Roads'));
   layersList(); views(); applyLooks(); wire2d();
   m.on('styledata',()=>{if(last)layers()});
@@ -427,6 +432,8 @@ function start(){const m=M(), data=typeof OVERLAYS!=='undefined'&&typeof rsQuery
 get('/api/meta').then(mt=>{meta=mt; (mt.street_levels||[]).forEach(l=>{if(l!==0&&l!==1&&!(l in LOOKS['2d']))LOOKS['2d'][l]='off'});
   $('xparea').textContent='· '+mt.area; branch($('xpbr'),'');
   $('xplayer').innerHTML=Object.entries(mt.layers).map(([k,v])=>`<option value="${esc(k)}">${esc(k)} (${v.count})</option>`).join(''); cond(); start()})
-  .catch(()=>{B.classList.remove('xp'); $('xp').style.display='none'; $('xpfold').style.display='none';
-    if(typeof OVERLAYS!=='undefined')OVERLAYS.forEach(o=>{if(!HIDE_LY(o.label))rsSetOverlay(o.label,allow.has(o.label))}); lift()});
+  // (no server, the page as plain files: the panel stays for the layers, the view and the levels, read from the page's data (start);
+  // the search, the tree, the filter and the agent need the server and are hidden; Kaveh, 2026-10-16: "it shows only level 0 and 1")
+  .catch(()=>{offline=true; meta={area:'',layers:{},street_levels:null}; $('xparea').textContent='· no server: layers, view and levels only';
+    ['xpq','xpbr','xpsum','xplayer','xpcond','xpask','xpcard'].forEach(id=>{const e=$(id); if(e)e.style.display='none'}); start()});
 })();

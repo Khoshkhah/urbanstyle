@@ -12,13 +12,16 @@ is a screenshot of the page, never a separate drawing.
 ## 1. The hierarchy, and how each thing is detected
 
 Everything of the street at one level is inside this tree, rank by rank. Each rank is a kind of object with its own id and its own
-geometry. A thing of a lower rank is always inside one thing of the rank above, never in two and never in none.
+geometry. A thing of a lower rank is always inside one thing of the rank above, never in two and never in none. Rank 2 is a
+stretch of the street: a section or an intersection. Rank 3 is a space, the thing that has sides and parts: a subsection, or the
+intersection itself. A section is divided into subsections; an intersection is never divided, so it is its own stretch and its own
+space, and it belongs to no section.
 
 ```mermaid
 flowchart TD
     ST[1 street] --> SE[2 section]
     SE --> SU[3 subsection]
-    ST --> IN[3 intersection]
+    ST --> IN[2 and 3: intersection]
     SU --> D1[4 driving side]
     SU --> W1[4 walking side]
     IN --> D2[4 driving side]
@@ -53,7 +56,7 @@ its area, from block edge to block edge, is in `space.unit` under the same id. O
 How: the section is cut where its lanes or its strips change. Each cut is a joint, classed `real`, `none`, `fork`, `merge`,
 `parking` or `unknown`; only a `real` change changes the section's frame (`sections.md` section 3, rules 5-8).
 
-**Rank 3b. The intersection**, id `i0-<node>`, at the same rank as the subsection.
+**Rank 2 and 3. The intersection**, id `i0-<node>`: a stretch of the street of its own, and the space of that stretch.
 What: the space where the arms of one or more junction nodes meet.
 Where: its nodes are in `space.junction`; its area in `space.unit`.
 How: for each junction node, its arms are the runs whose line ends at it. Each arm reaches to its stop line: the far edge of a

@@ -55,11 +55,18 @@ blocks) less the roadway, each piece to the nearest roadway, cut at the arms' st
 "space" means this area (`space.unit`); it is not a rank of its own.
 
 **4. The parts**, id `<space>#<n>`, table `space.part`, inside one subsection or one intersection.
-Driving side: the lanes OSM counts, centred on the carriageway's OSM line, at the section's one width (the frame); paved roadway
-where the frame is wider than the lanes; the junction area inside an intersection; the parking, bus and cycle strips a source gives;
-the crosswalks cut out of them.
-Walking side: the area less the roadway: an island where a strip between two roadways is 2 m wide; else sidewalk, furnishing and
-frontage from the kerb to the block's edge; a driveway where a service road crosses it.
+What: a partition of the whole area of the subsection or of the intersection. Every point of the area lies in exactly one part: the
+driving parts and the walking parts together cover it with no overlap (checks U8, the parts add up to the space, and U9, no two
+parts of a space overlap).
+Driving side, built from the road's line outward: each lane is a band 3.25 m wide (or OSM's `width`), laid side by side from the
+frame's right edge to its left edge, centred on the carriageway's OSM line, as many as OSM counts; where the frame is wider than the
+lanes the rest is paved roadway (`carriageway`); a parking, bus or cycle strip is a band outside the lanes where a source gives it;
+in an intersection the junction area is the arms' frames to their stop lines plus the connectors; the crosswalks, bands as wide as
+the crossing on OSM's crossing ways, are cut out of all of them.
+Walking side, built from the kerb outward: the area less the roadway. Along the roadway's edge, the kerb, the first 1.0 m is
+furnishing, the next 1.8 m is the sidewalk (the clear path), the rest up to the block's edge is frontage; the three widths are
+chosen values (`FURNISH_M`, `CLEAR_M`). A driveway, as wide as its service road or 5 m, is cut across them where a service road
+reaches the roadway. A piece that touches no block, between two roadways, is an island.
 
 **5. The marks**, table `space.mark`, on the parts.
 Lane lines only between lanes OSM counts, the centre line, stop and give-way lines at the stop lines, zebras from

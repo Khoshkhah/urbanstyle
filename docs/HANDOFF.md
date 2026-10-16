@@ -5,14 +5,23 @@ first, then this note, then `docs/design/street-rules.md` and `docs/design/secti
 
 ## Where the work stands
 
-- `main` and `network-first` are one (2026-10-16, night): steps 2 and 3 of `sections.md`, the rules from the Vancouver spots, the
-  dashboard's first-3D-draw fix, and the rules from the Monaco fails (`sections.md`, "The rules from the Monaco fails").
+- `main` and `network-first` are one (2026-10-16): steps 2 and 3 of `sections.md`, the rules from the Vancouver spots, the dashboard's
+  first-3D-draw fix, the rules from the Monaco fails (`sections.md`), the service-road rule, the servers that hold no lock, and the
+  document of the model: `docs/design/steps.md` (the hierarchy by rank, the steps, the dependencies, the levels, the words).
 - Vancouver (`data/units/broadway-granville.space.duckdb`) is rebuilt with the final code: no count changed. Its fails: I3 1 (the
   old container step) and one BR12 (an object inside a bridge lane at the on-ramp foot, -123.135954 49.266514), as before.
-- Monaco (`data/monaco.duckdb`) is rebuilt with the final code (`build --from division`: division 28 min, ground 7 min). From the
-  start of the night to its end: U1 3, U4 3, U5 3, U6 2, U8 1, R1 4, J1 3, J2 1 all to 0; A3 12 to 1; A1 8 to 5; X1 0. Left: A1 5,
-  A3 1, BR3 4 (Avenue de France), BR5 2 + 3 (Avenue de la Costa, Boulevard du Ténao); see the open items. Its page is
-  `viz/monaco.html`, served on port 8785.
+- Monaco (`data/monaco.duckdb`) is rebuilt in full on 2026-10-16 afternoon from duckOSM's rebuilt database (its 57 overrides applied,
+  issue 10: 1 lane on the Larvotto and Princesse Grace one-way ways) with the service-road rule (street-rules 16). From the start of
+  the night to its end: U1 3, U4 3, U5 3, U6 2, U8 1, R1 4, J1 3, J2 1 all to 0; A3 12 to 1 (Avenue Marquet, 7.413697 43.727264);
+  A1 8 to 1 (Avenue Princesse Grace near Boulevard d'Italie, 7.437639 43.749326); X1 0. The bridge model's own checks on the 14
+  regenerated profiles: BR5 2 + 3 (Avenue de la Costa, bridge w1388235621), BR7 1 + 1 and BR11 1 (Avenue de France, bridge
+  w572934026): bridge model work, one part at a time with Kaveh. Its page is `viz/monaco.html`, served on port 8784.
+- Agreed on 2026-10-16 afternoon, not built yet, in this order: (1) rule 3 of `sections.md` tightened: a connector joins two
+  junctions only where their cores overlap, or it is a `_link`, or both nodes lie on one closed loop of one-way pieces (a
+  roundabout, a kind of its own); the Sainte-Dévote cluster i0-25197679 (10 nodes, 3,200 m²) is the test, with West 8th and the
+  Granville ramp foot as the places that must stay one intersection each. (2) The side as rank 4 of the hierarchy: `space.side`
+  (driving, walking) and `side_id` on `space.part` (`steps.md` section 1). (3) The network rules for every level, then the tunnels
+  in 3D (`tunnels-3d.md`). (4) The part type `carriageway` renamed `paved`.
 - Two servers run on this machine: Vancouver on port 8784, Monaco on port 8785. One server serves one area: its `/api/` answers
   for one database (levels, tree, search). Street View works on 8784 only, because of the key's restriction.
 - Monaco cuts: `scratch/cut-monaco.py NAME LON LAT TAG SRC [RADIUS]` (a 250 m cut of `../duckOSM/monaco.duckdb`, a full build in 1-2

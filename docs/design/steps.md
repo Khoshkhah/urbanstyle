@@ -68,6 +68,10 @@ Lane lines only between lanes OSM counts, the centre line, stop and give-way lin
 Outside the tree: the **blocks**, which bound the spaces from outside and belong to the plots (`blocks.md`); the **links** between
 levels, which join two elements at a node; the **bridge models**, drawn from a profile over the level-1 spaces they replace.
 
+On the page the layers follow the tree: **Sections** draws each section's area (its subsections' areas joined), **Subsections** each
+subsection's own area (`space.unit`), **Subsection axes** and **Subsection breaks** the subsections' lines and where each starts
+(`space.subsection`), **Intersections** the intersections' areas, **Parts** the parts, **Mark: ...** the marks, **Blocks** the blocks.
+
 ![The sections (blue) and the intersections (red) at Sainte-Dévote. The roundabout and its neighbours are one intersection, i0-25197679, by rule 3 as it stands.](../img/steps/04-sections-intersections.png){ width=100% }
 
 *The sections (blue) and the intersections (red) at Sainte-Dévote. The roundabout and its neighbours are one intersection, i0-25197679, by rule 3 as it stands.*

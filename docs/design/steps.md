@@ -45,7 +45,7 @@ flowchart LR
 The street, rank 1 to rank 6: the street kind divided down to the marks.
 
 ```mermaid
-flowchart LR
+flowchart TD
     K1[1 street] --> SE[2 section]
     SE --> SU[3 subsection]
     K1 --> IN[2 and 3: intersection]
@@ -53,11 +53,11 @@ flowchart LR
     SU --> W1[4 walking side]
     IN --> D2[4 driving side]
     IN --> W2[4 walking side]
-    D1 --> P1["5 parts: lane, paved roadway, strips (parking, no parking, shoulder, bus lane, cycle lane), crosswalk, cycle crossing, bridge deck"]
-    W1 --> P2["5 parts: furnishing, sidewalk, frontage, island, driveway"]
-    D2 --> P3["5 parts: junction area, crosswalk, cycle crossing"]
-    W2 --> P4["5 parts: furnishing, sidewalk, frontage, island"]
-    P1 --> M["6 marks: lane line, centre line, edge line, stop line, give-way line, zebra, crossing line, arrow, guide line, kerb"]
+    D1 --> P1["5 parts<br/>lane<br/>paved roadway<br/>strip: parking, no parking,<br/>shoulder, bus lane, cycle lane<br/>crosswalk, cycle crossing<br/>bridge deck"]
+    W1 --> P2["5 parts<br/>furnishing<br/>sidewalk<br/>frontage<br/>island<br/>driveway"]
+    D2 --> P3["5 parts<br/>junction area<br/>crosswalk<br/>cycle crossing"]
+    W2 --> P4["5 parts<br/>furnishing<br/>sidewalk<br/>frontage<br/>island"]
+    P1 --> M["6 marks<br/>lane line, centre line, edge line<br/>stop line, give-way line<br/>zebra, crossing line<br/>arrow, guide line<br/>kerb"]
     P2 --> M
     P3 --> M
     P4 --> M

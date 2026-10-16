@@ -27,13 +27,17 @@ The ground, rank 0 to rank 1: the whole area cut into its kinds.
 ```mermaid
 flowchart TD
     L0[0 the level: its whole area] --> K1[1 street]
-    L0 --> K2[1 plot: the blocks and their buildings]
-    L0 --> K3[1 path]
-    L0 --> K4[1 square]
-    L0 --> K5[1 green]
-    L0 --> K6[1 water]
-    L0 --> K7[1 rail]
-    L0 --> K8[1 structure]
+    L0 --> K2[1 building]
+    L0 --> K3[1 yard]
+    L0 --> K4[1 alley]
+    L0 --> K5[1 car park]
+    L0 --> K6[1 path]
+    L0 --> K7[1 square]
+    L0 --> K8[1 green]
+    L0 --> K9[1 water]
+    L0 --> K10[1 rail]
+    L0 --> K11[1 structure]
+    L0 --> K12[1 construction site]
 ```
 
 The street, rank 1 to rank 6: the street kind divided down to the marks.
@@ -68,11 +72,13 @@ the level from OSM's `layer` tag, else bridge 1, tunnel -1, else 0. Checks: P1-P
 count, a missing `layer`, is fixed here and nowhere lower.
 
 **Rank 1. The ground**, table `space.ground` (every piece with its kind), `space.block` (the blocks).
-What: the whole area of rank 0 cut into eight kinds: **street** (the street area between the blocks: the roads with their walking
-sides), **plot** (the blocks, with their buildings and yards), **path** (a space of footpaths with no road), **square** (a pedestrian
-place), **green**, **water**, **rail**, **structure**. The kinds partition the area with nothing left over (G1: no piece of unknown
-kind; G2: no overlap). Only the street kind is divided further, at rank 2; the other kinds end here, with their surfaces
-(`space.surface`, `space-layers.md`).
+What: the whole area of rank 0 cut into kinds (`ground.py`): **street** (the street area between the blocks: the roads with their
+walking sides), and inside the blocks **building**, **yard**, **alley** (a service road inside a block), **car park**; beside them
+**path** (a space of footpaths with no road), **square** (a pedestrian place), **green**, **water**, **rail**, **structure**,
+**construction site**. The kinds partition the area (G1: no piece of unknown kind; G2: no overlap over 0.5 m²). Measured on Monaco
+on 2026-10-16: the kinds add up to 2,390,515 m², their union is 2,390,481 m², the area 2,390,513 m²: the overlaps total 34 m² in
+2.39 km², none over 0.9 m², and the gaps 32 m², slivers at the 5 cm simplification. Only the street kind is divided further, at
+rank 2; the other kinds end here, with their surfaces (`space.surface`, `space-layers.md`).
 How: the blocks from the street lines of rank 0, the footways and a city's parcels (`blocks.md`); the street area is what is left
 between the blocks; water, rail and green from OSM's areas. Checks: B1 and B6 (the blocks), G1 and G2 (the ground). A block edge off
 is fixed here.

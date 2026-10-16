@@ -5,10 +5,15 @@ division.py (space.unit, part, mark, subsection, junction) and replaces it when 
     carriageway  each road's lanes from OSM (`lanes`, per direction from duckOSM's driving network; a two-way road one lane each way at
                  least), centred on its own OSM line, LANE_M each or OSM `width` shared; parking and bike lanes beside them only where
                  OSM tags them; the kerb is its outer edge (a result, never guessed)
-    junctions    at each node where 3 or more road ends meet (a road through it counts 2): the arms' carriageways where they overlap, out
-                 to each arm's stop line (the far edge of OSM's crosswalk within CROSS_NEAR_M, else JUNC_ARM_M past the overlap), each
-                 arm cut square across its line there; corners rounded by KERB_RADIUS_M; junctions that overlap are one (id i0-<smallest node>)
-    sections     each road from junction to junction (id s0-w<way>[.n], one subsection /1 each): its carriageway less the junctions
+    junctions    at each node where 3 or more road ends meet (a road through it counts 2) and a road ends, two roads merge or fork, or two
+                 streams cross (docs/design/sections.md, rules 1-4): the arms' carriageways where they overlap, out to each arm's stop line
+                 (the far edge of OSM's crosswalk within CROSS_NEAR_M, else JUNC_ARM_M past the overlap), each arm cut square across its
+                 line there, with the connectors (a road between two junction nodes under CONNECTOR_M, or a `_link`); corners rounded by
+                 KERB_RADIUS_M; junctions that overlap or share a connector are one (id i0-<smallest node>)
+    sections     each road from junction to junction (id s0-w<way>[.n]), in subsections /k where the paint differs; one frame per
+                 section (docs/design/sections.md rules 5-8): the lanes and the strips a source gives at the section's widest place, one
+                 width for the whole section, no line moved sideways, no kerb taper; the lanes centred on their own way's line inside
+                 it, the rest paved roadway; every tag change along the section classified first (section 3; space.change, check J4)
     pedestrian   the street (the area less the blocks) less the roadway, each piece to the nearest roadway (section or junction):
                  furnishing FURNISH_M, sidewalk CLEAR_M, the rest frontage (chosen widths)
     crosswalks   OSM's crossing ways over the roadway, and crossing nodes with no way, as parts cut from the lanes; their paint from
@@ -30,7 +35,10 @@ ALLEY_HALF_M = 2.5      # the kerb is dropped this far either side of where a se
 SLIVER_M2 = 20.0        # a subsection whose roadway outside the junctions is smaller than this joins the junction it touches (chosen)
 CUT_M = 60.0            # a roadway cut (stop line, joint) runs this far to each side across the sidewalks to the blocks
 MERGE_DEG = 45.0        # a road continues into another at a node when their headings are within this angle (chosen)
+CONNECTOR_M = 40.0      # a road between two junction nodes shorter than this (or any `_link` there) is a connector: it belongs to the
+                        # intersection with both nodes (docs/design/sections.md, rule 3; chosen)
 CORE_MIN_M = 1.0        # a junction's core counts only where the arms' carriageways overlap at least this wide (chosen)
+JGAP_M = 2.0            # an island begins where the strip between two frames is this wide; a thinner tail with nothing on it is paved (chosen)
 FILLET_MAX_M2 = 40.0    # a corner fillet of KERB_RADIUS_M is at most this big (a 30 degree corner: 2.4 R2); a bigger closing is a gap, no corner
 JUNC_ARM_M, CROSS_NEAR_M, CROSS_HALF_M = 3.0, 15.0, 1.5
 STOP_BACK_M = 1.0       # a stop line stands this far before the junction (chosen, as division.py)
@@ -40,7 +48,10 @@ YES_PARK = ("parallel", "diagonal", "perpendicular", "lane", "street_side", "on_
 YES_BIKE = ("lane", "track", "buffered_lane", "opposite_lane", "opposite_track")
 ARM_M = 3.0             # a junction reaches this far into each arm (bridge_lidar reads it)
 GAP_M = 8.0             # a strip between two roadways narrower than this (a block is at least this wide) is roadway, unless OSM maps a kerb, an object or a path on it
-TAPER_M = 15.0          # a lane that the next subsection of the road does not have narrows to nothing over this length (chosen)
+TAPER_M = 15.0          # a lane that the next subsection of the road does not have narrows to nothing over this length; the lanes slide to
+                        # their own position over it at a joint; the kerb taper of a 'real' change (sections.md section 3) (chosen)
+POCKET_M = 80.0         # a lane `turn:lanes` names as a turn lane this near a junction is a turn pocket (sections.md section 3; chosen)
+TURNS = ("left", "right", "slight_left", "slight_right", "sharp_left", "sharp_right", "reverse")     # `turn:lanes` values that name a turn
 STRAIGHT_M = 2.0        # a road between two junctions whose OSM line stays this near the straight line between its ends is drawn straight
                         # (chosen: OSM's drawing error; Fir Street, Kaveh 2026-10-14)
 ISLAND_TOUCH_M = 2.0    # a pedestrian piece whose boundary runs less than this along a block's edge lies between roadways: an island (chosen)
@@ -85,7 +96,7 @@ def unit_v(v):
 
 def shift_line(ln, d):
     """ln moved sideways by d (left +), vertex by vertex along the local normal: the same vertices, the same direction. (shapely's
-    offset_curve reverses or empties a line for a negative offset, and the move was silently lost.)"""
+    offset_curve reverses or empties a line for a negative offset.)"""
     import shapely
     c = list(ln.coords)
     out = []
@@ -117,6 +128,9 @@ SCHEMA = {
                        right_m=D, left_extra=D, right_extra=D, with_sections=V, starts_at=V, color=V, geometry=G_),
     "cut": dict(intersection_id=V, edge_id=V, level=I, how=V, length_m=D, geometry=G_),
     "junction": dict(intersection_id=V, node_id="BIGINT", level=I, cluster_id=V),
+    # J4: every place along a section where OSM's tags change, with its class (docs/design/sections.md, section 3)
+    "change": dict(section_id=V, level=I, subsection_a=V, subsection_b=V, way_a=V, way_b=V, lanes_a=V, lanes_b=V, width_a=D, width_b=D,
+                   **{"class": V}, note=V, geometry=G_),
     "turn": dict(unit_id=V, level=I, from_edge=V, from_lane=I, to_edge=V, to_lane=I, turn=V, source=V, vehicles=V, condition=V, geometry=G_),
     "approach": dict(unit_id=V, level=I, from_edge=V, lane=I, moves=I, ways=V, arrow="BOOLEAN", no_arrow_because=V),
 }
@@ -164,7 +178,6 @@ def build(con, epsg, bridges=()):
 
     # ---- 2. the road network
     bridge_ways = {int(w[1:]) for pf in bridges for a in json.load(open(pf)).get("axes", []) for w in a.get("ways", [])}
-    landing_ways = {int(str(ld.get("way", "w0"))[1:]) for pf in bridges for a in json.load(open(pf)).get("axes", []) for ld in a.get("landings", [])}
     cand = [(oid, nm, cl, bool(ow), s_, d_, g(w), lv) for oid, nm, cl, ow, s_, d_, w, lv in rows(f"""SELECT osm_id, name, class, coalesce(oneway, false),
                  src, dst, {m()}, level_min FROM space.element WHERE type IN ('road', 'walkway') AND level_min IN (0, 1)
                  AND replace(class, '_link', '') IN {STREET}""")]
@@ -280,9 +293,11 @@ def build(con, epsg, bridges=()):
         return out
 
     def crosses(p):
-        """Whether the roads at p make a junction: a road that ends at p with no road continuing it (a T), or two streams through p
-        that cross each other (their ends alternate round p). Two streams that only touch (a ramp joining a road, two one-way lines of
-        one street drawn into one node) make no junction there: the roads continue through p as one section (Kaveh 2026-10-15)."""
+        """Whether the roads at p make a junction (docs/design/sections.md, rules 1 and 2): a road that ends at p with no road
+        continuing it (a T), two ends that continue into one (a merge or a fork: a Y, a ramp joining a road, a slip lane leaving it,
+        whatever the angle; until 2026-10-16 a joint inside a section), or two streams through p that cross each other (their ends
+        alternate round p). Two streams that only touch (two one-way lines of one street drawn into one node) make no junction there:
+        the roads continue through p as sections."""
         hs = heads(p)
         if len(hs) < 3:
             return False
@@ -294,6 +309,8 @@ def build(con, epsg, bridges=()):
                 best[i] = min(cand)[1]
         if len(best) < len(hs):
             return True             # (an end no road continues: a road ends at p)
+        if len(set(best.values())) < len(best):
+            return True             # (two ends continue into one end: a merge or a fork)
         # (a stream: an end and the end it continues into; two streams can share an end, a Y where two roads merge into one)
         pairs = {(min(i, j), max(i, j)) for i, j in best.items()}
         ang = [math.atan2(h[1], h[0]) for h in hs]
@@ -475,23 +492,113 @@ def build(con, epsg, bridges=()):
             else:
                 b.setdefault("trans", {})["start" if not b["flip"] else "end"] = a
     runs = runs2
-    # ---- 6a'. width is a section property (docs/design/joints.md, rule 1): the city's meters and the kerb evidence are judged once
-    # for the whole section, so the kerb does not step where two subsections meet (a parking part from the meters in one half and
-    # not in the other bulged Fir Street; Kaveh 2026-10-16)
+    # ---- 6a''. connectors (docs/design/sections.md, rule 3): a section between two junction nodes shorter than CONNECTOR_M, or one of
+    # `_link` ways only, is no section: it belongs to one intersection with both nodes (West 8th, Fir Street and the ramp foot are one).
+    # Not a bridge way: the bridge model draws its deck
+    at_jn = lambda p_: jtree is not None and any(jn[j].distance(p_) < 0.6 for j in jtree.query(p_.buffer(0.6)))
+    by_sid0 = {}
+    for r in runs:
+        by_sid0.setdefault(r["sid"], []).append(r)
+    for sid, rs in by_sid0.items():
+        p0 = shapely.Point(rs[0]["line"].coords[-1 if rs[0]["flip"] else 0])
+        p1 = shapely.Point(rs[-1]["line"].coords[0 if rs[-1]["flip"] else -1])
+        L_ = sum(r_["line"].length for r_ in rs)
+        if at_jn(p0) and at_jn(p1) and not any(o in bridge_ways for r_ in rs for o in r_["oids"]) \
+                and (L_ < CONNECTOR_M or all((r_["cl"] or "").endswith("_link") for r_ in rs)):
+            for r_ in rs:
+                r_["connector"] = True
+    # ---- 6b. the change classes (docs/design/sections.md, section 3): every joint of a section, where OSM's tags change, is classified
+    # before it touches the frame. The lanes here (the classes read the lane counts, `turn:lanes` and the junction nodes); the strips
+    # after step 6a' (the meters' parking along the section stops for a turn pocket on the pocket's kerb side). Check J4 lists the places.
+    ends_ = [(k, e, shapely.Point(r["line"].coords[0 if e == 0 else -1])) for k, r in enumerate(runs) for e in (0, 1)]
+    etree2 = shapely.STRtree([p for _, _, p in ends_])
+    by_sid2 = {}
+    for r in runs:
+        by_sid2.setdefault(r["sid"], []).append(r)
+
+    def pocket_side(r):
+        """The kerb side, in the way's frame (left +, right -), of the turn lane `turn:lanes` names on r's way; 0 for a turn lane at the
+        centre (a left turn of a two-way road: the median narrows for it); None where no turn lane is named."""
+        tg = tags.get(r["oid"], {})
+        for key, sg_l, sg_r in (("turn:lanes", 1, -1), ("turn:lanes:forward", 1 if r["ow"] else 0, -1), ("turn:lanes:backward", 0, 1)):
+            ls = [x.split(";")[0] for x in str(tg.get(key) or "").split("|")] if tg.get(key) else []
+            if ls and ls[0] in TURNS and ls[0].endswith("left"):
+                return sg_l
+            if ls and ls[-1] in TURNS and ls[-1].endswith("right"):
+                return sg_r
+            if any(x in TURNS for x in ls):
+                return 0
+        return None
+
+    def merging_arm(p, h_sec, n_lanes, sid):
+        """An arm of another section at junction node p that continues into this one (its heading away from p within MERGE_DEG of
+        opposite to the section's, h_sec) with n_lanes lanes (all, or one direction's): (its way, 'merge' or 'fork'), else None."""
+        for i_ in etree2.query(p.buffer(0.6)):
+            k_, e_, p_ = ends_[i_]
+            q = runs[k_]
+            if p_.distance(p) > 0.6 or q["sid"] == sid:
+                continue
+            hq = head_of(i_)
+            if hq[0] * h_sec[0] + hq[1] * h_sec[1] > -math.cos(math.radians(MERGE_DEG)):
+                continue
+            if n_lanes not in (q["f"] + q["b"], q["f"], q["b"]):
+                continue
+            # (a one-way arm whose line ends at p flows into it: a merge; one that starts there leaves: a fork)
+            return q["oid"], ("merge" if not q["ow"] or e_ == 1 else "fork")
+        return None
+
+    def h_away(r_, e_):     # r_'s heading away from its line's end e_ (0: the start, 1: the end)
+        ln_ = r_["line"]
+        a_, b_ = (ln_.interpolate(0), ln_.interpolate(min(3.0, ln_.length))) if e_ == 0 else (ln_.interpolate(ln_.length), ln_.interpolate(max(ln_.length - 3.0, 0)))
+        return unit_v((b_.x - a_.x, b_.y - a_.y))
+    changes = []    # J4 rows: dict(sid, i, a, b, cls, note, pt)
+    for sid, rs in by_sid2.items():
+        if rs[0].get("connector") or len(rs) < 2:
+            continue
+        L_tot = sum(r_["line"].length for r_ in rs)
+        ends_sec = {0: shapely.Point(rs[0]["line"].coords[-1 if rs[0]["flip"] else 0]), 1: shapely.Point(rs[-1]["line"].coords[0 if rs[-1]["flip"] else -1])}
+        h_sec = {0: h_away(rs[0], 1 if rs[0]["flip"] else 0), 1: h_away(rs[-1], 0 if rs[-1]["flip"] else 1)}
+        s_along = 0.0
+        for i, (a, b) in enumerate(zip(rs, rs[1:])):
+            s_along += a["line"].length
+            pj = shapely.Point(a["line"].coords[0 if a["flip"] else -1])
+            fa = (a["f"], a["b"]) if not a["flip"] else (a["b"], a["f"])      # (forward, backward) lanes in the section's direction
+            fb = (b["f"], b["b"]) if not b["flip"] else (b["b"], b["f"])
+            ta, tb = sum(fa), sum(fb)
+            delta = tb - ta
+            wide = a if ta >= tb else b
+            near = [(e_, d_) for e_, d_ in ((0, s_along), (1, L_tot - s_along)) if d_ <= POCKET_M and at_jn(ends_sec[e_])]
+            both_w = a["wsrc"][0] == "osm" and b["wsrc"][0] == "osm"
+            w_tag = lambda r_: tags.get(r_["oid"], {}).get("width")
+            cls, note = None, ""
+            if delta == 0 and fa != fb:
+                cls, note = "turn pocket", f"the same total, the split differs: {fa[0]} + {fa[1]} then {fb[0]} + {fb[1]}"
+            elif delta != 0:
+                for e_, d_ in near:
+                    hit = merging_arm(ends_sec[e_], h_sec[e_], abs(delta), sid)
+                    if hit:
+                        cls = hit[1]
+                        note = f"{ta} then {tb} lanes: the lanes of w{hit[0]}, which {'joins' if cls == 'merge' else 'leaves'} at the junction {d_:.0f} m away"
+                        break
+                if cls is None and near and pocket_side(wide) is not None:
+                    cls, note = "turn pocket", f"{ta} then {tb} lanes: w{wide['oid']} turn:lanes names a turn lane, {min(d_ for _, d_ in near):.0f} m from the junction"
+                    wide["pocket"] = pocket_side(wide)
+                if cls is None and both_w and abs(a["lw"] * ta - b["lw"] * tb) > 0.5:
+                    cls, note = "real", f"{ta} then {tb} lanes, OSM width {w_tag(a)} then {w_tag(b)}"
+                if cls is None:
+                    cls, note = "unknown", f"{ta} then {tb} lanes: no road merges or forks, no turn lane named, no width evidence; the frame keeps {max(ta, tb)}"
+            elif both_w and abs(a["lw"] - b["lw"]) > 0.1:
+                cls, note = "real", f"OSM width {w_tag(a)} then {w_tag(b)}, the same lanes"
+            changes.append(dict(sid=sid, i=i, a=a, b=b, cls=cls, note=note, pt=pj))
+    # ---- 6a'. the kerb evidence is a section property: judged once for the whole section (the frame is one width, step 6c)
     by_sid1 = {}
     for r in runs:
         by_sid1.setdefault(r["sid"], []).append(r)
     for sid, rs in by_sid1.items():
         sec_side = lambda r_, sg: sg if not r_["flip"] else -sg       # a run's side in the section's frame
-        # the meters' parking on a side anywhere in the section: on that side in every piece whose way does not say no
-        for sg in (1, -1):
-            park = next((e for r_ in rs for e in r_["ex"][sec_side(r_, sg)] if e[0] == "parking" and e[2][0] == "vancouver"), None)
-            if park is None:
-                continue
-            for r_ in rs:
-                s_ = sec_side(r_, sg)
-                if not any(e[0] == "parking" for e in r_["ex"][s_]) and not r_["no_park"][s_]:
-                    r_["ex"][s_].append(("parking", PARK_M, (park[2][0], park[2][1], park[2][2] + " (along the section)")))
+        # (the meters' parking is only where the meters stand, piece by piece: a strip that starts or stops is the class `parking` of
+        # sections.md section 3, inside the frame; until 2026-10-16 it was spread along the whole section, and a strip stood at the
+        # West 8th fork 40 m from its meter, s0-w473723210/3)
         # the kerb evidence: one median per side of the section; each piece's outer lane widens to it by its own extra. Not on a
         # ramp or a through road (a `_link`, motorway, trunk: no kerbside parking), and not toward another roadway within reach (the
         # basins there stand in a median's gutter, not at a parking kerb: the Granville ramp's lanes grew to 5.8 m, 2026-10-16)
@@ -503,7 +610,7 @@ def build(con, epsg, bridges=()):
             for r_ in rs:
                 s_ = sec_side(r_, sg)
                 cl_ = r_["cl"] or ""
-                if r_["wsrc"][0] != "urbanstyle" or r_["ex"][s_] or cl_.endswith("_link") or cl_ in ("motorway", "trunk"):
+                if r_["wsrc"][0] != "urbanstyle" or r_["ex"][s_] or cl_.endswith("_link") or cl_ in ("motorway", "trunk") or r_.get("pocket") == s_:
                     continue
                 extra = med_ - r_["W"] / 2
                 if not (0.3 <= extra <= PARK_EXTRA_M):
@@ -526,8 +633,8 @@ def build(con, epsg, bridges=()):
         """r's line run on past each joint by a little more than the roadway is wide, so the bands reach the bisector there."""
         ln = r["line"]
         c = list(ln.coords)
-        e = (r["kl"] - r["kr"]) + 2.0
-        for p, n, side, where in r["cuts"]:
+        e = (r["fkl"] - r["fkr"]) + 2.0
+        for _, n, side, where in r["cuts"]:
             if where == "end":
                 dx, dy = c[-1][0] - c[-2][0], c[-1][1] - c[-2][1]
                 h = math.hypot(dx, dy) or 1
@@ -542,103 +649,142 @@ def build(con, epsg, bridges=()):
         for p, n, side, where in r["cuts"]:
             geom = geom.intersection(half_plane(p, n, side))
         return geom
+    # the strips' changes (step 6b, after 6a'): a parking or cycle strip that starts or stops is class 'parking'; a joint where the lanes, the
+    # width and the strips are the same is 'none' (another tag changes)
+    for c_ in changes:
+        a, b = c_["a"], c_["b"]
+        diff = []
+        for sg, nm in ((1, "left"), (-1, "right")):
+            sa = {e[0] for e in a["ex"][sg if not a["flip"] else -sg]}
+            sb = {e[0] for e in b["ex"][sg if not b["flip"] else -sg]}
+            diff += [f"the {t} {'stops' if t in sa else 'starts'} on the {nm}" for t in sorted(sa ^ sb)]
+        if diff and c_["cls"] is None:
+            c_["cls"] = "parking"
+        if diff:
+            c_["note"] = (c_["note"] + "; " if c_["note"] else "") + ", ".join(diff)
+        if c_["cls"] is None:
+            c_["cls"], c_["note"] = "none", "the lanes, the width and the strips are the same (another tag changes)"
+        a.setdefault("jcls", []).append(f"{c_['cls']} at the joint with w{b['oid']}")
+        b.setdefault("jcls", []).append(f"{c_['cls']} at the joint with w{a['oid']}")
+    # ---- 6c. one frame per section (docs/design/sections.md, rules 5-8): the lanes and the strips a source gives at the section's
+    # widest place, one width for the whole section. Only a 'real' change (an OSM width on both sides) starts a new frame piece, with a
+    # kerb taper over TAPER_M in the narrower piece. No line is moved sideways and no kerb tapers otherwise: where two ways' lines are not
+    # aligned, the lanes jog inside the frame and the frame does not. (Until 2026-10-16 the continuity shift moved a subsection's line by
+    # up to 2 m, a merging road kept its heading over its last 15 m, and a taper wedge ran from the wider kerb to the narrower: gone.)
+    for r in runs:
+        r["fkl"], r["fkr"], r["ftaper"], r["frame_of"] = r["kl"], r["kr"], [], r["oid"]
+    real_at = {(c_["sid"], c_["i"]) for c_ in changes if c_["cls"] == "real"}
+    for sid, rs in by_sid2.items():
+        if rs[0].get("connector"):
+            continue
+        left = lambda r_: r_["kl"] if not r_["flip"] else -r_["kr"]       # the section's left and right kerb, as offsets from the way's line
+        right = lambda r_: -r_["kr"] if not r_["flip"] else r_["kl"]
+        groups_f, cur = [], [0]
+        for i in range(1, len(rs)):
+            if (sid, i - 1) in real_at:
+                groups_f.append(cur)
+                cur = []
+            cur.append(i)
+        groups_f.append(cur)
+        for grp in groups_f:
+            KL, KR = max(left(rs[i]) for i in grp), max(right(rs[i]) for i in grp)
+            wo = max((rs[i] for i in grp), key=lambda q: q["kl"] - q["kr"])["oid"]
+            for i in grp:
+                r_ = rs[i]
+                r_["fkl"], r_["fkr"] = ((KL, -KR) if not r_["flip"] else (KR, -KL))
+                r_["frame_of"] = wo
+        # the kerb taper at a real change: the narrower frame piece's edge runs from the wider kerb to its own over TAPER_M (chosen)
+        for ga, gb in zip(groups_f, groups_f[1:]):
+            a, b = rs[ga[-1]], rs[gb[0]]
+            for fn in (left, right):
+                wa = (a["fkl"] if not a["flip"] else -a["fkr"]) if fn is left else (-a["fkr"] if not a["flip"] else a["fkl"])
+                wb = (b["fkl"] if not b["flip"] else -b["fkr"]) if fn is left else (-b["fkr"] if not b["flip"] else b["fkl"])
+                if abs(wa - wb) < 0.05:
+                    continue
+                narrow = a if wa < wb else b
+                sg = (1 if fn is left else -1) * (1 if not narrow["flip"] else -1)      # the section's side in the narrow piece's own frame
+                narrow["ftaper"].append(((narrow is b) != narrow["flip"], sg, max(wa, wb), min(wa, wb)))
+
+    def wedge(ln, at_start, sg, kw, kn):
+        """The strip on side sg (left +) of ln between the offset kn and the line from kw at ln's start (or end) to kn TAPER_M along."""
+        L = min(TAPER_M, ln.length)
+        lo, hi = [], []
+        for s_ in [k * 1.0 for k in range(int(L) + 1)] + [L]:
+            st_ = s_ if at_start else ln.length - s_
+            p, a_, b_ = ln.interpolate(st_), ln.interpolate(max(st_ - 1, 0)), ln.interpolate(min(st_ + 1, ln.length))
+            h = math.hypot(b_.x - a_.x, b_.y - a_.y) or 1
+            nx, ny = -(b_.y - a_.y) / h, (b_.x - a_.x) / h
+            d_ = kw + (kn - kw) * s_ / L
+            lo.append((p.x + nx * sg * kn, p.y + ny * sg * kn))
+            hi.append((p.x + nx * sg * d_, p.y + ny * sg * d_))
+        return poly(shapely.make_valid(shapely.Polygon(lo + hi[::-1])))
+    # ---- 6c'. merges and forks (docs/design/sections.md, section 3, the classes merge and fork: "the lane blends into the neighbour at
+    # the node"). At a junction node where two arms side by side (q1 through, q2 merging or forking, headings within MERGE_DEG) continue
+    # into one section s whose lanes are q1's plus q2's: s keeps q1's kerb on the side away from q2, so its lanes sit half of q2's
+    # width off its OSM line toward q2 (`mshift`, a section property: every piece of s with those lanes; s's frame with it, `mshift_f`),
+    # and inside the intersection q2's band lies beside q1's, not on it (OSM ends q2's line on the node: a fill strip of q2's width
+    # along q1 over their overlap). Without this the kerb jogged one lane on both sides at the node, each with a 4 m fillet: the bump
+    # at West 8th, Kaveh 2026-10-16
+    for r in runs:
+        r["mshift"], r["mshift_f"] = 0.0, 0.0
+    fills = {}      # junction node index -> [the strip beside the through arm]
+    rtree0 = shapely.STRtree([r["line"] for r in runs]) if runs else None
+    cosm = math.cos(math.radians(MERGE_DEG))
+    for ni, n in enumerate(jn):
+        arms = [(runs[k], e) for k in (rtree0.query(n.buffer(1.0)) if rtree0 is not None else []) for e in (0, 1)
+                if shapely.Point(runs[k]["line"].coords[0 if e == 0 else -1]).distance(n) < 1.0]
+        hd = {id(q): h_away(q, e) for q, e in arms}
+        dot = lambda u, v: u[0] * v[0] + u[1] * v[1]
+        for s_, es in arms:
+            if s_.get("connector") or s_["mshift_f"]:
+                continue
+            for q1, e1 in arms:
+                for q2, e2 in arms:
+                    if s_ in (q1, q2) or q1 is q2 or q1["sid"] == q2["sid"] or (q1["f"] + q1["b"]) < (q2["f"] + q2["b"]):
+                        continue
+                    if dot(hd[id(q1)], hd[id(q2)]) < cosm or dot(hd[id(s_)], hd[id(q1)]) > -cosm:
+                        continue        # (q1 and q2 not side by side, or s does not continue q1)
+                    if s_["f"] + s_["b"] != q1["f"] + q1["b"] + q2["f"] + q2["b"]:
+                        continue
+                    # (q1 and q2 carry the same flow: both one-way into the node or both out of it, or both two-way. The two one-way
+                    # carriageways of one street joining into its two-way way flow opposite ways: a divided road's end, no merge)
+                    if not ((q1["ow"] and q2["ow"] and e1 == e2) or (not q1["ow"] and not q2["ow"])):
+                        continue
+                    # (side by side: q2's own band lies on q1's from the node over more than both roadways' widths; every arm's band
+                    # touches the others' at the node, a side street at 45 degrees too, and that is no merge)
+                    b1, b2 = band(q1["line"], q1["kr"], q1["kl"]), band(q2["line"], q2["kr"], q2["kl"])
+                    ov = poly(b1.intersection(b2))
+                    L1 = q1["line"].length
+                    st1 = lambda pt: (q1["line"].project(pt) if e1 == 0 else L1 - q1["line"].project(pt))
+                    reach_ = max([st1(shapely.Point(c_)) for q_ in shapely.get_parts(ov) for c_ in q_.exterior.coords] or [0.0])
+                    if reach_ <= (q1["kl"] - q1["kr"]) + (q2["kl"] - q2["kr"]):
+                        continue
+                    far = shapely.Point(q2["line"].coords[-1 if e2 == 0 else 0])
+                    dir_s = hd[id(s_)] if es == 0 else (-hd[id(s_)][0], -hd[id(s_)][1])        # s's line direction at the node
+                    side_s = 1 if (dir_s[0] * (far.y - n.y) - dir_s[1] * (far.x - n.x)) > 0 else -1     # q2's side in s's own frame
+                    w2 = (q2["f"] + q2["b"]) * s_["lw"]
+                    n1 = q1["f"] + q1["b"]
+                    for p_ in by_sid2.get(s_["sid"], [s_]):
+                        sg_p = side_s * (1 if p_["flip"] == s_["flip"] else -1)
+                        p_["mshift_f"] = sg_p * w2 / 2
+                        p_["mshift"] = sg_p * max(p_["f"] + p_["b"] - n1, 0) * p_["lw"] / 2
+                        p_["merge_ref"] = f"w{q2['oid']} {'joins' if dot(hd[id(q2)], hd[id(q1)]) > 0 and q2['ow'] and e2 == 1 else 'leaves'} w{q1['oid']} at n{node_id.get((round(n.x, 1), round(n.y, 1)), '?')}"
+                    # the fill beside q1 on q2's side, over the stretch where q2's own band lies on q1's
+                    dir_1 = hd[id(q1)] if e1 == 0 else (-hd[id(q1)][0], -hd[id(q1)][1])
+                    side_1 = 1 if (dir_1[0] * (far.y - n.y) - dir_1[1] * (far.x - n.x)) > 0 else -1
+                    seg_ = substring(q1["line"], 0.0, min(reach_, L1)) if e1 == 0 else substring(q1["line"], max(L1 - reach_, 0.0), L1)
+                    edge_ = q1["fkl"] if side_1 > 0 else q1["fkr"]
+                    fills.setdefault(ni, []).append(band(seg_, min(edge_, edge_ + side_1 * w2), max(edge_, edge_ + side_1 * w2)))
     for r in runs:
         r["xline"] = joint_line(r)
-        r["shift"] = 0.0
-    # ---- 6c. continuity at the joints: the lanes that run on through a joint keep their position; the kerb on the side where no road
-    # merges continues straight. Where OSM's line of the next way is not the centre of the lanes drawn that way (within STRAIGHT_M: the
-    # line's drawing error), the whole subsection's line is moved sideways by that much (`shift`), so its lanes, kerbs and lines
-    # continue the previous subsection's. A larger step is a real change and slides over TAPER_M (the lane transition, below).
-    # (every lane slid to its centred position at a joint: the ramp's lanes bent 1.6 m, the kerb and the guardrail with them; a
-    # turn pocket bent all five lanes; Kaveh 2026-10-15: "lanes that continue do not move")
-    ends_ = [(k, e, shapely.Point(r["line"].coords[0 if e == 0 else -1])) for k, r in enumerate(runs) for e in (0, 1)]
-    etree2 = shapely.STRtree([p for _, _, p in ends_])
-    by_sid2 = {}
-    for r in runs:
-        by_sid2.setdefault(r["sid"], []).append(r)
-
-    def align(a, b, b_end):
-        """b's shift so that its lanes continue a's across the joint at b's end `b_end` ("start" / "end" in b's own orientation)."""
-        mirror = a["flip"] != b["flip"]
-        cb = list(b["line"].coords)
-        pj = shapely.Point(cb[0] if b_end == "start" else cb[-1])
-        c0, c1 = (cb[0], cb[1]) if b_end == "start" else (cb[-2], cb[-1])       # (b's running direction: left / right in b's frame)
-        hb = unit_v((c1[0] - c0[0], c1[1] - c0[1]))
-        sides = set()
-        for i_ in etree2.query(pj.buffer(0.6)):
-            k_, e_, p_ = ends_[i_]
-            if runs[k_] is a or runs[k_] is b or p_.distance(pj) > 0.6:
-                continue
-            far = shapely.Point(runs[k_]["line"].coords[-1 if e_ == 0 else 0])
-            sides.add(1 if (hb[0] * (far.y - pj.y) - hb[1] * (far.x - pj.x)) > 0 else -1)
-        ka = (a["kl"] + a["shift"], a["kr"] + a["shift"])      # a's kerbs in a's frame, (left, right)
-        if mirror:
-            ka = (-ka[1], -ka[0])
-        kb = (b["kl"], b["kr"])
-        if len(sides) == 1:
-            keep = -next(iter(sides))           # the kerb opposite the merging road continues
-            b["merge"] = (next(iter(sides)), pj)      # (the side the road merges from, in b's frame, and where)
-            # (the merging road's end is cut on the joint's bisector too: its flat end at the node left a notch against the lane it
-            # runs into, and the kerb line ran a tail into the lane; kerb-162, Kaveh 2026-10-16)
-            n_ = next((n__ for p__, n__, _, _ in b["cuts"] if shapely.Point(p__).distance(pj) < 0.1), None)
-            if n_ is not None:
-                for i_ in etree2.query(pj.buffer(0.6)):
-                    k_, e_, p_ = ends_[i_]
-                    if runs[k_] is a or runs[k_] is b or p_.distance(pj) > 0.6:
-                        continue
-                    hd = head_of(i_)        # (away from the end: into the merging road)
-                    into = -(hd[0] * n_[0] + hd[1] * n_[1])      # > 0: the road runs into the joint along n
-                    runs[k_]["cuts"].append(((pj.x, pj.y), n_, -1 if into > 0 else 1, "end" if e_ == 1 else "start"))
-        elif abs((ka[0] - ka[1]) - (kb[0] - kb[1])) < 0.05:
-            keep = 1                            # the same width: both kerbs continue
-        else:
-            return                              # (a width change with no merge: the lanes slide to their centred position)
-        d_ = (ka[0] - kb[0]) if keep > 0 else (ka[1] - kb[1])
-        if abs(d_) <= STRAIGHT_M:
-            b["shift"] = d_
-    # (the fixed piece of a section is the one at a bridge landing, so the bridge's lanes and the ground's meet: the shifts run away
-    # from it to both ends; Kaveh 2026-10-15. Else the first piece)
-    for sid, rs in by_sid2.items():
-        i0 = next((i for i, r in enumerate(rs) if any(o in landing_ways for o in r["oids"])), 0)
-        for i in range(i0 + 1, len(rs)):
-            a, b = rs[i - 1], rs[i]
-            align(a, b, "start" if not b["flip"] else "end")
-        for i in range(i0 - 1, -1, -1):
-            a, b = rs[i + 1], rs[i]
-            align(a, b, "end" if not b["flip"] else "start")
-    for r in runs:
-        if abs(r["shift"]) > 1e-6:
-            r["xline"] = shift_line(r["xline"], r["shift"])
-    # ---- 6d. a one-sided merge (docs/design/joints.md, rule 4): a road that ends on a road running through the node (a Y) keeps its
-    # heading over its last TAPER_M: the last bend of its OSM line towards the node is the drawing of the merge, not a movement of the
-    # road; its far kerb runs straight to the trunk and the lane blends into the trunk's roadway (the slip lane into the Granville
-    # ramp bent 3 m east and the sidewalk bulged with it; Kaveh 2026-10-16)
-    rtree = shapely.STRtree([r["line"] for r in runs]) if runs else None
-    for i, (k, e, pt) in enumerate(ends_):
-        r = runs[k]
-        if jtree is not None and any(jn[j].distance(pt) < 0.6 for j in jtree.query(pt.buffer(0.6))):
-            continue
-        here = [j for j in etree2.query(pt.buffer(0.3)) if ends_[j][2].distance(pt) <= 0.3]
-        sids = [runs[ends_[j][0]]["sid"] for j in here]
-        if sids.count(r["sid"]) > 1:
-            continue                                        # (a joint of its own section: chained on)
-        through = any(sids.count(sd) > 1 for sd in set(sids) if sd != r["sid"]) or any(
-            k2 != k and runs[k2]["line"].distance(pt) < 0.6 and 0.5 < runs[k2]["line"].project(pt) < runs[k2]["line"].length - 0.5
-            for k2 in (rtree.query(pt.buffer(0.6)) if rtree is not None else []))
-        if not through:
-            continue
-        xl = r["xline"]
-        if xl.length < TAPER_M + 2.0:
-            continue
-        s_end = xl.length if e == 1 else 0.0
-        s_from = s_end - TAPER_M if e == 1 else TAPER_M
-        a_, b_ = xl.interpolate(s_from), xl.interpolate(s_from + (-1.0 if e == 1 else 1.0))
-        hd = unit_v((a_.x - b_.x, a_.y - b_.y))         # the heading at s_from, towards the end
-        keep = substring(xl, 0.0, s_from) if e == 1 else substring(xl, s_from, xl.length)
-        tip = (a_.x + hd[0] * TAPER_M, a_.y + hd[1] * TAPER_M)
-        r["xline"] = shapely.LineString(list(keep.coords) + [tip]) if e == 1 else shapely.LineString([tip] + list(keep.coords))
-    for r in runs:
-        r["cw"] = poly(at_joints(r, band(r["xline"], r["kr"], r["kl"])))
+        fl_ = shift_line(r["xline"], r["mshift_f"]) if abs(r["mshift_f"]) > 1e-6 else r["xline"]
+        if abs(r["mshift"]) > 1e-6:
+            r["xline"] = shift_line(r["xline"], r["mshift"])
+        cw = band(fl_, r["fkr"], r["fkl"])
+        for at_start, sg, kw, kn in r["ftaper"]:
+            cw = shapely.union_all([cw, wedge(r["line"], at_start, sg, kw, kn)])
+        r["cw"] = poly(at_joints(r, cw))                                           # the frame
+        r["own"] = poly(at_joints(r, band(r["xline"], r["kr"], r["kl"])))          # this piece's own lanes and strips
 
     # ---- 5. junctions
     crossings = [g(w) for (w,) in rows(f"""SELECT {m()} FROM space.element WHERE type IN ('walkway', 'cycleway') AND level_min = 0
@@ -646,7 +792,7 @@ def build(con, epsg, bridges=()):
     rtree = shapely.STRtree([r["line"] for r in runs]) if runs else None
     jshapes = []
     arm_cuts = []       # (point, heading) where each arm's roadway is cut at its stop line: the sidewalk is cut on the same line
-    for n in jn:
+    for ni, n in enumerate(jn):
         # the arms: the runs that end at the node (a run that only passes near it shares no node with it: not an arm)
         arms = [runs[k] for k in (rtree.query(n.buffer(1.0)) if rtree is not None else [])
                 if min(runs[k]["line"].project(n), runs[k]["line"].length - runs[k]["line"].project(n)) < 1.0]
@@ -656,13 +802,15 @@ def build(con, epsg, bridges=()):
             s0 = ln.project(n)
             away = 1 if s0 < ln.length / 2 else -1          # the arm runs from the node this way along its line
             st = lambda p: (ln.project(p) - s0) * away      # a point's station along the arm, from the node
-            others = shapely.union_all([a["cw"] for j, a in enumerate(arms) if j != i]) if len(arms) > 1 else shapely.Polygon()
+            others = shapely.union_all([a["own"] for j, a in enumerate(arms) if j != i]) if len(arms) > 1 else shapely.Polygon()
             # the core: how far the other arms' carriageways overlap this one, from the node on without a break (an arm that comes
-            # back beside another arm 100 m on overlaps it there too: that is no part of this junction, Monaco i0-25194413)
+            # back beside another arm 100 m on overlaps it there too: that is no part of this junction, Monaco i0-25194413). The
+            # arms' own lanes, not their frames: a frame wider than its lanes (the section is wider elsewhere) overlaps a parallel
+            # arm along its whole length
             core, pieces = 0.0, []
             # (only where the overlap is at least CORE_MIN_M wide: two arms running side by side (a ramp beside the road it joins)
             # overlap by a sliver along their length, which is no junction; Fir Street at the Granville ramp, Kaveh 2026-10-15)
-            for q in shapely.get_parts(poly(r["cw"].intersection(others)).buffer(-CORE_MIN_M / 2).buffer(CORE_MIN_M / 2)):
+            for q in shapely.get_parts(poly(r["own"].intersection(others)).buffer(-CORE_MIN_M / 2).buffer(CORE_MIN_M / 2)):
                 if q.geom_type == "Polygon" and not q.is_empty:
                     ss = [st(shapely.Point(c)) for c in q.exterior.coords]
                     pieces.append((min(ss), max(ss)))
@@ -678,35 +826,42 @@ def build(con, epsg, bridges=()):
                 if ss and core - CROSS_HALF_M <= min(ss) <= core + CROSS_NEAR_M:
                     reach = max(reach, max(ss) + CROSS_HALF_M)
             reach = min(reach, ln.length)
-            # (the arm's carriageway from the node to its stop line, cut square across the arm there: a circle round the node gave every
+            # (the arm's frame from the node to its stop line, cut square across the arm there: a circle round the node gave every
             # junction the wide road's radius, so a side street's lanes stopped half a road short of the kerb line, Kaveh 2026-10-15)
             a_, b_ = (s0, s0 + reach) if away > 0 else (s0 - reach, s0)
-            out.append(band(substring(ln, a_, b_), r["kr"], r["kl"]))
+            out.append(band(substring(ln, a_, b_), r["fkr"] + r["mshift_f"], r["fkl"] + r["mshift_f"]))
             pc = ln.interpolate(b_ if away > 0 else a_)
             qa, qb = ln.interpolate(max((b_ if away > 0 else a_) - 1, 0)), ln.interpolate(min((b_ if away > 0 else a_) + 1, ln.length))
             arm_cuts.append(((pc.x, pc.y), unit_v((qb.x - qa.x, qb.y - qa.y))))
+        out += fills.get(ni, [])        # (the merging arm's band beside the through arm's: step 6c')
         if out:
-            # the corners between the arms rounded by KERB_RADIUS_M: what the closing adds beyond a corner's fillet (a strip between two
-            # arms that run side by side, i0-430951364's loop) is no corner and stays out (J2)
-            U_ = shapely.union_all(out)
-            C_ = U_.buffer(KERB_RADIUS_M, join_style="round").buffer(-KERB_RADIUS_M, join_style="round")
-            fillets = [q for q in shapely.get_parts(poly(C_.difference(U_))) if q.area <= FILLET_MAX_M2]
-            jshapes.append((n, poly(shapely.union_all([U_] + fillets))))
+            jshapes.append((n, poly(shapely.union_all(out)), []))
+    # the connectors' whole carriageways are in the intersection too (sections.md rule 4); they are no sections
+    jshapes += [(None, r["cw"], r["oids"]) for r in runs if r.get("connector")]
+    runs = [r for r in runs if not r.get("connector")]
+    for r in runs:
+        r["trans"] = {w: q for w, q in r.get("trans", {}).items() if q in runs}
     area = shapely.union_all([g(w) for (w,) in rows(f"SELECT {m()} FROM space.area")] or [shapely.Polygon()])
     blocks = shapely.union_all([g(w) for (w,) in rows(f"SELECT {m()} FROM space.block WHERE level = 0")] or [shapely.Polygon()])
     street = poly(area.difference(blocks)) if not area.is_empty else shapely.Polygon()
-    clusters = []       # [nodes, shape]
-    for n, J in jshapes:
+    clusters = []       # [nodes, shape, connector ways]
+    for n, J, oids_ in jshapes:
         hit = [c for c in clusters if c[1].intersects(J)]
         for c in hit:
             clusters.remove(c)
-        clusters.append([[n] + [x for c in hit for x in c[0]], shapely.union_all([J] + [c[1] for c in hit])])
+        clusters.append([([n] if n is not None else []) + [x for c in hit for x in c[0]], shapely.union_all([J] + [c[1] for c in hit]),
+                         list(oids_) + [o for c in hit for o in c[2]]])
     junctions = []
-    for ns, J in clusters:
+    for ns, U_, conn_ in clusters:
+        # the corners between the arms rounded by KERB_RADIUS_M, once per intersection: what the closing adds beyond a corner's fillet (a
+        # strip between two arms that run side by side, i0-430951364's loop) is no corner and stays out (J2)
+        C_ = U_.buffer(KERB_RADIUS_M, join_style="round").buffer(-KERB_RADIUS_M, join_style="round")
+        fillets = [q for q in shapely.get_parts(poly(C_.difference(U_))) if q.area <= FILLET_MAX_M2]
+        J = poly(shapely.union_all([U_] + fillets))
         ids = sorted(node_id.get((round(p.x, 1), round(p.y, 1))) or 0 for p in ns)
         nid = next((i for i in ids if i), None)
         jid = f"i0-{nid}" if nid else f"i0-x{round(J.centroid.x)}y{round(J.centroid.y)}"
-        junctions.append(dict(id=jid, nodes=[i for i in ids if i], geom=poly(J.intersection(area)) if not area.is_empty else J))
+        junctions.append(dict(id=jid, nodes=[i for i in ids if i], geom=poly(J.intersection(area)) if not area.is_empty else J, connectors=sorted(set(conn_))))
     J_all = shapely.union_all([j["geom"] for j in junctions] or [shapely.Polygon()])
 
     # ---- 6. sections: each run's carriageway less the junctions
@@ -715,6 +870,13 @@ def build(con, epsg, bridges=()):
         if not area.is_empty:
             r["road_g"] = poly(r["road_g"].intersection(area))
     runs = [r for r in runs if not r["road_g"].is_empty and r["road_g"].area > 0.5]
+    # (a frame's paved rest never covers another road's own lanes: two parallel one-way ways of one street, one of them wider elsewhere
+    # in its section, or the narrower one is eaten and goes into the junction as a sliver; Hemlock Street at West 7th, 2026-10-16)
+    own_t = shapely.STRtree([r["own"] for r in runs]) if runs else None
+    for k, r in enumerate(runs):
+        others = [runs[j]["own"] for j in own_t.query(r["road_g"]) if j != k and runs[j]["own"].intersects(r["road_g"])]
+        if others:
+            r["road_g"] = poly(r["road_g"].difference(shapely.union_all(others).difference(r["own"])))
     taken = shapely.Polygon()
     for r in sorted(runs, key=lambda r: (-(r["f"] + r["b"]), STREET.index(r["cl"].replace("_link", "")) if r["cl"].replace("_link", "") in STREET else 99)):
         r["road_g"] = poly(r["road_g"].difference(taken))
@@ -734,55 +896,6 @@ def build(con, epsg, bridges=()):
     runs = [r for r in runs if r not in small and not r["road_g"].is_empty and r["road_g"].area > 0.5]
     for r in runs:      # (a neighbour that went into the junction is no joint partner any more)
         r["trans"] = {w: q for w, q in r.get("trans", {}).items() if q in runs}
-    # ---- 6b. tapers: where two subsections of one section meet and the roadway is wider on one side in one of them (a turn pocket,
-    # a lane drop, a parking lane that ends), the roadway does not stop at a step: in the narrower subsection its edge runs from the
-    # wider kerb to its own over TAPER_M (a kerb stood across the lane there, Kaveh 2026-10-15). The taper is a carriageway part
-    # (roadway no lane took), derived from both subsections' OSM counts.
-    for r in runs:
-        r["tapers"] = []
-    by_sid = {}
-    for r in runs:
-        by_sid.setdefault(r["sid"], []).append(r)
-    all_road = shapely.STRtree([r["road_g"] for r in runs])
-    for sid, rs in by_sid.items():
-        for a, b in zip(rs, rs[1:]):
-            for sg in (1, -1):                  # the section's left (+) and right side
-                sa = sg if not a["flip"] else -sg
-                sb = sg if not b["flip"] else -sg
-                # (the kerb's distance from the OSM line on that side, the continuity shift included: /2's three lanes moved 1.6 m
-                # looked wider than /1's two, and a taper wedge cut into the island; the Granville ramp, Kaveh 2026-10-16)
-                ka = (a["kl"] + a["shift"]) if sa > 0 else -(a["kr"] + a["shift"])
-                kb = (b["kl"] + b["shift"]) if sb > 0 else -(b["kr"] + b["shift"])
-                if abs(ka - kb) < 0.05:
-                    continue
-                wide, narrow, sn, kw_, kn_ = (a, b, sb, ka, kb) if ka > kb else (b, a, sa, kb, ka)
-                ln = narrow["line"]
-                at_start = (narrow is b) != narrow["flip"]          # (the joint at the narrow run's start, else at its end)
-                mg = wide.get("merge")          # (the wider side's extra width is a merging road's lane: no taper wedge there)
-                pj_ = shapely.Point(ln.coords[0] if at_start else ln.coords[-1])
-                if mg and mg[1].distance(pj_) < 1.0 and (sn if not (wide["flip"] != narrow["flip"]) else -sn) == mg[0]:
-                    continue
-                L = min(TAPER_M, ln.length)
-                stations = [k * 1.0 for k in range(int(L) + 1)] + [L]
-                pts_in, pts_out = [], []
-                for s_ in stations:
-                    st_ = s_ if at_start else ln.length - s_
-                    p, a_, b_ = ln.interpolate(st_), ln.interpolate(max(st_ - 1, 0)), ln.interpolate(min(st_ + 1, ln.length))
-                    h = math.hypot(b_.x - a_.x, b_.y - a_.y) or 1
-                    nx, ny = -(b_.y - a_.y) / h, (b_.x - a_.x) / h
-                    d_ = kw_ + (kn_ - kw_) * s_ / L
-                    pts_in.append((p.x + nx * sn * kn_, p.y + ny * sn * kn_))
-                    pts_out.append((p.x + nx * sn * d_, p.y + ny * sn * d_))
-                wedge = poly(shapely.make_valid(shapely.Polygon(pts_in + pts_out[::-1])).difference(J_all))
-                if not area.is_empty:       # (a joint outside the area, where the roadway is not drawn: no taper there)
-                    wedge = poly(wedge.intersection(area))
-                others = [runs[k]["road_g"] for k in all_road.query(wedge) if runs[k] is not narrow]
-                if others:
-                    wedge = poly(wedge.difference(shapely.union_all(others)))
-                if wedge.area < 0.5:
-                    continue
-                narrow["tapers"].append(dict(geom=wedge, ref=f"the roadway narrows from w{wide['oid']}'s kerb to w{narrow['oid']}'s over {L:.0f} m (chosen)"))
-                narrow["road_g"] = poly(shapely.union_all([narrow["road_g"], wedge]))
     roadway = shapely.union_all([r["road_g"] for r in runs] + [J_all])
 
     # ---- barriers continued from a bridge landing: a bridge whose corrections name a median barrier keeps it on the ground along the
@@ -861,13 +974,24 @@ def build(con, epsg, bridges=()):
         o_tree = shapely.STRtree(objs) if objs else None
         objs += [bl for bl, _ in barriers]      # (a barrier along the strip: it is an island, the bridge's guardrail continued, Kaveh 2026-10-16)
         o_tree = shapely.STRtree(objs) if objs else None
+        def bare(q):        # nothing mapped on q: no kerb, object, path or barrier
+            return o_tree is None or not any(objs[i].intersection(q.buffer(0.2)).length > 2.0 or (objs[i].geom_type == "Point" and q.buffer(0.2).contains(objs[i]))
+                                             for i in o_tree.query(q.buffer(0.2)))
         for q in shapely.get_parts(thin):
             # (a strip that touches a block only at a corner (under ISLAND_TOUCH_M) lies between roadways: the gore where a slip lane
             # leaves a junction stood as a sidewalk wedge in the way of the turning lane, Kaveh 2026-10-16)
-            if (q.area > 0.5 and along_edge(q) < ISLAND_TOUCH_M
-                    and (o_tree is None or not any(objs[i].intersection(q.buffer(0.2)).length > 2.0 or (objs[i].geom_type == "Point" and q.buffer(0.2).contains(objs[i]))
-                                                     for i in o_tree.query(q.buffer(0.2))))):
+            if q.area <= 0.5 or along_edge(q) >= ISLAND_TOUCH_M:
+                continue
+            if bare(q):
                 gaps.append(q)
+                continue
+            # (the strip holds something: an island. It begins where the strip is JGAP_M wide: a thinner tail of it with nothing on it is
+            # paved roadway. Two frames that diverge slowly left a wedge 20 m long inside the junction, i0-245673105#9; Kaveh 2026-10-16)
+            # (mitre joins: the tail is cut off square; round joins left a 1 m arc on the island's edge at the cut)
+            core_ = q.buffer(-JGAP_M / 2, join_style="mitre").buffer(JGAP_M / 2, join_style="mitre")
+            for sp in shapely.get_parts(poly(q.difference(core_))):
+                if sp.area > 0.5 and along_edge(sp) < ISLAND_TOUCH_M and bare(sp):
+                    gaps.append(sp)
     owners = [(r["sub"], r["road_g"]) for r in runs] + [(j["id"], j["geom"]) for j in junctions]
     gaps_u = shapely.union_all([q for q in gaps if q.area >= 2.0]) if gaps else shapely.Polygon()     # (shared out below, as the realm)
     # the pedestrian side is cut by the same straight lines as the roadway (each arm's stop-line cut, each joint's bisector), run
@@ -1028,10 +1152,9 @@ def build(con, epsg, bridges=()):
         if R.is_empty:
             return
         isl = [q for q in shapely.get_parts(R) if along_edge(q) < ISLAND_TOUCH_M and q.area >= ISLAND_MIN_M2 and not q.buffer(-0.5).is_empty]
-        # (a small piece that touches an island is that island's: a sidewalk tip stood inside an island's end; Kaveh 2026-10-16)
-        if isl:
-            I_ = shapely.union_all(isl)
-            isl += [q for q in shapely.get_parts(R) if along_edge(q) < ISLAND_TOUCH_M and q not in isl and q.distance(I_) < 0.05]
+        # (a small piece that touches no block and touches an island is that island's, also an island of the next space: the island's
+        # tip cut off into the junction stood as a raised furnishing triangle in the roadway, Fir Street at Broadway; Kaveh 2026-10-16)
+        isl += [q for q in shapely.get_parts(R) if along_edge(q) < ISLAND_TOUCH_M and q not in isl and q.distance(isl_all) < 0.05]
         if isl:
             add(uid, "island", shapely.union_all(isl), source="osm", method="derived",
                 ref="between roadways only: a median or a traffic island (no block reaches it)")
@@ -1060,6 +1183,9 @@ def build(con, epsg, bridges=()):
         add(uid, "sidewalk", s_, width_m=CLEAR_M, ref=f"the clear path, {CLEAR_M} m", **pv)
         add(uid, "frontage", rest, ref="the rest to the block's edge", **pv)
 
+    # every island of the level, whichever space holds it: a piece of the pedestrian side that touches no block (ped() reads it)
+    isl_all = shapely.union_all([q for X in share.values() for q in shapely.get_parts(X)
+                                 if q.area >= ISLAND_MIN_M2 and along_edge(q) < ISLAND_TOUCH_M and not q.buffer(-0.5).is_empty] or [shapely.Polygon()])
     for k, r in enumerate(runs):
         G, ln, uid = r["road_g"], r["line"], r["sub"]
         R = share.get(k, shapely.Polygon())
@@ -1077,7 +1203,7 @@ def build(con, epsg, bridges=()):
             add(uid, "bridge deck", G, width_m=round(r["kl"] - r["kr"], 2), source="osm", method="mapped",
                 ref=f"w{r['oid']} bridge=yes: drawn by the bridge model", **common)
             ped(uid, G, R)
-            subrows.append((uid, r["sid"], r["cl"], round(r["kl"] - r["kr"], 2), r["ow"], round(ln.length, 1), None, None, "section end", round(r["shift"], 2), axis_out(ln)))
+            subrows.append((uid, r["sid"], r["cl"], round(r["fkl"] - r["fkr"], 2), r["ow"], round(ln.length, 1), None, None, "section end", round(r["mshift"], 3), axis_out(ln)))
             continue
         xl = r["xline"]
         trans = r.get("trans", {})
@@ -1099,17 +1225,17 @@ def build(con, epsg, bridges=()):
             return (t0, t1)
 
         def in_frame(q, d, n, side):
-            """The neighbour q's lane (d, n) as offsets in r's frame (q runs the other way: the directions and the sides swap), or
-            q's lanes' edge on that side (no such lane: the lane opens from the kerb). Each frame is its own moved line: q's offsets
-            carry the difference of the two shifts."""
+            """The neighbour q's lane (d, n) as offsets from q's own line (q runs the other way: the directions and the sides swap), or
+            q's lanes' edge on that side (no such lane: the lane opens from the lanes' edge). Both lines are OSM's: where they are not
+            aligned, the lanes jog over TAPER_M inside the frame (sections.md rule 6)."""
             mirror = r["flip"] != q["flip"]
             dq = d if not mirror else ("backward" if d == "forward" else "forward")
-            dz = (q["shift"] if not mirror else -q["shift"]) - r["shift"]
+            dz = (q["mshift"] if not mirror else -q["mshift"]) - r["mshift"]      # (each piece's line moved by its own merge shift)
             if n <= (q["f"] if dq == "forward" else q["b"]):
                 t0, t1 = own(dq, n, q)
                 t0, t1 = ((-t1, -t0) if mirror else (t0, t1))
                 return (t0 + dz, t1 + dz)
-            sq = side if not mirror else -side       # (q's kerb on that side, its widened outer lane included)
+            sq = side if not mirror else -side       # (q's lanes' edge on that side, its widened outer lane included)
             e_ = side * (q["W"] / 2 + q["wide"][sq]) + dz
             return (e_, e_)
 
@@ -1158,7 +1284,8 @@ def build(con, epsg, bridges=()):
             at = {where: in_frame(q, d, n, side) for where, q in trans.items()}
             wd_ = r["wide"][1] if i == r["f"] + r["b"] - 1 else r["wide"][-1] if i == 0 else 0.0
             kw_ = dict(width_m=round(r["lw"] + wd_, 2), width_source=r["wsrc"][0], width_method=r["wsrc"][1],
-                       position_source="osm", position_method="mapped", position_ref=f"w{r['oid']}: the lanes' middle on its OSM line")
+                       position_source="osm", position_method="mapped" if not r["mshift"] else "derived",
+                       position_ref=f"w{r['oid']}: the lanes' middle on its OSM line" + (f", moved {abs(r['mshift']):.2f} m: {r.get('merge_ref')}, the kerb away from it continues (sections.md, merge)" if r["mshift"] else ""))
             if wd_:
                 kw_.update(width_source="vancouver", width_method="measured", holds="parking",
                            rule=f"the outer lane to the city's catch basins ({wd_} m beyond the chosen lane): one lane, parking in it")
@@ -1172,12 +1299,7 @@ def build(con, epsg, bridges=()):
                     t0, t1 = own(dq, n, q)
                     tq = (-t1, -t0) if mirror else (t0, t1)
                     side = 1 if (tq[0] + tq[1]) > 0 else -1
-                    edge = (side * (r["W"] / 2 + r["wide"][side]), side * (r["W"] / 2 + r["wide"][side]))     # (this run's kerb there)
-                    # (a lane on the side a road merges from is that road's lane running on: no taper of it here)
-                    mg = q.get("merge")
-                    if mg and mg[1].distance(shapely.Point(ln.coords[0] if where == "start" else ln.coords[-1])) < 1.0 \
-                            and (side if not mirror else -side) == mg[0]:
-                        continue
+                    edge = (side * (r["W"] / 2 + r["wide"][side]), side * (r["W"] / 2 + r["wide"][side]))     # (this run's lanes' edge there)
                     lanes_.append((offs(edge, {where: tq}), None, d, n, q["lsrc"], f"w{q['oid']}'s lane {n} narrows to nothing over {joint_s[where][1]:.0f} m (chosen)",
                                    dict(width_m=round(q["lw"], 2), width_source="urbanstyle", width_method="chosen", position_source="osm",
                                         position_method="derived", position_ref="a lane taper at the joint")))
@@ -1212,9 +1334,13 @@ def build(con, epsg, bridges=()):
                 add(uid, typ, g_, width_m=w, width_source="urbanstyle", width_method="chosen", source=pv[0], method=pv[1], ref=pv[2], **common)
                 acc.append(g1)
         taken_ = shapely.union_all(lane_geoms) if lane_geoms else shapely.Polygon()
-        for tp in r.get("tapers", []):
-            add(uid, "carriageway", tp["geom"].difference(taken_), source="osm", method="derived", ref=tp["ref"], position_source="osm",
-                position_method="derived", position_ref="a taper between the two subsections' kerbs", **common)
+        # the frame beyond this piece's lanes and strips (the section is wider elsewhere, sections.md rule 6): paved roadway, no lane
+        rest_ = poly(G.difference(taken_).buffer(-0.05).buffer(0.05)) if not taken_.is_empty else G
+        if not rest_.is_empty and rest_.area > 0.5:
+            add(uid, "carriageway", rest_, source="osm", method="derived", position_source="osm", position_method="derived",
+                ref=f"the frame of {r['sid']} ({round(r['fkl'] - r['fkr'], 2)} m, its widest place w{r['frame_of']}) beyond w{r['oid']}'s lanes and strips: "
+                    f"paved roadway, no lane" + (f" ({'; '.join(r['jcls'])})" if r.get("jcls") else ""),
+                position_ref="the section's frame, one width for the whole section", **common)
         for at_end in (True, False):    # a stop line across the lanes that enter a junction, STOP_BACK_M before it
             q_ = shapely.Point(ln.coords[-1] if at_end else ln.coords[0])
             if J_all.is_empty or J_all.distance(q_) > 0.5:
@@ -1226,6 +1352,7 @@ def build(con, epsg, bridges=()):
             s_j = (ln.length - inside) if at_end else inside       # (where the line leaves the junction)
             s_ = max(min(s_j - STOP_BACK_M if at_end else s_j + STOP_BACK_M, ln.length), 0.0)
             lo_, hi_ = (-r["W"] / 2, -r["W"] / 2 + r["f"] * r["lw"]) if at_end else (-r["W"] / 2 + r["f"] * r["lw"], r["W"] / 2)
+            lo_, hi_ = lo_ + r["mshift"], hi_ + r["mshift"]
             if hi_ - lo_ < 0.5:
                 continue
             p_ = ln.interpolate(s_)
@@ -1235,15 +1362,16 @@ def build(con, epsg, bridges=()):
             mark(uid, "stop line", shapely.LineString([(p_.x + nx * lo_, p_.y + ny * lo_), (p_.x + nx * hi_, p_.y + ny * hi_)]).intersection(G.buffer(0.01)),
                  "urbanstyle", "derived", "where the lanes enter the junction")
         ped(uid, G, R)
-        subrows.append((uid, r["sid"], r["cl"], round(r["kl"] - r["kr"], 2), r["ow"], round(ln.length, 1), None, None, "section end", round(r["shift"], 2), axis_out(ln)))
+        subrows.append((uid, r["sid"], r["cl"], round(r["fkl"] - r["fkr"], 2), r["ow"], round(ln.length, 1), None, None, "section end", round(r["mshift"], 3), axis_out(ln)))
     for j in junctions:
         k = len(runs) + junctions.index(j)
         R = share.get(k, shapely.Polygon())
         units.append((j["id"], "intersection", None, poly(shapely.union_all([j["geom"], R] + gap_of.get(k, [])))))
-        for q in gap_of.get(k, []):
-            add(j["id"], "carriageway", q, source="osm", method="derived", ref=gap_ref)
-        add(j["id"], "junction area", j["geom"], source="osm", method="derived",
-            ref="the junction of " + ", ".join(f"n{i}" for i in j["nodes"]) if j["nodes"] else "the arms' carriageways where they meet")
+        # (a strip between roadways inside an intersection is junction area, one surface with it: a paved tail of an island stood as a
+        # dark wedge set into the junction area, i0-245673105; Kaveh 2026-10-16)
+        add(j["id"], "junction area", shapely.union_all([j["geom"]] + gap_of.get(k, [])), source="osm", method="derived",
+            ref=("the junction of " + ", ".join(f"n{i}" for i in j["nodes"]) if j["nodes"] else "the arms' carriageways where they meet")
+            + (" with the connectors " + ", ".join(f"w{o}" for o in j["connectors"]) if j["connectors"] else ""))
         ped(j["id"], j["geom"], R)
         junction_rows += [(j["id"], i, 0, j["id"]) for i in j["nodes"]]
 
@@ -1294,7 +1422,7 @@ def build(con, epsg, bridges=()):
             con.execute(f"DELETE FROM space.{t} WHERE level = 0")
         except duckdb.Error:
             pass
-    for t in ("cut", "junction", "subsection"):
+    for t in ("cut", "junction", "subsection", "change"):
         try:
             con.execute(f"DELETE FROM space.{t} WHERE level = 0")
         except duckdb.Error:
@@ -1425,10 +1553,17 @@ def build(con, epsg, bridges=()):
         con.executemany(f"INSERT INTO space.unit (unit_id, kind, section_id, level, color, geometry) VALUES (?, ?, ?, 0, ?, {to_ll})", urows)
     if junction_rows:
         con.executemany("INSERT INTO space.junction (intersection_id, node_id, level, cluster_id) VALUES (?, ?, ?, ?)", junction_rows)
-    if subrows:
+    if subrows:     # (width_m: the section's frame)
         con.executemany(f"""INSERT INTO space.subsection (subsection_id, section_id, level, class, width_m, oneway, length_m, "left", "right",
                             starts_at, left_extra, color, geometry) VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, '#e6194b', {to_ll})""",
                         [(a, b, c, d, e, f, h, i, j, sh, shapely.to_wkb(x)) for a, b, c, d, e, f, h, i, j, sh, x in subrows])
+    if changes:     # (J4: every tag change along a section, with its class; the lanes as forward + backward in the section's direction)
+        in_sec = lambda r_: f"{r_['f']}+{r_['b']}" if not r_["flip"] else f"{r_['b']}+{r_['f']}"
+        con.executemany(f"""INSERT INTO space.change (section_id, level, subsection_a, subsection_b, way_a, way_b, lanes_a, lanes_b, width_a, width_b,
+                            class, note, geometry) VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, {to_ll})""",
+                        [(c_["sid"], c_["a"]["sub"], c_["b"]["sub"], f"w{c_['a']['oid']}", f"w{c_['b']['oid']}", in_sec(c_["a"]), in_sec(c_["b"]),
+                          round(c_["a"]["kl"] - c_["a"]["kr"], 2), round(c_["b"]["kl"] - c_["b"]["kr"], 2), c_["cls"], c_["note"], shapely.to_wkb(c_["pt"]))
+                         for c_ in changes])
     if parts:
         con.executemany(f"""INSERT INTO space.part (unit_id, part_id, level, type, arm, direction, lane, lane_id, width_m, width_source, width_method,
                             length_m, source, method, ref, position_source, position_method, position_ref, road, road_class, road_lanes, oneway, rule,

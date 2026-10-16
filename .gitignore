@@ -10,3 +10,4 @@ site/
 /viz/
 *.duckdb
 *.duckdb.wal
+/scratch/

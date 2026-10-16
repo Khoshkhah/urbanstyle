@@ -48,7 +48,8 @@ def part_checks(c, q, m):
         ("U9", "parts of one space overlapping by more than 0.5 m2", q("""SELECT count(*) FROM pt a JOIN pt b ON a.unit_id = b.unit_id AND a.part_id < b.part_id
                                   AND ST_Intersects(a.g, b.g) WHERE ST_Area(ST_Intersection(a.g, b.g)) > 0.5"""), True),
         ("U10", "cuts where the roadway differs by more than 0.5 m on the two sides", roadway_mismatch(c, q, m), False),
-        ("R1", "joints between two subsections where the roadway's edges differ by more than 0.1 m", roadway_joints(q, m), False),
+        ("R1", "joints between two subsections where the roadway's edges step by more than 0.1 m (the frame changes only at a 'real' change, J4)",
+         roadway_joints(q, m, bool(q("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'space' AND table_name = 'change'"))), True),
         ("R4", "edges of lanes, cycle lanes and parking at a joint with no edge on the other side (0.3 m in, within 0.25 m)", lane_joints(c, m), False),
         ("R3", "subsections where OSM's lane count does not fit between our kerbs (a lane under 2.75 m): our kerb is probably wrong",
          q("SELECT count(DISTINCT unit_id) FROM space.part WHERE level = 0 AND type = 'lane' AND source = 'osm' AND width_m < 2.75"), False),
@@ -134,7 +135,8 @@ def rule_checks(c, epsg):
     import re
     import shapely
     import pyproj
-    from .network import LANE_M, STREET, STRAIGHT_M, TAPER_M, straight
+    from .network import LANE_M, STREET, TAPER_M, CONNECTOR_M, straight
+    A1_M = 0.5      # a carriageway's lanes are centred on their OSM line within this (sections.md: the 2 m tolerance of the shift era is gone)
     if not c.execute("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'space' AND table_name = 'part'").fetchone()[0]:
         return []
     m = lambda g: f"ST_AsWKB(ST_Transform({g}, 'EPSG:4326', '{epsg}', always_xy := true))"
@@ -150,6 +152,7 @@ def rule_checks(c, epsg):
     for o, cl, g in roads:
         lines.setdefault(o, []).append(g)
     lines = {o: shapely.line_merge(shapely.union_all(v)) for o, v in lines.items()}
+    raw_lines = dict(lines)
     # (each way as network.py draws it: cut at its junction nodes, a piece within STRAIGHT_M of straight drawn straight)
     tree = shapely.STRtree([g for _, _, g in roads])
 
@@ -187,6 +190,9 @@ def rule_checks(c, epsg):
                 if (u, pid) in wide_rows:       # (an outer lane widened to the kerb evidence, parking in it: its extra moves the middle)
                     widened.setdefault((u, int(o)), []).append((g, wide_rows[(u, pid)] - LANE_M))
     area = shapely.union_all([geo(w) for (w,) in c.execute(f"SELECT {m('geometry')} FROM space.area").fetchall()]).buffer(-2.0)
+    # (a section that keeps the through arm's kerb at a merge or fork has its lanes moved off the OSM line by half the merging lanes'
+    # width: the subsection's left_extra, expected there; sections.md section 3)
+    mshift = {u_: (x_ or 0.0) for u_, x_ in c.execute("SELECT subsection_id, left_extra FROM space.subsection WHERE level = 0").fetchall()}
     off = []
     for (u, o), gs in groups.items():
         ln, U = lines.get(o), shapely.union_all(gs)
@@ -207,12 +213,12 @@ def rule_checks(c, epsg):
                 ts = [(x - p.x) * nx + (y - p.y) * ny for q_ in shapely.get_parts(hit) if q_.geom_type == "LineString" for x, y in q_.coords]
                 if ts:
                     # (the widened outer lanes' extras, left minus right, move the middle by half of it: expected, not off)
-                    exp_ = 0.0
+                    exp_ = mshift.get(u, 0.0)
                     for g_, ex_ in widened.get((u, o), []):
                         q_ = g_.centroid
                         exp_ += ex_ / 2 if ((q_.x - p.x) * nx + (q_.y - p.y) * ny) > 0 else -ex_ / 2
                     ds.append(abs((max(ts) + min(ts)) / 2 - exp_))
-        if ds and sorted(ds)[len(ds) // 2] > STRAIGHT_M:       # (the OSM line's drawing error: a subsection's lanes continue the last one's)
+        if ds and sorted(ds)[len(ds) // 2] > A1_M:
             off.append(at(U))
     # A2: a parking or cycle lane that no real source gives
     nosrc = [at(g) for u, t, ref, src, g in parts if t in ("parking", "cycle lane") and src == "urbanstyle"]
@@ -227,8 +233,7 @@ def rule_checks(c, epsg):
             continue
         g = lines[o].intersection(g.buffer(3.0)) if o in lines else g
         for q_ in shapely.get_parts(g.intersection(area).difference(cover)):
-            # (not within TAPER_M of the line's ends: a road that merges one-sidedly keeps its heading there, off OSM's last bend)
-            if q_.geom_type == "LineString" and q_.length > 2.0 and min(g.project(q_.centroid), g.length - g.project(q_.centroid)) > TAPER_M:
+            if q_.geom_type == "LineString" and q_.length > 2.0:
                 bare.append(at(q_))
     # J1: an intersection with no junction node in it
     nojn = [at(g) for u, g in ((u, geo(w)) for u, w in c.execute(f"""SELECT unit_id, {m('geometry')} FROM space.unit
@@ -302,8 +307,43 @@ def rule_checks(c, epsg):
                     or service.distance(pt_) < 3.0 or area.distance(pt_) > 0:      # (a dropped kerb at an alley's mouth; the area's edge)
                 continue
             loose.append(at(pt_))
+    # J3: every connector (a road piece between two of the build's junction nodes under CONNECTOR_M, or a `_link`; sections.md rule 3)
+    # lies in an intersection, or on a bridge deck (the bridge model draws it)
+    mt = lambda g: f"ST_Transform({g}, 'EPSG:4326', '{epsg}', always_xy := true)"
+    jn_pts = [shapely.Point(x, y) for x, y in c.execute(f"""SELECT DISTINCT ST_X(n.p), ST_Y(n.p) FROM space.junction a JOIN (
+                 SELECT src AS node, {mt('ST_StartPoint(geometry)')} AS p FROM space.element WHERE type = 'road' AND src IS NOT NULL
+                 UNION SELECT dst, {mt('ST_EndPoint(geometry)')} FROM space.element WHERE type = 'road' AND dst IS NOT NULL) n ON n.node = a.node_id
+                 WHERE a.level = 0""").fetchall()]
+    jn_tree = shapely.STRtree(jn_pts) if jn_pts else None
+    cover_c = shapely.union_all([geo(w) for (w,) in c.execute(f"""SELECT {m('geometry')} FROM space.unit WHERE level = 0
+                                 AND kind = 'intersection'""").fetchall()] + [g for u, t, ref, src, g in parts if t == "bridge deck"]
+                                or [shapely.Polygon()]).buffer(0.5)
+    cls_of = {o: cl for o, cl, _ in roads}
+    conn_out = []
+    for o, ln in raw_lines.items():
+        for q_ in shapely.get_parts(ln):
+            if q_.geom_type != "LineString" or jn_tree is None:
+                continue
+            at_n = lambda pt: any(jn_pts[k].distance(pt) < 0.6 for k in jn_tree.query(pt.buffer(0.6)))
+            cuts = sorted({0.0, q_.length} | {q_.project(jn_pts[k]) for k in jn_tree.query(q_.buffer(0.6)) if q_.distance(jn_pts[k]) < 0.6})
+            for a_, b_ in zip(cuts, cuts[1:]):
+                pc = shapely.ops.substring(q_, a_, b_)
+                if pc.length < 0.5 or not (at_n(shapely.Point(pc.coords[0])) and at_n(shapely.Point(pc.coords[-1]))):
+                    continue
+                if (pc.length < CONNECTOR_M or str(cls_of.get(o) or "").endswith("_link")) and area.contains(pc) \
+                        and pc.difference(cover_c).length > 1.0:
+                    conn_out.append(at(pc.difference(cover_c)))
+    # J4: every tag change along a section, with its class (space.change, network.py step 6b): a report; the unknown ones first
+    has_ch = c.execute("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'space' AND table_name = 'change'").fetchone()[0]
+    chg = c.execute(f"""SELECT class, {m('geometry')} FROM space.change WHERE level = 0 ORDER BY (class = 'unknown') DESC, class""").fetchall() if has_ch else []
+    by_cls = {}
+    for cl_, _ in chg:
+        by_cls[cl_] = by_cls.get(cl_, 0) + 1
     return [
-        ("A1", f"carriageways whose lanes are off their OSM line (median of the middle > {STRAIGHT_M} m)", len(off), True, off),
+        ("A1", f"carriageways whose lanes are off their OSM line (median of the middle > {A1_M} m)", len(off), True, off),
+        ("J3", f"connectors (a road under {CONNECTOR_M:.0f} m or a `_link` between two junction nodes) not inside an intersection", len(conn_out), True, conn_out),
+        ("J4", "tag changes along a section, each with its class" + (" (" + ", ".join(f"{k} {v}" for k, v in sorted(by_cls.items())) + ")" if by_cls else ""),
+         len(chg), False, [at(geo(w)) for _, w in chg]),
         ("K2", "loose kerb ends (not at another kerb, a crosswalk, an alley's mouth or the area's edge)", len(loose), False, loose),
         ("A2", "parking or cycle lanes with no real source (source urbanstyle)", len(nosrc), True, nosrc),
         ("A3", "stretches of a road line over 2 m with no roadway under it", len(bare), True, bare),
@@ -371,15 +411,17 @@ def lane_joints(c, m):
     return bad
 
 
-def roadway_joints(q, m):
-    """Where two subsections of one section meet, the roadway (no median) reaches the joint at the same points from both sides."""
+def roadway_joints(q, m, has_change=False):
+    """Where two subsections of one section meet, the roadway (no median) reaches the joint at the same points from both sides: the frame
+    is one width for the section (sections.md rule 6). A joint at a 'real' change (space.change, J4) is allowed to step."""
     road = "('lane', 'shoulder', 'parking', 'no parking', 'bus zone', 'bus lane', 'cycle lane', 'carriageway')"
+    real = f"AND NOT EXISTS (SELECT 1 FROM space.change ch WHERE ch.class = 'real' AND ST_DWithin({m('ch.geometry')}, j.g, 1.0))" if has_change else ""
     return q(f"""WITH su AS (SELECT unit_id, section_id, ST_MakeValid({m('geometry')}) AS g FROM space.unit WHERE kind = 'subsection'),
       rw AS (SELECT unit_id, ST_MakeValid(ST_Union_Agg(ST_MakeValid(ST_Buffer({m('geometry')}, 0.02)))) AS g FROM space.part WHERE type IN {road} GROUP BY unit_id),
       j AS (SELECT a.unit_id AS ua, b.unit_id AS ub, ST_Intersection(a.g, b.g) AS g FROM su a JOIN su b ON a.section_id = b.section_id
             AND a.unit_id < b.unit_id AND ST_Intersects(a.g, b.g)),
       x AS (SELECT ST_Intersection(j.g, ra.g) AS xa, ST_Intersection(j.g, rb.g) AS xb FROM j JOIN rw ra ON ra.unit_id = j.ua
-            JOIN rw rb ON rb.unit_id = j.ub WHERE ST_Length(j.g) > 1)
+            JOIN rw rb ON rb.unit_id = j.ub WHERE ST_Length(j.g) > 1 {real})
       SELECT count(*) FROM x WHERE ST_Length(ST_Difference(xa, ST_Buffer(xb, 0.1))) + ST_Length(ST_Difference(xb, ST_Buffer(xa, 0.1))) > 0.1""")
 
 

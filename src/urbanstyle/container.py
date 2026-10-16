@@ -901,7 +901,7 @@ def intersection_shapes(con):
     con.execute("CREATE OR REPLACE TEMP TABLE ishape AS SELECT cid::VARCHAR AS cid, shape::VARCHAR AS shape, n_arms::INT AS n_arms FROM sh")
 
 
-FROM = ("division",)        # where `build --from` can start: the steps before it are kept in OUT.before-<step>
+FROM = ("division", "ground")     # where `build --from` can start: the steps before it are kept in OUT.before-<step>
 
 
 def build(osm, out, start=None, bridges=()):
@@ -931,7 +931,7 @@ def build(osm, out, start=None, bridges=()):
         con.execute(f"CREATE OR REPLACE TEMP VIEW osm_boundary AS SELECT {'geometry' if 'geometry' in cols else 'geom'} AS geometry FROM osm.main.boundary")
     if start is not None:
         lon = con.execute("SELECT avg(ST_X(ST_Centroid(geometry))) FROM space.element").fetchone()[0]
-        return _from_division(con, f"EPSG:{32600 + int((lon + 180) // 6) + 1}", done, bridges)
+        return _from_division(con, f"EPSG:{32600 + int((lon + 180) // 6) + 1}", done, bridges, out, start)
     con.execute(BUILD)
     con.execute(ROADS)
     from . import buildings
@@ -977,15 +977,21 @@ def build(osm, out, start=None, bridges=()):
     done("blocks")
     con.execute("CHECKPOINT")      # (the file as it is before the division, for `build --from division`)
     shutil.copy(out, out + ".before-division")
-    return _from_division(con, epsg, done, bridges)
+    return _from_division(con, epsg, done, bridges, out)
 
 
-def _from_division(con, epsg, done, bridges=()):
-    """The steps from the street division on: they rewrite the level-0 rows the steps before them made, so they start from those."""
+def _from_division(con, epsg, done, bridges=(), out=None, start="division"):
+    """The steps from the street division on: they rewrite the level-0 rows the steps before them made, so they start from those.
+    start="ground": the ground steps only, from OUT.before-ground (a fix in ground.py: Monaco 7 min, not 36)."""
+    import shutil
     from . import ground, network, turns
-    network.build(con, epsg, bridges)      # the street at level 0 from the road network (docs/design/pipeline.md, steps 2-7)
-    turns.build(con, epsg)                 # SUMO's moves through each junction: turns, guide lines, turn arrows (step 8)
-    done("division")
+    if start == "division":
+        network.build(con, epsg, bridges)      # the street at level 0 from the road network (docs/design/pipeline.md, steps 2-7)
+        turns.build(con, epsg)                 # SUMO's moves through each junction: turns, guide lines, turn arrows (step 8)
+        done("division")
+        if out:
+            con.execute("CHECKPOINT")
+            shutil.copy(out, out + ".before-ground")
     ground.build(con, epsg)        # layer 0: every piece of the area is street, plot, green, ... (docs/design/space-layers.md)
     ground.surfaces(con, epsg)     # layer 1: the surfaces inside each ground item
     ground.paths(con, epsg)        # every footpath whole, lying on the ground (not cut by the blocks)

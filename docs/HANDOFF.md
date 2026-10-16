@@ -134,7 +134,7 @@ PYTHONPATH=src $P -m urbanstyle check data/monaco.duckdb --bridge data/bridges-m
 export CARTO_API_KEY="$(grep -o 'CARTO_API_KEY="[^"]*"' ~/.bashrc | cut -d'"' -f2)"; source ~/miniconda3/envs/roadstyle/etc/conda/activate.d/google_maps_key.sh
 PYTHONPATH=src:../roadstyle/src python3 -m urbanstyle dashboard data/monaco.duckdb viz/monaco.html --bridge data/bridges-monaco/*.bridge.json
 scratch/serve.sh monaco
-# a fix in network.py or ground.py: `build ... --from division` (Monaco 36 min), or a 250 m cut in 1-2 min:
+# a fix in network.py: `build ... --from division` (Monaco 36 min); in ground.py: `--from ground` (7 min); or a 250 m cut in 1-2 min:
 $P scratch/cut-monaco.py NAME LON LAT TAG src [RADIUS]      # data/cuts/NAME.space.duckdb, the checks printed
 $P scratch/plot-place.py DB LON LAT RADIUS viz/review/NAME.png "title"     # a picture of one place, http://localhost:8784/review/NAME.png
 # Vancouver, from the division step (about 1 min), then the checks and the page

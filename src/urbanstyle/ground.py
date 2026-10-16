@@ -164,7 +164,9 @@ def build(con, epsg):
             taken = shapely.union_all([taken, piece], grid_size=0.01)
             # a building's own source: a city's outline (vb...) is the city's
             out.append((f"g0-{typ}-{ref}", typ, name, "vancouver" if ref.startswith("vb") else src, meth, ref, piece))
-    rest = [p for p in shapely.get_parts(poly(area.difference(taken, grid_size=0.01))) if p.area >= MIN_M2]
+    # (every piece of what is left, whatever its size: the kinds partition the area exactly, rank 1 of steps.md; a sliver dropped here
+    # was a gap, 32 m2 of them on Monaco, 2026-10-16)
+    rest = [p for p in shapely.get_parts(poly(area.difference(taken, grid_size=0.01))) if p.area > 0]
     left = []
     # what is left that a path or a road runs through is that path's or that street's ground (a greenway's corridor, a road under a
     # bridge's ramp): by the line with the most length in it
@@ -191,7 +193,7 @@ def build(con, epsg):
                 for q in shapely.get_parts(lane_):
                     if q.area >= MIN_M2:
                         out.append((f"g0-alley-{ref}-{round(q.centroid.x)}-{round(q.centroid.y)}", "alley", name, "osm", "mapped", ref, q))
-                kept += [q for q in shapely.get_parts(poly(p.difference(lane_, grid_size=0.01))) if q.area >= MIN_M2]
+                kept += [q for q in shapely.get_parts(poly(p.difference(lane_, grid_size=0.01))) if q.area > 0]
                 continue
             out.append((f"g0-{kind}-{ref}-{round(p.centroid.x)}-{round(p.centroid.y)}", kind, name, "osm", "mapped", ref, p))
         else:
@@ -211,13 +213,29 @@ def build(con, epsg):
         near = [(L, k) for L, k in near if out[k][1] != "building"]
         if ((p.area < SLIVER_M2 or 2 * p.area / p.length < SLIVER_W_M) and near and near[0][0] > 0.1) or row:
             k = streets[0][1] if row else near[0][1]
-            out[k] = out[k][:6] + (poly(shapely.union_all([out[k][6], p.buffer(0.01)], grid_size=0.01)),)
+            out[k] = out[k][:6] + (poly(shapely.union_all([out[k][6], p], grid_size=0.01)),)     # (on the grid, no buffer: a buffer overlapped the neighbours)
         else:
             left.append(p)
     for p in sorted(left, key=lambda p: (round(p.centroid.x), round(p.centroid.y))):     # stable for the same data
         # blocks first: private ground no other kind holds is a yard (a garden, a forecourt, a paved lot); else unknown (G1)
         kind = "yard" if land_ is not None and p.intersection(land_).area > 0.5 * p.area else "unknown"
         out.append((f"g0-{kind}-{round(p.centroid.x)}-{round(p.centroid.y)}", kind, None, "urbanstyle", "derived", None, p))
+    # the partition made exact: each item less the items before it (the order is the precedence), and what the area still leaves,
+    # whatever its size, to the item sharing the most edge with it
+    taken = shapely.Polygon()
+    for i_ in range(len(out)):
+        piece = poly(out[i_][6].difference(taken, grid_size=0.01))
+        out[i_] = out[i_][:6] + (piece,)
+        taken = shapely.union_all([taken, piece], grid_size=0.01)
+    out = [o for o in out if not o[6].is_empty and o[6].area > 0]
+    tree = shapely.STRtree([x[6] for x in out]) if out else None
+    for p in shapely.get_parts(poly(area.difference(taken, grid_size=0.01))):
+        if p.is_empty or p.area <= 0 or tree is None:
+            continue
+        near = sorted(((p.boundary.intersection(out[k][6].buffer(0.02)).length, k) for k in tree.query(p.buffer(0.05))), reverse=True)
+        if near:
+            k = near[0][1]
+            out[k] = out[k][:6] + (poly(shapely.union_all([out[k][6], p], grid_size=0.01)),)
     con.execute("""CREATE OR REPLACE TABLE space.ground (ground_id VARCHAR, level INT, type VARCHAR, name VARCHAR, source VARCHAR,
                    method VARCHAR, ref VARCHAR, geometry GEOMETRY)""")
     if out:

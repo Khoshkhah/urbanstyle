@@ -16,28 +16,30 @@ geometry. From rank 2 down, each rank partitions the rank above it: the subsecti
 sides cover the space exactly, the parts of a side cover the side exactly (checks U1, U8, U9), and the spaces cover the street area
 of the level, the area less the blocks. A thing of a lower rank is then always inside one thing of the rank above, never in two and
 never in none. Rank 1 is the ground: the level's area cut into the blocks, the street area between them, water, rail and green.
-Rank 2 divides the street kind of rank 1 only, into its stretches: sections and intersections; the seven other kinds end at
-rank 1. The named street, `k0-<way>`, is a group of stretches, not a rank: an intersection belongs to every named street that
+Rank 2 divides two kinds of rank 1: the street into its stretches, sections and intersections, and the plot into its pieces,
+building, yard, alley, car park, construction site; the six other kinds end at rank 1. The named street, `k0-<way>`, is a group of stretches, not a rank: an intersection belongs to every named street that
 arrives at it, so it stands outside the tree. Rank 3 is a space, the thing that has sides and parts: a subsection, or the
 intersection itself. A section is divided into subsections; an intersection is never divided, so it is its own stretch and its own
 space, and it belongs to no section.
 
-The ground, rank 0 to rank 1: the whole area cut into its kinds.
+The ground, rank 0 to rank 2: the whole area cut into its kinds, and the two kinds that are divided further.
 
 ```mermaid
-flowchart TD
+flowchart LR
     L0[0 the level: its whole area] --> K1[1 street]
-    L0 --> K2[1 building]
-    L0 --> K3[1 yard]
-    L0 --> K4[1 alley]
-    L0 --> K5[1 car park]
-    L0 --> K6[1 path]
-    L0 --> K7[1 square]
-    L0 --> K8[1 green]
-    L0 --> K9[1 water]
-    L0 --> K10[1 rail]
-    L0 --> K11[1 structure]
-    L0 --> K12[1 construction site]
+    L0 --> K2[1 plot: a block]
+    L0 --> K3[1 path]
+    L0 --> K4[1 square]
+    L0 --> K5[1 green]
+    L0 --> K6[1 water]
+    L0 --> K7[1 rail]
+    L0 --> K8[1 structure]
+    K1 --> S2[2 section, intersection]
+    K2 --> B1[2 building]
+    K2 --> B2[2 yard]
+    K2 --> B3[2 alley]
+    K2 --> B4[2 car park]
+    K2 --> B5[2 construction site]
 ```
 
 The street, rank 1 to rank 6: the street kind divided down to the marks.
@@ -72,13 +74,17 @@ the level from OSM's `layer` tag, else bridge 1, tunnel -1, else 0. Checks: P1-P
 count, a missing `layer`, is fixed here and nowhere lower.
 
 **Rank 1. The ground**, table `space.ground` (every piece with its kind), `space.block` (the blocks).
-What: the whole area of rank 0 cut into kinds (`ground.py`): **street** (the street area between the blocks: the roads with their
-walking sides), and inside the blocks **building**, **yard**, **alley** (a service road inside a block), **car park**; beside them
-**path** (a space of footpaths with no road), **square** (a pedestrian place), **green**, **water**, **rail**, **structure**,
-**construction site**. The kinds partition the area (G1: no piece of unknown kind; G2: no overlap over 0.5 m²). Measured on Monaco
-on 2026-10-16: the kinds add up to 2,390,515 m², their union is 2,390,481 m², the area 2,390,513 m²: the overlaps total 34 m² in
-2.39 km², none over 0.9 m², and the gaps 32 m², slivers at the 5 cm simplification. Only the street kind is divided further, at
-rank 2; the other kinds end here, with their surfaces (`space.surface`, `space-layers.md`).
+What: the whole area of rank 0 cut into eight kinds (`ground.py`): **street** (the street area between the blocks: the roads
+with their walking sides), **plot** (a block: the land between the streets, `space.block`), **path** (a space of footpaths with no
+road), **square** (a pedestrian place), **green**, **water**, **rail**, **structure**. Two kinds are divided further at rank 2: the
+street into sections and intersections, the plot into **building**, **yard**, **alley** (a service road inside the block), **car
+park** and **construction site** (`space.ground` holds these five as the plot's pieces). The kinds partition the area exactly (`ground.py`, 2026-10-16): each kind is cut in the order of
+precedence less every kind before it, and what no kind covers, whatever its size, joins the kind it shares the most edge with. The
+checks: G1, no piece of unknown kind; G2, no two kinds overlap by over 0.01 m²; G3, the area less the kinds' union is under
+0.01 m². Before this rule the measurement on Monaco gave overlaps of 34 m² and gaps of 32 m² in 2.39 km², slivers at the 5 cm
+simplification: a sliver under 0.5 m² was dropped, and a sliver joined its neighbour with a 1 cm buffer that overlapped the pieces
+round it. Only the street kind is divided further, at rank 2; the other kinds end here, with their surfaces (`space.surface`,
+`space-layers.md`). A fix in `ground.py` is tested with `build --from ground` (Monaco: 7 min).
 How: the blocks from the street lines of rank 0, the footways and a city's parcels (`blocks.md`); the street area is what is left
 between the blocks; water, rail and green from OSM's areas. Checks: B1 and B6 (the blocks), G1 and G2 (the ground). A block edge off
 is fixed here.

@@ -96,8 +96,11 @@ def ground_checks(c, q, m):
     c.execute(f"CREATE TEMP TABLE gr AS SELECT ground_id, level, ST_MakeValid(ST_Buffer({m('geometry')}, -0.01)) AS g FROM space.ground")
     return [
         ("G1", f"pieces of ground of no known kind ({unknown[1]:,.0f} m2)", unknown[0], False),
-        ("G2", "ground items overlapping by more than 0.5 m2", q("""SELECT count(*) FROM gr a JOIN gr b ON a.level = b.level
-                                  AND a.ground_id < b.ground_id AND ST_Intersects(a.g, b.g) WHERE ST_Area(ST_Intersection(a.g, b.g)) > 0.5"""), True),    ] + surface_checks(c, q, m) + block_checks(c, q, m)
+        ("G3", "the ground's kinds leave a gap: the area less their union, over 0.01 m2 in all (rank 1 partitions rank 0)", q(f"""SELECT CASE WHEN
+                                  ST_Area(ST_Difference((SELECT ST_Union_Agg({m('geometry')}) FROM space.area), (SELECT ST_Union_Agg({m('geometry')}) FROM space.ground))) > 0.01
+                                  THEN 1 ELSE 0 END"""), True),
+        ("G2", "ground items overlapping by more than 0.01 m2", q("""SELECT count(*) FROM gr a JOIN gr b ON a.level = b.level
+                                  AND a.ground_id < b.ground_id AND ST_Intersects(a.g, b.g) WHERE ST_Area(ST_Intersection(a.g, b.g)) > 0.01"""), True),    ] + surface_checks(c, q, m) + block_checks(c, q, m)
 
 
 def block_checks(c, q, m):

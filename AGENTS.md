@@ -72,7 +72,7 @@ starting work). The agreed model of sections, intersections and the frame, which
   at intersections). The roadway (lanes, junction shapes, turns) comes from SUMO: the subsections measure the lanes, `sumo.py` runs
   duckOSM's `to_sumo` with them, `from_sumo()` fills every unit; without SUMO `classic()` builds the roadway from bands. `urbanstyle check`
   U1-U10 test them; U11-U13 report the lanes entering each junction (`space.approach`),
-  G1-G2 the ground (`space.ground`), L1-L2 the surfaces (`space.surface`), B1 and B6 the blocks (`space.block`); A1-A3, J1-J2, X1, M1, K1 the
+  G1-G3 the ground (`space.ground`: no unknown piece, no overlap, no gap: rank 1 partitions the area), L1-L2 the surfaces (`space.surface`), B1 and B6 the blocks (`space.block`); A1-A3, J1-J2, X1, M1, K1 the
   agreed street rules (`docs/design/street-rules.md`); R1-R4 the roadway at
   level 0: R1 its edges at the joints (a step only at a `real` change), R4 the lanes that meet their continuation there (tapers); J3 every connector
   inside an intersection, J4 (INFO) the tag changes along the sections with their classes.
@@ -123,9 +123,10 @@ URBANSTYLE_BRIDGE_TESTS=1 $P -m pytest -q tests/test_bridge_rules.py   # the bri
 PYTHONPATH=src $P -m urbanstyle build ../duckOSM/monaco.duckdb data/monaco.duckdb
 PYTHONPATH=src $P -m urbanstyle build ../duckOSM/data/db/sodermalm.duckdb data/sodermalm.duckdb
 PYTHONPATH=src $P -m urbanstyle check data/monaco.duckdb data/sodermalm.duckdb
-# a fix in network.py or ground.py: only those steps, from the copy the last full build kept (OUT.before-division): Monaco minutes,
-# not 27 min; the build prints each step's time
+# a fix in network.py: only the division and the steps after it, from the copy the last full build kept (OUT.before-division): Monaco
+# 36 min, not 60; a fix in ground.py: `--from ground`, the ground steps only, from OUT.before-ground (Monaco 7 min)
 PYTHONPATH=src $P -m urbanstyle build ../duckOSM/monaco.duckdb data/monaco.duckdb --from division
+PYTHONPATH=src $P -m urbanstyle build ../duckOSM/monaco.duckdb data/monaco.duckdb --from ground --bridge data/bridges-monaco/*.bridge.json
 # an area with bridges (every area whose roads reach level 1): their profiles first, then every later step with --bridge. Without them
 # a deck is drawn flat in the air with no lanes (`dashboard` warns). Monaco, 2026-10-14: 11 profiles in 1 s, the checks ~2 min
 ../duckOSM/.venv/bin/duckosm gmns ../duckOSM/monaco.duckdb --out data/monaco_gmns.duckdb -m driving     # the lanes (GMNS)

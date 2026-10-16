@@ -45,7 +45,7 @@ flowchart LR
 The street, rank 1 to rank 6: the street kind divided down to the marks.
 
 ```mermaid
-flowchart TD
+flowchart LR
     K1[1 street] --> SE[2 section]
     SE --> SU[3 subsection]
     K1 --> IN[2 and 3: intersection]
@@ -53,12 +53,14 @@ flowchart TD
     SU --> W1[4 walking side]
     IN --> D2[4 driving side]
     IN --> W2[4 walking side]
-    D1 --> P1[5 parts]
-    W1 --> P2[5 parts]
-    D2 --> P3[5 parts]
-    W2 --> P4[5 parts]
-    P1 --> M[6 marks]
+    D1 --> P1["5 parts: lane, paved roadway, strips (parking, no parking, shoulder, bus lane, cycle lane), crosswalk, cycle crossing, bridge deck"]
+    W1 --> P2["5 parts: furnishing, sidewalk, frontage, island, driveway"]
+    D2 --> P3["5 parts: junction area, crosswalk, cycle crossing"]
+    W2 --> P4["5 parts: furnishing, sidewalk, frontage, island"]
+    P1 --> M["6 marks: lane line, centre line, edge line, stop line, give-way line, zebra, crossing line, arrow, guide line, kerb"]
     P2 --> M
+    P3 --> M
+    P4 --> M
 ```
 
 Rank 4, the side, is agreed on 2026-10-16 and not in the data yet: today `space.part` holds the parts of both sides in one table,

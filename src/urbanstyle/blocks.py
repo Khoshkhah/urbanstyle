@@ -32,8 +32,8 @@ def street_sql(e="e"):
     and no service=* kind (its subtype). Monaco tags whole quays and boulevard pieces as service, 39 ways, 3.5 km: Boulevard Albert
     1er, Quai Antoine 1er, Avenue des Ligures (Kaveh, 2026-10-16). An unnamed service road, an alley, a driveway, a parking aisle
     stays a service road: a driveway across the pedestrian side, no space of its own (docs/design/street-rules.md)."""
-    return (f"(replace(coalesce({e}.class, ''), '_link', '') IN {STREET} OR ({e}.class = 'service' AND {e}.name IS NOT NULL "
-            f"AND {e}.subtype IS NULL))")
+    return (f"(replace(coalesce({e}.class, ''), '_link', '') IN {STREET} OR ({e}.type = 'road' AND {e}.class = 'service' "
+            f"AND {e}.name IS NOT NULL AND {e}.subtype IS NULL))")     # (a road: a named service way cars cannot use, a pedestrian allée, is no street)
 HALF_ROW = {"motorway": 18, "trunk": 16, "primary": 15, "secondary": 12, "tertiary": 10, "unclassified": 10, "residential": 10,
             "living_street": 8, "pedestrian": 10}  # half right-of-way by class where neither parcels nor sidewalks give it (chosen)
 SIMPLIFY_M = 1.0        # OSM's small wiggles are not the street's shape

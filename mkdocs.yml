@@ -74,10 +74,14 @@ nav:
       - "Layers: the whole area as a hierarchy": design/space-layers.md
       - "Blocks first: blocks, sections, intersections": design/blocks.md
       - "The agreed street rules": design/street-rules.md
+      - Sections, intersections and the frame: design/sections.md
+      - Joints: design/joints.md
       - How the street map is made: design/pipeline.md
+      - The steps and their dependencies: design/steps.md
       - "Junctions from the road network": design/junctions.md
       - "The street from SUMO (proposed)": design/street-from-sumo.md
       - "Bridges in 3D": design/bridges-3d.md
+      - Tunnels in 3D (proposed): design/tunnels-3d.md
       - "Bridge profile": design/bridge-profile.md
       - "Bridge heights without LiDAR": design/bridge-heights.md
       - "Research: how standards layer a street": design/layers-research.md
@@ -140,7 +144,11 @@ markdown_extensions:
   - pymdownx.highlight:
       anchor_linenums: true
   - pymdownx.inlinehilite
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.details
   - pymdownx.emoji:
       emoji_index: !!python/name:material.extensions.emoji.twemoji
@@ -150,3 +158,4 @@ markdown_extensions:
 exclude_docs: |
   build_*.py
   plan.md
+  HANDOFF.md

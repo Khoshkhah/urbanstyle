@@ -110,21 +110,41 @@ every item below. Its order of work:
 
 ```bash
 P=/home/kaveh/projects/duckOSM/.venv/bin/python
-# Vancouver, from the division step (about 1 min), then the checks
-PYTHONPATH=src $P -m urbanstyle build data/units/broadway-granville.osm.duckdb data/units/broadway-granville.space.duckdb --from division --bridge data/bridges-measured/granville-bridge.bridge.json
-PYTHONPATH=src $P -m urbanstyle check data/units/broadway-granville.space.duckdb
-# the page: the CARTO key and the Street View key must be in the environment when the page is built; then the server
+# the servers: Monaco on 8784 (Street View's key allows that port only), Vancouver on 8785. A server reads its db into memory at start
+# and holds no lock on the file (serve.py, 2026-10-16), so a build runs behind a live page; a rebuild ends with `scratch/serve.sh <area>`,
+# a 2 s restart. Kaveh asked for http://localhost:8785/* on the key's referrers, to get Street View on both.
+scratch/serve.sh monaco        # kills the server on 8784 by PID and starts it again from data/monaco.duckdb and viz/monaco.html
+scratch/serve.sh vancouver     # the same on 8785 from data/units/broadway-granville.space.duckdb
+# an OSM fault (lanes, oneway, layer): into ../duckOSM/osm_overrides/osm_overrides.yaml + known_osm_issues.md, then (12 s)
+(cd ../duckOSM && .venv/bin/duckosm build --config config/sample_monaco.yaml)     # writes ../duckOSM/monaco.duckdb (a copy .2026-10-04 is kept)
+# then Monaco in full (about 1 h: the lanes, the profiles, the build, the checks, the page, the server)
+../duckOSM/.venv/bin/duckosm gmns ../duckOSM/monaco.duckdb --out data/monaco_gmns.duckdb -m driving
+PYTHONPATH=src $P -m urbanstyle bridge ../duckOSM/monaco.duckdb data/monaco_gmns.duckdb data/bridges-monaco
+PYTHONPATH=src $P -m urbanstyle build ../duckOSM/monaco.duckdb data/monaco.duckdb --bridge data/bridges-monaco/*.bridge.json
+PYTHONPATH=src $P -m urbanstyle check data/monaco.duckdb --bridge data/bridges-monaco/*.bridge.json
 export CARTO_API_KEY="$(grep -o 'CARTO_API_KEY="[^"]*"' ~/.bashrc | cut -d'"' -f2)"; source ~/miniconda3/envs/roadstyle/etc/conda/activate.d/google_maps_key.sh
+PYTHONPATH=src:../roadstyle/src python3 -m urbanstyle dashboard data/monaco.duckdb viz/monaco.html --bridge data/bridges-monaco/*.bridge.json
+scratch/serve.sh monaco
+# a fix in network.py or ground.py: `build ... --from division` (Monaco 36 min), or a 250 m cut in 1-2 min:
+$P scratch/cut-monaco.py NAME LON LAT TAG src [RADIUS]      # data/cuts/NAME.space.duckdb, the checks printed
+$P scratch/plot-place.py DB LON LAT RADIUS viz/review/NAME.png "title"     # a picture of one place, http://localhost:8784/review/NAME.png
+# Vancouver, from the division step (about 1 min), then the checks and the page
+PYTHONPATH=src $P -m urbanstyle build data/units/broadway-granville.osm.duckdb data/units/broadway-granville.space.duckdb --from division --bridge data/bridges-measured/granville-bridge.bridge.json
+PYTHONPATH=src $P -m urbanstyle check data/units/broadway-granville.space.duckdb --bridge data/bridges-measured/granville-bridge.bridge.json
 PYTHONPATH=src:../roadstyle/src python3 -m urbanstyle dashboard data/units/broadway-granville.space.duckdb viz/broadway-granville.html --bridge data/bridges-measured/granville-bridge.bridge.json
-PYTHONPATH=src:../roadstyle/src python3 -m urbanstyle serve data/units/broadway-granville.space.duckdb viz/broadway-granville.html --bridge data/bridges-measured/granville-bridge.bridge.json --port 8784
+scratch/serve.sh vancouver
+# the docs site: the duckOSM env has mkdocs-material; the system mkdocs has not
+$P -m mkdocs build --strict
 ```
 
-Rebuild the page after every data rebuild: the page embeds the data. A stale page shows old faults.
+Rebuild the page after every data rebuild: the page embeds the data. A stale page shows old faults. Long chains run under `setsid nohup`
+with their logs in scratch/; a chain never kills a server during a build (the server holds the last complete data in memory).
 
 ## Things that cost hours this session
 
-- A `pkill -f` or `pgrep -f` pattern that is also in your own command line kills your own shell (exit 144). Use a pattern with
-  a bracket, `urbanstyle buil[d]`, or kill by PID.
+- A `pkill -f` or `pgrep -f` pattern that is also in your own command line kills your own shell (exit 144; three times on
+  2026-10-16, a bracket in the pattern does not help when the plain name is in your command too). Kill by PID from `ps -eo pid,args`,
+  excluding `$$` and `$PPID`.
 - Long chains (build, check, page, server) must run under `setsid nohup`, else a later command kills them.
 - A Python patch that asserts and fails prints nothing when its output is in a background task. Check the "PATCHED OK" line before
   building on it. Commit 41c9237 claimed a fix that was not in the file.

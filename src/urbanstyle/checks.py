@@ -222,7 +222,7 @@ def rule_checks(c, epsg):
                 hit = shapely.LineString([(p.x - nx * 20, p.y - ny * 20), (p.x + nx * 20, p.y + ny * 20)]).intersection(U)
                 # (the lanes' run that holds the line point, or the nearest one: on a bend or a loop the cross line meets the same road
                 # again 20 m on, and that run is not this place's; Avenue Hector Otto's roundabout, Monaco 2026-10-16)
-                runs_ = [[(x - p.x) * nx + (y - p.y) * ny for x, y in q_.coords] for q_ in shapely.get_parts(hit) if q_.geom_type == "LineString"]
+                runs_ = [[(x - p.x) * nx + (y - p.y) * ny for x, y in q_.coords] for q_ in shapely.get_parts(hit) if q_.geom_type == "LineString" and len(q_.coords)]
                 ts = min(runs_, key=lambda tt: 0.0 if min(tt) <= 0 <= max(tt) else min(abs(min(tt)), abs(max(tt))), default=[])
                 if ts:
                     # (the widened outer lanes' extras, left minus right, move the middle by half of it: expected, not off)

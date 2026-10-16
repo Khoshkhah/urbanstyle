@@ -555,13 +555,3 @@ def build(con, epsg):
                ST_CollectionExtract(ST_MakeValid(ST_Transform(ST_GeomFromWKB(wkb::BLOB), '{epsg}', 'EPSG:4326', always_xy := true)), 3) AS geometry FROM df""")
     # a subsection that lies wholly inside its intersection has no space of its own: its road is the intersection's piece, not a subsection
     con.execute("DELETE FROM space.subsection WHERE subsection_id NOT IN (SELECT unit_id FROM space.unit)")
-    # a crossing is one object in one space (above): the loser's piece of it, cut for it before the spaces were decided (network.py, 8b),
-    # goes, where the winner's part covers it (Boulevard de Suisse: a subsection's parts outgrew its space by the crosswalk the
-    # intersection holds, check U8; Monaco 2026-10-16)
-    if con.execute("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'space' AND table_name = 'part'").fetchone()[0]:
-      con.execute("""DELETE FROM space.part WHERE level = 0 AND type IN ('crosswalk', 'cycle crossing') AND part_id IN (
-        SELECT p.part_id FROM space.part p JOIN space.unit u USING (unit_id)
-        WHERE p.level = 0 AND p.type IN ('crosswalk', 'cycle crossing')
-          AND ST_Area(ST_Intersection(p.geometry, u.geometry)) < 0.5 * ST_Area(p.geometry)
-          AND EXISTS (SELECT 1 FROM space.part o WHERE o.level = 0 AND o.type = p.type AND o.unit_id <> p.unit_id
-                      AND ST_Area(ST_Intersection(o.geometry, p.geometry)) > 0.9 * ST_Area(p.geometry)))""")

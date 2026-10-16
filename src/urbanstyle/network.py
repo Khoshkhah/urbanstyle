@@ -36,6 +36,7 @@ ALLEY_HALF_M = 2.5      # the kerb is dropped this far either side of where a se
 SLIVER_M2 = 20.0        # a subsection whose roadway outside the junctions is smaller than this joins the junction it touches (chosen)
 CUT_M = 60.0            # a roadway cut (stop line, joint) runs this far to each side across the sidewalks to the blocks
 MERGE_DEG = 45.0        # a road continues into another at a node when their headings are within this angle (chosen)
+XWALK_MAX_M = 40.0      # a crossing piece over the roadway longer than this runs along the road, not across it (spaces.XWALK_MAX_M)
 CONNECTOR_M = 40.0      # a road between two junction nodes shorter than this (or any `_link` there) is a connector: it belongs to the
                         # intersection with both nodes (docs/design/sections.md, rule 3; chosen)
 CORE_MIN_M = 1.0        # a junction's core counts only where the arms' carriageways overlap at least this wide (chosen)
@@ -1096,18 +1097,20 @@ def build(con, epsg, bridges=()):
     xw = []     # [(polygon, markings, ref, axis line, width)]
 
     def crosses_road(seg):
-        """The crossing piece runs across the road (30° or more to the nearest road line), not along it: a footway tagged crossing
-        that runs beside Boulevard du Larvotto for 80 m took the outer 1.5 m of its lane (A1; Monaco 2026-10-16)."""
-        mid = seg.interpolate(0.5, normalized=True)
-        ks = [k for k in (rtree.query(mid.buffer(8.0)) if rtree is not None else []) if runs[k]["line"].distance(mid) <= 8.0]
+        """The crossing piece runs across the road, not along it: a piece that crosses a road's line meets it at 30° or more; one that
+        crosses no line (over a junction area, or from a median) is a crossing when it is no longer than XWALK_MAX_M. A footway tagged
+        crossing that ran beside Boulevard du Larvotto for 80 m took the outer 1.5 m of its lane (A1; Monaco 2026-10-16)."""
+        ks = [k for k in (rtree.query(seg) if rtree is not None else []) if runs[k]["line"].intersects(seg)]
         if not ks:
-            return True
-        ln = runs[min(ks, key=lambda k: runs[k]["line"].distance(mid))]["line"]
-        s_ = ln.project(mid)
+            return seg.length <= XWALK_MAX_M
+        ln = runs[ks[0]]["line"]
+        hit = ln.intersection(seg)
+        mid = next((g for g in shapely.get_parts(hit) if g.geom_type == "Point"), hit.centroid)
+        s_, t_ = ln.project(mid), seg.project(mid)
         a_, b_ = ln.interpolate(max(s_ - 1, 0)), ln.interpolate(min(s_ + 1, ln.length))
-        (x0, y0), (x1, y1) = seg.coords[0], seg.coords[-1]
-        h1, h2 = math.hypot(x1 - x0, y1 - y0) or 1, math.hypot(b_.x - a_.x, b_.y - a_.y) or 1
-        return abs((x1 - x0) * (b_.x - a_.x) + (y1 - y0) * (b_.y - a_.y)) / (h1 * h2) < math.cos(math.radians(30))
+        xa, xb = seg.interpolate(max(t_ - 1, 0)), seg.interpolate(min(t_ + 1, seg.length))
+        h1, h2 = math.hypot(xb.x - xa.x, xb.y - xa.y) or 1, math.hypot(b_.x - a_.x, b_.y - a_.y) or 1
+        return abs((xb.x - xa.x) * (b_.x - a_.x) + (xb.y - xa.y) * (b_.y - a_.y)) / (h1 * h2) < math.cos(math.radians(30))
     for oid, x in xways:
         w = num_f(xtags.get(oid, {}).get("width")) or CROSSWALK_M
         for seg in shapely.get_parts(x.intersection(roadway_x.buffer(0.3))):
@@ -1605,4 +1608,13 @@ def build(con, epsg, bridges=()):
         con.executemany(f"""INSERT INTO space.mark (unit_id, level, type, length_m, width_m, width_source, width_method, source, method, ref, geometry)
                             VALUES (?, 0, ?, ?, ?, 'urbanstyle', 'chosen', ?, ?, ?, {to_ll})""",
                         [(u, t, round(x.length, 1), LINE.get(t), s_, me, rf, shapely.to_wkb(x)) for u, t, x, s_, me, rf in marks])
+    # a crossing is one object in one space: the loser's piece of it, cut for it before the spaces were decided (8b, each owner it
+    # touched), goes where the winner's part covers it (Boulevard de Suisse: a subsection's parts outgrew its space by the crosswalk the
+    # intersection holds, check U8; Monaco 2026-10-16)
+    con.execute("""DELETE FROM space.part WHERE level = 0 AND type IN ('crosswalk', 'cycle crossing') AND part_id IN (
+        SELECT p.part_id FROM space.part p JOIN space.unit u USING (unit_id)
+        WHERE p.level = 0 AND p.type IN ('crosswalk', 'cycle crossing')
+          AND ST_Area(ST_Intersection(p.geometry, u.geometry)) < 0.5 * ST_Area(p.geometry)
+          AND EXISTS (SELECT 1 FROM space.part o WHERE o.level = 0 AND o.type = p.type AND o.unit_id <> p.unit_id
+                      AND ST_Area(ST_Intersection(o.geometry, p.geometry)) > 0.9 * ST_Area(p.geometry)))""")
     return dict(sections=len(runs), intersections=len(junctions), parts=len(parts), marks=len(marks))

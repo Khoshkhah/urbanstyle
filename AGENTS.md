@@ -65,6 +65,9 @@ starting work). The agreed model of sections, intersections and the frame, which
   `urban.check`. `tests/test_product.py` holds the chapter against a build: change a column in both, or the test fails. A step never
   writes `urban`. `schema.migrate` moves an older file's intermediate tables to `work`. `src/urbanstyle/objects.py`: the street
   objects matched from every source (the build and the page).
+- `src/urbanstyle/paths.py` (after `ground.build`): the paths at ranks 2-3, each path item cut at its path junction nodes into path
+  sections (`p0-w<way>`) and path intersections (`q0-<node>`), `work.path_space`. No traffic data in urbanstyle; road facts come from
+  duckOSM's tables (`maxspeed_kmh` for `urban.part.speed`), not from raw OSM tags.
 - `src/urbanstyle/checks.py`: the invariants of `docs/notes/street-space-spec.md` section 8. `quality.py`: section
   shape over a whole area.
 - The dashboard, one for every area (2026-10-13; `docs/design/dashboard.md`, "How the page is made"): `src/urbanstyle/page.py`

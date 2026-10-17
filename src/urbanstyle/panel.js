@@ -220,7 +220,7 @@ $('xpfold').onclick=()=>{const off=!B.classList.toggle('xp-off'); $('xpfold').in
   $('xpfold').title=off?'hide the panel':'show the panel'; resize()};
 // the layers on the map: the panel's own set (allow); at first the blocks, the buildings (grey: page.py), the sections, the intersections,
 // the subsections and the bridge (Kaveh, 2026-10-13). The road centre lines are roadstyle's own layers (roads-*), the rest overlays.
-const allow=new Set(['Blocks','Buildings','Sections','Intersections','Subsections','Bridge 2D']);
+const allow=new Set(['Blocks','Buildings','Sections','Intersections','Bridge 2D']);
 const roadsOn=on=>{const m=M(); if(m&&!(typeof in3d!=='undefined'&&in3d))m.getStyle().layers.forEach(l=>{if(/^roads-/.test(l.id))m.setLayoutProperty(l.id,'visibility',on?'visible':'none')})};
 const HIDE_LY=l=>/3D/.test(l);     // (3D's own layers: never in Layers, never drawn in 2D)
 // (the layers as a tree, each under the one it is part of: blocks, sections and intersections cover the area (docs/design/space-layers.md);
@@ -229,36 +229,39 @@ const HIDE_LY=l=>/3D/.test(l);     // (3D's own layers: never in Layers, never d
 // [text, layer, note] (one layer), [text, null, note, kids] (a group: a rank, with its own box), or [text, layer, note, null, types]
 // (the layer filtered to these types: a kind of the ground, a type of part). A layer filtered by types is drawn only where its
 // KINDS set holds the type (levels2d applies it with the levels' filter).
-const KINDS={Ground:new Set(),Parts:new Set()};     // layer -> the types on (undefined: every type)
+const KINDS={Ground:new Set(),Parts:new Set(),Spaces:new Set(),Sides:new Set()};     // layer -> the types on (undefined: every type)
 const typeOn=(label,p)=>{const k=KINDS[label]; return !k||k.has(p.type)};
 const LYTREE=[
   ['Rank 0: the area',null,'the level, its whole area, with its content',[
     ['The area','Area','the whole area of the level'],['Road lines','Roads',"OSM's road and walkway centre lines"],['Buildings','Buildings',''],
     ['Rail lines','Rail',''],['Track','Track',''],['Stations','Station','']]],
   ['Rank 1: the ground',null,'the area cut into three kinds, the street, the plots and the paths, nothing left over',[
-    ['street','Street (rank 1)','the area less the blocks and the corridors, whole: one item per connected piece, built from those tables alone'],
-    ['street, as the spaces cut it','Ground','the same ground, one piece per space of rank 3',null,['street']],
-    ['plot (the blocks)','Blocks','the land between the streets and the paths'],['path (the corridors)','Ground','',null,['path']],
+    ['street','Ground','the area less the blocks and the corridors: one item per connected piece',null,['street']],
+    ['plot (the blocks)','Ground','the land between the streets and the paths',null,['plot']],['path (the corridors)','Ground','',null,['path']],
+    ['the blocks, each its own colour','Blocks','the plots, with their street sides'],
     ['footways (on the ground)','Footways','every footpath at this level, whole, at its width: a sidewalk and a crossing lie on the street, every other footway, steps or path has its corridor in the kind path']]],
   ['Rank 2: the stretches of the street',null,'from junction to junction, and where the arms meet',[
-    ['Sections','Sections',''],['Intersections','Intersections','its space is rank 3 too']]],
+    ['Sections, path sections','Sections',''],['Intersections, path intersections','Intersections','its space is rank 3 too']]],
   ['Rank 2: the pieces of the plot',null,'',[
     ['building','Ground','',null,['building']],['yard','Ground','',null,['yard']],['alley','Ground','a service road inside the block',null,['alley']],
     ['car park','Ground','',null,['car park']],['construction site','Ground','',null,['construction site']],
     ['green','Ground','',null,['green']],['water','Ground','',null,['water']],['rail','Ground','',null,['rail']],['square','Ground','',null,['square']],
     ['structure','Ground','the ground under a bridge',null,['structure']]]],
   ['Rank 3: the spaces',null,'one per subsection and per intersection (an intersection is one space)',[
+    ['subsection','Spaces','',null,['subsection']],['intersection','Spaces','',null,['intersection']],
+    ['path section','Spaces','',null,['path section']],['path intersection','Spaces','',null,['path intersection']],
     ['spaces, top down','Spaces (rank 3, top down)','rank 1\'s street cut by the stop lines and the joints: each face one space, corners included (division.py, the new construction)'],
-    ['Subsections','Subsections','a stretch with one cross-section'],['Subsection axes','Subsection axes','its line'],
+    ['Subsection axes','Subsection axes','the axis of each subsection and path section: s runs along it'],
     ['Subsection breaks','Subsection breaks','where it starts'],['Cuts','Cuts','where one space ends and the next begins']]],
-  ['Rank 4: the sides',null,'the driving side and the walking side of each space: to be built',[]],
+  ['Rank 4: the sides',null,'the driving side and the walking side of each space',[
+    ['driving side','Sides','inside the kerb',null,['driving']],['walking side','Sides','outside the kerb, with the islands',null,['walking']]]],
   ['Rank 5: the parts, driving side',null,'',[
     ['lane','Parts','',null,['lane']],['paved','Parts','the paved rest of the frame beyond the lanes and the strips',null,['paved']],['junction area','Parts','',null,['junction area']],
     ['strips','Parts','parking, no parking, shoulder, bus lane, cycle lane, bus zone',null,['parking','no parking','shoulder','bus lane','cycle lane','bus zone']],
     ['crosswalk, cycle crossing','Parts','',null,['crosswalk','cycle crossing']],['bridge deck','Parts','',null,['bridge deck']]]],
   ['Rank 5: the parts, walking side',null,'',[
     ['furnishing','Parts','',null,['furnishing']],['sidewalk','Parts','',null,['sidewalk']],['frontage','Parts','',null,['frontage']],
-    ['island','Parts','',null,['island']],['driveway','Parts','',null,['driveway']]]],
+    ['island','Parts','',null,['island']],['driveway','Parts','',null,['driveway']],['path, steps','Parts','the part of a path',null,['path','steps']]]],
   ['Rank 6: the marks',null,'',[['Painted lines','Mark: ','']]],
   ['On top',null,'lying on the tree, in no rank',[
     ['Street objects','Street objects','lamps, trees, signs'],['Crossings and driveways, drawn over the parts','On the parts',''],
@@ -413,7 +416,7 @@ const HOVER2D=300, OVMAP={'Buildings':['Buildings','id','source_id'],'Bridge 2D'
   'Parts':['Street parts','part_id','part_id'],'On the parts':['Street parts','part_id','part_id'],'Ground':['Ground','ground_id','ground_id'],
   'Parking lots':['Car parks','id','lot_id'],'Subsections':['Street spaces','unit_id','unit_id'],'Intersections':['Street spaces','unit_id','unit_id'],
   'Sections':['Street spaces','section_id','section_id'],'Subsection axes':['Street spaces','subsection_id','unit_id'],'Blocks':['Blocks','block_id','block_id'],
-  'Street objects':['Street objects','refs','id']};
+  'Street objects':['Street objects','refs','id'],'Sides':['Sides','side_id','side_id']};
 const OWNKEY=['part_id','unit_id','refs','node_id','subsection_id','intersection_id','feature_id','id'];     // (a feature's own id, in this order)
 const is3d=()=>typeof in3d!=='undefined'&&in3d;
 const ovOf=f=>OVERLAYS.find(o=>(o.layers||[]).includes(f.layer.id));
@@ -427,7 +430,7 @@ function ref(f){const p=f.properties; if(XP.includes(f.layer.id))return p._layer
   const k=OWNKEY.find(k=>p[k]!=null&&p[k]!==''); return k?[o.label,String(p[k]),k,null]:null}
 // (a click takes the smallest thing under the mouse, not the top layer: a sidewalk, not the street space drawn over it; Kaveh,
 // 2026-10-13: "I click on a sidewalk and you say it is a space")
-const RANK=['Street objects','On the parts','Parts','Bridge 2D','Buildings','Parking lots','Subsection axes','Subsections','Intersections','Spaces','Sections','Blocks','Ground'];
+const RANK=['Street objects','On the parts','Parts','Bridge 2D','Buildings','Parking lots','Subsection axes','Sides','Subsections','Intersections','Spaces','Sections','Blocks','Ground'];
 const rank=f=>{const o=XP.includes(f.layer.id)?null:ovOf(f), i=o?RANK.indexOf(o.label):-1; return o?(i<0?RANK.length:i):-1};
 function hit2d(pt){const ls=live2d(); if(!ls.length)return null;
   const hs=M().queryRenderedFeatures(pt,{layers:ls}).filter(ref); return hs.reduce((b,f)=>!b||rank(f)<rank(b)?f:b,null)}
@@ -462,7 +465,7 @@ function wire2d(){if(offline)return; const m=M();     // (no server: roadstyle's
     select({type:'Feature',geometry:g.geometry,properties:{...p,_layer:r[0],_id:r[1],_label:p.type||p.class||r[0]}},at)});
   // (roadstyle's own popup and its hover tooltip: off for every layer, the panel shows them)
   if(typeof OVERLAYS!=='undefined'&&!offline)OVERLAYS.forEach(o=>{o.interactive=false; o.tooltip=[]})}     // (no server: roadstyle's popups show the fields)
-const LAYERS_ID={'Buildings':'source_id','Bridge parts':'id','Street spaces':'unit_id','Street parts':'part_id','Ground':'ground_id','Car parks':'lot_id','Blocks':'block_id','Street objects':'id'};
+const LAYERS_ID={'Sides':'side_id','Buildings':'source_id','Bridge parts':'id','Street spaces':'unit_id','Street parts':'part_id','Ground':'ground_id','Car parks':'lot_id','Blocks':'block_id','Street objects':'id'};
 // ---- the start: the server's first answer (meta) and the layers' data in, the first look set, then the veil lifted (nothing changes in
 // front of the user while the page loads). No server (a page opened as a file): the map alone.
 let tries=0;

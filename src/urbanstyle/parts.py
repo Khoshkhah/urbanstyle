@@ -1461,15 +1461,13 @@ def build(con, epsg):
     wdf = pd.DataFrame(widths, columns=["unit_id", "level", "edge", "arm", "total_m", "carriageway_m", "left_m", "right_m", "lanes_in", "lanes_out",
                                         "lane_m", "source"])
     to_ll = f"ST_Transform(ST_GeomFromWKB(wkb::BLOB), '{epsg}', 'EPSG:4326', always_xy := true)"
-    # a part of a road (a lane, a shoulder) takes what is known of its road (its OSM way, `ref`): name, class, speed limit, surface,
-    # lighting, the road's lane count. Where OSM says nothing, a stated default: 50 km/h, the limit in built-up areas in Canada, Sweden
-    # and Monaco (not on a motorway), and asphalt; each value says where it comes from
+    # a part of a road (a lane, a shoulder) takes what is known of its road (its OSM way, `ref`): name, class, surface, lighting, the
+    # road's lane count; each value says where it comes from. No speed: the model holds no traffic (the column stays empty)
     con.execute(f"""CREATE OR REPLACE TABLE work.part AS SELECT p.unit_id, p.part_id, p.level::INT AS level, p.type, p.arm, p.direction,
                     p.lane::INT AS lane, p.width_m::DOUBLE AS width_m, p.width_source::VARCHAR AS width_source, p.width_method::VARCHAR AS width_method,
                     p.length_m::DOUBLE AS length_m, p.source, p.method, p.ref::VARCHAR AS ref,
                     e.name AS road, e.class AS road_class,
-                    CASE WHEN e.osm_id IS NULL THEN NULL WHEN w.tags['maxspeed'] IS NOT NULL THEN w.tags['maxspeed'] || ' (OSM)'
-                         WHEN e.class LIKE 'motorway%' THEN NULL ELSE '50 km/h (urbanstyle, chosen: the limit in built-up areas; not in OSM)' END AS speed,
+                    NULL::VARCHAR AS speed,
                     CASE WHEN e.osm_id IS NULL THEN NULL WHEN w.tags['surface'] IS NOT NULL THEN w.tags['surface'] || ' (OSM)'
                          ELSE 'asphalt (urbanstyle, chosen; not in OSM)' END AS surface,
                     CASE WHEN e.osm_id IS NOT NULL THEN coalesce(w.tags['lit'], 'not in OSM') END AS lit,

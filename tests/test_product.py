@@ -34,6 +34,7 @@ def test_the_build_is_the_document(tmp_path):
     urbanstyle.build(osm, out).close()
     meta.write_checks(out, [("U1", "overlaps", 0, True)])
     con = duckdb.connect(out, read_only=True)
+    con.execute("LOAD spatial")
     built = {t for (t,) in con.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'urban'").fetchall()}
     want = doc_tables()
     assert set(want) - {"bridge_part"} == built, "tables of the document and of the build differ"
@@ -45,4 +46,10 @@ def test_the_build_is_the_document(tmp_path):
     # the common columns stand first, in their order, in every rank table
     for t in ("area", "ground", "stretch", "plot_piece", "space", "side", "part", "mark"):
         assert [c for c, _ in want[t][1:5]] == ["kind", "rank", "parent_id", "level"], t
+    for t, cols in want.items():     # a geometry is a shape or NULL, never a value with no shape
+        for c, ty in cols:
+            if ty == "GEOMETRY" and t not in ("item", "check"):
+                assert con.execute(f'SELECT count(*) FROM urban."{t}" WHERE "{c}" IS NOT NULL AND ST_AsWKB("{c}") IS NULL').fetchone()[0] == 0, (t, c)
+    for t in ("area", "ground", "stretch", "plot_piece", "space", "side", "part", "mark", "object"):
+        assert con.execute(f'SELECT count(*) FROM urban."{t}" WHERE uid IS NULL').fetchone()[0] == 0, f"urban.{t}: rows with no uid"
     con.close()

@@ -23,8 +23,21 @@ first, then this note, then `docs/notes/street-rules.md` and `docs/notes/section
     and the sections' `street_id` come from the old step's arms (by the section's way, else by name); the part kind `carriageway`
     in old data has no style row. Not built: the path sections and path intersections (no rank 2-3 for paths yet), the uids of
     the other R6 kinds.
-  - Readers: the page, the server, the panel, the agent and `publish` read `work`; the server also loads `urban` (the check list).
-    Moving the page to `urban` is the next step, one layer at a time.
+  - Second round (2026-10-16 late): every rank table has `uid` (the registry gives every kind a profile: `meta.profiles`, with #2,
+    #3 for equal profiles in one build; a thing that is both a stretch and a space has one uid); the paths at ranks 2-5
+    (`paths.py`: each path item cut at its path junction nodes, `work.path_space`; a path space has one walking side and one part,
+    `path` or `steps`); the page's rank layers read `urban` (Ground = rank 1 + plot pieces, Sections and Intersections =
+    `urban.stretch`, Spaces, Sides, Parts, Marks; colours from `urban.style`) and the server's layers are views over `urban` with
+    the old id names beside the model's (`serve.LAYER_VIEWS`: the panel's buttons still read `unit_id`, `section_id`, `type`; the
+    next step renames them in the panel and drops the aliases); (s, t) explained with a drawing in the chapter.
+  - No traffic in urbanstyle (Kaveh): `unit --nvdb` and `--flows` removed, the city's traffic counts and the dossier's speed rule
+    removed; NVDB is out of the sources. The part's `speed` comes from duckOSM's edges (`maxspeed_kmh`), never from raw tags and with
+    no chosen default. Open (duckOSM work): the widths, `surface`, `lit` and the lane tags are still read from raw OSM tags
+    (`container.ROADS`, `ground.py` alleys, `parts.py`); they belong in duckOSM's tables.
+  - Not built: a square as a path intersection (stretches.md says so; squares stay plot pieces); Vancouver has 681 path sections and
+    46 path intersections from 144 path items, not looked at on the page yet.
+  - An older DuckDB (the system python3's) reads a NULL geometry that the newer one wrote as "not NULL with no shape":
+    `dashboard.frame` drops such values, and page queries filter on `ST_AsWKB(x) IS NOT NULL`.
   - Vancouver's files are `data/units/broadway-granville.urban.duckdb*`; the code finds a pilot's city files by that name.
   - The site that port 8784 shows at `/docs/` is a copy in `viz/docs/`: after `mkdocs build`, run `rsync -a --delete site/ viz/docs/`.
 - **Committed and pushed 9d225d3 (2026-10-16 evening), main = network-first:** the design as chapters by rank in `docs/design/`

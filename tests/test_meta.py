@@ -32,7 +32,7 @@ def test_manifest_tree_and_stable_ids(tmp_path):
     again = dict(con.execute("SELECT source_id, uid FROM urban.element WHERE kind = 'building'").fetchall())
     seen = con.execute("SELECT count(*), count(*) FILTER (WHERE first_seen < last_seen) FROM urban.registry").fetchone()
     con.close()
-    assert again == first and seen == (2, 2)
+    assert again == first and seen[0] > 2 and seen[0] == seen[1]      # every profile of the first build is kept
 
 
 def test_check_rows(tmp_path):

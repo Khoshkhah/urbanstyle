@@ -35,8 +35,6 @@ def main(argv=None):
     u.add_argument("name")
     u.add_argument("--at", nargs=2, type=float, metavar=("LON", "LAT"), required=True, help="a point of the junction or street")
     u.add_argument("--osm", required=True, help="duckOSM .duckdb (a copy with features is made when it has none)")
-    u.add_argument("--nvdb", help="a .duckdb with NVDB's nvdb.road_network (fetching-sweden-data)")
-    u.add_argument("--flows", help="glob of hourly flow parquet files (edge_id, date, hour, flow)")
     u.add_argument("--city", default="")
     u.add_argument("--no-mapillary", action="store_true")
     u.add_argument("--vancouver", action="store_true", help="add the City of Vancouver's open data (trees, lamps, meters, ...)")
@@ -104,7 +102,7 @@ def main(argv=None):
             run(x)
     elif a.cmd == "unit":
         from .unit import main as unit
-        unit(a.name, a.at[0], a.at[1], a.osm, a.nvdb, a.flows, a.city, not a.no_mapillary, a.vancouver, a.gtfs)
+        unit(a.name, a.at[0], a.at[1], a.osm, a.city, not a.no_mapillary, a.vancouver, a.gtfs)
     elif a.cmd == "layers":
         from .dashboard import layers
         print(layers(a.db, a.out))

@@ -20,17 +20,32 @@ ROW_LIMIT = 2000        # features one query gives the map
 SQL_ROWS = 200          # rows run_sql gives the agent
 AGENT_TURNS = 12        # model calls for one question
 # the layers the panel searches and filters: name -> (table, id column, the rows of the table it holds)
-LAYERS = {
-    "Street parts": ("work.part", "part_id", None),
-    "Painted lines": ("work.mark", "unit_id", None),
+LAYERS = {     # the panel's layers: the model's tables (urban), as views with the old id names the panel uses beside the model's own
+    "Street parts": ("urban.l_part", "part_id", None),
+    "Painted lines": ("urban.l_mark", "mark_id", None),
     "Street objects": ("work.street_object", "id", None),     # (one per real object, every source: as the 3D page draws them)
-    "Buildings": ("work.element", "source_id", "type = 'building'"),
-    "Car parks": ("work.lot", "lot_id", None),
-    "Ground": ("work.ground", "ground_id", None),
-    "Surfaces": ("work.surface", "surface_id", None),
-    "Blocks": ("work.block", "block_id", None),
-    "Street spaces": ("work.unit", "unit_id", None),
+    "Buildings": ("urban.l_building", "source_id", None),
+    "Car parks": ("urban.l_lot", "lot_id", None),
+    "Ground": ("urban.l_ground", "ground_id", None),
+    "Surfaces": ("urban.l_surface", "surface_id", None),
+    "Blocks": ("urban.l_block", "block_id", None),
+    "Street spaces": ("urban.l_space", "unit_id", None),
+    "Sides": ("urban.l_side", "side_id", None),
     "Bridge parts": ("work.bridge_part", "id", None),
+}
+# the views behind LAYERS: each table of the model with the names the panel's buttons and cards read (unit_id, section_id, type, ...)
+LAYER_VIEWS = {
+    "l_part": "SELECT *, space_id AS unit_id, kind AS type FROM urban.part",
+    "l_mark": "SELECT *, space_id AS unit_id, kind AS type FROM urban.mark",
+    "l_building": "SELECT *, kind AS type FROM urban.element WHERE kind = 'building'",
+    "l_lot": "SELECT *, element_id AS lot_id, class AS type FROM urban.element WHERE kind = 'lot'",
+    "l_ground": """SELECT ground_id, kind, kind AS type, rank, parent_id, level, name, uid, width_m, width_source, width_method, source, method,
+                   ref, geometry FROM urban.ground UNION ALL SELECT piece_id, kind, kind, rank, parent_id, level, name, uid, width_m, width_source,
+                   width_method, source, method, ref, geometry FROM urban.plot_piece""",
+    "l_surface": "SELECT *, kind AS type FROM urban.surface",
+    "l_block": "SELECT *, ref AS block_id FROM urban.ground WHERE kind = 'plot'",
+    "l_space": "SELECT *, space_id AS unit_id, CASE WHEN kind = 'subsection' THEN parent_id END AS section_id FROM urban.space",
+    "l_side": "SELECT *, kind AS type FROM urban.side",
 }
 SEARCH_COLS = ("name", "road", "class", "type", "use", "ref", "osm", "kind", "subtype", "axis", "details", "sources", "edge_id", "lane_id")
 KIND_COLS = ("type", "class", "kind", "use")      # a result's label: its type, then its name
@@ -58,6 +73,12 @@ class Area:
                                   "AND table_schema = ? AND table_type = 'BASE TABLE'", [sch]).fetchall():
                 c.execute(f'CREATE TABLE {sch}."{t}" AS SELECT * FROM unit.{sch}."{t}"')
         c.execute("DETACH unit")
+        if c.execute("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'urban' AND table_name = 'part'").fetchone()[0]:
+            for v, sql in LAYER_VIEWS.items():
+                c.execute(f"CREATE VIEW urban.{v} AS {sql}")
+            c.execute("CREATE VIEW urban.item AS " + " UNION ALL ".join(f"SELECT {i} AS id, rank, kind, parent_id, level, geometry FROM urban.{t}"
+                      for t, i in (("area", "area_id"), ("ground", "ground_id"), ("stretch", "stretch_id"), ("plot_piece", "piece_id"),
+                                   ("space", "space_id"), ("side", "side_id"), ("part", "part_id"), ("mark", "mark_id"))))
         lon = c.execute("SELECT avg(ST_X(ST_Centroid(geometry))) FROM work.container").fetchone()[0]
         self.epsg = f"EPSG:{32600 + int((lon + 180) // 6) + 1}"
         self.name = os.path.basename(db).split(".")[0]
@@ -151,7 +172,7 @@ class Area:
                        kid("obj", "Street objects", cnt("work.street_object"), True, "Street objects", []),
                        kid("blocks", "Blocks", cnt("work.block"), True, "Blocks", []),
                        kid("bld", "Buildings", cnt("work.element", "WHERE type = 'building'"), True, "Buildings", []),
-                       kid("ground", "Ground", cnt("work.ground"), True, "Ground", [])]
+                       kid("ground", "Ground", cnt("urban.l_ground"), True, "Ground", [])]
                 return [k for k in out if k["count"]]
             if node == "streets":
                 return [kid(f"street:{name}", name, len(us), True, "Street spaces", ids("Street spaces", "unit_id", us))
@@ -205,9 +226,9 @@ class Area:
                         q("SELECT id, type FROM work.bridge_part WHERE bridge = ? AND axis = ? ORDER BY 2, 1", [b, a])]
             if node == "ground":
                 return [kid(f"grt:{t}", t, n, True, "Ground", [{"field": "type", "op": "=", "value": t}]) for t, n in
-                        q("SELECT type, count(*) FROM work.ground GROUP BY 1 ORDER BY 2 DESC")]
+                        q("SELECT type, count(*) FROM urban.l_ground GROUP BY 1 ORDER BY 2 DESC")]
             if node.startswith("grt:"):
-                return [item("Ground", i, lab) for i, lab in q("SELECT ground_id, coalesce(name, type) FROM work.ground WHERE type = ? ORDER BY 2, 1 LIMIT 500",
+                return [item("Ground", i, lab) for i, lab in q("SELECT ground_id, coalesce(name, type) FROM urban.l_ground WHERE type = ? ORDER BY 2, 1 LIMIT 500",
                                                                [node[4:]])]
             if node == "blocks":
                 return [item("Blocks", i, i) for (i,) in q("SELECT block_id FROM work.block ORDER BY 1")]

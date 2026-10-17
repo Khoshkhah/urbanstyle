@@ -36,37 +36,37 @@ NEAR_M = 60.0        # a street object outside every space names the nearest spa
 
 V, I, B, D, G, J = "VARCHAR", "INTEGER", "BIGINT", "DOUBLE", "GEOMETRY", "JSON"
 COLUMNS = {      # the columns of docs/design/tables.md, in its order
-    "area": [("area_id", V), ("kind", V), ("rank", I), ("parent_id", V), ("level", I), ("name", V), ("source", V), ("method", V),
+    "area": [("area_id", V), ("kind", V), ("rank", I), ("parent_id", V), ("level", I), ("name", V), ("uid", V), ("source", V), ("method", V),
              ("ref", V), ("geometry", G)],
     "element": [("element_id", V), ("kind", V), ("class", V), ("subtype", V), ("name", V), ("osm_id", B), ("source_id", V), ("uid", V),
                 ("oneway", "BOOLEAN"), ("lanes_forward", I), ("lanes_backward", I), ("width_m", D), ("width_src", V), ("level_min", I),
                 ("level_max", I), ("level_src", V), ("floors", I), ("height_m", D), ("use", V), ("use_source", V), ("use_method", V),
                 ("ground_use", V), ("ground_source", V), ("ground_method", V), ("source", V), ("geometry", G)],
-    "ground": [("ground_id", V), ("kind", V), ("rank", I), ("parent_id", V), ("level", I), ("name", V), ("sides", J), ("width_m", D),
+    "ground": [("ground_id", V), ("kind", V), ("rank", I), ("parent_id", V), ("level", I), ("name", V), ("uid", V), ("sides", J), ("width_m", D),
                ("width_source", V), ("width_method", V), ("source", V), ("method", V), ("ref", V), ("geometry", G)],
-    "stretch": [("stretch_id", V), ("kind", V), ("rank", I), ("parent_id", V), ("level", I), ("name", V), ("street_id", V),
+    "stretch": [("stretch_id", V), ("kind", V), ("rank", I), ("parent_id", V), ("level", I), ("name", V), ("uid", V), ("street_id", V),
                 ("ways", "VARCHAR[]"), ("nodes", "BIGINT[]"), ("class", V), ("oneway", "BOOLEAN"), ("length_m", D), ("axis", G),
                 ("source", V), ("method", V), ("ref", V), ("geometry", G)],
-    "plot_piece": [("piece_id", V), ("kind", V), ("rank", I), ("parent_id", V), ("level", I), ("name", V), ("width_m", D),
+    "plot_piece": [("piece_id", V), ("kind", V), ("rank", I), ("parent_id", V), ("level", I), ("name", V), ("uid", V), ("width_m", D),
                    ("width_source", V), ("width_method", V), ("surfaces", "VARCHAR[]"), ("source", V), ("method", V), ("ref", V),
                    ("geometry", G)],
     "joint": [("section_id", V), ("level", I), ("subsection_a", V), ("subsection_b", V), ("way_a", V), ("way_b", V), ("lanes_a", V),
               ("lanes_b", V), ("width_a", D), ("width_b", D), ("class", V), ("note", V), ("geometry", G)],
     "street": [("street_id", V), ("name", V), ("level", I), ("sections", "VARCHAR[]"), ("intersections", "VARCHAR[]"), ("geometry", G)],
     "arm": [("intersection_id", V), ("street_id", V), ("section_id", V), ("way", V), ("level", I)],
-    "space": [("space_id", V), ("kind", V), ("rank", I), ("parent_id", V), ("level", I), ("name", V), ("axis", G), ("s_from", D),
+    "space": [("space_id", V), ("kind", V), ("rank", I), ("parent_id", V), ("level", I), ("name", V), ("uid", V), ("axis", G), ("s_from", D),
               ("s_to", D), ("width_m", D), ("oneway", "BOOLEAN"), ("length_m", D), ("left_extra", D), ("predecessors", "VARCHAR[]"),
               ("successors", "VARCHAR[]"), ("source", V), ("method", V), ("ref", V), ("geometry", G)],
     "junction": [("intersection_id", V), ("node_id", B), ("level", I), ("cluster_id", V)],
-    "side": [("side_id", V), ("kind", V), ("rank", I), ("parent_id", V), ("level", I), ("name", V), ("kerb", G), ("kerb_source", V),
+    "side": [("side_id", V), ("kind", V), ("rank", I), ("parent_id", V), ("level", I), ("name", V), ("uid", V), ("kerb", G), ("kerb_source", V),
              ("kerb_method", V), ("source", V), ("method", V), ("ref", V), ("geometry", G)],
-    "part": [("part_id", V), ("kind", V), ("rank", I), ("parent_id", V), ("level", I), ("name", V), ("space_id", V), ("arm", V),
+    "part": [("part_id", V), ("kind", V), ("rank", I), ("parent_id", V), ("level", I), ("name", V), ("uid", V), ("space_id", V), ("arm", V),
              ("direction", V), ("lane", I), ("lane_id", V), ("axis", G), ("s_from", D), ("s_to", D), ("t_from", D), ("t_to", D),
              ("predecessors", "VARCHAR[]"), ("successors", "VARCHAR[]"), ("width_m", D), ("width_source", V), ("width_method", V),
              ("length_m", D), ("position_source", V), ("position_method", V), ("position_ref", V), ("road", V), ("road_class", V),
-             ("speed", V), ("surface", V), ("lit", V), ("road_lanes", V), ("oneway", V), ("holds", V), ("rule", V), ("source", V),
+             ("speed", D), ("surface", V), ("lit", V), ("road_lanes", V), ("oneway", V), ("holds", V), ("rule", V), ("source", V),
              ("method", V), ("ref", V), ("geometry", G)],
-    "mark": [("mark_id", V), ("kind", V), ("rank", I), ("parent_id", V), ("level", I), ("name", V), ("parent_rank", I), ("space_id", V),
+    "mark": [("mark_id", V), ("kind", V), ("rank", I), ("parent_id", V), ("level", I), ("name", V), ("uid", V), ("parent_rank", I), ("space_id", V),
              ("s_from", D), ("s_to", D), ("t_from", D), ("t_to", D), ("width_m", D), ("width_source", V), ("width_method", V),
              ("length_m", D), ("source", V), ("method", V), ("ref", V), ("geometry", G)],
     "turn": [("space_id", V), ("level", I), ("from_edge", V), ("from_lane", I), ("to_edge", V), ("to_lane", I), ("turn", V),
@@ -83,6 +83,7 @@ COLUMNS = {      # the columns of docs/design/tables.md, in its order
                  ("geometry", G)],
     "photo": [("photo_id", V), ("captured", "TIMESTAMP"), ("compass", D), ("is_pano", "BOOLEAN"), ("sequence", V), ("geometry", G)],
 }
+UID_LATER = ("area", "ground", "stretch", "plot_piece", "space", "side", "part", "mark")
 RANKED = (("area", "area_id"), ("ground", "ground_id"), ("stretch", "stretch_id"), ("plot_piece", "piece_id"), ("space", "space_id"),
           ("side", "side_id"), ("part", "part_id"), ("mark", "mark_id"))
 
@@ -99,7 +100,7 @@ class Writer:
     def rows(self, sql, params=None):
         try:
             return self.con.execute(sql, params or []).fetchall()
-        except duckdb.CatalogException:
+        except (duckdb.CatalogException, duckdb.BinderException):     # (a table or a column an older input does not have)
             return []
 
     def m(self, col="geometry"):
@@ -117,6 +118,9 @@ class Writer:
     def table(self, name, rows):
         """urban.<name> with its COLUMNS; rows give the values in that order, geometry as shapely in metres."""
         cols = COLUMNS[name]
+        if name in UID_LATER:       # (a rank table's uid comes from the registry, meta.write_registry: the rows leave it out)
+            k = [c for c, _ in cols].index("uid")
+            rows = [tuple(r[:k]) + (None,) + tuple(r[k:]) for r in rows]
         self.con.execute(f'CREATE OR REPLACE TABLE urban."{name}" ({", ".join(f"{q(c)} {t}" for c, t in cols)})')
         if not rows:
             return 0
@@ -124,6 +128,9 @@ class Writer:
         conv = [(lambda v: self.ll(v)) if t == G else ((lambda v: None if v is None else (v if isinstance(v, str) else json.dumps(v)))
                                                        if t == J else (lambda v: v)) for _, t in cols]
         self.con.executemany(f'INSERT INTO urban."{name}" VALUES ({marks})', [[f(v) for f, v in zip(conv, r)] for r in rows])
+        for c, t in cols:       # (ST_GeomFromWKB(NULL) gives a geometry that is not NULL and has no shape: make it NULL)
+            if t == G:
+                self.con.execute(f'UPDATE urban."{name}" SET {q(c)} = NULL WHERE {q(c)} IS NOT NULL AND ST_AsWKB({q(c)}) IS NULL')
         return len(rows)
 
 
@@ -342,6 +349,12 @@ def write(con, epsg, out=None):
         ways = list(dict.fromkeys(w_ for _, w_ in ways_of.get(i_, [])))
         rows2.append((i_, "intersection", 2, best(d["geom"], street_pieces.get(d["level"], [])), d["level"], iname(i_), None, ways,
                       sorted(jnodes.get(i_, [])), None, None, None, None, "urbanstyle", "derived", ",".join(ways), d["geom"]))
+    paths = [dict(zip(("id", "kind", "ground", "level", "name", "cls", "ways", "nodes", "wd", "ws", "wm", "length", "pred", "succ"), r[:-2]),
+                  axis=g(r[-2]), geom=g(r[-1])) for r in W.rows(f"""SELECT space_id, kind, ground_id, level, name, class, ways, nodes, width_m,
+                  width_source, width_method, length_m, predecessors, successors, {W.m('axis')}, {W.m()} FROM work.path_space""")]
+    for x in paths:
+        rows2.append((x["id"], x["kind"], 2, x["ground"], x["level"], x["name"], None, x["ways"], x["nodes"], x["cls"],
+                      False if x["kind"] == "path section" else None, x["length"], x["axis"], "urbanstyle", "derived", ",".join(x["ways"]), x["geom"]))
     W.table("stretch", rows2)
 
     # plot pieces
@@ -397,6 +410,10 @@ def write(con, epsg, out=None):
         else:       # a space whose subsection has no row (a level with no subsections)
             rows3.append((u, d["kind"], 3, d["section"] or u, d["level"], None, None, None, None, None, None, None, None, [], [],
                           "urbanstyle", "derived", ",".join(ways), d["geom"]))
+    for x in paths:
+        rows3.append((x["id"], x["kind"], 3, x["id"], x["level"], x["name"], x["axis"], 0.0 if x["axis"] is not None else None,
+                      x["length"], x["wd"], False if x["kind"] == "path section" else None, x["length"], None, x["pred"], x["succ"],
+                      "urbanstyle", "derived", ",".join(x["ways"]), x["geom"]))
     W.table("space", rows3)
     W.table("junction", W.rows("SELECT intersection_id, node_id, level, cluster_id FROM work.junction"))
     axis_of = {u: space_rows[u][6] for u in space_rows}
@@ -417,6 +434,11 @@ def write(con, epsg, out=None):
                 a_ = shift_line(piece, (st[2] + st[3]) / 2)
                 p["axis"] = a_.reverse() if p.get("direction") == "backward" else a_
         p["pred"], p["succ"] = set(), set()
+    # a road part's speed limit: duckOSM's, the largest on its way's edges (km/h)
+    speed = {f"w{o}": v for o, v in W.rows("SELECT osm_id, max(maxspeed_kmh) FROM osm.driving.edges WHERE maxspeed_kmh IS NOT NULL GROUP BY 1")}
+    for p in parts:
+        w_ = re.match(r"(w\d+)", str(p.get("ref") or ""))
+        p["ref_way"] = w_.group(1) if w_ and p["type"] not in WALKING else None
     # the lane links: at a joint, at an arm, through an intersection (docs/design/tables.md, "The links")
     by_unit = {}
     for p in lane_parts:
@@ -454,10 +476,16 @@ def write(con, epsg, out=None):
         a, b = near(a_pt), near(b_pt)
         if a is not b and a["geom"].distance(a_pt) < TURN_M and b["geom"].distance(b_pt) < TURN_M:
             link(a, b)
+    for x in paths:
+        st = _st(x["axis"], x["geom"]) if x["axis"] is not None else (None,) * 4
+        parts.append({"part_id": f"{x['id']}#1", "type": "steps" if x["cls"] == "steps" else "path", "side": f"{x['id']}:w",
+                      "level": x["level"], "unit_id": x["id"], "axis": x["axis"], "st": tuple(None if v is None else round(v, 3) for v in st),
+                      "pred": set(), "succ": set(), "width_m": x["wd"], "width_source": x["ws"], "width_method": x["wm"],
+                      "length_m": x["length"], "source": "urbanstyle", "method": "derived", "ref": ",".join(x["ways"]), "geom": x["geom"]})
     W.table("part", [(p["part_id"], p["type"], 5, p["side"], p["level"], None, p["unit_id"], p.get("arm"), p.get("direction"), p.get("lane"),
                       p.get("lane_id"), p["axis"], *p["st"], sorted(p["pred"]), sorted(p["succ"]), p.get("width_m"), p.get("width_source"),
                       p.get("width_method"), p.get("length_m"), p.get("position_source"), p.get("position_method"), p.get("position_ref"),
-                      p.get("road"), p.get("road_class"), p.get("speed"), p.get("surface"), p.get("lit"), p.get("road_lanes"), p.get("oneway"),
+                      p.get("road"), p.get("road_class"), speed.get(p.get("ref_way")), p.get("surface"), p.get("lit"), p.get("road_lanes"), p.get("oneway"),
                       p.get("holds"), p.get("rule"), p.get("source"), p.get("method"), p.get("ref"), p["geom"]) for p in parts])
 
     # ---- rank 4: the sides, with the kerb

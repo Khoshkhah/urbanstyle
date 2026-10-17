@@ -19,6 +19,9 @@ def _frames(con, db, bridges):
     ep = d.epsg_of(con)
     f = lambda sql: d.frame(con, sql)
     out = {}
+    style = {(t, k): c for t, k, c in con.execute('SELECT "table", kind, colour FROM urban.style').fetchall()}
+    colour = lambda t, kinds, default="#9ca3af": [style.get((t, k), default) for k in kinds]
+    txt = lambda fr, cols: [fr.__setitem__(c, fr[c].map(lambda v: None if v is None else ", ".join(map(str, v)))) for c in cols if c in fr]
     out["edges"] = f("""SELECT ST_AsWKB(geometry) AS geometry, class AS highway, name, level_min AS level, type, container_id,
         CASE WHEN level_min > 0 OR level_src = 'bridge' THEN 'yes' END AS bridge,
         CASE WHEN level_max < 0 OR level_src = 'tunnel' THEN 'yes' END AS tunnel,       -- (by its level: most bridges get it from `layer`)
@@ -32,27 +35,13 @@ def _frames(con, db, bridges):
         "use" || ' (' || use_source || ', ' || use_method || ')' AS "use", ground_use || ' (' || ground_source || ', ' || ground_method || ')' AS ground_floor,
         uses AS evidence FROM work.element WHERE type = 'building'""")
     gm = f"ST_Transform(geometry, 'EPSG:4326', '{ep}', always_xy := true)"
-    out["ground"] = f(f"""SELECT ST_AsWKB(geometry) AS geometry, ground_id, type, name, source, method, ref, level,
-        round(ST_Area({gm}), 1) AS area_m2, {d.ALLEY_W.format(t='type', g=gm)} FROM work.ground""")
-    out["ground"]["color"] = out["ground"]["type"].map(d.GROUND_COLORS).fillna("#9ca3af")
-    out["area"] = f(f"SELECT ST_AsWKB(geometry) AS geometry, 0 AS level, round(ST_Area({gm}), 0) AS area_m2 FROM work.area")   # (rank 0: the whole area)
-    # rank 1's street, whole: the area less the blocks and the corridors, one item per connected piece, built here from those tables
-    # and not from the spaces, so rank 1 is judged on its own (docs/design/division-top-down.md, step 2; Kaveh, 2026-10-16: "I want to
-    # test each rank one by one")
-    try:
-        import shapely
-        area_ = [shapely.from_wkb(bytes(w)) for (w,) in con.execute("SELECT ST_AsWKB(geometry) FROM work.area").fetchall()]
-        blocks_ = [shapely.from_wkb(bytes(w)) for (w,) in con.execute("SELECT ST_AsWKB(geometry) FROM work.block WHERE level = 0").fetchall()]
-        try:
-            cors_ = [shapely.from_wkb(bytes(w)) for (w,) in con.execute("SELECT ST_AsWKB(geometry) FROM work.corridor").fetchall()]
-        except Exception:
-            cors_ = []
-        st_ = shapely.make_valid(shapely.union_all(area_)).difference(shapely.make_valid(shapely.union_all(blocks_ + cors_ or [shapely.Polygon()]))) if area_ else None
-        pieces_ = [p for p in (shapely.get_parts(st_) if st_ is not None else []) if p.geom_type == "Polygon" and p.area > 0]
-        out["street1"] = gpd.GeoDataFrame({"street_id": [f"g0-street-{i + 1}" for i in range(len(pieces_))], "level": [0] * len(pieces_),
-                                           "pieces": [len(pieces_)] * len(pieces_)}, geometry=pieces_, crs=4326)
-    except Exception as e_:       # (a database with no blocks: no rank 1 street layer)
-        print(f"  no rank 1 street layer: {e_}")
+    out["ground"] = f(f"""SELECT ST_AsWKB(geometry) AS geometry, ground_id, kind AS type, rank, parent_id, uid, level, name, source, method,
+        ref, width_m, width_source, width_method, round(ST_Area({gm}), 1) AS area_m2 FROM urban.ground
+        UNION ALL BY NAME SELECT ST_AsWKB(geometry) AS geometry, piece_id AS ground_id, kind AS type, rank, parent_id, uid, level, name, source,
+        method, ref, width_m, width_source, width_method, round(ST_Area({gm}), 1) AS area_m2 FROM urban.plot_piece ORDER BY rank""")
+    out["ground"]["color"] = [style.get(("urban.ground" if r == 1 else "urban.plot_piece", k), "#9ca3af")
+                              for r, k in zip(out["ground"]["rank"], out["ground"]["type"])]
+    out["area"] = f(f"SELECT ST_AsWKB(geometry) AS geometry, area_id, uid, level, name, source, method, round(ST_Area({gm}), 0) AS area_m2 FROM urban.area")   # (rank 0: the whole area)
     # rank 3 built top down (division.py, docs/design/division-top-down.md step 3): the street cut by the stop lines and the joints
     try:
         out["space3"] = f(f"""SELECT ST_AsWKB(geometry) AS geometry, space_id, kind, section_id, level, faces, area_m2 FROM work.space3""")
@@ -60,7 +49,8 @@ def _frames(con, db, bridges):
         out["space3"] = None
     # every footpath at level 0, whole, lying on the ground (work.path: not a kind of rank 1, no ground of its own)
     out["paths"] = f("""SELECT ST_AsWKB(geometry) AS geometry, path_id, kind, name, width_m, width_source, width_method, "on", 0 AS level FROM work.path""")
-    blocks = d.blocks_frame(con)
+    blocks = f("""SELECT ST_AsWKB(geometry) AS geometry, ref AS block_id, ground_id, uid, level, sides::VARCHAR AS sides, source, method
+        FROM urban.ground WHERE kind = 'plot'""")
     out["blocks"] = d.block_colors(blocks) if blocks is not None and len(blocks) else None
     out["lots"] = f("SELECT ST_AsWKB(geometry) AS geometry, lot_id AS id, type, name, operator, parking, access, fee, level FROM work.lot")
     out["rails"] = f("SELECT ST_AsWKB(geometry) AS geometry, source_id AS id, name, class, level_min AS level FROM work.element WHERE type = 'rail'")
@@ -68,27 +58,42 @@ def _frames(con, db, bridges):
     out["links"] = f("""SELECT ST_AsWKB(geometry) AS geometry, node_id, level_a, level_b, type, assumed, station_id, match, round(dist_m) AS dist_m
         FROM work.link""")
     # the street: its spaces (a subsection or an intersection each), the subsections' axes and breaks, the cuts
-    units = f(f"""SELECT ST_AsWKB(geometry) AS geometry, unit_id, kind, section_id, level, color,
-        round(ST_Area({gm}))::INT AS area_m2 FROM work.unit""")
-    sub = units[units.kind == "subsection"]
-    out["sections"] = sub.dissolve(by=["section_id", "level"], as_index=False)[["section_id", "level", "geometry"]] if len(sub) else sub
-    out["intersections"], out["subsections"] = units[units.kind != "subsection"], sub
-    out["axes"] = f("""SELECT ST_AsWKB(geometry) AS geometry, subsection_id, section_id, level, class, width_m, oneway, length_m, "left", "right",
-        starts_at, color FROM work.subsection""")
+    st = f(f"""SELECT ST_AsWKB(geometry) AS geometry, stretch_id, stretch_id AS section_id, stretch_id AS unit_id, kind, rank, parent_id, uid,
+        level, name, street_id, ways, nodes, class, oneway, round(length_m, 1) AS length_m, round(ST_Area({gm}))::INT AS area_m2 FROM urban.stretch""")
+    txt(st, ["ways", "nodes"])
+    st["color"] = colour("urban.stretch", st["kind"])
+    out["sections"] = st[st["kind"].isin(["section", "path section"])]
+    out["intersections"] = st[st["kind"].isin(["intersection", "path intersection"])]
+    sp = f(f"""SELECT ST_AsWKB(geometry) AS geometry, space_id, space_id AS unit_id, parent_id AS section_id, kind, kind AS type, rank, parent_id,
+        uid, level, name, round(s_from, 1) AS s_from, round(s_to, 1) AS s_to, width_m, oneway, round(length_m, 1) AS length_m, left_extra,
+        predecessors, successors, ref, round(ST_Area({gm}))::INT AS area_m2 FROM urban.space""")
+    txt(sp, ["predecessors", "successors"])
+    sp["color"] = colour("urban.space", sp["kind"])
+    out["spaces"], out["subsections"] = sp, sp[sp["kind"] == "subsection"]
+    out["axes"] = f("""SELECT ST_AsWKB(axis) AS geometry, space_id AS subsection_id, parent_id AS section_id, kind, level, width_m, oneway,
+        round(s_from, 1) AS s_from, round(s_to, 1) AS s_to, round(length_m, 1) AS length_m FROM urban.space WHERE ST_AsWKB(axis) IS NOT NULL""")
+    out["axes"]["color"] = "#e6194b"
+    sides = f("""SELECT ST_AsWKB(geometry) AS geometry, side_id, kind, kind AS type, rank, parent_id, uid, level, kerb_source, kerb_method, source,
+        method FROM urban.side""")
+    sides["color"] = colour("urban.side", sides["kind"])
+    out["sides"] = sides
     out["breaks"] = f("""SELECT ST_AsWKB(ST_StartPoint(geometry)) AS geometry, subsection_id, section_id, level, starts_at FROM work.subsection
         WHERE starts_at <> 'section end'""")
     out["cuts"] = f("""SELECT ST_AsWKB(geometry) AS geometry, intersection_id, edge_id, level, how, length_m,
         CASE how WHEN 'block corners' THEN '#16a34a' WHEN 'one corner' THEN '#f59e0b' WHEN 'crosswalk' THEN '#2563eb' ELSE '#6b7280' END AS color
         FROM work.cut""")
     # inside the spaces: the parts and the painted lines; the kerbs as stones 0.25 m wide for 3D
-    parts = f(f"""SELECT ST_AsWKB(geometry) AS geometry, unit_id, part_id, level, type, coalesce(arm, '') AS arm, coalesce(direction, '') AS direction,
-        lane, lane_id, width_m, length_m, source, method, ref, road, road_class, speed, surface, lit, road_lanes, oneway, holds, rule,
-        width_source, width_method, position_source, position_method, position_ref, round(ST_Area({gm}), 1) AS area_m2
-        FROM work.part ORDER BY level""")      # (upper levels drawn last)
-    parts["color"] = [d.PART_COLORS.get(f"{t} {r}".strip(), d.PART_COLORS.get(t, "#999999")) for t, r in zip(parts["type"], parts["direction"])]
+    parts = f(f"""SELECT ST_AsWKB(geometry) AS geometry, part_id, kind, kind AS type, rank, parent_id, uid, space_id, space_id AS unit_id, level,
+        coalesce(arm, '') AS arm, coalesce(direction, '') AS direction, lane, lane_id, round(s_from, 2) AS s_from, round(s_to, 2) AS s_to,
+        round(t_from, 2) AS t_from, round(t_to, 2) AS t_to, predecessors, successors, width_m, length_m, source, method, ref, road, road_class,
+        speed, surface, lit, road_lanes, oneway, holds, rule, width_source, width_method, position_source, position_method, position_ref,
+        round(ST_Area({gm}), 1) AS area_m2 FROM urban.part ORDER BY level""")      # (upper levels drawn last)
+    txt(parts, ["predecessors", "successors"])
+    parts["color"] = colour("urban.part", parts["kind"], "#999999")
     out["parts"] = parts
-    marks = f("""SELECT ST_AsWKB(geometry) AS geometry, unit_id, level, type, coalesce(arm, '') AS arm, length_m, width_m, width_source,
-        width_method, source, method, ref FROM work.mark ORDER BY level""")
+    marks = f("""SELECT ST_AsWKB(geometry) AS geometry, mark_id, kind, kind AS type, rank, parent_id, parent_rank, uid, space_id,
+        space_id AS unit_id, level, '' AS arm, round(s_from, 2) AS s_from, round(s_to, 2) AS s_to, round(t_from, 2) AS t_from,
+        round(t_to, 2) AS t_to, length_m, width_m, width_source, width_method, source, method, ref FROM urban.mark ORDER BY level""")
     out["marks"] = marks
     kerbs = marks[marks["type"].isin(["kerb", "barrier"])].copy()     # (a guardrail stands like a kerbstone in 3D, for now)
     kerbs = kerbs.set_geometry(kerbs.to_crs(ep).buffer(d.LINE["kerb"] / 2, cap_style="flat").to_crs(4326))
@@ -160,22 +165,21 @@ def _overlays(F):
         ovs.append(rs.Overlay(F["bridge2d"], placement="over", color="#9ca3af", color_col="color", opacity=0.95, outline="#334155", width=0.6,
                               label="Bridge 2D", popup=d.BR_POPUP, tooltip=["id", "type"]))
     if have(F["area"]):      # rank 0 (docs/design/steps.md): the whole area of the level, the one thing the ground partitions
-        ovs.append(under(F["area"], color="#e2e8f0", opacity=0.35, outline="#111827", width=1.5, label="Area", popup=["area_m2", "level"], tooltip=[]))
+        ovs.append(under(F["area"], color="#e2e8f0", opacity=0.35, outline="#111827", width=1.5, label="Area",
+                         popup=["area_id", "uid", "name", "level", "source", "method", "area_m2"], tooltip=["area_id"]))
     if have(F.get("space3")):
         ovs.append(rs.Overlay(F["space3"], placement="over", color="#f59e0b", opacity=0.45, outline="#7c2d12", width=1.2, label="Spaces (rank 3, top down)",
                               popup=["space_id", "kind", "section_id", "faces", "area_m2"], tooltip=["space_id", "kind"]))
-    if have(F.get("street1")):
-        ovs.append(under(F["street1"], color=d.GROUND_COLORS["street"], opacity=0.6, outline="#334155", width=1.0, label="Street (rank 1)",
-                         popup=["street_id", "pieces", "level"], tooltip=["street_id"]))
     if have(F["ground"]):
         ovs.append(under(F["ground"], color=d.GROUND_COLORS["plot"], color_col="color", opacity=0.55, outline="#94a3b8", width=0.5, label="Ground",
-                         popup=d.GROUND_POPUP, tooltip=["type", "name"]))
+                         popup=["ground_id", "type", "rank", "parent_id", "uid", "name", "width_m", "width_source", "width_method", "source", "method",
+                                "ref", "area_m2", "level"], tooltip=["type", "name"]))
     if have(F["paths"]):
         ovs.append(rs.Overlay(F["paths"], placement="over", color="#b91c1c", opacity=0.5, outline="#7f1d1d", width=0.5, label="Footways",
                               popup=["path_id", "kind", "name", "width_m", "width_source", "width_method", "on"], tooltip=["kind", "name"]))
     if have(F["blocks"]):
         ovs.append(rs.Overlay(F["blocks"], placement="over", color=d.BLOCK_COLOR, color_col="color", opacity=0.45, outline="#5b3410", width=2.0,
-                              label="Blocks", popup=d.BLOCK_POPUP, tooltip=["block_id"]))
+                              label="Blocks", popup=["block_id", "ground_id", "uid", "sides", "source", "method", "level"], tooltip=["block_id"]))
     ovs.append(under(F["buildings"], color="#efede9", opacity=0.85, outline="#cdc8c1", label="Buildings", popup=d.BLD_POPUP, tooltip=["type"]))
     if have(F["lots"]):
         ovs.append(under(F["lots"], color="#a8b0ba", opacity=0.9, outline="#64748b", label="Parking lots", popup=d.LOT_POPUP, tooltip=["type"]))
@@ -189,18 +193,28 @@ def _overlays(F):
         if have(links) and (links["type"] == t).any():
             ovs.append(rs.Overlay(links[links["type"] == t], kind="circle", placement="over", color=c, radius=6, label=f"Link: {name}",
                                   popup=["node_id", "type", "level_a", "level_b", "assumed", "station_id", "match", "dist_m"], tooltip=["node_id", "type"]))
+    STRETCH = ["stretch_id", "kind", "parent_id", "uid", "name", "street_id", "ways", "nodes", "class", "oneway", "length_m", "area_m2", "level"]
+    SPACE = ["space_id", "kind", "parent_id", "uid", "name", "s_from", "s_to", "width_m", "oneway", "length_m", "left_extra", "predecessors",
+             "successors", "area_m2", "level"]
     if have(F["sections"]):
-        ovs.append(under(F["sections"], color="#a78bfa", opacity=0.35, outline="#4c1d95", width=2.2, label="Sections", popup=["section_id", "level"],
-                         tooltip=["section_id"]))
+        ovs.append(under(F["sections"], color="#a78bfa", color_col="color", opacity=0.35, outline="#4c1d95", width=2.2, label="Sections",
+                         popup=STRETCH, tooltip=["stretch_id", "name"]))
     if have(F["intersections"]):
-        ovs.append(under(F["intersections"], color="#fbbf24", opacity=0.45, outline="#b45309", width=2.2, label="Intersections",
-                         popup=["unit_id", "kind", "level", "area_m2"], tooltip=["unit_id", "kind"]))
+        ovs.append(under(F["intersections"], color="#fbbf24", color_col="color", opacity=0.45, outline="#b45309", width=2.2, label="Intersections",
+                         popup=STRETCH, tooltip=["stretch_id", "name"]))
+    if have(F["spaces"]):       # rank 3: every space, of every kind
+        ovs.append(under(F["spaces"], color="#a78bfa", color_col="color", opacity=0.3, outline="#6d28d9", width=0.8, label="Spaces",
+                         popup=SPACE, tooltip=["space_id", "kind"]))
     if have(F["subsections"]):
         ovs.append(under(F["subsections"], color="#a78bfa", color_col="color", opacity=0.25, outline="#6d28d9", width=0.8, label="Subsections",
-                         popup=["unit_id", "section_id", "level", "area_m2"], tooltip=["unit_id"]))
+                         popup=SPACE, tooltip=["space_id"]))
+    if have(F["sides"]):        # rank 4: the driving side and the walking side of each space
+        ovs.append(under(F["sides"], color="#9ca3af", color_col="color", opacity=0.6, outline="#334155", width=0.6, label="Sides",
+                         popup=["side_id", "kind", "parent_id", "uid", "kerb_source", "kerb_method", "source", "method", "level"], tooltip=["side_id"]))
     if have(parts):
         ovs.append(under(parts, color="#999999", color_col="color", opacity=0.95, outline="#475569", width=0, label="Parts",
-                         popup=["part_id", "type", "holds", "rule", "road", "road_class", "direction", "lane", "lane_id", "width_m", "length_m", "speed",
+                         popup=["part_id", "kind", "parent_id", "uid", "space_id", "direction", "lane", "lane_id", "s_from", "s_to", "t_from", "t_to",
+                                "predecessors", "successors", "holds", "rule", "road", "road_class", "width_m", "length_m", "speed",
                                 "surface", "lit", "road_lanes", "oneway", "area_m2", "source", "method", "ref", "width_source", "width_method",
                                 "position_source", "position_method", "position_ref"], tooltip=["type", "direction", "arm"]))
     if have(on_parts):
@@ -209,8 +223,8 @@ def _overlays(F):
     for t, c, w, dash in d.MARKS:
         if have(marks) and (marks["type"] == t).any():
             ovs.append(rs.Overlay(marks[marks["type"] == t], kind="line", placement="over", color=c, width_m=w, dash=dash, label=f"Mark: {t}",
-                                  popup=["unit_id", "type", "arm", "length_m", "width_m", "width_source", "width_method", "source", "method", "ref"],
-                                  tooltip=["type", "arm"]))
+                                  popup=["mark_id", "kind", "parent_id", "parent_rank", "uid", "space_id", "s_from", "s_to", "t_from", "t_to", "length_m",
+                                         "width_m", "width_source", "width_method", "source", "method", "ref"], tooltip=["mark_id"]))
     if have(F["dots"]):
         ovs.append(rs.Overlay(F["dots"], kind="circle", placement="over", color="#4f46e5", color_col="color", radius=4, label="Street objects",
                               popup=d.OBJ_POPUP, tooltip=d.OBJ_TIP))

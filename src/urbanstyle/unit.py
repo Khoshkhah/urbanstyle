@@ -1,8 +1,6 @@
 """One unit in full: its dossier (docs/design/unit-dossier.md).
 
-    urbanstyle unit skanstull --at 18.07660 59.30776 --osm data/sodermalm.osm.duckdb \\
-        --nvdb ../fetching-sweden-data/data/processed/sodermalm_traffic.duckdb \\
-        --flows '../sensor-matching/areas/sodermalm/observations/*.parquet'
+    urbanstyle unit skanstull --at 18.07660 59.30776 --osm data/sodermalm.osm.duckdb
     urbanstyle unit broadway-granville --at -123.13860 49.26330 --osm ../duckOSM/data/db/vancouver_city.duckdb --vancouver
 
 1. clip   a small duckOSM database around the unit (CLIP_M), so urbanstyle builds only its neighbourhood: its outline (the
@@ -21,7 +19,7 @@ import glob
 import os
 
 CLIP_M = 400.0      # the neighbourhood built around a unit: enough for its arms, its neighbours and their cuts
-FLOW_M = 60.0       # traffic counted on a road this close to the unit belongs to it
+NEAR_ROAD_M = 60.0  # a city's record of a road this close to the unit is about the unit's roads
 CONFIDENCE = {"surveyed": 0.9, "recorded": 0.7, "mapped": 0.7, "measured": 0.6, "observed": 0.5, "derived": 0.5, "approximate": 0.4,
               "chosen": 0.3, "checked": 1.0}
 # each kind of street object's size, urbanstyle's chosen values (width: its pole's or trunk's thickness, a plate's or a bench's length;
@@ -44,12 +42,12 @@ VAN_OBJECT = {"public-trees": "vegetation.tree", "street-lighting-poles": "furni
               "wayfinding-map-stands": "furniture.map_stand", "sewer-manholes": "utility.manhole", "sewer-catch-basins": "utility.catch_basin",
               "street-lighting-junction-boxes": "utility.junction_box"}
 VAN_OTHER = ("traffic-signals", "disability-parking", "right-of-way-widths", "bikeways", "sidewalk-condition-rating", "pavement-condition-rating",
-             "pavement-condition-rating-major-road-network-2023", "intersection-traffic-movement-counts", "directional-traffic-count-locations",
+             "pavement-condition-rating-major-road-network-2023",
              "storefronts-inventory", "building-footprints-2015", "building-footprints-2009", "property-parcel-polygons",
              "block-outlines")
 
 MATCH_M = 10.0      # objects of one class from two sources this close are one real object (Mapillary's positions are 1-5 m off, often more)
-RANK = {"vancouver": 0, "nvdb": 1, "osm": 2, "mapillary": 3}   # whose position a matched object takes: a city's survey, a map, photos
+RANK = {"vancouver": 0, "osm": 1, "mapillary": 2}   # whose position a matched object takes: a city's survey, a map, photos
 # sources whose positions are too rough to make an object (Mapillary's street lights lie a median 6 m from the city's surveyed poles,
 # 20 % more than 11 m, at Broadway x Granville): they only confirm an object of another source; one they alone see is a check
 CONFIRM_ONLY = {"mapillary"}
@@ -62,8 +60,8 @@ CONFIRM_ONLY = {"mapillary"}
 VAN_METHOD = {"street-lighting-poles": "surveyed", "sewer-manholes": "surveyed", "sewer-catch-basins": "surveyed",
               "street-lighting-junction-boxes": "surveyed", "traffic-signals": "approximate", "parking-meters": "approximate",
               "drinking-fountains": "approximate", "wayfinding-map-stands": "approximate", "disability-parking": "approximate",
-              "right-of-way-widths": "approximate", "bikeways": "approximate", "intersection-traffic-movement-counts": "approximate",
-              "directional-traffic-count-locations": "approximate", "public-trees": "recorded", "water-hydrants": "recorded"}
+              "right-of-way-widths": "approximate", "bikeways": "approximate",
+              "public-trees": "recorded", "water-hydrants": "recorded"}
 
 
 def van_method(ds, props):
@@ -201,7 +199,7 @@ def opendata_vancouver(lon, lat, out, radius=CLIP_M):
     return out
 
 
-def dossier(space_db, osm_db, unit_id, out, name, city, nvdb=None, flows=None, mapillary_json=None, vancouver_json=None, gtfs=None):
+def dossier(space_db, osm_db, unit_id, out, name, city, mapillary_json=None, vancouver_json=None, gtfs=None):
     """The unit's dossier from a built neighbourhood (`space_db`, urbanstyle's tables) and the other sources."""
     import duckdb
     if os.path.exists(out):
@@ -210,8 +208,6 @@ def dossier(space_db, osm_db, unit_id, out, name, city, nvdb=None, flows=None, m
     con.execute("INSTALL spatial; LOAD spatial")
     con.execute(f"ATTACH '{space_db}' AS sp (READ_ONLY)")
     con.execute(f"ATTACH '{osm_db}' AS o (READ_ONLY)")
-    if nvdb:
-        con.execute(f"ATTACH '{nvdb}' AS nv (READ_ONLY)")
     lon = con.execute("SELECT ST_X(ST_Centroid(geometry)) FROM sp.work.unit WHERE unit_id = ?", [unit_id]).fetchone()[0]
     crs = f"EPSG:{32600 + int((lon + 180) // 6) + 1}"
     m = lambda g: f"ST_Transform({g}, 'EPSG:4326', '{crs}', always_xy := true)"
@@ -224,12 +220,8 @@ def dossier(space_db, osm_db, unit_id, out, name, city, nvdb=None, flows=None, m
     sources = [("osm", "OpenStreetMap (duckOSM)", "https://www.openstreetmap.org", "ODbL 1.0", "mapped"),
                ("sumo", "SUMO netconvert on duckOSM, lanes and widths from urbanstyle", "https://eclipse.dev/sumo/", "EPL 2.0 (tool)", "derived"),
                ("urbanstyle", "urbanstyle partition, kerbs and parts", "https://github.com/Khoshkhah/urbanstyle", "MIT", "measured")]
-    if nvdb:
-        sources.append(("nvdb", "Trafikverket NVDB (Lastkajen)", "https://lastkajen.trafikverket.se", "CC0 1.0", "mapped"))
     if mapillary_json:
         sources.append(("mapillary", "Mapillary map features and photos", "https://www.mapillary.com", "CC BY-SA 4.0", "observed"))
-    if flows:
-        sources.append(("flows", "Hourly flows per edge (sensor-matching: Trafikverket, Stockholm tube counts)", flows, "per source", "surveyed"))
     if gtfs:
         sources.append(("gtfs", "Public transport timetable (GTFS)", gtfs, "the operator's open data terms", "recorded"))
     if vancouver_json:
@@ -241,24 +233,18 @@ def dossier(space_db, osm_db, unit_id, out, name, city, nvdb=None, flows=None, m
     mconf = "CASE meth " + " ".join(f"WHEN '{k}' THEN {v}" for k, v in CONFIDENCE.items()) + " END"
     vprov = f"'vancouver' AS source, meth AS method, NULL::VARCHAR AS observed, {mconf} AS confidence"    # a city record: its own method
 
-    # roads: the road pieces in or touching the unit, with what OSM and NVDB say of them
+    # roads: the road pieces in or touching the unit, with what OSM says of them
     con.execute(f"""CREATE TABLE road AS SELECT e.edge_id::VARCHAR AS road_id, e.osm_id, e.name, e.highway AS class, e.oneway, e.lanes AS lanes_per_direction,
-                    w.tags['lanes'] AS lanes_tag, try_cast(w.tags['width'] AS DOUBLE) AS width_osm_m, w.tags['maxspeed'] AS maxspeed,
+                    w.tags['lanes'] AS lanes_tag, try_cast(w.tags['width'] AS DOUBLE) AS width_osm_m,
                     w.tags['turn:lanes'] AS turn_lanes, w.tags['surface'] AS surface, {prov('osm', 'mapped')}, {m('e.geometry')} AS geometry
                     FROM o.driving.edges e LEFT JOIN o.raw.ways w USING (osm_id) WHERE {near('e.geometry')}""")
-    if nvdb:   # NVDB's measured carriageway width and speed limit, from its link nearest each road piece (within 5 m)
-        con.execute(f"""ALTER TABLE road ADD COLUMN width_nvdb_m DOUBLE; ALTER TABLE road ADD COLUMN speed_nvdb VARCHAR;
-            UPDATE road r SET width_nvdb_m = n.road_width_m, speed_nvdb = n.speed_limit_fwd FROM (
-              SELECT r2.road_id, arg_min(l.road_width_m, ST_Distance(r2.geometry, {m('l.geom')})) AS road_width_m,
-                     arg_min(l.speed_limit_fwd, ST_Distance(r2.geometry, {m('l.geom')})) AS speed_limit_fwd
-              FROM road r2 JOIN nv.nvdb.road_network l ON ST_DWithin(r2.geometry, {m('l.geom')}, 5) GROUP BY 1) n WHERE r.road_id = n.road_id""")
 
     from urbanstyle.parts import RAISED
     # surfaces and lines: urbanstyle's parts and marks of the unit, each part with its source, method and the source's id (parts.PROV)
     ccase = "CASE method " + " ".join(f"WHEN '{k}' THEN {v}" for k, v in CONFIDENCE.items()) + " ELSE 0.3 END"
     con.execute(f"""CREATE TABLE surface AS SELECT part_id AS surface_id, type, direction, arm, lane, width_m, width_source, width_method, length_m,
                     {"CASE type " + " ".join(f"WHEN '{t}' THEN {h}" for t, h in RAISED.items()) + " ELSE 0.0 END"} AS top_m,
-                    road, road_class, speed, surface, lit, holds, rule,
+                    road, road_class, surface, lit, holds, rule,
                     coalesce(source, 'urbanstyle') AS source, coalesce(method, 'chosen') AS method, ref, {ccase} AS confidence,
                     {m('geometry')} AS geometry FROM sp.work.part WHERE unit_id = '{unit_id}'""")
     con.execute(f"""CREATE TABLE line AS SELECT row_number() OVER () AS line_id, type, arm, length_m, width_m, width_source, width_method,
@@ -319,20 +305,13 @@ def dossier(space_db, osm_db, unit_id, out, name, city, nvdb=None, flows=None, m
     con.execute(f"""CREATE TABLE movement AS SELECT from_edge, from_lane, to_edge, to_lane, turn, vehicles, condition, {prov('sumo', 'derived')}, {m('geometry')} AS geometry
                     FROM sp.work.turn WHERE unit_id = '{unit_id}'""")
 
-    # rules: speed, parking and turn lanes from OSM's tags on the unit's roads; NVDB's prohibited turns
+    # rules: parking and turn lanes from OSM's tags on the unit's roads
     con.execute(f"""CREATE TABLE rule AS
-        SELECT 'speed' AS kind, maxspeed AS value, road_id AS applies_to, {prov('osm', 'mapped')}, geometry FROM road WHERE maxspeed IS NOT NULL
-        UNION ALL SELECT 'turn lanes', turn_lanes, road_id, {prov('osm', 'mapped')}, geometry FROM road WHERE turn_lanes IS NOT NULL
+        SELECT 'turn lanes' AS kind, turn_lanes AS value, road_id AS applies_to, turn_lanes, road_id, {prov('osm', 'mapped')}, geometry FROM road WHERE turn_lanes IS NOT NULL
         UNION ALL SELECT k, v, r.road_id, {prov('osm', 'mapped')}, r.geometry
             FROM road r JOIN (SELECT osm_id, unnest(map_keys(tags)) AS k, unnest(map_values(tags)) AS v FROM o.raw.ways) t ON t.osm_id = r.osm_id
             WHERE t.k LIKE 'parking:%'""")
-    if nvdb:
-        try:
-            con.execute(f"""INSERT INTO rule SELECT 'prohibited turn', 'nvdb', NULL, {prov('nvdb', 'mapped')}, {m('geom')}
-                            FROM nv.nvdb.prohibited_turns WHERE ST_DWithin({m('geom')}, {m(U)}, 5)""")
-        except duckdb.Error:
-            pass
-    if vancouver_json:  # the city's parking rules (by the unit) and what it says of the unit's roads (within FLOW_M); its right-of-way
+    if vancouver_json:  # the city's parking rules (by the unit) and what it says of the unit's roads (within NEAR_ROAD_M); its right-of-way
         # widths carry no unit: 66, 80, 99 are feet, 17.5 is metres
         con.execute(f"""INSERT INTO rule
             SELECT 'parking meter', concat_ws('; ', p->>'rate_9am_6pm' || ' ' || (p->>'time_limit_9am_6pm') || ' 9-18',
@@ -343,32 +322,25 @@ def dossier(space_db, osm_db, unit_id, out, name, city, nvdb=None, flows=None, m
                 FROM van WHERE ds = 'disability-parking' AND {near('geometry', 3)}
             UNION ALL SELECT 'right-of-way width', round(CASE WHEN p->>'width' LIKE '%(m)%' THEN try_cast(regexp_extract(p->>'width', '[0-9.]+') AS DOUBLE) ELSE try_cast(regexp_extract(p->>'width', '[0-9.]+') AS DOUBLE) * 0.3048 END, 2) || ' m (the city: ' || (p->>'width') || CASE WHEN p->>'width' LIKE '%(m)%' THEN ')' ELSE ' ft)' END,
                 NULL, {vprov}, {m('geometry')}
-                FROM van WHERE ds = 'right-of-way-widths' AND {near('geometry', FLOW_M)}
+                FROM van WHERE ds = 'right-of-way-widths' AND {near('geometry', NEAR_ROAD_M)}
             UNION ALL SELECT 'bikeway', concat_ws(' ', p->>'bikeway_type', p->>'subtype', p->>'bikeway_direction'), p->>'street_name',
-                {vprov}, {m('geometry')} FROM van WHERE ds = 'bikeways' AND {near('geometry', FLOW_M)}
+                {vprov}, {m('geometry')} FROM van WHERE ds = 'bikeways' AND {near('geometry', NEAR_ROAD_M)}
             UNION ALL SELECT 'signalised junction', coalesce(p->>'type', 'traffic signals'), NULL, {vprov}, {m('geometry')}
-                FROM van WHERE ds = 'traffic-signals' AND {near('geometry', FLOW_M)}""")
+                FROM van WHERE ds = 'traffic-signals' AND {near('geometry', NEAR_ROAD_M)}""")
 
-    # observations: hourly traffic on the unit's roads; the photos taken in it
+    # observations: the photos taken in it
     con.execute("CREATE TABLE observation (kind VARCHAR, subject VARCHAR, t VARCHAR, value DOUBLE, unit_of_value VARCHAR, source VARCHAR, method VARCHAR, observed VARCHAR, confidence DOUBLE, geometry GEOMETRY)")
-    if flows and glob.glob(flows):
-        con.execute(f"""INSERT INTO observation SELECT 'flow', f.edge_id::VARCHAR, f.date || ' ' || lpad(f.hour::VARCHAR, 2, '0') || ':00', f.flow, 'vehicles/hour',
-                        'flows', 'surveyed', f.date, {CONFIDENCE['surveyed']}, NULL FROM read_parquet({glob.glob(flows)}) f
-                        WHERE f.edge_id IN (SELECT edge_id FROM o.driving.edges WHERE {near('geometry', FLOW_M)})""")
     try:
         con.execute(f"""INSERT INTO observation SELECT 'photo', photo_id, captured::VARCHAR, compass, 'degrees (view)', 'mapillary', 'observed',
                         captured::DATE::VARCHAR, {CONFIDENCE['observed']}, {m('geometry')} FROM sp.work.photo WHERE {near('geometry', 3)}""")
     except duckdb.CatalogException:
         pass
-    if vancouver_json:  # condition ratings (the rating in `subject`), the city's traffic counts (where; the data behind a link)
+    if vancouver_json:  # condition ratings (the rating in `subject`)
         con.execute(f"""INSERT INTO observation
             SELECT CASE ds WHEN 'sidewalk-condition-rating' THEN 'sidewalk condition' ELSE 'pavement condition' END,
                    coalesce(p->>'sidewalk_condition_index_rating', p->>'pci_rating'), NULL, NULL, 'rating', 'vancouver', meth, NULL,
                    {mconf}, {m('geometry')}
-                FROM van WHERE ds LIKE '%condition-rating%' AND {near('geometry', 3)}
-            UNION ALL SELECT CASE ds WHEN 'intersection-traffic-movement-counts' THEN 'turning counts' ELSE 'directional counts' END,
-                   coalesce(p->>'url', p->>'location'), NULL, NULL, NULL, 'vancouver', meth, NULL, {mconf}, {m('geometry')}
-                FROM van WHERE ds LIKE '%traffic-%count%' AND {near('geometry', FLOW_M)}""")
+                FROM van WHERE ds LIKE '%condition-rating%' AND {near('geometry', 3)}""")
     try:
         seen = {k: (a, b) for k, a, b in con.execute("SELECT 'mly' || feature_id, first_seen, last_seen FROM sp.work.observed").fetchall()}
     except duckdb.CatalogException:
@@ -386,7 +358,7 @@ def dossier(space_db, osm_db, unit_id, out, name, city, nvdb=None, flows=None, m
     return con
 
 
-def main(name, lon, lat, osm, nvdb=None, flows=None, city="", mapillary=True, vancouver=False, gtfs=None):
+def main(name, lon, lat, osm, city="", mapillary=True, vancouver=False, gtfs=None):
     """Clip, build and write the dossier of the unit holding the junction nearest (lon, lat)."""
     from urbanstyle.container import build, with_features
     os.makedirs("data/units", exist_ok=True)
@@ -408,7 +380,7 @@ def main(name, lon, lat, osm, nvdb=None, flows=None, city="", mapillary=True, va
     unit_id = con.execute("""SELECT unit_id FROM work.unit WHERE level = 0 ORDER BY ST_Distance(geometry, ST_Point(?, ?)), kind <> 'intersection' LIMIT 1""",
                           [lon, lat]).fetchone()[0]
     con.close()
-    d = dossier(base + ".urban.duckdb", base + ".osm.duckdb", unit_id, base + ".duckdb", name, city, nvdb, flows,
+    d = dossier(base + ".urban.duckdb", base + ".osm.duckdb", unit_id, base + ".duckdb", name, city,
                 base + ".urban.duckdb.mapillary.json" if mapillary else None, base + ".vancouver.json" if vancouver else None, gtfs)
     counts = {t: d.execute(f'SELECT count(*) FROM "{t}"').fetchone()[0] for t in
               ("unit", "source", "road", "surface", "line", "object", "match", "lane", "movement", "rule", "observation", "check")}

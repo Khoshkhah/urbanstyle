@@ -1016,6 +1016,8 @@ def _from_division(con, epsg, done, bridges=(), out=None, start="division"):
     ground.build(con, epsg)        # layer 0: every piece of the area is street, plot, green, ... (docs/design/space-layers.md)
     ground.surfaces(con, epsg)     # layer 1: the surfaces inside each ground item
     ground.paths(con, epsg)        # every footpath whole, lying on the ground (not cut by the blocks)
+    from . import paths
+    paths.build(con, epsg)         # the paths at ranks 2 and 3: path sections and path intersections (work.path_space)
     done("ground")
     return con
 

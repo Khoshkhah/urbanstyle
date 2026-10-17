@@ -20,11 +20,6 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 # the modules a build runs: their module-level numbers are the build's chosen values
 BUILD_MODULES = ("container", "blocks", "buildings", "strips", "subsections", "spaces", "parts", "network", "turns", "ground", "sumo")
 # the things with a profile (R6): kind -> (table, profile, which rows)
-PROFILES = {      # kind -> (table, profile, which rows); `x.` is the thing's own row
-    "street object": ("urban.object", "x.source || ':' || x.object_id", "TRUE"),
-    "building": ("urban.element", "x.source || ':' || x.source_id", "x.kind = 'building'"),
-}
-
 
 # urban.style: how a viewer draws each kind (docs/design/drawing.md). Within a level the things are drawn in `draw_order`, lowest first;
 # the levels are drawn from the lowest up. table, rank, kind, draw_order, form (polygon, line, point), colour, dash (metres on, off)
@@ -53,6 +48,7 @@ STYLE = [
     ("urban.space", 3, "path intersection", 31, "polygon", "#fb923c", None),
     ("urban.side", 4, "walking", 40, "polygon", "#e5e7eb", None),
     ("urban.side", 4, "driving", 41, "polygon", "#6b7280", None),
+    ("urban.part", 5, "path", 50, "polygon", "#e0a96d", None),
     ("urban.part", 5, "frontage", 50, "polygon", "#ece6da", None),
     ("urban.part", 5, "sidewalk", 51, "polygon", "#d8d2c6", None),
     ("urban.part", 5, "furnishing", 52, "polygon", "#b9a58b", None),
@@ -214,23 +210,82 @@ def old_registry(path):
         c.close()
 
 
+def profiles(con):
+    """[(registry kind, table, id column, id, profile)] for every thing of the model (docs/design/tables.md, "urban.registry"): its
+    facts that do not change, as text; two things of one kind with one profile get #2, #3 in the order of their ids."""
+    import json
+    q = lambda sql: con.execute(sql).fetchall()
+    names = lambda xs: "|".join(sorted({x for x in xs if x}))
+    out = []
+    area = {i: f"area:{n}:{lv}" for i, n, lv in q("SELECT area_id, name, level FROM urban.area")}
+    out += [("area", "area", "area_id", i, p) for i, p in area.items()]
+    secnames = {}
+    for par, n in q("SELECT parent_id, name FROM urban.stretch WHERE kind = 'section'"):
+        secnames.setdefault(par, []).append(n)
+    ground = {}
+    for i, k, lv, sides, ref in q("SELECT ground_id, kind, level, sides::VARCHAR, ref FROM urban.ground"):
+        if k == "street":
+            ground[i] = f"street:{lv}:{names(secnames.get(i, []))}"
+        elif k == "plot":
+            ground[i] = f"plot:{lv}:{names(x.get('name') for x in json.loads(sides or '[]'))}"
+        else:
+            ground[i] = "osm:" + ref.split("-", 1)[-1].split(".")[0] if ref else f"path:{i}"
+        out.append((k, "ground", "ground_id", i, ground[i]))
+    stretch, kinds = {}, {}
+    for i, k, lv, n, ways, nodes in q("SELECT stretch_id, kind, level, name, ways, nodes FROM urban.stretch WHERE kind <> 'section'"):
+        stretch[i] = (f"intersection:{lv}:{names((n or '').split(' / '))}" if k == "intersection" else
+                      f"osm:{ways[0]}" if k == "path section" and ways else f"osm:n{i.split('-', 1)[1].split('.')[0]}" if k == "path intersection"
+                      else f"{k}:{i}")
+        kinds[i] = k
+    ends = {}
+    for i_, sec in q("SELECT intersection_id, section_id FROM urban.arm"):
+        ends.setdefault(sec, []).append(stretch.get(i_, i_))
+    for i, lv, n in q("SELECT stretch_id, level, name FROM urban.stretch WHERE kind = 'section'"):
+        stretch[i] = f"section:{lv}:{n or ''}:" + "+".join(sorted(ends.get(i, [])))
+        kinds[i] = "section"
+    out += [(kinds[i], "stretch", "stretch_id", i, p) for i, p in stretch.items()]
+    for i, k, par, ref, src in q("SELECT piece_id, kind, parent_id, ref, source FROM urban.plot_piece"):
+        mapped = src and src != "urbanstyle" and ref and ref[:1] in "wnr" and ref[1:].split("/")[0].isdigit()
+        out.append(("plot piece", "plot_piece", "piece_id", i, f"{src.split('+')[0]}:{ref.split('/')[0]}" if mapped else f"{ground.get(par, par)}:{k}"))
+    space = {}
+    for i, k, par in q("SELECT space_id, kind, parent_id FROM urban.space"):
+        space[i] = f"{stretch.get(par, par)}/{i.rsplit('/', 1)[1]}" if k == "subsection" else stretch.get(i, i)
+        out.append((k, "space", "space_id", i, space[i]))
+    side = {i: f"{space.get(par, par)}:{i[-1]}" for i, par in q("SELECT side_id, parent_id FROM urban.side")}
+    out += [("side", "side", "side_id", i, p) for i, p in side.items()]
+    for i, k, par, d, n in q("SELECT part_id, kind, parent_id, direction, lane FROM urban.part"):
+        out.append(("part", "part", "part_id", i, f"{side.get(par, par)}:lane:{d}:{n}" if k == "lane" else f"{side.get(par, par)}:{k}"))
+    out += [("mark", "mark", "mark_id", i, f"{space.get(sp, sp)}:{k}") for i, k, sp in q("SELECT mark_id, kind, space_id FROM urban.mark")]
+    out += [("street object", "object", "object_id", i, f"{src}:{i}") for i, src in q("SELECT object_id, source FROM urban.object")]
+    out += [("building", "element", "element_id", i, f"{src}:{sid}") for i, src, sid in
+            q("SELECT element_id, source, source_id FROM urban.element WHERE kind = 'building'")]
+    seen, res = {}, []
+    for kind, t, col, i, p in sorted(out, key=lambda r: (r[0], r[4], r[3])):
+        key = (kind, p, t)
+        seen[key] = seen.get(key, 0) + 1
+        res.append((kind, t, col, i, p + (f"#{seen[key]}" if seen[key] > 1 else "")))
+    return res
+
+
 def write_registry(con, old, built):
-    """Every profile the build has keeps its uid from `old`; a new profile gets a new UUID. `uid` goes on each thing's row."""
+    """Every profile the build has keeps its uid from `old`; a new profile gets a new UUID. `uid` goes on each thing's row. A thing that
+    is both a stretch and a space (an intersection, a path section, a path intersection) has one profile, so one uid."""
     con.execute("""CREATE OR REPLACE TABLE urban.registry (profile VARCHAR, uid VARCHAR, kind VARCHAR, first_seen TIMESTAMP,
                    last_seen TIMESTAMP)""")
     if old:
         con.executemany("INSERT INTO urban.registry VALUES (?, ?, ?, ?, ?)", old)
-    for kind, (table, profile, where) in PROFILES.items():
-        have = f"SELECT DISTINCT {profile} AS p FROM {table} x WHERE {where} AND {profile} IS NOT NULL"
-        con.execute(f"""INSERT INTO urban.registry SELECT p, uuid()::VARCHAR, ?, ?, ? FROM ({have})
-                        WHERE p NOT IN (SELECT profile FROM urban.registry WHERE kind = ?)""", [kind, built, built, kind])
-        con.execute(f"UPDATE urban.registry SET last_seen = ? WHERE kind = ? AND profile IN ({have})", [built, kind])
-        con.execute(f"""UPDATE {table} AS x SET uid = r.uid FROM urban.registry r
-                        WHERE r.kind = ? AND r.profile = {profile} AND {where}""", [kind])
-
-
-def _has(con, table):
-    return con.execute("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'work' AND table_name = ?", [table]).fetchone()[0]
+    con.execute("CREATE OR REPLACE TEMP TABLE _thing (kind VARCHAR, tbl VARCHAR, col VARCHAR, id VARCHAR, profile VARCHAR)")
+    rows = profiles(con)
+    if rows:
+        con.executemany("INSERT INTO _thing VALUES (?, ?, ?, ?, ?)", rows)
+    con.execute("""INSERT INTO urban.registry SELECT DISTINCT t.profile, NULL, t.kind, ?, ? FROM _thing t
+                   WHERE NOT EXISTS (SELECT 1 FROM urban.registry r WHERE r.kind = t.kind AND r.profile = t.profile)""", [built, built])
+    con.execute("UPDATE urban.registry SET uid = uuid()::VARCHAR WHERE uid IS NULL")
+    con.execute("""UPDATE urban.registry r SET last_seen = ? FROM _thing t WHERE r.kind = t.kind AND r.profile = t.profile""", [built])
+    for t, col in {(r[1], r[2]) for r in rows}:
+        con.execute(f"""UPDATE urban."{t}" AS x SET uid = r.uid FROM _thing t JOIN urban.registry r ON r.kind = t.kind AND r.profile = t.profile
+                        WHERE t.tbl = ? AND t.id = x.{col}""", [t])
+    con.execute("DROP TABLE _thing")
 
 
 def finish(con, epsg, osm, out, bridges, old):

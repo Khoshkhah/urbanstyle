@@ -21,7 +21,9 @@ from .container import LEVELS  # noqa: E402  (the levels the build keeps)
 
 def frame(con, sql):
     df = con.execute(sql).fetchdf()
-    df["geometry"] = [wkb.loads(bytes(g)) for g in df["geometry"]]
+    # (a NULL geometry can come back as NA: an older DuckDB reads a NULL geometry of a newer one so; it is no shape)
+    df["geometry"] = [None if g is None or g is pd.NA or (isinstance(g, float) and g != g) else wkb.loads(bytes(g)) for g in df["geometry"]]
+    df = df[df["geometry"].notna()]
     return gpd.GeoDataFrame(df, geometry="geometry", crs=4326)
 
 
@@ -1000,7 +1002,7 @@ def object_shapes(con, epsg, place=None):
     return gpd.GeoDataFrame(rows, columns=["object_id", "class", "grp", "level", "cid", "part", "geometry"], geometry="geometry", crs=epsg).to_crs(4326)
 
 
-DOSSIER_COLORS = {"osm": "#2563eb", "mapillary": "#f59e0b", "vancouver": "#16a34a", "nvdb": "#9333ea"}
+DOSSIER_COLORS = {"osm": "#2563eb", "mapillary": "#f59e0b", "vancouver": "#16a34a"}
 
 
 def dossier_layers(con, db):

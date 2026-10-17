@@ -152,15 +152,32 @@ function show(fc,title){
   $('xpacts').style.display=s?'flex':'none';
   $('xplist').innerHTML=fc.features.slice(0,300).map((f,i)=>`<div data-i=${i}>${esc(f.properties._label)}<small>${esc(f.properties._layer)} · ${esc(f.properties._id??'')}</small></div>`).join('');
   if(s)fly(fc.features)}
-$('xplist').onclick=e=>{const d=e.target.closest('[data-i]'); if(d&&last)select(last.features[+d.dataset.i])};
+$('xplist').onclick=e=>{const d=e.target.closest('[data-i]'); if(!d||!last)return; const f=last.features[+d.dataset.i];
+  if(f&&f.properties._check){const [x,y]=f.geometry.coordinates; goPlace(x,y); return}      // (a check's place: the marker and the thing there)
+  select(f)};
 // (on a web site with no server, the page's own /api/: XP_STATIC, urbanstyle publish)
 const S=window.XP_STATIC;
 // the checks that do not pass (urban.check, `urbanstyle check`): each with its places as links that move the map there
 function checksBox(cs){const box=$('xpchecks'); if(!cs.length){box.style.display='none'; return}
   const nf=cs.filter(c=>c.status==='fail').length; box.querySelector('summary').textContent=`Checks: ${nf} fail, ${cs.length-nf} info`;
-  $('xpchk').innerHTML=cs.map(c=>`<div class="xpck ${c.status}"><b>${esc(c.id)}</b> ${esc(c.status)} ${c.count}<small>${esc(c.what)}</small>`+
+  $('xpchk').innerHTML=cs.map((c,k)=>`<div class="xpck ${c.status}" data-k=${k} title="click: every place of this check in the result list"><b>${esc(c.id)}</b> ${esc(c.status)} ${c.count}<small>${esc(c.what)}</small>`+
     c.at.map((p,k)=>`<button class=xplink data-at="${p[0]},${p[1]}">${k+1}</button>`).join('')+'</div>').join('');
-  $('xpchk').onclick=e=>{const a=e.target.dataset.at; if(!a)return; const [x,y]=a.split(',').map(Number); M().flyTo({center:[x,y],zoom:19.5,duration:800})}}
+  // a place of a fault: the map flies there, a red marker stays on the exact point, and the thing at it is selected with its card
+  // (Kaveh, 2026-10-17: "it only zooms on the issue location without selecting it, so it is hard to find what is the exact issue")
+  // a click on a check (its id or its text): every place of it in the result list, one row each (Kaveh, 2026-10-17: "put them into
+  // selected list, every issue when click on it"); a row, like a place's button, goes to that place
+  $('xpchk').onclick=e=>{const a=e.target.dataset.at;
+    if(a){const [x,y]=a.split(',').map(Number); $('xpchk').querySelectorAll('button.on').forEach(b=>b.classList.remove('on'));
+      e.target.classList.add('on'); goPlace(x,y); return}
+    const row=e.target.closest('.xpck'); if(!row)return; const c=cs[+row.dataset.k]; if(!c||!c.at.length)return;
+    show({type:'FeatureCollection',total:c.count,features:c.at.map((p,k)=>({type:'Feature',geometry:{type:'Point',coordinates:p},
+      properties:{_label:`${c.id} place ${k+1}`,_layer:`Check ${c.id}`,_id:`${p[0].toFixed(6)},${p[1].toFixed(6)}`,_check:c.id}}))},`${c.id} ${c.what}`)}}
+// a place of a fault: the map flies there, a red marker stays on the exact point, and the thing at it is selected with its card
+// (Kaveh, 2026-10-17: "it only zooms on the issue location without selecting it, so it is hard to find what is the exact issue")
+function goPlace(x,y){const m=M(); if(window.xpCheckPin)window.xpCheckPin.remove();
+  if(typeof maplibregl!=='undefined')window.xpCheckPin=new maplibregl.Marker({color:'#dc2626'}).setLngLat([x,y]).addTo(m);
+  m.once('moveend',()=>setTimeout(()=>{if(is3d())return; const pt=m.project([x,y]); noXPhit=true; try{m.fire('click',{point:pt,lngLat:{lng:x,lat:y},originalEvent:{}})}finally{noXPhit=false}},300));
+  m.flyTo({center:[x,y],zoom:19.5,duration:800})}
 const get=u=>S?S.api(u):fetch(u).then(r=>r.json()), post=(u,b)=>S?S.api(u,b):fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}).then(r=>r.json());
 // (a result list from the newest request only: a slow answer to an older one is dropped)
 let rq=0; const latest=pr=>{const n=++rq; return pr.then(r=>{if(n!==rq)throw 'stale'; return r})}, stale=e=>{if(e!=='stale')throw e};
@@ -433,7 +450,8 @@ function ref(f){const p=f.properties; if(XP.includes(f.layer.id))return p._layer
 // 2026-10-13: "I click on a sidewalk and you say it is a space")
 const RANK=['Street objects','On the parts','Parts','Bridge 2D','Buildings','Parking lots','Subsection axes','Sides','Spaces','Subsections','Intersections','Sections','Blocks','Ground'];
 const rank=f=>{const o=XP.includes(f.layer.id)?null:ovOf(f), i=o?RANK.indexOf(o.label):-1; return o?(i<0?RANK.length:i):-1};
-function hit2d(pt){const ls=live2d(); if(!ls.length)return null;
+let noXPhit=false;     // (a check's place: the thing under the point, not the result dot drawn on it)
+function hit2d(pt){const ls=live2d().filter(id=>!(noXPhit&&XP.includes(id))); if(!ls.length)return null;
   const hs=M().queryRenderedFeatures(pt,{layers:ls}).filter(ref); return hs.reduce((b,f)=>!b||rank(f)<rank(b)?f:b,null)}
 // (the whole thing under the mouse, from the full data: the map draws a large area in tiles, and the drawn feature is only the tile's
 // piece; one block lit in a different piece at every tile: Kaveh, 2026-10-13, b0-w4224972r.13)

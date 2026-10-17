@@ -90,7 +90,7 @@ and its children. Its `uid`, where it has one, is the id to keep in a link or a 
 | Table | How a viewer shows it |
 |---|---|
 | `urban.meta` | a list: the version, the date of the build, the input files, the chosen values with their names |
-| `urban.check` | a list: each check with its status and its count; a failed check's places as links that move the map there |
+| `urban.check` | a list: each check with its status and its count; a failed check's places as links: a click moves the map there, marks the place, and selects the thing at it; a click on a check puts all its places in the result list |
 | `urban.registry` | not shown; the `uid` of a thing shows on its card |
 | `urban.code` | on a thing's card: its kind in each standard |
 | `urban.style` | not shown; it is how the rest is drawn |

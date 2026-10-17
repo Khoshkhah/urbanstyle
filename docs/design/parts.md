@@ -39,6 +39,11 @@ Each part of a road also carries what is known of its road from OSM: `road`, `ro
 A median barrier continued from a bridge landing runs along the landing way's lanes on the ground until the opposite roadway ends or
 a junction begins; its strip is an island.
 
+## The parts of a path
+
+A path's space has the walking side only. Its parts are the path's surface and what OSM maps on it: `steps`, `ramp`, `handrail`,
+`bollard`. A path has no marks.
+
 ## Widths and sizes
 
 Every part has `width_m` and `length_m` with `width_source` and `width_method`: a lane's width `osm, mapped` or `urbanstyle,

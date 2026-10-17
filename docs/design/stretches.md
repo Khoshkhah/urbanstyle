@@ -67,6 +67,14 @@ meters on its kerb side; parking OSM maps on the way stays.
 One intersection per junction node, or per cluster of nodes that connectors join: `i0-<node>`, the smallest node id. Its area is the
 space of rank 3. Its nodes are in `space.junction`.
 
+## The paths
+
+A path is a street for walking. A path junction node is a node where three or more path ends meet, or where a path meets a road. A
+path section is the path from one path junction to the next (`p0-w<way>`); a path intersection is where the paths meet
+(`q0-<node>`). A square is the path intersection of the paths that reach it: their sections end at its edge. A square that no path
+reaches is a plain piece of its plot. Where a path meets a road, the path section ends at the street's edge, and a crossing over the
+road is the street's crosswalk.
+
 ## The named street
 
 A named street (`k0-<way>`, `space.street`) is a group of stretches: the sections that share a name and a node, with the

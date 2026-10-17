@@ -29,6 +29,9 @@ stop lines belongs to the intersection. A section's space is the band between it
 *The cuts, square across each arm at its stop line and at the joints: each piece of the street belongs to one section or one
 intersection.*
 
+**The paths.** A corridor is cut at its path junctions into one space per path section and one per path intersection; a square is
+one space. A path's space has one side, the walking side, and no kerb.
+
 ## Rank 4: the kerb and the two sides
 
 **The frame.** A section has one frame: the lanes, both directions together, plus the parking, bus and cycle strips a source gives,

@@ -11,8 +11,8 @@ none. The checks test the partition at every rank.
 | Rank | Thing | Id | Table |
 |---|---|---|---|
 | 0 | the level: its whole area | | `space.area`, `space.element` |
-| 1 | the ground: the street, a plot (a block) or a path (a corridor) | `g0-<kind>-<ref>` | `space.ground`, `space.block`, `space.corridor` |
-| 2 | a stretch of the street: a section or an intersection; a stretch of a path: a path section or a path intersection; a piece of a plot: building, yard, alley, car park, construction site, green, water, rail, square, structure | `s0-w<way>`, `i0-<node>`, `p0-w<way>`, `q0-<node>`, `g0-<kind>-<ref>` | `space.subsection`, `space.junction`, `space.ground` |
+| 1 | the ground: the street, a plot (a block) or a path (a corridor) | `g0-<kind>-<ref>` | `space.ground` |
+| 2 | a stretch of the street: a section or an intersection; a stretch of a path: a path section or a path intersection; a piece of a plot: building, yard, alley, car park, construction site, green, water, rail, square, structure | `s0-w<way>`, `i0-<node>`, `p0-w<way>`, `q0-<node>`, `g0-<kind>-<ref>` | `space.stretch`, `space.plot_piece` |
 | 3 | a space: a subsection or an intersection | `s0-w<way>/<k>`, `i0-<node>` | `space.unit` |
 | 4 | a side of a space: the driving side or the walking side | `<space>:d`, `<space>:w` | `space.side` |
 | 5 | a part of a side | `<space>#<n>` | `space.part` |
@@ -63,6 +63,23 @@ flowchart TD
 A section is divided into subsections. An intersection is never divided: it is its own stretch and its own space, and it belongs to
 no section. A plot's pieces end at rank 2. A path is a street for walking and has the same ranks as the street: path sections and
 path intersections at rank 2, one space each at rank 3, one side at rank 4 (the walking side), its parts at rank 5, and no marks.
+
+## The tables by rank
+
+One table per rank. Every row names its parent in the rank above (`parent_id`), and the rows of one parent partition it.
+
+| Rank | The thing | The table |
+|---|---|---|
+| 0 | the area; the elements (roads, walkways, buildings, rail) | `space.area`, `space.element` |
+| 1 | the street, the plots, the paths | `space.ground`: one row per item, three kinds |
+| 2 | a section, an intersection; a path section, a path intersection | `space.stretch` |
+| 2 | a plot's piece: building, yard, alley, car park, construction site, green, water, rail, square, structure | `space.plot_piece` |
+| 3 | a space: a subsection, an intersection, a path's space | `space.unit` |
+| 4 | a side: the driving side, the walking side | `space.side` |
+| 5 | a part | `space.part` |
+| 6 | a mark; a turn | `space.mark`, `space.turn` |
+
+The [Tables](../reference/tables.md) reference lists the columns of each table.
 
 Three things lie on the tree and are not ranks:
 

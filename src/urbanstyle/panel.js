@@ -228,18 +228,18 @@ const LYTREE=[
   ['Rank 0: the area',null,'the level, its whole area, with its content',[
     ['The area','Area','the whole area of the level'],['Road lines','Roads',"OSM's road and walkway centre lines"],['Buildings','Buildings',''],
     ['Rail lines','Rail',''],['Track','Track',''],['Stations','Station','']]],
-  ['Rank 1: the ground',null,'the area cut into eight kinds, nothing left over',[
+  ['Rank 1: the ground',null,'the area cut into three kinds, the street, the plots and the paths, nothing left over',[
     ['street','Street (rank 1)','the area less the blocks and the corridors, whole: one item per connected piece, built from those tables alone'],
     ['street, as the spaces cut it','Ground','the same ground, one piece per space of rank 3',null,['street']],
-    ['plot (the blocks)','Blocks','the land between the streets'],['path','Ground','',null,['path']],
-    ['square','Ground','',null,['square']],['green','Ground','',null,['green']],['water','Ground','',null,['water']],['rail','Ground','',null,['rail']],
-    ['structure','Ground','the ground under a bridge',null,['structure']],
+    ['plot (the blocks)','Blocks','the land between the streets and the paths'],['path (the corridors)','Ground','',null,['path']],
     ['footways (on the ground)','Footways','every footpath at this level, whole, at its width: a sidewalk and a crossing lie on the street, every other footway, steps or path has its corridor in the kind path']]],
   ['Rank 2: the stretches of the street',null,'from junction to junction, and where the arms meet',[
     ['Sections','Sections',''],['Intersections','Intersections','its space is rank 3 too']]],
   ['Rank 2: the pieces of the plot',null,'',[
     ['building','Ground','',null,['building']],['yard','Ground','',null,['yard']],['alley','Ground','a service road inside the block',null,['alley']],
-    ['car park','Ground','',null,['car park']],['construction site','Ground','',null,['construction site']]]],
+    ['car park','Ground','',null,['car park']],['construction site','Ground','',null,['construction site']],
+    ['green','Ground','',null,['green']],['water','Ground','',null,['water']],['rail','Ground','',null,['rail']],['square','Ground','',null,['square']],
+    ['structure','Ground','the ground under a bridge',null,['structure']]]],
   ['Rank 3: the spaces',null,'one per subsection (and per intersection, above)',[
     ['spaces, top down','Spaces (rank 3, top down)','rank 1\'s street cut by the stop lines and the joints: each face one space, corners included (division.py, the new construction)'],
     ['Subsections','Subsections','a stretch with one cross-section'],['Subsection axes','Subsection axes','its line'],

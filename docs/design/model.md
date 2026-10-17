@@ -11,31 +11,32 @@ none. The checks test the partition at every rank.
 | Rank | Thing | Id | Table |
 |---|---|---|---|
 | 0 | the level: its whole area | | `space.area`, `space.element` |
-| 1 | the ground: one of eight kinds | `g0-<kind>-<ref>` | `space.ground`, `space.block`, `space.corridor` |
-| 2 | a stretch of the street: a section or an intersection; a piece of a plot | `s0-w<way>`, `i0-<node>` | `space.subsection`, `space.junction` |
+| 1 | the ground: the street, a plot (a block) or a path (a corridor) | `g0-<kind>-<ref>` | `space.ground`, `space.block`, `space.corridor` |
+| 2 | a stretch of the street: a section or an intersection; a piece of a plot: building, yard, alley, car park, construction site, green, water, rail, square, structure | `s0-w<way>`, `i0-<node>`, `g0-<kind>-<ref>` | `space.subsection`, `space.junction`, `space.ground` |
 | 3 | a space: a subsection or an intersection | `s0-w<way>/<k>`, `i0-<node>` | `space.unit` |
 | 4 | a side of a space: the driving side or the walking side | `<space>:d`, `<space>:w` | `space.side` |
 | 5 | a part of a side | `<space>#<n>` | `space.part` |
 | 6 | a mark on a part | | `space.mark`, `space.turn` |
 
-The ground, rank 0 to rank 2: the whole area cut into its kinds, and the two kinds that are divided further.
+The ground, rank 0 to rank 2: the whole area cut into three kinds, and the two kinds that are divided further. The street and the
+plot are divided at rank 2; the path ends at rank 1.
 
 ```mermaid
 flowchart LR
     L0[0 the level: its whole area] --> K1[1 street]
     L0 --> K2[1 plot: a block]
-    L0 --> K3[1 path]
-    L0 --> K4[1 square]
-    L0 --> K5[1 green]
-    L0 --> K6[1 water]
-    L0 --> K7[1 rail]
-    L0 --> K8[1 structure]
+    L0 --> K3[1 path: a corridor]
     K1 --> S2[2 section, intersection]
     K2 --> B1[2 building]
     K2 --> B2[2 yard]
     K2 --> B3[2 alley]
     K2 --> B4[2 car park]
     K2 --> B5[2 construction site]
+    K2 --> B6[2 green]
+    K2 --> B7[2 water]
+    K2 --> B8[2 rail]
+    K2 --> B9[2 square]
+    K2 --> B10[2 structure]
 ```
 
 The street, rank 1 to rank 6: the street kind divided down to the marks.
@@ -60,7 +61,7 @@ flowchart TD
 ```
 
 A section is divided into subsections. An intersection is never divided: it is its own stretch and its own space, and it belongs to
-no section. The six ground kinds other than the street and the plot end at rank 1.
+no section. A plot's pieces end at rank 2. The path ends at rank 1.
 
 Three things lie on the tree and are not ranks:
 
@@ -75,8 +76,8 @@ The build makes each rank from the rank above it. The chapters of this design gi
 
 | From | To | The step |
 |---|---|---|
-| rank 0 | rank 1 | the roads and the pedestrian ways cut the area into blocks and corridors; the street is the rest; the other kinds take their ground in an order of precedence |
-| rank 1 | rank 2 | the junction nodes of the road network; the sections between them; the subsections where the paint changes |
+| rank 0 | rank 1 | the roads and the pedestrian ways cut the area into blocks and corridors; the street is the rest |
+| rank 1 | rank 2 | the street: the junction nodes of the road network, the sections between them, the subsections where the paint changes; the plot: its pieces take their ground in an order of precedence |
 | rank 2 | rank 3 | the street cut by every stop line and every joint; each face is one space |
 | rank 3 | rank 4 | the kerb inside each space, from the sidewalk line or from the lanes; the driving side inside it, the walking side outside |
 | rank 4 | rank 5 | the lanes, the strips and the junction area in the driving side; the sidewalk, the furnishing zone, the frontage, the islands and the driveways in the walking side |

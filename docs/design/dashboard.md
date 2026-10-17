@@ -54,8 +54,8 @@ the rank; a click on it turns them all off when any is on, all on when none is.
 | Rank | Layers |
 |---|---|
 | 0 | the area, the road lines, the buildings, the rail, the stations |
-| 1 | the street (whole, from the area, the blocks and the corridors), the street as the spaces cut it, the blocks, the path, the square, the green, the water, the rail, the structure; the footways, every footpath whole at its width, lying on the ground |
-| 2 | the sections and the intersections; the plot's pieces: building, yard, alley, car park, construction site |
+| 1 | the street (whole, from the area, the blocks and the corridors), the street as the spaces cut it, the plots (the blocks), the paths (the corridors); the footways, every footpath whole at its width, lying on the ground |
+| 2 | the sections and the intersections; the plot's pieces: building, yard, alley, car park, construction site, green, water, rail, square, structure |
 | 3 | the spaces, the subsections, their axes and breaks, the cuts |
 | 4 | the driving side and the walking side |
 | 5 | one box per part type, the driving side first, then the walking side |

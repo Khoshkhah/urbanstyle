@@ -11,7 +11,7 @@ The words of the model, the code and the dashboard, in one place. When a word is
 | **rank** | a position in the hierarchy: 0 the level, 1 the ground, 2 the stretches, 3 the spaces, 4 the sides, 5 the parts, 6 the marks |
 | **area** | the whole area of a level (`space.area`) |
 | **element** | one centre line or building in `space.element`: a road, walkway, cycleway, rail line or building, with its level, width and OSM id |
-| **ground** | rank 1: every piece of the area is one item of one kind (`space.ground`): street, plot, path, square, green, water, rail, structure; a plot's pieces are building, yard, alley, car park, construction site |
+| **ground** | rank 1: every piece of the area is street, plot or path (`space.ground`); a plot's pieces, rank 2, are building, yard, alley, car park, construction site, green, water, rail, square, structure |
 | **block** | the land between the streets and the pedestrian ways: a face the level-0 streets and pedestrian ways enclose, less each street side's distance and each path's half width (`space.block`, `b<level>-w<way><side>`) |
 | **block side** | one side of one road chain within one face, with its distance from the road line and what set it (`space.block_side`: sidewalks, carriageway, path width, building) |
 | **bounding line** | a street or a pedestrian way of level 0 that bounds blocks |
@@ -23,8 +23,8 @@ The words of the model, the code and the dashboard, in one place. When a word is
 | **sidewalk zone** | the band a road's sidewalk can lie in: the carriageway widened by 8 m on each side |
 | **alley** (ground) | a service road inside a block: the road's line at OSM's width or 6 m |
 | **yard** (ground) | the ground inside a block that no other kind holds |
-| **square** (ground) | OSM's pedestrian area or square |
-| **structure** (ground) | the ground under a deck |
+| **square** (a plot's piece) | OSM's pedestrian area or square |
+| **structure** (a plot's piece) | the ground under a deck |
 | **surface** | one row of `space.surface`: the surfaces that cover a ground item exactly (`<ground>:<kind>`) |
 | **junction node** | an OSM node where three or more road ends meet and a road ends, two ends merge or fork, or two streams cross |
 | **stream** | a road end paired with the most opposite end within 45° at a node |

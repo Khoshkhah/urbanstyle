@@ -1,7 +1,7 @@
 # Rank 1: the ground
 
-<p class="lead">The whole area of a level, cut into eight kinds: street, plot, path, square, green, water, rail and structure. The
-blocks and the corridors come first; the street is what is left between them.</p>
+<p class="lead">The whole area of a level, cut into three kinds: the plots (the blocks), the paths (the corridors) and the street,
+what is left between them. Inside a plot, its pieces are rank 2.</p>
 
 ## Reads
 
@@ -50,29 +50,29 @@ street's edge, so the walking side of the street runs on past the path's mouth. 
 The area less the blocks and the corridors is the street of the level: one polygon per connected piece. The street is cut into the
 spaces of rank 3; the ground item of each space is `g0-street-<space>`.
 
-## The other kinds
+## The pieces of a plot (rank 2)
 
-`ground.py` gives every other piece of the area a kind, in this order of precedence. Each kind takes only the ground that no earlier
+Inside a block, `ground.py` gives every piece a kind, in this order of precedence. Each kind takes only the ground that no earlier
 kind took.
 
-1. `water`: OSM's water areas.
-2. `rail`: OSM's railway corridors and a rail line's own bed.
-3. `street`: the street of the level.
-4. `path`: the corridors.
-5. `square`: OSM's pedestrian areas (`highway=pedestrian` with `area=yes`, the way's own polygon) and squares.
-6. `structure`: the ground under a deck (OSM's `man_made=bridge` outline, or the ground under a street space of a higher level).
-7. `green`: parks, playgrounds, pitches, recreation grounds, woods; then grass, gardens and allotments.
-8. `plot`: a block. Inside a block its pieces are the ground items of rank 2: each `building` whole, `alley` (a service road inside the
-   block: the road's line widened to OSM's `width`, else 6 m), `car park` (an off-street car park, `space.lot`), `construction site`,
-   and `yard`, the rest.
+1. `building`: each building whole.
+2. `water`: OSM's water areas.
+3. `rail`: OSM's railway corridors and a rail line's own bed.
+4. `square`: OSM's pedestrian areas (`highway=pedestrian` with `area=yes`, the way's own polygon) and squares.
+5. `structure`: the ground under a deck (OSM's `man_made=bridge` outline, or the ground under a street space of a higher level).
+6. `green`: parks, playgrounds, pitches, recreation grounds, woods.
+7. `alley`: a service road inside the block, the road's line widened to OSM's `width`, else 6 m.
+8. `car park`: an off-street car park (`space.lot`); `construction site`.
+9. `green`: grass, gardens and allotments.
+10. `yard`: the rest.
 
 All outlines are noded and polygonized as one planar partition. Each face goes to the first kind in the order that holds its inner
 point. A face that no kind holds joins the neighbouring face it shares the most edge with. The faces of each item are merged. A
-square and a green are only what a source maps as one.
+square and a green are only what a source maps as one. Each piece names its block.
 
 ![The ground at Sainte-Dévote.](../img/steps/10-ground.png){ width=100% }
 
-*The ground: every piece of the area at level 0 is street, plot, path, green, water or structure.*
+*The ground: every piece of the area at level 0 is street, plot or path; inside a plot, its pieces.*
 
 ## What lies inside a block
 
@@ -91,12 +91,13 @@ even where one can drive through it from one street to another.
 
 Each ground item is covered exactly by its surfaces (`space.surface`, id `<ground>:<kind>`):
 
-| Ground kind | Surfaces |
+| Ground item | Surfaces |
 |---|---|
 | street | roadway, pedestrian realm, median (from the parts of its space); verge where OSM maps grass in the street |
-| plot | building, car park, construction site, garden (OSM); yard, the rest |
-| green | play (playgrounds, pitches), path (its footpaths, 2 m), lawn, the rest |
 | path | path |
+| building, car park, construction site | its own kind |
+| yard | garden where OSM maps one; yard, the rest |
+| green | play (playgrounds, pitches), path (its footpaths, 2 m), lawn, the rest |
 | rail | track bed |
 | structure | under bridge |
 | square | paved |

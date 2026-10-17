@@ -133,8 +133,8 @@ $P -m pytest -q tests/test_levels.py::test_street_space_width      # one test
 URBANSTYLE_BRIDGE_TESTS=1 $P -m pytest -q tests/test_bridge_rules.py   # the bridge's rules BR1-BR12 on the real bridge (~3.5 min, local data/)
 
 # THE TEST OF A CHANGE: a cut, not a full build. It builds a 500 m square round one place with the current code, checks it, writes its
-# page and serves it on port 8786 (~2 min). Use it for every fix and every idea; a full build only after the cut shows the result.
-scripts/cut.sh monaco NAME LON LAT [RADIUS_M]           # then http://localhost:8786/cut-NAME.html
+# page and serves it on port 8784 (~2 min). Use it for every fix and every idea; a full build only after the cut shows the result.
+scripts/cut.sh monaco NAME LON LAT [RADIUS_M]           # then http://localhost:8784/cut-NAME.html
 scripts/cut.sh vancouver NAME LON LAT [RADIUS_M]        # (data/cuts/NAME.*; roads that leave the square end at its edge)
 
 # build a container (Monaco ~20 min and ~2.5 GB, measured 2026-10-13; Södermalm ~7 GB: check free memory first). Södermalm has no

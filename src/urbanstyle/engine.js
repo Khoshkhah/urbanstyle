@@ -180,11 +180,9 @@ function svHere(name){const w=document.querySelector('.rs-svw'); if(!w||w.hidden
   if(window.rsSetStreetViewMarkerAt)rsSetStreetViewMarkerAt(best.x,best.y,best.h);
   const url=`https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${best.y.toFixed(6)},${best.x.toFixed(6)}&heading=${Math.round(best.h)}`;
   document.dispatchEvent(new CustomEvent('rs:select',{detail:{sv:true,properties:{name:best.name||'Street View'},streetView:url}}))}
-// a click on a space's part, a painted line or a Mapillary point: an open Street View window moves to the road nearest it
-document.addEventListener('rs:select',e=>{const d=e.detail||{}, p=d.properties||{};
-  if(d.sv)return;                     // our own Street View move (svHere)
-  if(d.overlay&&['Parts','Sections','Intersections','Subsections','Mapillary','Cuts'].concat(MK.map(t=>'Mark: '+t)).includes(d.overlay))
-    setTimeout(()=>svHere(p.arm||p.name||p.type||p.grp),0)});
+// in 2D too, a click anywhere moves an open Street View window to the road nearest it (a list of overlay names missed the current
+// layers and the bridge, and the road lines a click could follow are not drawn); a click on a drawn road line is roadstyle's own
+map.on('click',e=>{if(in3d)return; if(map.queryRenderedFeatures(e.point).some(f=>/^roads/.test(f.layer.id)))return; setTimeout(()=>svHere(),0)});
 // roadstyle's round end caps (a dot at the end of every centre line): hidden
 function hideEnds(){map.getStyle().layers.filter(l=>/^roads-ends/.test(l.id)).forEach(l=>{
   if(map.getLayoutProperty(l.id,'visibility')!=='none')map.setLayoutProperty(l.id,'visibility','none')})}

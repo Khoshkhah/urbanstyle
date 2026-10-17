@@ -188,6 +188,7 @@ An id is stable: it comes from what a thing is, never from the build order. A re
 
 | Thing | Id | Example |
 |---|---|---|
+| the area of a level | `a<level>` | `a0` |
 | a block | `b<level>-w<way><side>` | `b0-w23189661l` |
 | a corridor | `c<level>-w<way>` | `c0-w159170500` |
 | a ground item | `g<level>-<kind>-<ref>` | `g0-plot-w37127121` |
@@ -201,6 +202,7 @@ An id is stable: it comes from what a thing is, never from the build order. A re
 | a named street | `k<level>-<way>` | `k0-473754701` |
 | a street object | `n<node>`, `w<way>` | `n13983466896` |
 | a link | `<node>` | |
+| any thing with a profile | `uid`, a UUID from the registry ([The tables](tables.md#the-registry-urbanregistry)) | |
 
 [The tables](tables.md) gives each table with its columns; the [Ids](../reference/ids.md) reference lists every scheme with the code
 that makes it.

@@ -97,7 +97,17 @@ The words of the model, the code and the dashboard, in one place. When a word is
 | **duckOSM** | the project that turns an OSM extract into a DuckDB file: the raw nodes and ways, the driving, walking and cycling networks, the feature layers |
 | **edge** | one directed piece of a road network between two nodes |
 | **GMNS** | duckOSM's export of the network with its lanes, as SUMO makes them |
-| `space.*` | the tables urbanstyle writes: `area`, `element`, `block`, `block_side`, `corridor`, `ground`, `surface`, `junction`, `subsection`, `change`, `street`, `arm`, `unit`, `side`, `part`, `mark`, `turn`, `approach`, `object`, `link`, `station`, `lot` |
+| `urban.*` | the tables urbanstyle writes, one per rank: `area`, `ground`, `stretch`, `plot_piece`, `space`, `side`, `part`, `mark`; on the tree: `element`, `joint`, `junction`, `street`, `arm`, `turn`, `approach`, `object`, `link`, `station`, `surface`, `observed`, `photo` ([The tables](tables.md)) |
+| **common columns** | the columns every rank table has, in this order: `<thing>_id`, `kind`, `rank`, `parent_id`, `level`, `name`, the thing's values, `source`, `method`, `ref`, `geometry` |
+| `urban.item` | the view over every rank: `id`, `rank`, `kind`, `parent_id`, `level`, `geometry` |
+| `urban.meta` | the manifest of a build: its version and date, the input files with their dates, every chosen value with its name |
+| `urban.check` | one row per check per build: its status, its count and the faulty things |
+| `urban.registry` | the stable ids: one row per profile, with `uid`, `first_seen` and `last_seen` |
+| **profile** | the facts of a thing that do not change, as text; its `uid` belongs to the profile (requirement R6) |
+| `uid` | a thing's stable id, a UUID from the registry; the readable id stays as its label |
+| `urban.code` | our kinds with their codes in CityGML 3.0, OpenDRIVE, OpenSidewalks and IFC 4.3 |
+| **axis** | a linear thing's middle line, from its start to its end; `s_from`, `s_to`, `t_from`, `t_to` place a thing on its parent's axis |
+| **predecessors**, **successors** | the spaces, or the lanes, that come before and after a space or a lane along the street |
 | **source**, **method**, **ref** | who gave a value, how they got it, which of their items it is ([Sources and provenance](sources.md)) |
 | **pilot dossier** | everything known about one pilot, an intersection or a street section studied in full, from every source, in one database, each row with its source, method and confidence |
 | **inventory** | what each source holds around a pilot and how much reaches the tables |

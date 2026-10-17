@@ -1,9 +1,11 @@
 """The paths at ranks 2 and 3 (docs/design/stretches.md, "The paths"; docs/design/tables.md): each path item of rank 1 (a corridor's
 ground, work.ground kind path) cut at its path junction nodes into path sections and path intersections. Called after ground.build.
 
-    junction    a node where three or more path ends meet (a path that runs through a node counts two)
-    the cut     each path line that leaves a junction is cut square at `r` from the node, `r` half the widest path there (the core,
-                as the street's), across the corridor
+    junction    a node inside a path item where three or more path ends meet (a path that runs through a node counts two); a node
+                where a path meets a sidewalk or a road is none: there the path ends at the street's edge
+    the cut     each path line that leaves a junction is cut square at `r` from the node, `r` half the widest path there, across its
+                own corridor only: the piece of the cut line through that point, inside the path item
+    a piece     under MIN_PIECE_M2 joins the piece it shares the longest edge with; a path with no junction stays one piece
     the faces   each path item noded with the cuts and polygonized: the face that holds a junction node is that node's path
                 intersection, `q<level>-<node>`; every other face is a path section, named by the way with the most length in it,
                 `p<level>-w<way>` (a second face of one way `.2`)
@@ -11,7 +13,8 @@ ground, work.ground kind path) cut at its path junction nodes into path sections
 work.path_space   space_id, kind (path section, path intersection), ground_id, level, name, class, ways, nodes, width_m, width_source,
                   width_method, length_m, predecessors, successors, axis, geometry
 """
-CUT_HALF_M = 30.0    # a cut runs this far to each side of its path, across the corridor (it is clipped to the path item)
+CUT_HALF_M = 30.0    # a cut line is drawn this far to each side, then only its piece through the cut point inside the path item is kept
+MIN_PIECE_M2 = 2.0   # a piece of a path item smaller than this joins its neighbour (chosen)
 END_M = 0.05         # a path line's end lies on a node when it is this near
 MIN_FACE_M2 = 0.01   # a face smaller than this is a hairline of the noding
 TOUCH_M = 0.5        # two faces are neighbours when their outlines meet along at least this length
@@ -54,7 +57,8 @@ def build(con, epsg, level=0):
     for c, (nm, wd, ws, wm) in corr.items():
         width[c] = wd
     item_w = {i: (corr.get(r, (None, None, None, None))[1] or PATH_W["footway"]) for i, r, _ in items}
-    junctions = {n: shapely.Point(pt) for n, (pt, ls) in ends.items() if len(ls) >= 3}
+    inner = allp.buffer(-0.25)       # (a node on a path item's edge, where a path meets the street, is no path junction)
+    junctions = {n: shapely.Point(pt) for n, (pt, ls) in ends.items() if len(ls) >= 3 and inner.covers(shapely.Point(pt))}
     # the cuts: square across each path line at r from its junction
     cuts = []
     for n, pt in junctions.items():
@@ -70,16 +74,31 @@ def build(con, epsg, level=0):
             h = (dx * dx + dy * dy) ** 0.5 or 1.0
             c = ln.interpolate(at)
             nx, ny = -dy / h * CUT_HALF_M, dx / h * CUT_HALF_M
-            cuts.append(shapely.LineString([(c.x - nx, c.y - ny), (c.x + nx, c.y + ny)]))
+            cuts.append((c, shapely.LineString([(c.x - nx, c.y - ny), (c.x + nx, c.y + ny)])))
     # the faces of each path item
     out, count = [], {}
     for gid, ref, gm in items:
-        mine = [c.intersection(gm.buffer(0.01)) for c in cuts if c.intersects(gm)]
+        mine = []
+        for c, ln in cuts:      # only the piece of the cut through its own point, inside this item: across its own corridor
+            if gm.distance(c) > 0.05:
+                continue
+            here = [q for q in shapely.get_parts(ln.intersection(gm.buffer(0.01))) if q.geom_type == "LineString" and q.distance(c) < 0.05]
+            mine += here
         faces = [gm]
         if mine:
             net = shapely.union_all([gm.boundary] + [c for c in mine if not c.is_empty])
             faces = [f for f in shapely.get_parts(shapely.polygonize(shapely.get_parts(net))) if f.area > MIN_FACE_M2 and gm.covers(f.representative_point())]
             faces = faces or [gm]
+            # a piece under MIN_PIECE_M2 joins the piece it shares the longest edge with
+            changed = True
+            while changed and len(faces) > 1:
+                changed = False
+                small = min(range(len(faces)), key=lambda k: faces[k].area)
+                if faces[small].area < MIN_PIECE_M2:
+                    f0 = faces.pop(small)
+                    k = max(range(len(faces)), key=lambda k: f0.buffer(0.05).intersection(faces[k].boundary).length)
+                    faces[k] = shapely.union_all([faces[k], f0]).buffer(0)
+                    changed = True
         nm, wd, ws, wm = corr.get(ref, (None, None, None, None))
         if wd is None:
             wd, ws, wm = item_w[gid], "urbanstyle", "chosen"

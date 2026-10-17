@@ -326,9 +326,15 @@ def build(con, epsg):
         x, hw = ch["geom"], pw[ch["oid"]][0] / 2
         ends_ = [e for e in (0, -1) if touching(ch, e)]
         discs = [shapely.Point(x.coords[e]).buffer(hw) for e in (0, -1) if e not in ends_]
-        pstrip[j] = shapely.union_all([extend(x, {e: ext_at(ch, e) for e in ends_}, ends_).buffer(hw, cap_style="flat")] + discs)
+        # the strip that cuts the blocks IS the corridor: one shape. A cut that ran on 50 m past a path's end at a road cut land out of
+        # the block that no corridor held, and the ground step gave it to the path (g0-path-c0-w1018344891.2, 251 m2 for an 81 m2
+        # corridor; Kaveh, 2026-10-16: "why you are creating a big rectangle area only for a path")
         pcor[j] = shapely.union_all([extend(x, {e: ext_at(ch, e, 0.0) for e in ends_}, ends_).buffer(hw, cap_style="flat")] + discs)
-    lines = shapely.union_all([ch["geom"] for ch in chains] + [box.boundary])      # (boundary: an area of several parts, Monaco)
+        pstrip[j] = pcor[j]
+    # the faces from the roads alone: the paths cut the roads' blocks after the filter (MIN_BLOCK_M2, MIN_BLOCK_W_M), so a block between
+    # paths stays a block. Faces cut by the paths too dropped a 250 m2 block between four footways as "street" and the ground step gave it
+    # to the path (g0-path-c0-w1018344891.2; Kaveh, 2026-10-16: "why you are creating a big rectangle area only for a path")
+    lines = shapely.union_all([ch["geom"] for ch in chains if ch["cl"] not in PATH_W] + [box.boundary])      # (boundary: an area of several parts, Monaco)
     faces = [f for f in shapely.get_parts(shapely.polygonize(list(shapely.get_parts(shapely.line_merge(lines))))) if f.within(box.buffer(0.1))]
     out, road_strips, slivers = [], [], []    # (block geometry, its sides [(chain, side row)], face); the roads' strips; the paths' leftovers
     for f in faces:

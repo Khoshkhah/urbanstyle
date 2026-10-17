@@ -77,9 +77,11 @@ the neighbour it shares the most edge with. The stretches partition the street.
 
 ## The paths
 
-A path is a street for walking. A path junction node is a node where three or more path ends meet, or where a path meets a road. A
-path section is the path from one path junction to the next (`p0-w<way>`); a path intersection is where the paths meet
-(`q0-<node>`). A square is the path intersection of the paths that reach it: their sections end at its edge. A square that no path
+A path is a street for walking. A path junction node is a node inside a path's ground where three or more path ends meet; a path
+that runs through the node counts two ends. A node where a path meets a sidewalk or a road is no path junction. A path section is
+the path from one path junction to the next (`p0-w<way>`); a path intersection is where the paths meet (`q0-<node>`). Each path
+that leaves a junction is cut square across its own corridor only, at half the width of the widest path there. A path with no
+junction is one path section, and a piece under 2 m² joins the piece it shares the longest edge with. A square is the path intersection of the paths that reach it: their sections end at its edge. A square that no path
 reaches is a plain piece of its plot. Where a path meets a road, the path section ends at the street's edge, and a crossing over the
 road is the street's crosswalk.
 

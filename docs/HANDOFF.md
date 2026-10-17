@@ -30,6 +30,16 @@ first, then this note, then `docs/notes/street-rules.md` and `docs/notes/section
     `urban.stretch`, Spaces, Sides, Parts, Marks; colours from `urban.style`) and the server's layers are views over `urban` with
     the old id names beside the model's (`serve.LAYER_VIEWS`: the panel's buttons still read `unit_id`, `section_id`, `type`; the
     next step renames them in the panel and drops the aliases); (s, t) explained with a drawing in the chapter.
+  - The paths (2026-10-16 night, Kaveh on g0-path-c0-w1018344891.2 and the block at Birch Street): the blocks' faces come from the roads
+    only, so the 400 m2 / 8 m filter of the roads' blocks no longer drops a block between footways (8 new blocks in Vancouver, 76 to
+    84; that path item 251 to 72 m2); the cutting strip is the corridor; leftover land is never given to a path; a path junction
+    is a node inside a path item with 3+ path ends, cut across its own corridor only, pieces under 2 m2 join a neighbour (727 path
+    spaces to 218). Open, reported, not changed: (1) the junction area in pieces: 41 of 44 intersections have 2+ junction-area
+    parts (i0-432423756: 7, from 0.1 to 1,093 m2), the crosswalks and islands cut it; proposed: one junction area per intersection,
+    and any part under 2 m2 joins its neighbour. (2) Pine Street s0-w1419312038/1: OSM maps 20 m of Pine Street as footway
+    w961476753 where the greenway w336803184 crosses, so the road strips end in round caps that bulge the street's edge into the
+    blocks; proposed: a road that goes on as a footway in its own line keeps its edges straight through. (3) An island spur from a
+    3D picture of Kaveh's, place not found (candidates s0-w390721481/1#4, s0-w341691651/1#6, i0-430951364#5): ask for the part id.
   - No traffic in urbanstyle (Kaveh): `unit --nvdb` and `--flows` removed, the city's traffic counts and the dossier's speed rule
     removed; NVDB is out of the sources. The part's `speed` comes from duckOSM's edges (`maxspeed_kmh`), never from raw tags and with
     no chosen default. Open (duckOSM work): the widths, `surface`, `lit` and the lane tags are still read from raw OSM tags

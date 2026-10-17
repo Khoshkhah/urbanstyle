@@ -191,7 +191,12 @@ def build(con, epsg):
             in_block = land_ is not None and p.intersection(land_).area > 0.5 * p.area
             # in a block a road through it is an alley, a footpath's ground is yard (work.path lies on it, whole); between the blocks a
             # pedestrian way's corridor (blocks.path_sql cut it out of the blocks, paths.md) is path
-            kind = ("alley" if t == "road" else "yard") if in_block else ("street" if t == "road" else "path")
+            # a footway never makes path ground here: a path is its corridor only, land between paths is block land (Kaveh,
+            # 2026-10-16); such land goes on as land no kind holds
+            if t != "road" and not in_block:
+                kept.append(p)
+                continue
+            kind = ("alley" if t == "road" else "yard") if in_block else "street"
             if kind == "alley":
                 # the alley is the road itself, as wide as OSM says (else ALLEY_W_M), not the whole piece: where a city's parcels are
                 # missing, the piece is most of a block (w37127121: 2,938 m2 of buildings' yards; Kaveh, 2026-10-14). The rest is

@@ -17,7 +17,8 @@ A block is the land between the streets and the pedestrian ways. `blocks.py` bui
    at level 0, named or not, that is not a crossing, not a sidewalk and not a pedestrian area. A road on a deck of level 1 bounds
    blocks only where nothing of level 0 passes under it. Alleys, driveways, parking aisles and rail bound no block.
 2. **The chains and the faces.** The bounding lines are joined end to end between junctions, with their small wiggles taken out
-   (simplified by 1 m). The chains and the edge of the area are polygonized: the faces.
+   (simplified by 1 m). The road chains and the edge of the area are polygonized: the faces. The paths do not make faces; they cut
+   the roads' blocks in step 5.
 3. **One edge per street side.** On each side of each road chain the block's edge follows OSM's sidewalk line, 1 m behind it, with
    the line's own shape, to the junction and round the corner as the line curves. The edge is measured every 2.5 m with a line square
    to the road; a sidewalk line counts when it runs along the road (within 35 degrees) and lies at most 8 m beyond the carriageway. A
@@ -42,9 +43,10 @@ Each street side of a block keeps its distance from the road line and what set i
 
 ## The corridors
 
-Each pedestrian way's strip, up to the edge of the street, is its corridor, `c0-w<way>`. The corridor ends at the
-street's edge, so the walking side of the street runs on past the path's mouth. A corridor is the ground item of kind `path`,
-`g0-path-c0-w<way>`.
+Each pedestrian way's strip, up to the edge of the street, is its corridor, `c0-w<way>`. The strip that cuts the blocks and the
+corridor are one shape: the path's line at its width. The corridor ends at the street's edge, so the walking side of the street runs
+on past the path's mouth. A corridor is the ground item of kind `path`, `g0-path-c0-w<way>`. A path's ground is its corridor only:
+land between paths is block land, and land that no item holds never goes to a path because a footway runs through it.
 
 ## The street
 

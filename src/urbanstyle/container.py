@@ -1006,6 +1006,9 @@ def _from_division(con, epsg, done, bridges=(), out=None, start="division"):
         from . import blocks
         blocks.build(con, epsg)
         done("blocks")
+        if out:         # (the copy a later `--from division` starts from: with these blocks, not the last full build's)
+            con.execute("CHECKPOINT")
+            shutil.copy(out, out + ".before-division")
     if start in ("blocks", "division"):
         network.build(con, epsg, bridges)      # the street at level 0 from the road network (docs/design/pipeline.md, steps 2-7)
         turns.build(con, epsg)                 # SUMO's moves through each junction: turns, guide lines, turn arrows (step 8)

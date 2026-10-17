@@ -57,7 +57,7 @@ COLUMNS = {      # the columns of docs/design/tables.md, in its order
     "space": [("space_id", V), ("kind", V), ("rank", I), ("parent_id", V), ("level", I), ("name", V), ("uid", V), ("axis", G), ("s_from", D),
               ("s_to", D), ("width_m", D), ("oneway", "BOOLEAN"), ("length_m", D), ("left_extra", D), ("predecessors", "VARCHAR[]"),
               ("successors", "VARCHAR[]"), ("source", V), ("method", V), ("ref", V), ("geometry", G)],
-    "junction": [("intersection_id", V), ("node_id", B), ("level", I), ("cluster_id", V)],
+    "junction": [("intersection_id", V), ("node_id", B), ("level", I), ("cluster_id", V), ("space_id", V)],
     "side": [("side_id", V), ("kind", V), ("rank", I), ("parent_id", V), ("level", I), ("name", V), ("uid", V), ("kerb", G), ("kerb_source", V),
              ("kerb_method", V), ("source", V), ("method", V), ("ref", V), ("geometry", G)],
     "part": [("part_id", V), ("kind", V), ("rank", I), ("parent_id", V), ("level", I), ("name", V), ("uid", V), ("space_id", V), ("arm", V),
@@ -71,7 +71,7 @@ COLUMNS = {      # the columns of docs/design/tables.md, in its order
              ("length_m", D), ("source", V), ("method", V), ("ref", V), ("geometry", G)],
     "turn": [("space_id", V), ("level", I), ("from_edge", V), ("from_lane", I), ("to_edge", V), ("to_lane", I), ("turn", V),
              ("vehicles", V), ("condition", V), ("source", V), ("geometry", G)],
-    "approach": [("space_id", V), ("level", I), ("from_edge", V), ("lane", I), ("moves", I), ("ways", V), ("arrow", "BOOLEAN"),
+    "approach": [("intersection_id", V), ("level", I), ("from_edge", V), ("lane", I), ("moves", I), ("ways", V), ("arrow", "BOOLEAN"),
                  ("no_arrow_because", V)],
     "object": [("object_id", V), ("kind", V), ("uid", V), ("level", I), ("space_id", V), ("part_id", V), ("near_m", D), ("name", V),
                ("attrs", J), ("width_m", D), ("width_source", V), ("width_method", V), ("height_m", D), ("height_source", V),
@@ -172,6 +172,47 @@ def _chain(lines):
         coords += c[1:] if coords and shapely.Point(c[0]).distance(shapely.Point(coords[-1])) < 0.01 else c
         ranges.append((s0, s0 + ln.length))
     return (shapely.LineString(coords) if len(coords) > 1 else None), ranges, turned
+
+
+MIN_PART_M2 = 2.0    # a part under this joins the part of its side it shares the longest edge with (docs/design/parts.md)
+
+
+def cut_intersection(geom, nodes, rings=(), islands=()):
+    """An intersection's rank 3 (docs/design/spaces.md): [(key, geometry)], one piece per junction node (key: the node), the ground
+    nearer to that node than to the intersection's other nodes; a roundabout (its ring's lines `rings`) also its centre (key
+    "centre"): the islands inside the ring. A piece of a node's cell that lies apart joins the piece it shares the longest edge with."""
+    import shapely
+    centre = None
+    if rings:
+        inside = shapely.union_all(list(shapely.get_parts(shapely.polygonize(shapely.get_parts(shapely.line_merge(shapely.union_all(list(rings))))))) or [shapely.Polygon()])
+        isl = [x for x in islands if not inside.is_empty and inside.contains(x.representative_point())]
+        if isl:
+            centre = shapely.union_all(isl).intersection(geom)
+            centre = centre if centre.area >= MIN_PART_M2 else None
+    rest = geom.difference(centre) if centre is not None else geom
+    pts = {}
+    for k, pt in nodes.items():         # (two nodes at one place: one piece, the smaller id)
+        if not any(pt.distance(q) < 0.01 for q in pts.values()):
+            pts[k] = pt
+    if len(pts) <= 1:
+        out = [(next(iter(pts), None), rest)]
+    else:
+        vor = list(shapely.get_parts(shapely.voronoi_polygons(shapely.MultiPoint(list(pts.values())), extend_to=geom.envelope.buffer(100))))
+        cells, loose = {}, []
+        for k, pt in pts.items():
+            cell = next((c for c in vor if c.covers(pt)), None)
+            got = [q for q in shapely.get_parts(rest.intersection(cell)) if q.geom_type == "Polygon" and q.area > 0.01] if cell is not None else []
+            if got:
+                got.sort(key=lambda q: -q.area)
+                cells[k] = got[0]
+                loose += got[1:]
+        for q in loose:
+            k = max(cells, key=lambda k_: q.buffer(0.05).intersection(cells[k_].boundary).length)
+            cells[k] = shapely.union_all([cells[k], q])
+        out = list(cells.items())
+    if centre is not None:
+        out.append(("centre", centre))
+    return out
 
 
 def _k(space_id):
@@ -334,10 +375,83 @@ def write(con, epsg, out=None):
                 space_rows[s] = [s, "subsection", 3, sec, sl["level"], nm, turned[j] if j < len(turned) else None,
                                  *(ranges[j] if j < len(ranges) else (None, None)),
                                  sl["width"], sl["oneway"], sl["length"], sl["left_extra"]]
-    sp, ss = dict(preds), dict(succs)       # (the subsections' links; an intersection's are made from them)
+
+    # ---- rank 3 of an intersection: its sub-intersections, one per junction node; a roundabout's ring sectors and centre
+    rb_lines = [g(w) for (w,) in W.rows(f"SELECT {W.m()} FROM osm.driving.edges WHERE junction IN ('roundabout', 'circular')")]
+    subint, sub_of = {}, {}
+    for i_, d in inters.items():
+        rings = [ln for ln in rb_lines if ln.intersection(d["geom"]).length > 5.0]
+        d["roundabout"] = bool(rings)
+        nodes = {n: node_pt[n] for n in jnodes.get(i_, []) if n in node_pt}
+        isl = [p["geom"] for p in parts if p["unit_id"] == i_ and p["type"] == "island"]
+        for key, gm in cut_intersection(d["geom"], nodes, rings, isl):
+            sid = f"{i_}/{key if key is not None else i_.split('-', 1)[1]}"
+            subint[sid] = dict(parent=i_, kind="centre" if key == "centre" else ("ring sector" if rings else "sub-intersection"),
+                               node=key, level=d["level"], geom=gm)
+            sub_of.setdefault(i_, []).append(sid)
+    near_sub = lambda i_, pt: min(sub_of[i_], key=lambda sid: subint[sid]["geom"].distance(pt)) if sub_of.get(i_) else i_
+    # the intersections' parts cut along the same lines (a part never crosses a cut); one junction area per sub-intersection
+    split, n_of = [], {}
+    for p in parts:
+        if p["unit_id"] not in sub_of:
+            split.append(p)
+            continue
+        for sid in sub_of[p["unit_id"]]:
+            piece = p["geom"].intersection(subint[sid]["geom"])
+            piece = [q for q in shapely.get_parts(piece) if q.geom_type == "Polygon" and q.area > 0.01]
+            if piece:
+                split.append(dict(p, unit_id=sid, geom=shapely.union_all(piece), orig=p["part_id"]))
+    ja = {}
+    for p in split:
+        if p["unit_id"] in subint and p["type"] == "junction area":
+            ja.setdefault(p["unit_id"], []).append(p)
+    keep = {id(v[0]) for v in ja.values()}
+    for sid, ps in ja.items():
+        ps[0]["geom"] = shapely.union_all([x["geom"] for x in ps])
+    split = [p for p in split if not (p["unit_id"] in subint and p["type"] == "junction area" and id(p) not in keep)]
+    # a part under MIN_PART_M2 joins the part of its side it shares the longest edge with
+    side_of = lambda p: (p["unit_id"], p["type"] in WALKING)
+    by_side = {}
+    for p in split:
+        by_side.setdefault(side_of(p), []).append(p)
+    gone = set()
+    for p in sorted(split, key=lambda p: p["geom"].area):
+        if p["geom"].area >= MIN_PART_M2:
+            break
+        nb = [x for x in by_side[side_of(p)] if x is not p and id(x) not in gone]
+        if not nb:
+            continue
+        best_ = max(nb, key=lambda x: p["geom"].buffer(0.05).intersection(x["geom"].boundary).length)
+        if p["geom"].buffer(0.05).intersection(best_["geom"].boundary).length <= 0:
+            continue
+        best_["geom"] = shapely.union_all([best_["geom"], p["geom"]])
+        gone.add(id(p))
+    parts = [p for p in split if id(p) not in gone]
+    for p in sorted([p for p in parts if p["unit_id"] in subint], key=lambda p: (p["unit_id"], p["orig"])):
+        n_of[p["unit_id"]] = n_of.get(p["unit_id"], 0) + 1
+        p["part_id"] = f"{p['unit_id']}#{n_of[p['unit_id']]}"
+    lane_parts = [p for p in parts if p["type"] == "lane"]
+    for mk in marks:            # an intersection's mark lies in the sub-intersection that holds its middle
+        if mk["unit_id"] in sub_of:
+            mk["unit_id"] = near_sub(mk["unit_id"], mk["geom"].representative_point())
     for i_ in inters:
-        preds[i_] = sorted({s for s, v in ss.items() if i_ in v} | {s for s, v in sp.items() if i_ in v and not subs[s]["oneway"]})
-        succs[i_] = sorted({s for s, v in sp.items() if i_ in v} | {s for s, v in ss.items() if i_ in v and not subs[s]["oneway"]})
+        units.pop(i_, None)
+    for sid, sd in subint.items():
+        units[sid] = dict(kind=sd["kind"], section=None, level=sd["level"], geom=sd["geom"])
+    # the links: a section's end goes to the sub-intersection its axis reaches; a sub-intersection's from its arms and its neighbours
+    for sec, sd in sections.items():
+        sd["ends_sub"] = [near_sub(i_, shapely.Point(sd["axis"].coords[0 if e == 0 else -1])) if i_ and sd["axis"] is not None else i_
+                          for e, i_ in enumerate(sd["ends"])]
+        if sd["ids"]:
+            if sd["ends_sub"][0]:
+                preds[sd["ids"][0]] = [sd["ends_sub"][0]]
+            if sd["ends_sub"][1]:
+                succs[sd["ids"][-1]] = [sd["ends_sub"][1]]
+    sp, ss = dict(preds), dict(succs)
+    for sid in subint:
+        nb = [o for o in sub_of[subint[sid]["parent"]] if o != sid and _touch(subint[sid]["geom"], subint[o]["geom"]) >= TOUCH_M]
+        preds[sid] = sorted({s for s, v in ss.items() if sid in v} | {s for s, v in sp.items() if sid in v and not subs[s]["oneway"]} | set(nb))
+        succs[sid] = sorted({s for s, v in sp.items() if sid in v} | {s for s, v in ss.items() if sid in v and not subs[s]["oneway"]} | set(nb))
 
     iname = lambda i_: " / ".join(sorted(set(roads_of.get(i_, [])))) or None
     rows2 = []
@@ -347,7 +461,7 @@ def write(con, epsg, out=None):
                       d["cls"], d["oneway"], d["length"], d["axis"], "urbanstyle", "derived", ",".join(d["ways"]), d["geom"]))
     for i_, d in inters.items():
         ways = list(dict.fromkeys(w_ for _, w_ in ways_of.get(i_, [])))
-        rows2.append((i_, "intersection", 2, best(d["geom"], street_pieces.get(d["level"], [])), d["level"], iname(i_), None, ways,
+        rows2.append((i_, "roundabout" if d["roundabout"] else "intersection", 2, best(d["geom"], street_pieces.get(d["level"], [])), d["level"], iname(i_), None, ways,
                       sorted(jnodes.get(i_, [])), None, None, None, None, "urbanstyle", "derived", ",".join(ways), d["geom"]))
     paths = [dict(zip(("id", "kind", "ground", "level", "name", "cls", "ways", "nodes", "wd", "ws", "wm", "length", "pred", "succ"), r[:-2]),
                   axis=g(r[-2]), geom=g(r[-1])) for r in W.rows(f"""SELECT space_id, kind, ground_id, level, name, class, ways, nodes, width_m,
@@ -401,11 +515,12 @@ def write(con, epsg, out=None):
     # ---- rank 3: the spaces
     rows3 = []
     for u, d in units.items():
-        ways = list(dict.fromkeys(w_ for _, w_ in ways_of.get(u, [])))
+        ways = list(dict.fromkeys(w_ for _, w_ in ways_of.get(subint[u]["parent"] if u in subint else u, [])))
         if u in space_rows:
             rows3.append((*space_rows[u], preds.get(u, []), succs.get(u, []), "urbanstyle", "derived", ",".join(ways), d["geom"]))
-        elif d["kind"] == "intersection":
-            rows3.append((u, "intersection", 3, u, d["level"], iname(u), None, None, None, None, None, None, None, preds.get(u, []),
+        elif u in subint:
+            i_ = subint[u]["parent"]
+            rows3.append((u, subint[u]["kind"], 3, i_, d["level"], iname(i_), None, None, None, None, None, None, None, preds.get(u, []),
                           succs.get(u, []), "urbanstyle", "derived", ",".join(ways), d["geom"]))
         else:       # a space whose subsection has no row (a level with no subsections)
             rows3.append((u, d["kind"], 3, d["section"] or u, d["level"], None, None, None, None, None, None, None, None, [], [],
@@ -415,7 +530,8 @@ def write(con, epsg, out=None):
                       x["length"], x["wd"], False if x["kind"] == "path section" else None, x["length"], None, x["pred"], x["succ"],
                       "urbanstyle", "derived", ",".join(x["ways"]), x["geom"]))
     W.table("space", rows3)
-    W.table("junction", W.rows("SELECT intersection_id, node_id, level, cluster_id FROM work.junction"))
+    W.table("junction", [(i_, n, lv, cl, f"{i_}/{n}" if f"{i_}/{n}" in subint else (near_sub(i_, node_pt[n]) if n in node_pt else None))
+                          for i_, n, lv, cl in W.rows("SELECT intersection_id, node_id, level, cluster_id FROM work.junction")])
     axis_of = {u: space_rows[u][6] for u in space_rows}
     s0_of = {u: space_rows[u][7] for u in space_rows}
 
@@ -454,7 +570,7 @@ def write(con, epsg, out=None):
                 for b in by_unit.get(s2, []):
                     if a.get("direction") == b.get("direction") and a.get("lane") == b.get("lane") and _touch(a["geom"], b["geom"]) >= TOUCH_M:
                         link(a, b) if a.get("direction") != "backward" else link(b, a)
-        for e, i_ in enumerate(sd["ends"]):
+        for e, i_ in enumerate(sd["ends_sub"]):
             if not i_:
                 continue
             s_end = ids[0] if e == 0 else ids[-1]
@@ -467,7 +583,9 @@ def write(con, epsg, out=None):
     # that leaves: the lanes of the intersection and of the subsections at its arms
     for u, w in W.rows(f"SELECT unit_id, {W.m()} FROM work.turn"):
         ln = g(w)
-        cands = by_unit.get(u, []) + [p for s in set(preds.get(u, [])) | set(succs.get(u, [])) for p in by_unit.get(s, [])]
+        mine = sub_of.get(u, [u])
+        cands = [p for s_ in mine for p in by_unit.get(s_, [])] + [p for s_ in mine for s in set(preds.get(s_, [])) | set(succs.get(s_, []))
+                                                                   if s not in mine for p in by_unit.get(s, [])]
         if ln is None or ln.is_empty or not cands:
             continue
         ln = next(iter(shapely.get_parts(ln)))
@@ -524,7 +642,9 @@ def write(con, epsg, out=None):
         rows6.append((f"{u}:{t}:{seq[(u, t)]}", t, 6, par, mk["level"], None, prank, u, *st, mk.get("width_m"), mk.get("width_source"),
                       mk.get("width_method"), mk.get("length_m"), mk.get("source"), mk.get("method"), mk.get("ref"), mk["geom"]))
     W.table("mark", rows6)
-    W.table("turn", [(u, lv, fe, fl, te, tl, tn, vh, cd, src, g(w)) for u, lv, fe, fl, te, tl, tn, src, vh, cd, w in W.rows(
+    first_pt = lambda gm: shapely.Point(next(iter(shapely.get_parts(gm))).coords[0]) if gm is not None and not gm.is_empty else None
+    W.table("turn", [(near_sub(u, first_pt(g(w))) if first_pt(g(w)) is not None else u, lv, fe, fl, te, tl, tn, vh, cd, src, g(w))
+                     for u, lv, fe, fl, te, tl, tn, src, vh, cd, w in W.rows(
         f"SELECT unit_id, level, from_edge, from_lane, to_edge, to_lane, turn, source, vehicles, condition, {W.m()} FROM work.turn")])
     W.table("approach", W.rows("SELECT unit_id, level, from_edge, lane, moves, ways, arrow, no_arrow_because FROM work.approach"))
 

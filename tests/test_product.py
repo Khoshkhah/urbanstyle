@@ -53,3 +53,19 @@ def test_the_build_is_the_document(tmp_path):
     for t in ("area", "ground", "stretch", "plot_piece", "space", "side", "part", "mark", "object"):
         assert con.execute(f'SELECT count(*) FROM urban."{t}" WHERE uid IS NULL').fetchone()[0] == 0, f"urban.{t}: rows with no uid"
     con.close()
+
+
+def test_cut_intersection():
+    import shapely
+    from urbanstyle.product import cut_intersection
+    sq = shapely.box(0, 0, 40, 20)
+    one = cut_intersection(sq, {7: shapely.Point(10, 10)})
+    assert len(one) == 1 and one[0][1].equals(sq)            # one node: the whole intersection
+    two = dict(cut_intersection(sq, {7: shapely.Point(10, 10), 9: shapely.Point(30, 10)}))
+    assert set(two) == {7, 9} and abs(two[7].area - 400) < 1e-6 and abs(two[9].area - 400) < 1e-6   # cut halfway, at x = 20
+    ring = shapely.Point(20, 10).buffer(9).exterior               # a roundabout: a ring, an island inside it, four arm nodes
+    island = shapely.Point(20, 10).buffer(5)
+    rb = dict(cut_intersection(shapely.Point(20, 10).buffer(12), {k: shapely.Point(20 + 10 * dx, 10 + 10 * dy) for k, (dx, dy) in
+                                                                    enumerate([(1, 0), (0, 1), (-1, 0), (0, -1)])}, [ring], [island]))
+    assert set(rb) == {0, 1, 2, 3, "centre"} and abs(rb["centre"].area - island.area) < 1e-6
+    assert abs(sum(g.area for g in rb.values()) - shapely.Point(20, 10).buffer(12).area) < 1e-6    # the pieces partition it

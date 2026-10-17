@@ -41,10 +41,13 @@ STYLE = [
     ("urban.stretch", 2, "section", 25, "polygon", "#bfdbfe", None),
     ("urban.stretch", 2, "path section", 25, "polygon", "#e0a96d", None),
     ("urban.stretch", 2, "intersection", 26, "polygon", "#f97316", None),
+    ("urban.stretch", 2, "roundabout", 26, "polygon", "#ea580c", None),
     ("urban.stretch", 2, "path intersection", 26, "polygon", "#fb923c", None),
     ("urban.space", 3, "subsection", 30, "polygon", "#bfdbfe", None),
     ("urban.space", 3, "path section", 30, "polygon", "#e0a96d", None),
-    ("urban.space", 3, "intersection", 31, "polygon", "#f97316", None),
+    ("urban.space", 3, "sub-intersection", 31, "polygon", "#f97316", None),
+    ("urban.space", 3, "ring sector", 31, "polygon", "#fb923c", None),
+    ("urban.space", 3, "centre", 32, "polygon", "#84cc16", None),
     ("urban.space", 3, "path intersection", 31, "polygon", "#fb923c", None),
     ("urban.side", 4, "walking", 40, "polygon", "#e5e7eb", None),
     ("urban.side", 4, "driving", 41, "polygon", "#6b7280", None),
@@ -100,7 +103,7 @@ STYLE = [
 _C = [
     (("named street",), "Road", "the roads of one name", None, "IfcRoad"),
     (("section", "subsection"), "Section", "road, lane section", None, "IfcRoadPart ROADSEGMENT"),
-    (("intersection",), "Intersection", "junction", "node", "IfcRoadPart INTERSECTION"),
+    (("intersection", "sub-intersection", "roundabout", "ring sector", "centre"), "Intersection", "junction", "node", "IfcRoadPart INTERSECTION"),
     (("lane",), "TrafficSpace granularity=lane; TrafficArea", "lane type=driving", None, "TRAFFICLANE"),
     (("bus lane",), "TrafficSpace usage=bus", "lane type=bus", None, "TRAFFICLANE"),
     (("cycle lane", "cycle crossing"), "TrafficSpace usage=bicycle", "lane type=biking", None, "TRAFFICLANE"),
@@ -233,7 +236,7 @@ def profiles(con):
         out.append((k, "ground", "ground_id", i, ground[i]))
     stretch, kinds = {}, {}
     for i, k, lv, n, ways, nodes in q("SELECT stretch_id, kind, level, name, ways, nodes FROM urban.stretch WHERE kind <> 'section'"):
-        stretch[i] = (f"intersection:{lv}:{names((n or '').split(' / '))}" if k == "intersection" else
+        stretch[i] = (f"intersection:{lv}:{names((n or '').split(' / '))}" if k in ("intersection", "roundabout") else
                       f"osm:{ways[0]}" if k == "path section" and ways else f"osm:n{i.split('-', 1)[1].split('.')[0]}" if k == "path intersection"
                       else f"{k}:{i}")
         kinds[i] = k
@@ -249,7 +252,9 @@ def profiles(con):
         out.append(("plot piece", "plot_piece", "piece_id", i, f"{src.split('+')[0]}:{ref.split('/')[0]}" if mapped else f"{ground.get(par, par)}:{k}"))
     space = {}
     for i, k, par in q("SELECT space_id, kind, parent_id FROM urban.space"):
-        space[i] = f"{stretch.get(par, par)}/{i.rsplit('/', 1)[1]}" if k == "subsection" else stretch.get(i, i)
+        space[i] = (f"{stretch.get(par, par)}/{i.rsplit('/', 1)[1]}" if k == "subsection" else
+                    f"{stretch.get(par, par)}/" + ("centre" if k == "centre" else "osm:n" + i.rsplit('/', 1)[1]) if k in ("sub-intersection", "ring sector", "centre")
+                    else stretch.get(i, i))
         out.append((k, "space", "space_id", i, space[i]))
     side = {i: f"{space.get(par, par)}:{i[-1]}" for i, par in q("SELECT side_id, parent_id FROM urban.side")}
     out += [("side", "side", "side_id", i, p) for i, p in side.items()]

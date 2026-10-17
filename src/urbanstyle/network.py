@@ -525,6 +525,12 @@ def build(con, epsg, bridges=()):
     # `_link` ways only, is no section: it belongs to one intersection with both nodes (West 8th, Fir Street and the ramp foot are one).
     # Not a bridge way: the bridge model draws its deck
     at_jn = lambda p_: jtree is not None and any(jn[j].distance(p_) < 0.6 for j in jtree.query(p_.buffer(0.6)))
+    # a roundabout's ring (duckOSM's junction=roundabout or circular): every piece is a connector, however long, so the whole ring
+    # with all its nodes is one intersection, of kind roundabout (docs/design/stretches.md, "The intersections")
+    try:
+        rb_ways = {o for (o,) in con.execute("SELECT DISTINCT osm_id FROM osm.driving.edges WHERE junction IN ('roundabout', 'circular')").fetchall()}
+    except duckdb.Error:
+        rb_ways = set()
     by_sid0 = {}
     for r in runs:
         by_sid0.setdefault(r["sid"], []).append(r)
@@ -533,7 +539,8 @@ def build(con, epsg, bridges=()):
         p1 = shapely.Point(rs[-1]["line"].coords[0 if rs[-1]["flip"] else -1])
         L_ = sum(r_["line"].length for r_ in rs)
         if at_jn(p0) and at_jn(p1) and not any(o in bridge_ways for r_ in rs for o in r_["oids"]) \
-                and (L_ < CONNECTOR_M or all((r_["cl"] or "").endswith("_link") for r_ in rs)):
+                and (L_ < CONNECTOR_M or all((r_["cl"] or "").endswith("_link") for r_ in rs)
+                     or all(o in rb_ways for r_ in rs for o in r_["oids"])):
             for r_ in rs:
                 r_["connector"] = True
     tick("the connectors (rank 2)")

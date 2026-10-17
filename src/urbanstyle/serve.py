@@ -31,6 +31,7 @@ LAYERS = {     # the panel's layers: the model's tables (urban), as views with t
     "Blocks": ("urban.l_block", "block_id", None),
     "Street spaces": ("urban.l_space", "unit_id", None),
     "Sides": ("urban.l_side", "side_id", None),
+    "Stretches": ("urban.l_stretch", "stretch_id", None),
     "Bridge parts": ("work.bridge_part", "id", None),
 }
 # the views behind LAYERS: each table of the model with the names the panel's buttons and cards read (unit_id, section_id, type, ...)
@@ -46,6 +47,7 @@ LAYER_VIEWS = {
     "l_block": "SELECT *, ref AS block_id FROM urban.ground WHERE kind = 'plot'",
     "l_space": "SELECT *, space_id AS unit_id, CASE WHEN kind = 'subsection' THEN parent_id END AS section_id FROM urban.space",
     "l_side": "SELECT *, kind AS type FROM urban.side",
+    "l_stretch": "SELECT *, kind AS type FROM urban.stretch",
 }
 SEARCH_COLS = ("name", "road", "class", "type", "use", "ref", "osm", "kind", "subtype", "axis", "details", "sources", "edge_id", "lane_id")
 KIND_COLS = ("type", "class", "kind", "use")      # a result's label: its type, then its name
@@ -255,7 +257,7 @@ class Area:
             ids = [i for i in fid.split(",") if i]
             utm = lambda g: f"ST_Transform({g}, 'EPSG:4326', '{self.epsg}', always_xy := true)"
             with self.lock:
-                objs = [i for (i,) in self.con.execute(f"""SELECT DISTINCT o.id FROM work.street_object o, work.unit u WHERE u.unit_id IN
+                objs = [i for (i,) in self.con.execute(f"""SELECT DISTINCT o.id FROM work.street_object o, urban.space u WHERE u.space_id IN
                         (SELECT unnest(?::VARCHAR[])) AND ST_DWithin({utm('o.geometry')}, {utm('u.geometry')}, 1.0)""", [ids]).fetchall()]
             return {"units": ids, "blds": sorted({b for u in ids for b in self.bounding(u)}), "objs": objs}
         if layer != "Blocks":
@@ -276,7 +278,7 @@ class Area:
         if not hasattr(self, "_frame"):
             utm = f"ST_AsWKB(ST_Transform(geometry, 'EPSG:4326', '{self.epsg}', always_xy := true))"
             with self.lock:
-                us = self.con.execute(f"SELECT unit_id, level, {utm} FROM work.unit").fetchall()
+                us = self.con.execute(f"SELECT space_id, level, {utm} FROM urban.space").fetchall()     # (the model's spaces: the sub-intersections too)
                 bs = self.con.execute(f"SELECT source_id, {utm} FROM work.element WHERE type = 'building'").fetchall()
             units = {u: (lv, shapely.from_wkb(bytes(g))) for u, lv, g in us}
             ids, geoms = [b for b, _ in bs], [shapely.from_wkb(bytes(g)) for _, g in bs]

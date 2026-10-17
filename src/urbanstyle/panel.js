@@ -241,14 +241,15 @@ const LYTREE=[
     ['the blocks, each its own colour','Blocks','the plots, with their street sides'],
     ['footways (on the ground)','Footways','every footpath at this level, whole, at its width: a sidewalk and a crossing lie on the street, every other footway, steps or path has its corridor in the kind path']]],
   ['Rank 2: the stretches of the street',null,'from junction to junction, and where the arms meet',[
-    ['Sections, path sections','Sections',''],['Intersections, path intersections','Intersections','its space is rank 3 too']]],
+    ['Sections, path sections','Sections',''],['Intersections, roundabouts, path intersections','Intersections','cut into sub-intersections at rank 3']]],
   ['Rank 2: the pieces of the plot',null,'',[
     ['building','Ground','',null,['building']],['yard','Ground','',null,['yard']],['alley','Ground','a service road inside the block',null,['alley']],
     ['car park','Ground','',null,['car park']],['construction site','Ground','',null,['construction site']],
     ['green','Ground','',null,['green']],['water','Ground','',null,['water']],['rail','Ground','',null,['rail']],['square','Ground','',null,['square']],
     ['structure','Ground','the ground under a bridge',null,['structure']]]],
   ['Rank 3: the spaces',null,'one per subsection and per intersection (an intersection is one space)',[
-    ['subsection','Spaces','',null,['subsection']],['intersection','Spaces','',null,['intersection']],
+    ['subsection','Spaces','',null,['subsection']],['sub-intersection','Spaces','one per junction node of an intersection',null,['sub-intersection']],
+    ['ring sector, centre','Spaces','a roundabout: one ring sector per arm, and its centre',null,['ring sector','centre']],
     ['path section','Spaces','',null,['path section']],['path intersection','Spaces','',null,['path intersection']],
     ['spaces, top down','Spaces (rank 3, top down)','rank 1\'s street cut by the stop lines and the joints: each face one space, corners included (division.py, the new construction)'],
     ['Subsection axes','Subsection axes','the axis of each subsection and path section: s runs along it'],
@@ -401,7 +402,7 @@ function applyLooks(){const m=M(); if(!m)return; if(!m.isStyleLoaded())return se
   levels2d();
   if(allow.has('Buildings'))ov('Buildings').forEach(id=>set(id,g));
   ov('Bridge 2D').forEach(id=>{const ly=m.getLayer(id); if(!ly)return;     // (faded: the light outline only)
-    m.setLayoutProperty(id,'visibility',up==='off'?'none':'visible');
+    m.setLayoutProperty(id,'visibility',up==='off'||!allow.has('Bridge 2D')?'none':'visible');     // (its box in Layers, and the level)
     if(ly.type==='fill'){const o=keep(id,'fill-opacity'); m.setPaintProperty(id,'fill-opacity',up==='full'?o:0)}
     if(ly.type==='line'){const o=keep(id,'line-color'); m.setPaintProperty(id,'line-color',up==='full'?o:'#94a3b8')}})}
 // (3D redraws its layers, draw3d, on every view change: the looks again after it)
@@ -414,8 +415,8 @@ $('xp2d').onclick=()=>M()&&M().easeTo({pitch:0,duration:600}); $('xp3d').onclick
 // (overlay label -> [the panel's layer, the overlay's id field, the server's field for it])
 const HOVER2D=300, OVMAP={'Buildings':['Buildings','id','source_id'],'Bridge 2D':['Bridge parts','id','id'],'Spaces':['Street spaces','unit_id','unit_id'],
   'Parts':['Street parts','part_id','part_id'],'On the parts':['Street parts','part_id','part_id'],'Ground':['Ground','ground_id','ground_id'],
-  'Parking lots':['Car parks','id','lot_id'],'Subsections':['Street spaces','unit_id','unit_id'],'Intersections':['Street spaces','unit_id','unit_id'],
-  'Sections':['Street spaces','section_id','section_id'],'Subsection axes':['Street spaces','subsection_id','unit_id'],'Blocks':['Blocks','block_id','block_id'],
+  'Parking lots':['Car parks','id','lot_id'],'Subsections':['Street spaces','unit_id','unit_id'],'Intersections':['Stretches','stretch_id','stretch_id'],
+  'Sections':['Stretches','stretch_id','stretch_id'],'Subsection axes':['Street spaces','subsection_id','unit_id'],'Blocks':['Blocks','block_id','block_id'],
   'Street objects':['Street objects','refs','id'],'Sides':['Sides','side_id','side_id']};
 const OWNKEY=['part_id','unit_id','refs','node_id','subsection_id','intersection_id','feature_id','id'];     // (a feature's own id, in this order)
 const is3d=()=>typeof in3d!=='undefined'&&in3d;
@@ -430,7 +431,7 @@ function ref(f){const p=f.properties; if(XP.includes(f.layer.id))return p._layer
   const k=OWNKEY.find(k=>p[k]!=null&&p[k]!==''); return k?[o.label,String(p[k]),k,null]:null}
 // (a click takes the smallest thing under the mouse, not the top layer: a sidewalk, not the street space drawn over it; Kaveh,
 // 2026-10-13: "I click on a sidewalk and you say it is a space")
-const RANK=['Street objects','On the parts','Parts','Bridge 2D','Buildings','Parking lots','Subsection axes','Sides','Subsections','Intersections','Spaces','Sections','Blocks','Ground'];
+const RANK=['Street objects','On the parts','Parts','Bridge 2D','Buildings','Parking lots','Subsection axes','Sides','Spaces','Subsections','Intersections','Sections','Blocks','Ground'];
 const rank=f=>{const o=XP.includes(f.layer.id)?null:ovOf(f), i=o?RANK.indexOf(o.label):-1; return o?(i<0?RANK.length:i):-1};
 function hit2d(pt){const ls=live2d(); if(!ls.length)return null;
   const hs=M().queryRenderedFeatures(pt,{layers:ls}).filter(ref); return hs.reduce((b,f)=>!b||rank(f)<rank(b)?f:b,null)}
@@ -465,7 +466,7 @@ function wire2d(){if(offline)return; const m=M();     // (no server: roadstyle's
     select({type:'Feature',geometry:g.geometry,properties:{...p,_layer:r[0],_id:r[1],_label:p.type||p.class||r[0]}},at)});
   // (roadstyle's own popup and its hover tooltip: off for every layer, the panel shows them)
   if(typeof OVERLAYS!=='undefined'&&!offline)OVERLAYS.forEach(o=>{o.interactive=false; o.tooltip=[]})}     // (no server: roadstyle's popups show the fields)
-const LAYERS_ID={'Sides':'side_id','Buildings':'source_id','Bridge parts':'id','Street spaces':'unit_id','Street parts':'part_id','Ground':'ground_id','Car parks':'lot_id','Blocks':'block_id','Street objects':'id'};
+const LAYERS_ID={'Stretches':'stretch_id','Sides':'side_id','Buildings':'source_id','Bridge parts':'id','Street spaces':'unit_id','Street parts':'part_id','Ground':'ground_id','Car parks':'lot_id','Blocks':'block_id','Street objects':'id'};
 // ---- the start: the server's first answer (meta) and the layers' data in, the first look set, then the veil lifted (nothing changes in
 // front of the user while the page loads). No server (a page opened as a file): the map alone.
 let tries=0;

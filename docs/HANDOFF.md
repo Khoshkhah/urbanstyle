@@ -40,6 +40,15 @@ first, then this note, then `docs/notes/street-rules.md` and `docs/notes/section
     w961476753 where the greenway w336803184 crosses, so the road strips end in round caps that bulge the street's edge into the
     blocks; proposed: a road that goes on as a footway in its own line keeps its edges straight through. (3) An island spur from a
     3D picture of Kaveh's, place not found (candidates s0-w390721481/1#4, s0-w341691651/1#6, i0-430951364#5): ask for the part id.
+  - Sub-intersections (2026-10-17, Kaveh: "if junctions partition intersection, we should consider them as sub intersection"): an
+    intersection is rank 2 only; rank 3 cuts it into one sub-intersection per junction node (product.cut_intersection: the ground
+    nearer to its node, a Voronoi cell clipped to the intersection), a roundabout (a ring of duckOSM junction=roundabout ways; every
+    ring piece is a connector, network.py) into ring sectors and its centre (the islands inside the ring). The intersection's parts
+    are cut along the same lines, one junction area per sub-intersection, a part under 2 m2 joins its neighbour. Tested on a 200 m
+    Monaco cut at the Rond-Point du Portier (data/cuts/portier, picture viz/review/portier-roundabout.png): one roundabout, 8 ring
+    sectors; its checks equal the same cut built with the code before the change (A3 21 in both). Rond-Point du Portier's south way
+    w353889272 is not tagged roundabout in OSM: that piece is a section. The server's focus (3D) still finds spaces in work.unit, so a
+    sub-intersection has a card but no focus.
   - No traffic in urbanstyle (Kaveh): `unit --nvdb` and `--flows` removed, the city's traffic counts and the dossier's speed rule
     removed; NVDB is out of the sources. The part's `speed` comes from duckOSM's edges (`maxspeed_kmh`), never from raw tags and with
     no chosen default. Open (duckOSM work): the widths, `surface`, `lit` and the lane tags are still read from raw OSM tags

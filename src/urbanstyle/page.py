@@ -63,7 +63,7 @@ def _frames(con, db, bridges):
     txt(st, ["ways", "nodes"])
     st["color"] = colour("urban.stretch", st["kind"])
     out["sections"] = st[st["kind"].isin(["section", "path section"])]
-    out["intersections"] = st[st["kind"].isin(["intersection", "path intersection"])]
+    out["intersections"] = st[st["kind"].isin(["intersection", "roundabout", "path intersection"])]
     sp = f(f"""SELECT ST_AsWKB(geometry) AS geometry, space_id, space_id AS unit_id, parent_id AS section_id, kind, kind AS type, rank, parent_id,
         uid, level, name, round(s_from, 1) AS s_from, round(s_to, 1) AS s_to, width_m, oneway, round(length_m, 1) AS length_m, left_extra,
         predecessors, successors, ref, round(ST_Area({gm}))::INT AS area_m2 FROM urban.space""")

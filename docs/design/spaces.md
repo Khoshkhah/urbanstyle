@@ -1,6 +1,6 @@
 # Ranks 3 and 4: the spaces and their sides
 
-<p class="lead">The street of rank 1 cut into spaces, one per subsection and one per intersection, by the stop lines and the joints
+<p class="lead">The street of rank 1 cut into spaces, one per subsection and one per sub-intersection, by the stop lines, the joints and the cuts between junction nodes
 alone. Inside each space the kerb splits the driving side from the walking side.</p>
 
 ## Reads
@@ -10,21 +10,27 @@ parking and cycle lanes, a city's meters and kerb evidence.
 
 ## Rank 3: each stretch cut into its spaces
 
-1. **An intersection** is one space: its face of rank 2, with its corners.
+1. **An intersection** is cut into sub-intersections, one per junction node. Each sub-intersection is the ground of the
+   intersection that is nearer to its node than to the intersection's other nodes, so each cut lies halfway between two neighbouring
+   nodes, square to the line that joins them. An intersection with one node has one sub-intersection: the whole intersection, with
+   its corners.
+   **A roundabout** is cut the same way into ring sectors, one per arm node. Its centre, the central island inside the ring, is one
+   more space, `<roundabout>/centre`.
 2. **A section** is cut by its joints: each joint between two subsections is run square to the road across the section's face, to
    its edges on both sides. The section's face noded with these cuts and polygonized gives its subsections, each one face. A section
    with no joint is one subsection.
 3. **A cut** is clipped to the face it cuts and passes the face's boundary by 1 cm, so the noding joins them.
 
-The space of rank 3 is the face (`urban.space`): a subsection, `s0-w<way>/<k>`, or an intersection, `i0-<node>`. The subsections of a
+The space of rank 3 is the face (`urban.space`): a subsection, `s0-w<way>/<k>`, or a sub-intersection, `i0-<node>/<node>`. The subsections of a
 section partition the section; the spaces of the level partition the street.
 
 **The axis.** A subsection's axis is the piece of its section's axis that it covers, from `s_from` to `s_to`, in metres from the
 section's start. Every position inside the space is `(s, t)` on this axis: `s` along, `t` across, positive to the left.
 
 **The links.** Each space names the spaces before and after it along the street. A subsection's predecessor and successor are its
-neighbours in its section, or the intersection at the section's end. An intersection's predecessors and successors are the
-subsections at its arms: the arms that come in and the arms that go out. A two-way arm is both.
+neighbours in its section, or the sub-intersection at the section's end. A sub-intersection's predecessors and successors are
+the subsections at its arms (the arms that come in and the arms that go out; a two-way arm is both) and the neighbouring
+sub-intersections of its intersection, both ways.
 
 ![The sides of the spaces.](../img/vancouver/05-sides.png){ width=100% }
 
@@ -56,7 +62,7 @@ where the room changed the frame is the change class `room`.
 or 2 m, centred on the line. The near side of the strip is the kerb's limit; the far side is the block's edge. At a corner the kerb is
 the line's curve where OSM maps it, and a 4 m fillet only where it does not.
 
-**The driving side** is the part of the space inside the kerb: in a section the frame between the two stop lines, in an intersection
+**The driving side** is the part of the space inside the kerb: in a section the frame between the two stop lines, in a sub-intersection
 the roadways of the arms to their stop lines, with the connectors' carriageways, joined, with the corners at the kerb.
 
 **The walking side** is the rest of the space, with the corners. A piece of the walking side that touches no block is an island of

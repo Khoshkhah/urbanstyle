@@ -15,8 +15,8 @@ and never in none. The checks test the partition at every rank.
 |---|---|---|---|
 | 0 | the level: its whole area | `a0` | `urban.area`, `urban.element` |
 | 1 | the ground: the street, a plot (a block) or a path (a corridor) | `g0-<kind>-<ref>` | `urban.ground` |
-| 2 | a stretch of the street: a section or an intersection; a stretch of a path: a path section or a path intersection; a piece of a plot: building, yard, alley, car park, construction site, green, water, rail, square, structure | `s0-w<way>`, `i0-<node>`, `p0-w<way>`, `q0-<node>`, `g0-<kind>-<ref>` | `urban.stretch`, `urban.plot_piece` |
-| 3 | a space: a subsection, an intersection, a path section or a path intersection | `s0-w<way>/<k>`, `i0-<node>`, `p0-w<way>`, `q0-<node>` | `urban.space` |
+| 2 | a stretch of the street: a section or an intersection (a roundabout is one); a stretch of a path: a path section or a path intersection; a piece of a plot: building, yard, alley, car park, construction site, green, water, rail, square, structure | `s0-w<way>`, `i0-<node>`, `p0-w<way>`, `q0-<node>`, `g0-<kind>-<ref>` | `urban.stretch`, `urban.plot_piece` |
+| 3 | a space: a subsection, a sub-intersection (a ring sector or the centre of a roundabout), a path section or a path intersection | `s0-w<way>/<k>`, `i0-<node>/<node>`, `p0-w<way>`, `q0-<node>` | `urban.space` |
 | 4 | a side of a space: the driving side or the walking side | `<space>:d`, `<space>:w` | `urban.side` |
 | 5 | a part of a side | `<space>#<n>` | `urban.part` |
 | 6 | a mark on a part | `<space>:<kind>:<n>` | `urban.mark`, `urban.turn` |
@@ -48,7 +48,8 @@ The street, rank 1 to rank 6: the street kind divided down to the marks.
 flowchart TD
     K1[1 street] --> SE[2 section]
     SE --> SU[3 subsection]
-    K1 --> IN[2 and 3: intersection]
+    K1 --> IN0[2 intersection]
+    IN0 --> IN[3 sub-intersection]
     SU --> D1[4 driving side]
     SU --> W1[4 walking side]
     IN --> D2[4 driving side]
@@ -63,7 +64,9 @@ flowchart TD
     P4 --> M
 ```
 
-A section is divided into subsections. An intersection is never divided: it is its own stretch and its own space, and it belongs to
+A section is divided into subsections. An intersection is divided into sub-intersections, one per junction node: each is the ground
+nearer to its node than to the intersection's other nodes. An intersection with one node has one sub-intersection, the whole
+intersection. A roundabout is divided into ring sectors, one per arm, and its centre. An intersection belongs to
 no section. A plot's pieces end at rank 2. A path is a street for walking and has the same ranks as the street: path sections and
 path intersections at rank 2, one space each at rank 3, one side at rank 4 (the walking side), its parts at rank 5, and no marks.
 
@@ -148,10 +151,14 @@ SUMO or the street use for the same thing.
 | a ramp, stairs, an elevator, an entrance or a connection between two levels | **link** | |
 | a set of things the page draws and the panel switches | **map layer**, **overlay** | |
 | an OSM node where roads meet and the traffic has to decide | **junction node** | node, junction |
-| the space where the arms of one or more junction nodes meet | **intersection** | junction, crossing, roundabout |
+| the space where the arms of one or more junction nodes meet | **intersection** | junction, crossing |
+| the piece of an intersection nearer to one of its junction nodes than to the others | **sub-intersection** | |
+| a ring of one-way roads around a centre; one intersection | **roundabout** | traffic circle, rotary |
+| the piece of a roundabout's ring nearer to one arm than to the others | **ring sector** | |
+| the central island of a roundabout | **centre** | central island |
 | a road from one intersection to the next | **section** | block face, link (in traffic models) |
 | a piece of a section with one cross-section | **subsection** | segment |
-| the area of a subsection or of an intersection, block edge to block edge | **space** | street space, right-of-way |
+| the area of a subsection or of a sub-intersection, block edge to block edge | **space** | street space, right-of-way |
 | a named road with its intersections | **named street** | street |
 | one OSM way with one cross-section, between two junction nodes | **run** | edge |
 | a road under 40 m or a `_link` between two junction nodes, inside an intersection | **connector** | internal edge |
@@ -189,7 +196,9 @@ An id is stable: it comes from what a thing is, never from the build order. A re
 | a ground item | `g<level>-<kind>-<ref>` | `g0-plot-w37127121` |
 | a section | `s<level>-w<way>`, a second chain of the same way `.2` | `s0-w473754701.2` |
 | a subsection | `<section>/<k>` | `s0-w473754701.2/2` |
-| an intersection | `i<level>-<node>` | `i0-11102738098` |
+| an intersection, a roundabout | `i<level>-<node>`, the smallest node | `i0-11102738098` |
+| a sub-intersection, a ring sector | `<intersection>/<node>` | `i0-11102738098/11102738098` |
+| a roundabout's centre | `<intersection>/centre` | |
 | a path section, a path intersection | `p<level>-w<way>`, `q<level>-<node>` | `p0-w159170500` |
 | a plot's piece | `g<level>-<kind>-<ref>` | `g0-building-w49209427` |
 | a side | `<space>:d`, `<space>:w` | `s0-w473754701.2/2:w` |

@@ -16,7 +16,7 @@ bikeways and survey. SUMO's lane-to-lane moves through each intersection.
 | `lane` | one traffic lane: `forward` or `backward` along a subsection, `in` or `out` of an intersection; lane 1 is at the middle of the road | OSM's count; each lane 3.25 m (chosen) or OSM's width shared, narrowed where the room is less |
 | `paved` | the paved rest of the frame where no lane or strip is; also a strip narrower than 8 m between two roadways with nothing mapped on it | the frame less the lanes and the strips |
 | `parking`, `no parking`, `shoulder`, `bus lane`, `cycle lane` | a strip beside the lanes | only where OSM or a city maps it: `parking:*`, the city's meters where they stand, `cycleway*`, a bus lane tag; a strip of unknown use is a shoulder |
-| `junction area` | the roadway of an intersection where the arms' roadways meet, with the turning corners and the connectors | the arms' roadways joined |
+| `junction area` | the roadway of a sub-intersection where the arms' roadways meet, with the turning corners and the connectors: one part per sub-intersection, in one or more pieces | the arms' roadways joined, less the crosswalks and the islands |
 | `crosswalk`, `cycle crossing` | the roadway under a crossing way, 3 m wide or OSM's width; a crossing node with no crossing way gets a band across its road | OSM's crossings that run across the road (30° or more to the road's line, or at most 40 m over a junction area); the lanes and the junction area give way to them; a crossing is one object in one space |
 | `island` | a piece of the walking side between two roadways that touches no block; a roundabout's central island | the rule of rank 4 |
 | `bridge deck` | the band of a way that a bridge profile models | the bridge model draws its lanes |
@@ -48,7 +48,10 @@ a bollard) is a street object on it. A path has no marks.
 
 Every part and every mark of a subsection has its place on the subsection's axis: `s_from` and `s_to` along, `t_from` and `t_to`
 across. The lanes of one subsection are ordered by `t_from`. A lane or a band of a subsection also has its own axis, its middle line
-in its direction of travel. An intersection has no axis, so its parts and marks have no place on one.
+in its direction of travel. A sub-intersection has no axis, so its parts and marks have no place on one.
+
+A part lies in one space: a part that a cut between two sub-intersections crosses is cut there. A part under 2 m² joins the
+part of its side that it shares the longest edge with, so no sliver is a part.
 
 A lane names the lanes that come before and after it. At a joint, a lane's successor is the lane of the next subsection with the same
 direction and number that shares the joint with it; a lane that the next subsection does not have has no successor there (check R4).

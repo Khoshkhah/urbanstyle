@@ -66,6 +66,9 @@ meters on its kerb side; parking OSM maps on the way stays.
 One intersection per junction node, or per cluster of nodes that connectors join: `i0-<node>`, the smallest node id. Its nodes are
 in `urban.junction`.
 
+**A roundabout** is a closed ring of one-way ways that OSM tags `junction=roundabout` (in duckOSM's edges). Every piece of its ring
+is a connector, however long, so the whole ring with all its nodes is one intersection of kind `roundabout`.
+
 ## The geometry of a stretch
 
 Rank 2 cuts the street of rank 1 by the stop lines alone. The stop line of each arm is where its lanes enter the junction: the far edge

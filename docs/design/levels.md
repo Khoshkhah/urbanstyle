@@ -31,7 +31,7 @@ The profile uses the words of road design:
 | the lanes | duckOSM's GMNS export, whose lanes come from SUMO, so the bridge and the street have the same lanes; the count is OSM's, mapped per direction, or derived by GMNS from the total, or chosen (one each way) |
 | the offset `t` of a band | the GMNS lane line's offset from the axis at the middle of the section (derived) |
 | a cycleway or footway band | a path within 25 m of the axis, parallel to it within 26°, nearer to this axis than to another |
-| the heights | LiDAR where there is some; else a heights file; else the network rule below (chosen) |
+| the heights | LiDAR where there is some; else a heights file; else the network rule below, with its clearances at crossings and over buildings (chosen) |
 | the deck thickness, the parapet, the piers | chosen: 1.8 m, 1.1 m, a pier every 50 m where the deck is 3 m or more above the ground, 1.5 m thick |
 | a lane's end | where SUMO ends it at a junction; the profile's connectors hold SUMO's paths from lane to lane through a fork or a merge on the deck |
 | the paths | every path on the deck, along its own OSM line |
@@ -64,8 +64,20 @@ the key that gave it.
 
 Without LiDAR and without a file, each deck height comes from one rule over all the bridge ways of the area as one network. A node is
 on the ground where a road that is not on a bridge also uses it. For each point, D is the shortest distance along the network to a node
-on the ground. The height is the smaller of 27 m and 5 % of D. At a node where branches meet in the air, every branch gets the same
-height.
+on the ground. The rule has three parts:
+
+1. **The grade.** The height is 5 % of D.
+2. **Clearance at a crossing.** Where a bridge way crosses a way of a lower OSM layer, and the two share no node, the bridge way is at
+   least 6 m for each layer between them above the lower way. The lower way is a road or a deck: a deck at its own grade height, a road
+   on the ground at 0. A path under a deck is not a crossing.
+3. **Clearance over a building.** Where a bridge way passes over a building, the deck's underside is above the building's top: the deck
+   is at least the building's height and the deck's thickness (1.8 m). The building's height is OSM's `height`; else its
+   `building:levels` at 3.2 m each; else one level, 3.2 m, as the page draws it.
+
+A clearance holds at its point and goes down in a straight line to 0 at the nearest node on the ground, along the network. The height
+is the largest of the three, and at most 27 m. At a node where branches meet in the air, every branch gets the same height. A short
+ramp that must climb a clearance is steep: the rule does not know the slope of the ground, and only LiDAR or a ground model gives the
+true heights there.
 
 ## The 3D model
 

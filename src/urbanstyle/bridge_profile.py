@@ -24,6 +24,9 @@ PATH_W = {"cycleway": 3.0, "footway": 2.0, "path": 2.0, "pedestrian": 3.0}
 STEP_M = 10.0       # the vertical profile is sampled this often (then collinear points are dropped)
 ON_DECK = 0.6       # a road way is on the deck when this share of it lies within 5 m of the outline
 PATHS = ("cycleway", "footway", "path", "pedestrian")
+LEVEL_M = 6.0       # a bridge way at least this high above a way one OSM layer lower that it crosses (the page's 6 m a level)
+PAD_M = 5.0         # a crossing's clearance holds this far along the upper way on each side of the crossing (the lower road's width)
+FLOOR_H_M = 3.2     # a building's level, as the page draws it, where OSM gives no height
 
 
 def _val(value, source, method):
@@ -61,6 +64,7 @@ def profiles(osm_db, gmns_db, name=None):
     lines = {oid: (shapely.LineString([pts[r] for r in rs]), rs, dict(t)) for oid, rs, t in ways
              if len(rs) >= 2 and all(r in pts for r in rs)}
     to_ground = _to_ground(lines, pts, ground)
+    lifts = _clearances(o, tr, lines, pts, to_ground)
     found, used = [], set()
     for oid, rs, t in sorted(outl, key=lambda r: -len(r[1])):
         if len(rs) < 4 or any(r not in pts for r in rs):
@@ -95,12 +99,143 @@ def profiles(osm_db, gmns_db, name=None):
             if any(lines[w][2]["highway"] not in PATHS for w in ws):
                 nm = next((lines[w][2].get("name") for w in ws if lines[w][2].get("name")), None)
                 found.append((nm or f"bridge w{min(ws)}", None, None, ws))
-    names = {}
+    def build(lifts_):
+        names, out_ = {}, []
+        for nm, deck, outline, on in found:
+            n = names[nm] = names.get(nm, 0) + 1
+            out_.append(_profile(g, tr, nm if n == 1 else f"{nm} {n}", epsg, deck, outline, on, lines, pts, ground, osm_db, gmns_db,
+                                 to_ground, lifts_))
+        return out_
+    out = build(lifts)
+    # again, each clearance over a lower deck at that deck's final height (its dips filled after its clearances: 5.1 m, not 6 m, between
+    # a3 and a1 of Avenue de France)
+    axes_of = {}
+    for P_ in out:
+        for a in P_["axes"]:
+            for w in a["ways"]:
+                axes_of.setdefault(int(w[1:]), []).append((shapely.LineString([q[:2] for q in a["line"]["value"]]), a["vertical"]["points"]))
+
+    def lower_z(w, q):
+        zs_ = [height({"points": vp}, ln.project(q)) for ln, vp in axes_of.get(w, []) if ln.distance(q) < 1.0]
+        return max(zs_) if zs_ else None
+    return build(_clearances(o, tr, lines, pts, to_ground, lower_z))
+
+
+def _clearances(o, tr, lines, pts, to_ground, lower_z=None):
+    """Where a bridge way must stand higher than its grade (docs/design/levels.md, "Heights from the network rule"): over a way of a lower
+    OSM layer it crosses with no shared node, LEVEL_M a layer above it; over a building, its height and the deck's thickness. Each:
+    {"at": the point (UTM), "z": the height there, "reach": its distance to the ground along the network, "dist": each node's distance
+    to it along the network, "over": what is under it}."""
+    import heapq
+    import shapely
+    lay = lambda tg, dflt: int(re.match(r"-?\d+", str(tg.get("layer") or dflt)).group(0)) if re.match(r"-?\d+", str(tg.get("layer") or dflt)) else dflt
+    adj = {}
+    for ln, rs, tg in lines.values():
+        if tg.get("highway") in PATHS:
+            continue
+        for a, b in zip(rs, rs[1:]):
+            d = math.dist(pts[a], pts[b])
+            adj.setdefault(a, []).append((b, d))
+            adj.setdefault(b, []).append((a, d))
+    roads = {w: v for w, v in lines.items() if v[2].get("highway") not in PATHS}
+    if not roads:
+        return []
+    # the ground roads and the buildings near the bridges (lon/lat box from the bridges' own nodes)
+    lons = [o.execute("SELECT min(lon), max(lon), min(lat), max(lat) FROM raw.nodes WHERE osm_id IN (SELECT unnest(?::BIGINT[]))",
+                      [sorted({r for _, rs, _ in roads.values() for r in rs})]).fetchone()]
+    lo0, lo1, la0, la1 = lons[0]
+    under = o.execute("""SELECT w.osm_id, w.refs, w.tags FROM raw.ways w WHERE (w.tags['highway'] IS NOT NULL AND coalesce(w.tags['bridge'], 'no') = 'no'
+                         AND coalesce(w.tags['tunnel'], 'no') = 'no' OR w.tags['building'] IS NOT NULL) AND EXISTS (SELECT 1 FROM raw.nodes n
+                         WHERE n.osm_id = w.refs[1] AND n.lon BETWEEN ? AND ? AND n.lat BETWEEN ? AND ?)""",
+                      [lo0 - 0.003, lo1 + 0.003, la0 - 0.003, la1 + 0.003]).fetchall()
+    need = sorted({r for _, rs, _ in under for r in rs if r not in pts})
+    more = {i: tr(x, y) for i, y, x in o.execute("SELECT osm_id, lat, lon FROM raw.nodes WHERE osm_id IN (SELECT unnest(?::BIGINT[]))",
+                                                 [need]).fetchall()} if need else {}
+    P_ = {**pts, **more}
+    below = []          # (geometry, layer, what, height or None): ways of a lower layer and buildings
+    for oid, rs, tg in under:
+        tg = dict(tg)
+        if len(rs) < 2 or any(r not in P_ for r in rs):
+            continue
+        if tg.get("building"):
+            if len(rs) < 4:
+                continue
+            g_ = shapely.make_valid(shapely.Polygon([P_[r] for r in rs]))
+            h = None
+            try:
+                h = float(re.match(r"[\d.]+", str(tg.get("height"))).group(0))
+            except (AttributeError, TypeError, ValueError):
+                try:
+                    h = FLOOR_H_M * int(float(tg.get("building:levels")))
+                except (TypeError, ValueError):
+                    h = FLOOR_H_M
+            below.append((g_, None, f"building w{oid}", h, set()))
+        elif tg.get("highway") not in PATHS:
+            below.append((shapely.LineString([P_[r] for r in rs]), lay(tg, 0), f"road w{oid}", 0.0, set(rs)))
+    for w, (ln, rs, tg) in roads.items():          # and the decks of a lower layer
+        below.append((ln, lay(tg, 1), f"deck w{w}", None, set(rs)))
+    tree = shapely.STRtree([b[0] for b in below])
+
+    def far(ln, rs, p):         # a point's distance to the ground along the network, through the way's own nodes
+        sp = ln.project(p)
+        return min([abs(sp - ln.project(shapely.Point(pts[r]))) + to_ground[r] for r in rs if r in to_ground] or [0.0])
     out = []
-    for nm, deck, outline, on in found:
-        n = names[nm] = names.get(nm, 0) + 1
-        out.append(_profile(g, tr, nm if n == 1 else f"{nm} {n}", epsg, deck, outline, on, lines, pts, ground, osm_db, gmns_db, to_ground))
-    return out
+    for w, (ln, rs, tg) in roads.items():
+        lw = lay(tg, 1)
+        for k in tree.query(ln):
+            g_, ll, what, h, nodes = below[k]
+            if what == f"deck w{w}" or (nodes & set(rs)):
+                continue
+            # the clearance holds along the way's whole stretch over it (PAD_M out from a road, 1 m from a building): at the
+            # stretch's ends and its middle (at the middle only, the deck fell below it at the building's edges)
+            if ll is not None:              # a way: where they cross, if it is lower
+                if ll >= lw:
+                    continue
+                for q in [q for q in shapely.get_parts(ln.intersection(g_)) if q.geom_type == "Point"]:
+                    low = int(what.split("w")[-1]) if what.startswith("deck") else None
+                    for seg in shapely.get_parts(ln.intersection(q.buffer(PAD_M))):
+                        for t_ in (0.0, 0.5, 1.0):
+                            out.append((w, seg.interpolate(t_, normalized=True), LEVEL_M * (lw - ll), what, (low, q)))
+            else:                           # a building
+                for seg in shapely.get_parts(ln.intersection(g_.buffer(1.0))):
+                    if seg.geom_type == "LineString" and seg.length >= 1.0:
+                        for t_ in (0.0, 0.5, 1.0):
+                            out.append((w, seg.interpolate(t_, normalized=True), h + DECK_M, what, None))
+    def tent(lf, w, q):        # a clearance's height at point q of way w (0 where it does not reach)
+        ln, rs, _ = roads[w]
+        sq = ln.project(q)
+        d = min([abs(sq - ln.project(shapely.Point(pts[r]))) + lf["dist"][r] for r in rs if r in lf["dist"]]
+                + ([abs(sq - ln.project(shapely.Point(lf["at"])))] if lf["way"] == w else []) + [math.inf])
+        return max(0.0, lf["z"] * (1 - d / lf["reach"]))
+    res = []
+    for _ in range(3):          # a deck over a lower deck: over that deck's height with its own clearances (layer on layer: 3 passes)
+        new = []
+        for w, q, z, what, low in out:
+            ln, rs, _ = roads[w]
+            if low is not None:
+                lw_, q0 = low
+                zl = 0.0 if lw_ is None else lower_z(lw_, q0) if lower_z and lower_z(lw_, q0) is not None else \
+                    min(TOP_M, max([GRADE * far(roads[lw_][0], roads[lw_][1], q0)] + [tent(lf, lw_, q0) for lf in res]))
+                z = z + zl
+            sq = ln.project(q)
+            seeds = {r: abs(sq - ln.project(shapely.Point(pts[r]))) for r in rs}
+            reach = far(ln, rs, q)
+            if reach <= 0:
+                continue
+            dist = dict(seeds)
+            heap = [(d, r) for r, d in seeds.items()]
+            heapq.heapify(heap)
+            while heap:
+                d, n = heapq.heappop(heap)
+                if d > dist.get(n, math.inf) or d > reach:
+                    continue
+                for m, wt in adj.get(n, []):
+                    if d + wt < dist.get(m, math.inf):
+                        dist[m] = d + wt
+                        heapq.heappush(heap, (d + wt, m))
+            new.append({"at": (q.x, q.y), "way": w, "z": z, "reach": reach, "dist": {r: d for r, d in dist.items() if d < reach}, "over": what})
+        res = new
+    return res
 
 
 def _to_ground(lines, pts, ground):
@@ -155,7 +290,7 @@ def _strip(line, lo, hi):
     return side(hi).union(side(lo))
 
 
-def _profile(g, tr, name, epsg, deck, outline, on, lines, pts, ground, osm_db, gmns_db, to_ground):
+def _profile(g, tr, name, epsg, deck, outline, on, lines, pts, ground, osm_db, gmns_db, to_ground, lifts=()):
     import datetime
 
     import shapely
@@ -198,7 +333,33 @@ def _profile(g, tr, name, epsg, deck, outline, on, lines, pts, ground, osm_db, g
         L = ax.length
         at_ = [(ax.project(shapely.Point(pts[r])), to_ground[r]) for w in ways for r in lines[w][1] if r in to_ground]
         far_ = lambda s: min([abs(s - s_) + d_ for s_, d_ in at_] or [0.0])     # (along the axis to a node, then the network)
-        zs = [(s, min(TOP_M, GRADE * far_(s))) for s in [i * STEP_M for i in range(int(L // STEP_M) + 1)] + [L]]
+        # the clearances (_clearances): each its height at its point, down in a straight line to 0 at the nearest node on the ground
+        tents = []
+        for lf in lifts:
+            nd = [(ax.project(shapely.Point(pts[r])), lf["dist"][r]) for w in ways for r in lines[w][1] if r in lf["dist"]]
+            on_ax = lf["way"] in ways and ax.distance(shapely.Point(lf["at"])) < 0.5     # (its own way only: the lower deck crosses there too)
+            if nd or on_ax:
+                tents.append((lf, nd, ax.project(shapely.Point(lf["at"])) if on_ax else None))
+
+        def lift_(s):
+            z_ = 0.0
+            for lf, nd, s_at in tents:
+                d_ = min([abs(s - s_) + d0 for s_, d0 in nd] + ([abs(s - s_at)] if s_at is not None else []))
+                z_ = max(z_, lf["z"] * (1 - d_ / lf["reach"]))
+            return z_
+        ss = sorted({*[i * STEP_M for i in range(int(L // STEP_M) + 1)], L, *[s_at for _, _, s_at in tents if s_at is not None]})
+        zs = [(s, min(TOP_M, max(GRADE * far_(s), lift_(s)))) for s in ss]
+        # no dip between two clearances: between two nodes on the ground (or the axis's ends), a height is at least the smaller of
+        # the highest before it and the highest after it (5.0, 2.9, 5.0 m along a1 between two buildings)
+        gs = sorted({0.0, L, *[s_ for s_, d_ in at_ if d_ == 0.0]})
+        filled = []
+        for i, (s, z) in enumerate(zs):
+            lo_ = max(g for g in gs if g <= s) if s > 0 else 0.0
+            hi_ = min(g for g in gs if g >= s) if s < L else L
+            left = max(z_ for s_, z_ in zs[:i + 1] if s_ >= lo_)
+            right = max(z_ for s_, z_ in zs[i:] if s_ <= hi_)
+            filled.append((s, max(z, min(left, right)) if not (s in gs and s not in (0.0, L) and far_(s) == 0.0) else z))
+        zs = filled
         axes.append({"id": f"a{k + 1}", "ways": [f"w{w}" for w in ways],
                      "line": _val([[round(x, 2), round(y, 2)] for x, y in ax.coords], "osm: " + ", ".join(f"w{w}" for w in ways), "mapped"),
                      "length_m": round(L, 2),
@@ -206,8 +367,11 @@ def _profile(g, tr, name, epsg, deck, outline, on, lines, pts, ground, osm_db, g
                          (f"n{r}" for w in ways for r in lines[w][1] if shapely.Point(pts[r]).distance(p) < 0.05), None)}
                          for s, p in ((0.0, shapely.Point(ax.coords[0])), (round(L, 2), shapely.Point(ax.coords[-1])))],
                      "vertical": {"points": _collinear_out([[round(s, 2), round(z, 2)] for s, z in zs]), "source": "urbanstyle",
-                                  "method": "chosen", "rule": f"{GRADE:.0%} up from the nearest end where a road meets a ground road, along the bridge roads of the whole area, "
-                                                              f"at most {TOP_M} m"},
+                                  "method": "chosen", "rule": f"{GRADE:.0%} up from the nearest end where a road meets a ground road, along the bridge roads of the whole area; "
+                                                              f"at least {LEVEL_M:.0f} m a layer over a lower way it crosses, and over a building its height and "
+                                                              f"the deck's {DECK_M} m, each down in a straight line to the ground; at most {TOP_M} m",
+                                  "clearances": [{"at": [round(lf["at"][0], 2), round(lf["at"][1], 2)], "z": round(lf["z"], 2), "over": lf["over"]}
+                                                 for lf, _, _ in tents]},
                      "sections": _sections(ax, ways, tr_link, lanes, lines)})
     piers = place_piers(axes)
     if outline is None:     # no OSM outline: the sections, each as wide as its bands

@@ -11,6 +11,7 @@ import re
 FORMAT = "urbanstyle.bridge/1"
 # urbanstyle's own values (chosen): no source gives them yet (LiDAR and the aerial photo will measure them)
 GRADE = 0.05        # the deck rises 5 m in 100 m from where its roads meet a ground road
+MAX_GRADE = 0.12    # ... and never more than 12 m in 100 m from there: no ramp end steeper (a clearance it cannot reach is not met)
 HOLE_MIN_M2 = 10.0  # a hole in a deck made from its sections: at least this big (a smaller one is a gap between two strips)
 TOP_M = 27.0        # the deck at most this high above the ground at its ends
 DECK_M = 1.8        # deck and girders, thick
@@ -123,7 +124,8 @@ def profiles(osm_db, gmns_db, name=None):
 
 def _clearances(o, tr, lines, pts, to_ground, lower_z=None):
     """Where a bridge way must stand higher than its grade (docs/design/levels.md, "Heights from the network rule"): over a way of a lower
-    OSM layer it crosses with no shared node, LEVEL_M a layer above it; over a building, its height and the deck's thickness. Each:
+    OSM layer it crosses with no shared node (a deck, or a road on the ground), LEVEL_M a layer above it; over a building, its height and
+    the deck's thickness. Each:
     {"at": the point (UTM), "z": the height there, "reach": its distance to the ground along the network, "dist": each node's distance
     to it along the network, "over": what is under it}."""
     import heapq
@@ -140,12 +142,12 @@ def _clearances(o, tr, lines, pts, to_ground, lower_z=None):
     roads = {w: v for w, v in lines.items() if v[2].get("highway") not in PATHS}
     if not roads:
         return []
-    # the ground roads and the buildings near the bridges (lon/lat box from the bridges' own nodes)
+    # the buildings near the bridges (lon/lat box from the bridges' own nodes)
     lons = [o.execute("SELECT min(lon), max(lon), min(lat), max(lat) FROM raw.nodes WHERE osm_id IN (SELECT unnest(?::BIGINT[]))",
                       [sorted({r for _, rs, _ in roads.values() for r in rs})]).fetchone()]
     lo0, lo1, la0, la1 = lons[0]
-    under = o.execute("""SELECT w.osm_id, w.refs, w.tags FROM raw.ways w WHERE (w.tags['highway'] IS NOT NULL AND coalesce(w.tags['bridge'], 'no') = 'no'
-                         AND coalesce(w.tags['tunnel'], 'no') = 'no' OR w.tags['building'] IS NOT NULL) AND EXISTS (SELECT 1 FROM raw.nodes n
+    under = o.execute("""SELECT w.osm_id, w.refs, w.tags FROM raw.ways w WHERE (w.tags['building'] IS NOT NULL OR w.tags['highway'] IS NOT NULL
+                         AND coalesce(w.tags['bridge'], 'no') = 'no' AND coalesce(w.tags['tunnel'], 'no') = 'no') AND EXISTS (SELECT 1 FROM raw.nodes n
                          WHERE n.osm_id = w.refs[1] AND n.lon BETWEEN ? AND ? AND n.lat BETWEEN ? AND ?)""",
                       [lo0 - 0.003, lo1 + 0.003, la0 - 0.003, la1 + 0.003]).fetchall()
     need = sorted({r for _, rs, _ in under for r in rs if r not in pts})
@@ -170,7 +172,7 @@ def _clearances(o, tr, lines, pts, to_ground, lower_z=None):
                 except (TypeError, ValueError):
                     h = FLOOR_H_M
             below.append((g_, None, f"building w{oid}", h, set()))
-        elif tg.get("highway") not in PATHS:
+        elif tg.get("highway") not in PATHS:     # (a road on the ground: the grade limit keeps a short bridge over it low, no wall)
             below.append((shapely.LineString([P_[r] for r in rs]), lay(tg, 0), f"road w{oid}", 0.0, set(rs)))
     for w, (ln, rs, tg) in roads.items():          # and the decks of a lower layer
         below.append((ln, lay(tg, 1), f"deck w{w}", None, set(rs)))
@@ -347,7 +349,8 @@ def _profile(g, tr, name, epsg, deck, outline, on, lines, pts, ground, osm_db, g
                 d_ = min([abs(s - s_) + d0 for s_, d0 in nd] + ([abs(s - s_at)] if s_at is not None else []))
                 z_ = max(z_, lf["z"] * (1 - d_ / lf["reach"]))
             return z_
-        ss = sorted({*[i * STEP_M for i in range(int(L // STEP_M) + 1)], L, *[s_at for _, _, s_at in tents if s_at is not None]})
+        on_gr = sorted({round(s_, 2) for s_, d_ in at_ if d_ == 0.0 and 0.5 < s_ < L - 0.5})     # (the axis touches the ground inside it)
+        ss = sorted({*[i * STEP_M for i in range(int(L // STEP_M) + 1)], L, *[s_at for _, _, s_at in tents if s_at is not None], *on_gr})
         zs = [(s, min(TOP_M, max(GRADE * far_(s), lift_(s)))) for s in ss]
         # no dip between two clearances: between two nodes on the ground (or the axis's ends), a height is at least the smaller of
         # the highest before it and the highest after it (5.0, 2.9, 5.0 m along a1 between two buildings)
@@ -359,19 +362,21 @@ def _profile(g, tr, name, epsg, deck, outline, on, lines, pts, ground, osm_db, g
             left = max(z_ for s_, z_ in zs[:i + 1] if s_ >= lo_)
             right = max(z_ for s_, z_ in zs[i:] if s_ <= hi_)
             filled.append((s, max(z, min(left, right)) if not (s in gs and s not in (0.0, L) and far_(s) == 0.0) else z))
-        zs = filled
+        zs = [(s, min(z, MAX_GRADE * far_(s))) for s, z in filled]       # (the grade limit: ramp ends 40 % steep looked like blocks)
         axes.append({"id": f"a{k + 1}", "ways": [f"w{w}" for w in ways],
                      "line": _val([[round(x, 2), round(y, 2)] for x, y in ax.coords], "osm: " + ", ".join(f"w{w}" for w in ways), "mapped"),
                      "length_m": round(L, 2),
+                     "ground_at": on_gr,       # (where a road on the ground joins it in its middle: 0 m high there, and open to that road)
                      "ends": [{"s": s, "ground": not grounded.is_empty and grounded.distance(p) < 0.5, "node": next(
                          (f"n{r}" for w in ways for r in lines[w][1] if shapely.Point(pts[r]).distance(p) < 0.05), None)}
                          for s, p in ((0.0, shapely.Point(ax.coords[0])), (round(L, 2), shapely.Point(ax.coords[-1])))],
                      "vertical": {"points": _collinear_out([[round(s, 2), round(z, 2)] for s, z in zs]), "source": "urbanstyle",
-                                  "method": "chosen", "rule": f"{GRADE:.0%} up from the nearest end where a road meets a ground road, along the bridge roads of the whole area; "
+                                  "method": "chosen", "rule": f"{GRADE:.0%} up from the nearest end where a road meets a ground road, along the bridge roads of the whole area, at most {MAX_GRADE:.0%} of it; "
                                                               f"at least {LEVEL_M:.0f} m a layer over a lower way it crosses, and over a building its height and "
                                                               f"the deck's {DECK_M} m, each down in a straight line to the ground; at most {TOP_M} m",
-                                  "clearances": [{"at": [round(lf["at"][0], 2), round(lf["at"][1], 2)], "z": round(lf["z"], 2), "over": lf["over"]}
-                                                 for lf, _, _ in tents]},
+                                  "clearances": [{"at": [round(lf["at"][0], 2), round(lf["at"][1], 2)], "z": round(lf["z"], 2), "over": lf["over"],
+                                                  "met": s_at is None or MAX_GRADE * far_(s_at) >= lf["z"] - 0.01}
+                                                 for lf, _, s_at in tents]},
                      "sections": _sections(ax, ways, tr_link, lanes, lines)})
     piers = place_piers(axes)
     if outline is None:     # no OSM outline: the sections, each as wide as its bands

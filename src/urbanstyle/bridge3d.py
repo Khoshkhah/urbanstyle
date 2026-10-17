@@ -20,6 +20,11 @@ import math
 STEP_M = 4.0        # the outline and the bands are sampled this often, so their heights follow the profile
 BLEND_M = 40.0      # the heights of two axes are blended where the second nearest is this near
 MEET_M = 1.5        # ... and only where their heights differ by less than this (they meet at a fork)
+CROSS_DZ_M = 1.0    # two axes' lane strips that overlap at heights more than this apart cross (a spiral over itself): each its own deck
+CROSS_PAD_M = 3.0   # ... over the overlap and this much round it
+GUARD_JUMP_M = 1.0  # a guard face that rises more than this and GUARD_SLOPE of its length is a jump between two decks' edges: left out
+GUARD_SLOPE = 0.35
+END_OPEN_M = 2.5    # at every road end, no guard within this of the end, over the road's whole width
 FADE_M = 2.0        # an arm's weight fades to 0 over this to the edge of its lanes
 OUT_FADE_M = 10.0   # ... and to nothing over this beyond its lanes and past its end (smooth: no step)
 END_FADE_M = 10.0   # ... and over this to its end
@@ -211,6 +216,7 @@ def surface(P, x0=0.0, y0=0.0, edges_of=None):
             fill.append(shapely.Polygon(left[k] + right[k][::-1]).buffer(0))
     # the deck covers every lane: OSM's outline can be narrower than the lanes (a7 with its corrected 2 lanes: part of a lane hung off
     # the deck, with no guard)
+    strips_by = {}          # (each axis's lane strip: where two cross at different heights, each is drawn at its own)
     for ln, a in axes:
         for sec in a["sections"]:
             bs = [b for b in sec["bands"] if b["type"] == "lane"]
@@ -222,6 +228,7 @@ def surface(P, x0=0.0, y0=0.0, edges_of=None):
             fr_ = [frame(ln, sec["s0"] + (sec["s1"] - sec["s0"]) * i / n) for i in range(n + 1)]
             pieces.append(shapely.Polygon([(x + nx * hi, y + ny * hi) for x, y, nx, ny in fr_] +
                                           [(x + nx * lo, y + ny * lo) for x, y, nx, ny in fr_][::-1]).buffer(0))
+            strips_by.setdefault(a["id"], []).append(pieces[-1])
     # the gore between two roads that meet at a node in the air at under 90 degrees: deck, out to where their lanes are GORE_MAX_M apart,
     # so no slit ringed with a guard is left between them; at 90 degrees or more nothing is filled and each keeps its own edge
     # (Boulevard du Larvotto, a1 and a2 at J; Kaveh, 2026-10-14)
@@ -259,6 +266,8 @@ def surface(P, x0=0.0, y0=0.0, edges_of=None):
     if fill is not None:
         shapely.prepare(fill)
 
+    zones, by_id_, cross = {}, {}, None      # (the crossing zones, set below: z reads them)
+
     def reach(a, s):
         """The extent across axis a at s that its lanes cover (right edge, left edge), a metre more each side."""
         sec = next((sc for sc in a["sections"] if sc["s0"] - 0.01 <= s <= sc["s1"] + 0.01), None)
@@ -274,8 +283,8 @@ def surface(P, x0=0.0, y0=0.0, edges_of=None):
                for ln, a in axes}
     sm = lambda u: (lambda c: c * c * (3 - 2 * c))(min(max(u, 0.0), 1.0))
 
-    def z(x, y):
-        """The deck's top at (x, y): the heights of the arms near it, each weighted by its nearness and by smooth fades: to nothing over
+    def z(x, y, own=None):
+        """The deck's top at (x, y) (inside a crossing zone, of axis `own` when given): the heights of the arms near it, each weighted by its nearness and by smooth fades: to nothing over
         OUT_FADE_M beyond its lanes and past its end, and over END_FADE_M to an end on the ground; then each weighted again by how near its
         height is to the mean (MEET_M: an arm passing above or below has little say). Every weight changes smoothly, so the deck has no
         step anywhere: hard switches (the nearest arm's height off the lanes, a cut-off between heights, a weight of nothing at an arm's
@@ -285,8 +294,14 @@ def surface(P, x0=0.0, y0=0.0, edges_of=None):
         def out_(la):           # how far p lies outside that axis's lanes (0 on them)
             r_ = reach(la[1], la[0].project(p))
             return max(0.0, la[0].distance(p) - max(-r_[0], r_[1]))
-        ln0, a0 = min(axes, key=lambda la: (out_(la), la[0].distance(p)))     # (the axis whose deck this is: the nearest lanes)
+        if own is not None and own in by_id_ and zones and shapely.contains_xy(cross, x, y):      # (anywhere in a crossing: its own)
+            ln0, a0 = by_id_[own]       # (a crossing: the deck of the axis this part belongs to, not the nearer one)
+        else:
+            ln0, a0 = min(axes, key=lambda la: (out_(la), la[0].distance(p)))     # (the axis whose deck this is: the nearest lanes)
         own, h_own = a0["id"], _h(a0["vertical"], ln0.project(p))
+        sv0 = ln0.project(p)
+        if out_((ln0, a0)) == 0.0 and ((ground_end[own][0] and sv0 < END_FADE_M) or (ground_end[own][1] and ln0.length - sv0 < END_FADE_M)):
+            return h_own        # (near its end on the ground, a ramp's own height: 0 at the end; another road beside it lifted the end, a7)
         fork = {n for n, q in ends_of[own].items() if q.distance(p) < BLEND_M}
         for ln, a in axes:
             if a["id"] != own and not (fork & set(ends_of[a["id"]])) and abs(_h(a["vertical"], ln.project(p)) - h_own) > 3 * MEET_M:
@@ -321,7 +336,43 @@ def surface(P, x0=0.0, y0=0.0, edges_of=None):
         tot = sum(w for w, _ in use)
         return sum(w * hz for w, hz in use) / tot if tot > 1e-12 else m0
 
-    return {"axes": axes, "deck": deck, "fill": fill, "z": z, "frame": frame, "gores": shapely.union_all(gores) if gores else shapely.Polygon()}
+    # where two axes' lane strips overlap at heights more than CROSS_DZ_M apart, they cross (a spiral that passes over itself): there
+    # each is drawn as its own strip at its own heights (`zones`: each axis's strip over the overlap and CROSS_PAD_M round it)
+    by_id_ = {a["id"]: (ln, a) for ln, a in axes}
+    strip = {k: shapely.union_all(v) for k, v in strips_by.items()}
+    zones, edges_by = {}, {}
+    ids = sorted(strip)
+    for i, k in enumerate(ids):
+        for k2 in ids[i + 1:]:
+            for part in shapely.get_parts(strip[k].intersection(strip[k2])):
+                if part.geom_type != "Polygon" or part.area < 1.0:
+                    continue
+                q = part.representative_point()
+                (l1, a1), (l2, a2) = by_id_[k], by_id_[k2]
+                if abs(_h(a1["vertical"], l1.project(q)) - _h(a2["vertical"], l2.project(q))) <= CROSS_DZ_M:
+                    continue
+                reg = part.buffer(CROSS_PAD_M)
+                for kk, other in ((k, k2), (k2, k)):
+                    zones[kk] = shapely.make_valid(zones.get(kk, shapely.Polygon()).union(strip[kk].intersection(reg)))
+                    # (its edges over or under the other strip: an edge inside a strip beside it at its own height is no edge)
+                    edges_by.setdefault(kk, []).append(strip[kk].boundary.intersection(strip[other].buffer(0.05)).intersection(reg))
+    cross = shapely.union_all(list(zones.values())) if zones else shapely.Polygon()
+    for zg in zones.values():
+        shapely.prepare(zg)
+    zone_edges = {}
+    for k, v in edges_by.items():
+        e_ = shapely.union_all(v)
+        (lk, ak) = by_id_[k]
+        for j, sj in strip.items():         # (and none inside a strip beside it at its own height: one deck there)
+            if j == k or e_.is_empty or not sj.intersects(e_):
+                continue
+            q = sj.intersection(e_).representative_point()
+            lj, aj = by_id_[j]
+            if abs(_h(ak["vertical"], lk.project(q)) - _h(aj["vertical"], lj.project(q))) <= CROSS_DZ_M:
+                e_ = e_.difference(sj.buffer(-0.05))
+        zone_edges[k] = e_
+    return {"axes": axes, "deck": deck, "fill": fill, "z": z, "frame": frame, "gores": shapely.union_all(gores) if gores else shapely.Polygon(),
+            "zones": zones, "cross": cross, "zone_edges": zone_edges, "strip": strip}
 
 
 def model_checks(surf, deck, road_ends, S, axes):
@@ -358,7 +409,10 @@ def model_checks(surf, deck, road_ends, S, axes):
             if abs(w[0] - w[1]) > 1.0:
                 steps.append(S["frame"](ln, s0)[:2])
     pt = lambda g: g.representative_point().coords[0]
-    on_lane = [p for p in shapely.get_parts(guard.intersection(inner)) if p.area > 0.05]
+    cross_ = S.get("cross")
+    in_cross = lambda g_: cross_ is not None and not cross_.is_empty and cross_.contains(g_.representative_point())
+    # (where two decks cross at different heights one lies over the other in 2D: no fault there)
+    on_lane = [p for p in shapely.get_parts(guard.intersection(inner)) if p.area > 0.05 and not in_cross(p)]
     pp = [(a, b) for i, a in enumerate(pk) for b in pk[i + 1:] if paths[a].intersection(paths[b]).area > 0.1]
     thin = [p for g in paths.values() for p in shapely.get_parts(g) if p.area >= 0.05 and p.buffer(-PATH_MIN_M / 2 + 0.01).is_empty]   # (mesh's own limit)
     ll = [g.intersection(h) for i, (sf, g) in enumerate(lanes_) for tf, h in lanes_[i + 1:]
@@ -377,7 +431,7 @@ def model_checks(surf, deck, road_ends, S, axes):
     # lane and other lanes must have barrier", the steps in the guards): no deck that no part covers; a barrier wherever a lane meets a path,
     # but at a crosswalk; no step in the deck's height
     cover = shapely.union_all([g.buffer(0.02) for _, g in of(lambda sf: not sf["key"].startswith("mark") and sf["key"] != "railing")])
-    free = [g for g in shapely.get_parts(deck.difference(cover)) if g.area > FREE_CHECK_M2]
+    free = [g for g in shapely.get_parts(deck.difference(cover)) if g.area > FREE_CHECK_M2 and not in_cross(g)]
     xing = shapely.union_all([g.buffer(1.5) for _, g in of(lambda sf: sf["key"] in ("mark zebra", "crosswalk", "mark crosswalk"))])
     allpaths = shapely.union_all(list(paths.values())) if paths else shapely.Polygon()
     touch = veh.buffer(0.2, join_style="mitre").buffer(-0.2, join_style="mitre").boundary.intersection(allpaths.buffer(0.15))
@@ -394,7 +448,11 @@ def model_checks(surf, deck, road_ends, S, axes):
                 if not deck.buffer(-0.3).contains(q):
                     prev = None
                     continue
-                v = S["z"](q.x, q.y)
+                zn_ = S.get("zones") or {}
+                if zn_ and shapely.contains_xy(S["cross"], q.x, q.y) and not (a["id"] in zn_ and shapely.contains_xy(zn_[a["id"]], q.x, q.y)):
+                    prev = None         # (another axis's strip where two cross: its own deck, at its own height)
+                    continue
+                v = S["z"](q.x, q.y, a["id"])
                 if prev is not None and abs(v - prev) > HEIGHT_STEP_M:
                     hsteps.append((q.x, q.y))
                 prev = v
@@ -1890,7 +1948,7 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False, poles=None
                     xr, yr, nxr, nyr = frame(lnR_, sR_)
                     off = sgR * tv + dl
                     px, py = px * (1 - u) + (xr + nxr * off) * u, py * (1 - u) + (yr + nyr * off) * u
-            out.append([round(px, 2), round(py, 2), round(z(px, py) + lift, 2)])     # on the deck's surface
+            out.append([round(px, 2), round(py, 2), round(z(px, py, a["id"]) + lift, 2)])     # on the deck's surface (its own, at a crossing)
         return out
 
     def ribbon(line, w, lift):
@@ -2137,7 +2195,9 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False, poles=None
         deck = shapely.Polygon(deck.exterior, [r for r in deck.interiors if shapely.Polygon(r).area >= HOLE_MIN_M2])
     # the deck's top: the outline densified, cut by a STEP_M grid and triangulated inside it, so the top follows z() inside the deck too
     # (triangles from edge to edge across a sloped deck were up to 0.2 m off: a path 0.1 m above the deck sank into it in a saw-tooth)
-    dense = deck.segmentize(STEP_M)
+    zones, xzone = S["zones"], S["cross"]
+    # (a crossing zone: each axis's strip is drawn at its own heights, below; the one slab here is the deck outside the zones)
+    dense = (deck.difference(xzone) if zones else deck).segmentize(STEP_M)
     tris = []
     for cell in ([] if flat_only else grid(dense, STEP_M)):
         for pc in shapely.get_parts(cell):
@@ -2156,7 +2216,9 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False, poles=None
     # deck where its height curves (at a fork the two arms' heights blend; a buffer there sank 0.26 m into it)
     ttree = shapely.STRtree(tris)
 
-    def zd(x, y):
+    def zd(x, y, own=None):
+        if zones and shapely.contains_xy(xzone, x, y):
+            return z(x, y, own)         # (a crossing: the height of the part's own axis)
         for k in ttree.query(shapely.Point(x, y)):
             (x1, y1, z1), (x2, y2, z2), (x3, y3, z3) = (verts[i] for i in top[k])
             dd = (y2 - y3) * (x1 - x3) + (x3 - x2) * (y1 - y3)
@@ -2174,7 +2236,7 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False, poles=None
     under = lambda x, y, zz, fill=fill: 0.0 if fill is not None and shapely.contains_xy(fill, x, y) else max(zz - DECK_M, 0.0)
     bottom = [[vid(x, y, under(x, y, z(x, y))) for x, y in t.exterior.coords[:3]][::-1] for t in tris]
     sides, rails = [], []
-    for ring in [dense.exterior] + list(dense.interiors):
+    for ring in [r_ for pg_ in shapely.get_parts(dense) if pg_.geom_type == "Polygon" for r_ in [pg_.exterior] + list(pg_.interiors)]:
         c = list(ring.coords)
         for (ax, ay), (bx, by) in zip(c, c[1:]):
             za, zb = z(ax, ay), z(bx, by)
@@ -2327,6 +2389,34 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False, poles=None
                 f_ = min(f_, abs(sv - s_l) / LAND_FLAT_M)
         return f_
 
+    def own_axis(pg, props):
+        """In a crossing zone, the axis a surface stands on: a lane's own; else the axis it runs along (a long thin piece: the one parallel
+        to it), else the nearest."""
+        if not zones or not pg.intersects(xzone):
+            return None
+        cand = [k for k, zg in zones.items() if zg.intersects(pg)]
+        ax_ = (props or {}).get("axis")
+        if ax_ in cand or len(cand) < 2:
+            return ax_ if ax_ in cand else (cand[0] if cand else None)
+        q = pg.representative_point()
+        r_ = pg.minimum_rotated_rectangle
+        c_ = list(r_.exterior.coords) if r_.geom_type == "Polygon" else []
+        if len(c_) >= 4:
+            e1, e2 = (c_[1][0] - c_[0][0], c_[1][1] - c_[0][1]), (c_[2][0] - c_[1][0], c_[2][1] - c_[1][1])
+            L1, L2 = math.hypot(*e1), math.hypot(*e2)
+            if max(L1, L2) > 2 * max(min(L1, L2), 0.01):
+                u = e1 if L1 >= L2 else e2
+                L_ = max(L1, L2)
+
+                def par(k):
+                    ln_ = by_id[k][0]
+                    sv = ln_.project(q)
+                    a_, b_ = ln_.interpolate(max(sv - 1, 0)), ln_.interpolate(min(sv + 1, ln_.length))
+                    h_ = math.hypot(b_.x - a_.x, b_.y - a_.y) or 1
+                    return abs((u[0] * (b_.x - a_.x) + u[1] * (b_.y - a_.y)) / (L_ * h_))
+                return max(cand, key=par)
+        return min(cand, key=lambda k: by_id[k][0].distance(q))
+
     def mesh(poly, key, lift, props=None, raise_=0.0):
         """poly (model metres) as triangles on the deck's surface, lift above it (and raise_ more, with its sides down to the lift). A lane
         keeps POLE_CLEAR_M clear of each surveyed pole (`poles`)."""
@@ -2347,7 +2437,18 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False, poles=None
                     ix[k] = len(v)
                     v.append(list(k))
                 return ix[k]
-            hz = lambda x, y: (zd(x, y) + lift) * landf(x, y) + raise_
+            own_ = own_axis(pg, props)
+            if own_ is not None and (key.startswith("barrier") or key == "railing") and not (props or {}).get("axis"):
+                # (a guard stands on a strip's edge: in a crossing, each point the axis whose strip's edge is nearest; one axis for a
+                # whole guard stretched the guard of the lower deck up to the upper one)
+                def own_at(x, y):
+                    if not shapely.contains_xy(xzone, x, y):
+                        return own_
+                    q_ = shapely.Point(x, y)
+                    return min(zones, key=lambda k_: S["strip"][k_].boundary.distance(q_) if zones[k_].distance(q_) < 0.5 else math.inf)
+                hz = lambda x, y: (zd(x, y, own_at(x, y)) + lift) * landf(x, y) + raise_
+            else:
+                hz = lambda x, y, own_=own_: (zd(x, y, own_) + lift) * landf(x, y) + raise_
             f += [[vi(x, y, hz(x, y)) for x, y in t.exterior.coords[:3]] for t in tris]
             if raise_ > 0:                      # its sides, as a kerb's face
                 for ring in [dense.exterior] + list(dense.interiors):
@@ -2356,6 +2457,14 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False, poles=None
                         a0, b0 = vi(ax_, ay_, (zd(ax_, ay_) + lift) * landf(ax_, ay_)), vi(bx_, by_, (zd(bx_, by_) + lift) * landf(bx_, by_))
                         a1, b1 = vi(ax_, ay_, hz(ax_, ay_)), vi(bx_, by_, hz(bx_, by_))
                         f += [[a0, b0, b1], [a0, b1, a1]]
+            if f and (key.startswith("barrier") or key == "railing"):
+                # (in a crossing the deck's outline turns from one strip's edge to the other's: a guard along it jumped from one
+                # height to the other, a wall; those faces are left out, and each strip has its own guard along its edges, below)
+                # (and anywhere a guard face rises more than GUARD_JUMP_M and GUARD_SLOPE of its length: a jump between two decks'
+                # edges, seen as spikes under a crossing deck; a guard on a steep ramp rises less)
+                jump_ = lambda t_: (max(v[i][2] for i in t_) - min(v[i][2] for i in t_)) > GUARD_JUMP_M + GUARD_SLOPE * max(
+                    math.dist(v[t_[a_]][:2], v[t_[b_]][:2]) for a_, b_ in ((0, 1), (1, 2), (0, 2)))
+                f = [t_ for t_ in f if not jump_(t_)]
             if f or flat_only:
                 sf_ = {"key": key, "props": props, "v": v, "f": f, "poly": pg}
                 if not key.startswith("mark") and key != "railing":
@@ -2927,9 +3036,7 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False, poles=None
     # the outline's edges near the end that run across the axis rather than along it
     c_ = list(deck.exterior.coords)
     for ln, a in axes:
-        for e in a.get("ends", []):
-            if not e["ground"]:
-                continue
+        for e in a.get("ends", []):          # (every road end is open, on the ground or not: no guard ever crosses a road)
             x, y, nx, ny = frame(ln, e["s"])
             for (ax_, ay_), (bx_, by_) in zip(c_, c_[1:]):
                 h_ = math.hypot(bx_ - ax_, by_ - ay_) or 1
@@ -2939,6 +3046,33 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False, poles=None
                 if abs((mx_ - x) * ny - (my_ - y) * nx) < END_EDGE_M and math.hypot(mx_ - x, my_ - y) < 25 and \
                         abs((bx_ - ax_) * ny - (by_ - ay_) * nx) / h_ < 0.5:
                     ends_.append(shapely.LineString([(ax_, ay_), (bx_, by_)]).buffer(0.5))
+    # and, whatever the outline's shape there, a box over the road's whole width at every road end, END_OPEN_M each side of the end: a
+    # jagged end edge passed no test above and its guard closed the road (a dead end; Kaveh, 2026-10-17: "all bridges must be open ended")
+    def box_at(ln, a, s_):
+        """The open box at s_ on axis a: the road's whole width, END_OPEN_M each side of s_."""
+        x, y, nx, ny = frame(ln, s_)
+        sec = next((sc for sc in a["sections"] if sc["s0"] - 0.01 <= s_ <= sc["s1"] + 0.01), a["sections"][-1] if s_ > ln.length / 2 else a["sections"][0])
+        bs = sec["bands"] or []
+        lo = min((b["t"] - b["width"]["value"] / 2 for b in bs), default=-4.0) - DECK_MARGIN_M - 0.2
+        hi = max((b["t"] + b["width"]["value"] / 2 for b in bs), default=4.0) + DECK_MARGIN_M + 0.2
+        tx, ty = ny, -nx            # (along the axis)
+        return shapely.Polygon([(x + nx * t_ + tx * d_, y + ny * t_ + ty * d_) for t_, d_ in
+                                ((lo, -END_OPEN_M), (hi, -END_OPEN_M), (hi, END_OPEN_M), (lo, END_OPEN_M))])
+    shared_, end_boxes_ = {}, []
+    for _, a in axes:
+        for e in a.get("ends", []):
+            if e.get("node"):
+                shared_[e["node"]] = shared_.get(e["node"], 0) + 1
+    for ln, a in axes:
+        for e in a.get("ends", []):
+            if e.get("node") and shared_.get(e["node"], 0) > 1:
+                continue            # (two axes meet there: the deck goes on, and so does its guard)
+            end_boxes_.append(box_at(ln, a, e["s"]))
+        for s_g in a.get("ground_at", []):      # (and where a road on the ground joins the axis in its middle: a1 at Avenue Princesse Grace)
+            end_boxes_.append(box_at(ln, a, s_g))
+
+    ends_ += end_boxes_
+    end_open_ = shapely.union_all(end_boxes_) if end_boxes_ else shapely.Polygon()
     gaps = shapely.union_all(ends_) if ends_ else shapely.Polygon()
     # and none on a lane (where the deck's edge crosses one); the cracks between two lanes closed first (a guard stood in one)
     gaps = gaps.union(veh_.buffer(GUARD_ON_LANE_M).buffer(-2 * GUARD_ON_LANE_M))
@@ -2997,6 +3131,15 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False, poles=None
             continue
         # (a sliver between lanes, under FREE_THIN_M wide, is the lane beside it: footway there put a path between two lanes)
         lanes_s = [sf_ for sf_ in surf if sf_.get("poly") is not None and sf_["key"].startswith("lane")]
+        # (and the deck past the lanes' end where the road ends is roadway, the nearest lane's: raised footway there was a kerb across
+        # the road, a dead end; Kaveh, 2026-10-17)
+        if lanes_s and not end_open_.is_empty and g_.intersection(end_open_).area > 0.5 * g_.area:
+            lb_ = min(lanes_s, key=lambda sf_: sf_["poly"].distance(g_))
+            if flat_only:
+                lb_["poly"] = shapely.make_valid(lb_["poly"].union(g_.buffer(0.01)))
+            else:
+                mesh(g_, lb_["key"], SURF_LIFT_M, lb_["props"])
+            continue
         if 2 * shapely.maximum_inscribed_circle(g_).length < FREE_THIN_M and lanes_s:
             # (each part of it to the lane right beside it: one long sliver along a3 went whole to a lane 300 m away)
             near_l = sorted([sf_ for sf_ in lanes_s if sf_["poly"].distance(g_) < 0.05],
@@ -3067,6 +3210,14 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False, poles=None
             nose_ = paths_f.intersection(shapely.union_all([t_, bars_f.intersection(t_.buffer(2.0))]).convex_hull)
             mesh(nose_, "barrier", 0.0, None, BARRIER_SEP_M[1])
     mesh(rim(0.1, 0.2), "railing", RAILING_M[0] - 0.08, None, 0.08)
+    # where two axes cross at different heights, each strip's own edges inside the deck (the upper's over the lower road, the lower's
+    # under the upper deck) get a guard at its own height: the outline's guard covers only the outer edge
+    for kz_, e_ in (S.get("zone_edges") or {}).items():
+        for ln_e in shapely.get_parts(e_.difference(deck.exterior.buffer(0.3))):
+            if ln_e.geom_type == "LineString" and ln_e.length > 1.0:
+                mesh(ln_e.buffer(BARRIER_M[1] / 2, cap_style="flat"), "barrier", 0.0,
+                     {"type": "barrier", "axis": kz_, "name": P["name"], "height_m": BARRIER_M[0], "source": "urbanstyle", "method": "derived",
+                      "rule": "along a deck's own edge where it crosses another deck at another height"}, BARRIER_M[0])
     in_ = shapely.make_valid(deck.buffer(-BARRIER_M[1] / 2))       # (its area parts only: a thin spot gave lines too, a9)
     mid = shapely.MultiPolygon([q_ for g_ in shapely.get_parts(in_) for q_ in shapely.get_parts(g_) if q_.geom_type == "Polygon"]).boundary.difference(gaps)
     for ring in shapely.get_parts(mid):
@@ -3100,19 +3251,54 @@ def model(path, parts=None, marks=None, ground=None, flat_only=False, poles=None
     # the final deck's edge; the old slab's edge showed as steps beside them and as bare deck (Kaveh, 2026-10-12: "stepping in barriers")
     top_f, bottom_f, sides_f = top, bottom, sides
     if not flat_only:
-        dense_f = deck.segmentize(STEP_M)
-        tris_f = [t for cell in grid(dense_f, STEP_M) for pc in shapely.get_parts(cell) if pc.geom_type == "Polygon" and pc.area > 1e-4
-                  for t in shapely.get_parts(shapely.constrained_delaunay_triangles(pc)) if t.representative_point().within(pc.buffer(0.01))]
+        tri_of = lambda g_: [t for cell in grid(g_.segmentize(STEP_M), STEP_M) for pc in shapely.get_parts(cell) if pc.geom_type == "Polygon"
+                             and pc.area > 1e-4 for t in shapely.get_parts(shapely.constrained_delaunay_triangles(pc))
+                             if t.representative_point().within(pc.buffer(0.01))]
         # (at the heights the lanes and paths stand on, zd: with z's own heights the deck rose through the lanes in grey patches)
-        top_f = [[vid(x, y, zd(x, y)) for x, y in t.exterior.coords[:3]] for t in tris_f]
-        bottom_f = [[vid(x, y, under(x, y, zd(x, y))) for x, y in t.exterior.coords[:3]][::-1] for t in tris_f]
+        # a crossing zone: each axis's strip once, at its own heights (one slab there tore between the two heights: a spiral)
+        tris_f = [(t, None) for t in tri_of(deck.difference(xzone) if zones else deck)] + \
+            [(t, kz) for kz, zg in zones.items() for t in tri_of(deck.intersection(zg))]
+        top_f = [[vid(x, y, zd(x, y, kz)) for x, y in t.exterior.coords[:3]] for t, kz in tris_f]
+        bottom_f = [[vid(x, y, under(x, y, zd(x, y, kz))) for x, y in t.exterior.coords[:3]][::-1] for t, kz in tris_f]
+        # (deck that rises like a wall is no deck: the thin fill between two roads side by side at different heights, stretched from
+        # one height to the other, showed as spikes under a crossing deck; left out, with its bottom)
+        steep_ = lambda t_: (max(verts[i][2] for i in t_) - min(verts[i][2] for i in t_)) > GUARD_JUMP_M + GUARD_SLOPE * max(
+            math.dist(verts[t_[a_]][:2], verts[t_[b_]][:2]) for a_, b_ in ((0, 1), (1, 2), (0, 2)))
+        keep_ = [not steep_(t_) for t_ in top_f]
+        top_f = [t_ for t_, k_ in zip(top_f, keep_) if k_]
+        bottom_f = [t_ for t_, k_ in zip(bottom_f, keep_) if k_]
         sides_f = []
+
+        def side(ax, ay, bx, by, kz):
+            za, zb = zd(ax, ay, kz), zd(bx, by, kz)
+            if abs(za - zb) > GUARD_JUMP_M + GUARD_SLOPE * math.hypot(bx - ax, by - ay):
+                return []           # (its top jumps from one deck's height to the other's: the edge of a stretched fill, a spike)
+            a0, b0, a1, b1 = vid(ax, ay, under(ax, ay, za)), vid(bx, by, under(bx, by, zb)), vid(ax, ay, za), vid(bx, by, zb)
+            return [[a0, b0, b1], [a0, b1, a1]]
+        dense_f = deck.segmentize(STEP_M)
         for ring in [dense_f.exterior] + list(dense_f.interiors):
             c = list(ring.coords)
             for (ax, ay), (bx, by) in zip(c, c[1:]):
-                za, zb = zd(ax, ay), zd(bx, by)
-                a0, b0, a1, b1 = vid(ax, ay, under(ax, ay, za)), vid(bx, by, under(bx, by, zb)), vid(ax, ay, za), vid(bx, by, zb)
-                sides_f += [[a0, b0, b1], [a0, b1, a1]]
+                kz = None
+                if zones and shapely.contains_xy(xzone, (ax + bx) / 2, (ay + by) / 2):     # (the edge of which axis's strip)
+                    kz = min(zones, key=lambda k_: S["strip"][k_].boundary.distance(shapely.Point((ax + bx) / 2, (ay + by) / 2)))
+                sides_f += side(ax, ay, bx, by, kz)
+        for kz, e_ in S["zone_edges"].items():        # and each strip's own edges inside the deck: over or under the other one
+            for ln_e in shapely.get_parts(e_):
+                if ln_e.geom_type != "LineString":
+                    continue
+                c = list(ln_e.segmentize(STEP_M / 2).coords)
+                for (ax, ay), (bx, by) in zip(c, c[1:]):
+                    if deck.exterior.distance(shapely.Point((ax + bx) / 2, (ay + by) / 2)) > 0.05:
+                        sides_f += side(ax, ay, bx, by, kz)
+    # every road end open, whatever made a guard there (the deck's edge, a path's edge or nose): no guard or railing face inside an end's
+    # open box (Boulevard du Ténao's start kept guard pieces from the path's barrier across the road's end)
+    if not end_open_.is_empty:
+        shapely.prepare(end_open_)
+        for sf_ in surf:
+            if sf_["key"].startswith("barrier") or sf_["key"] == "railing":
+                sf_["f"] = [t_ for t_ in sf_["f"] if not shapely.contains_xy(end_open_, sum(sf_["v"][i][0] for i in t_) / 3,
+                                                                              sum(sf_["v"][i][1] for i in t_) / 3)]
     deck_ll = json.loads(shapely.to_geojson(shapely.ops.transform(lambda x, y: to_ll(x + x0, y + y0), deck)))   # (the final outline, GeoJSON, for checks)
     flat = []           # the 2D layer (dashboard "Bridge 2D"): each surface's outline in lon / lat, with its id and fields
     for sf_ in surf:

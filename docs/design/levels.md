@@ -67,15 +67,16 @@ on the ground where a road that is not on a bridge also uses it. For each point,
 on the ground. The rule has three parts:
 
 1. **The grade.** The height is 5 % of D.
-2. **Clearance at a crossing.** Where a bridge way crosses a way of a lower OSM layer, and the two share no node, the bridge way is at
-   least 6 m for each layer between them above the lower way. The lower way is a road or a deck: a deck at its own grade height, a road
-   on the ground at 0. A path under a deck is not a crossing.
+2. **Clearance at a crossing.** Where a bridge way crosses a way of a lower OSM layer, and the two share no node, the upper way is at
+   least 6 m for each layer between them above the lower way: a deck at its own height, a road on the ground at 0. A path under a deck
+   is not a crossing. The grade limit below holds first, so a short bridge goes only as high as its ramps allow.
 3. **Clearance over a building.** Where a bridge way passes over a building, the deck's underside is above the building's top: the deck
    is at least the building's height and the deck's thickness (1.8 m). The building's height is OSM's `height`; else its
    `building:levels` at 3.2 m each; else one level, 3.2 m, as the page draws it.
 
 A clearance holds at its point and goes down in a straight line to 0 at the nearest node on the ground, along the network. The height
-is the largest of the three, and at most 27 m. At a node where branches meet in the air, every branch gets the same height. A short
+is the largest of the three, and at most 27 m. It is also at most 12 % of D, so no ramp is steeper than 12 % at its end on the ground. A
+clearance that this limit does not let the deck reach is not met: the profile lists it with `met` false. At a node where branches meet in the air, every branch gets the same height. A short
 ramp that must climb a clearance is steep: the rule does not know the slope of the ground, and only LiDAR or a ground model gives the
 true heights there.
 
@@ -86,7 +87,10 @@ every deck reaches its ground ends. The model reads only the profile. It draws t
 nearest axis, as thick as the profile says), the parapet along the outline, one ribbon per band at the deck's height, the painted lines
 (an edge line at the outer edge of each run of lanes, lane lines between lanes of one direction, the centre line between the
 directions), the arrows and the guide lines, and a wall across the deck at each pier down to the ground. The heights of two axes blend
-only where they meet at a fork or lie side by side within 4.5 m at the same height. Near a landing the deck gets thinner and meets
+only where they meet at a fork or lie side by side within 4.5 m at the same height. Where two axes cross at different heights (a
+spiral that passes over itself, a ramp over another road of the bridge), the deck there is drawn once for each axis: that axis's strip,
+as wide as its lanes, at its own heights, with its own sides. Each part on that stretch takes the height of its own axis: a lane its
+axis, any other part the axis nearest to it. Near a landing the deck gets thinner and meets
 the street flush; the sides of a landing on fill go down to the ground as walls. On a landing, the bridge lane takes the edges of the
 street's lane under it.
 

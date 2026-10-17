@@ -668,6 +668,11 @@ def handler(area, agent, viz, page):
     types = {".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8"}
 
     class H(SimpleHTTPRequestHandler):
+        def end_headers(self):
+            # (no copy kept by the browser: a page or a bridge model rebuilt kept showing its old copy after a reload)
+            self.send_header("Cache-Control", "no-store")
+            super().end_headers()
+
         def __init__(self, *a, **k):
             super().__init__(*a, directory=viz, **k)
 

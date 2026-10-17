@@ -195,7 +195,7 @@ urbanstyle bridge osm gmns out_dir [--name NAME]
 | `out_dir` | The folder for the profiles. `bridge` makes it if it does not exist. | required |
 | `--name` | The OSM name of one bridge (`man_made=bridge`). Without it, `bridge` writes every road bridge. | none |
 
-Output: one `<slug>.bridge.json` for each bridge in `out_dir`. `bridge` prints the path of each file. The format is in [Bridge profile](../design/bridge-profile.md).
+Output: one `<slug>.bridge.json` for each bridge in `out_dir`. `bridge` prints the path of each file. The format is in [The bridge profile](../design/levels.md#the-bridge-profile).
 
 Code: `bridge_profile.write`.
 
@@ -241,7 +241,7 @@ urbanstyle bridge-heights profile heights out
 | `heights` | The heights file: `{bridge name: {default: {grade, max_m, curve_m}, axis: [[s, height], ...] or {from, to_ground}}}`. | required |
 | `out` | The profile with these heights. | required |
 
-Output: the profile `out`. Only the `vertical` of each axis changes. `bridge-heights` prints the number of axes and the path of `out`. The file format is in [Bridge heights without LiDAR](../design/bridge-heights.md).
+Output: the profile `out`. Only the `vertical` of each axis changes. `bridge-heights` prints the number of axes and the path of `out`. The file format is in [Bridge heights without LiDAR](../design/levels.md#heights-from-a-file).
 
 Code: `bridge_heights.write`.
 
@@ -336,7 +336,7 @@ Output: `out_dir/index.html` (the page with the panel), `static.js`, `bridge3d.j
 `__CARTO_DEMO_KEY__`, `__GOOGLE_MAPS_DEMO_KEY__` and `__GEMINI_DEMO_KEY__`. The site's deploy replaces them with its secrets
 (`.github/workflows/docs.yml`). A visitor can also give their own Gemini key in the Ask tab.
 
-Code: `publish.publish`. Design: [The dashboard online](../design/online-dashboard.md).
+Code: `publish.publish`. Design: [The dashboard online](../design/dashboard.md#the-dashboard-online).
 
 ```bash
 urbanstyle publish data/units/broadway-granville.space.duckdb demo --bridge data/bridges-measured/granville-bridge.bridge.json

@@ -7,12 +7,12 @@ you can check: a test, a <code>urbanstyle check</code> line, or a page to look a
 
 The city-wide work (Phases 0-4 below) is paused: it filled every space the same thin way. Instead one unit (a junction or a street
 section) is built with everything every source knows, with provenance on every item, then judged against reality, and the recipe
-generalised ([One unit in full](design/unit-dossier.md)). Three units: Skanstull (Stockholm), W Broadway x Granville St and a block of
+generalised ([One unit in full](notes/unit-dossier.md)). Three units: Skanstull (Stockholm), W Broadway x Granville St and a block of
 W 4th Ave (Vancouver).
 
 | step | state |
 |---|---|
-| 1. Source inventory per unit | Skanstull, Broadway x Granville done ([units](units/skanstull.md)); W 4th Ave not started. Now counted by the dossier itself (`inventory`: what each source holds, what reaches us); the gaps it found and the rules proposed for them: [What the sources hold](design/source-inventory.md) |
+| 1. Source inventory per unit | Skanstull, Broadway x Granville done ([units](units/skanstull.md)); W 4th Ave not started. Now counted by the dossier itself (`inventory`: what each source holds, what reaches us); the gaps it found and the rules proposed for them: [What the sources hold](notes/source-inventory.md) |
 | 2. The dossier: every layer a source covers, with source, method, ref, confidence | Broadway x Granville and Skanstull built (`urbanstyle unit`). Matching of objects across sources (OSM, Mapillary, a city's survey), the city's own accuracy as the method, turn rules with exceptions, conditions, vehicle classes and via ways (duckOSM), lanes with their road's information. Building use and ground-floor use from OSM and the city's storefronts (`buildings.py`). Not loaded yet: business licences, zoning, Vancouver's 2009 building heights, the turning counts behind VanMap; Stockholm's city data and orthophoto need a key and a login |
 | 3. Judged against reality: each difference a row in `check` | begun on Broadway x Granville against the city's aerial photo, Mapillary and its traffic cameras: a false median (fixed: divided roads centred on their lines), a fresh map (2026-10-09) exposing crosswalk nodes and a bridge deck at junctions (fixed); the city's turn-rule register disagrees with OSM on the southbound left (to become an automatic check) |
 | 4. The recipe: each step, by machine or by hand, and what a whole city would take | not started |
@@ -29,10 +29,10 @@ check U14 with the rule that gives street ground left to no space to a neighbour
 ## Now: one general pipeline for every area (2026-10-15)
 
 The rule (Kaveh, 2026-10-15): the pipeline must work for other areas too, so the code is general and has as few exceptions as it
-can; every rule is written down ([The agreed street rules](design/street-rules.md)) and has a check. A fault seen in one place is
+can; every rule is written down ([The agreed street rules](notes/street-rules.md)) and has a check. A fault seen in one place is
 fixed in the rule, and the fix is shown on both pilots.
 
-Done on 2026-10-15 after the Vancouver review ([the review](design/street-rules.md) lists the checks): junctions cut square across
+Done on 2026-10-15 after the Vancouver review ([the review](notes/street-rules.md) lists the checks): junctions cut square across
 each arm (J2), crosswalk parts with their paint from `crossing:markings` (X1), lines only between mapped lanes (M1), the kerb
 reported against the city's catch basins (K1). Still an exception: the Granville Bridge's correction files (`corrections/`), read by
 the bridge model only.
@@ -41,7 +41,7 @@ the bridge model only.
 
 All the geometry of the street (lanes, sidewalks, junction areas, crossings, walking areas, connections) comes from SUMO, and a wrong
 shape is fixed only in SUMO's input or settings. The rules, the inputs and the open questions:
-[The street from SUMO](design/street-from-sumo.md). First step: a test on three Monaco places, reviewed on the dashboard.
+[The street from SUMO](notes/street-from-sumo.md). First step: a test on three Monaco places, reviewed on the dashboard.
 
 ## To do (2026-10-10)
 
@@ -52,12 +52,12 @@ In order; each item is a general rule, checked on Broadway x Granville before an
 - [x] **Sizes from the data** (built 2026-10-10): every part's width with its source and method (lanes measured from OSM's sidewalks or
       urbanstyle's chosen 3.25 m), every line's width, every object's width and height (a city's measurement, else urbanstyle's chosen size);
       3D draws only what is stored; "default / estimated / assumed" became urbanstyle's `chosen` or `derived`.
-- [ ] **Layers** ([Layers](design/space-layers.md), agreed 2026-10-10), in order: (1) the ground of the whole area (G1, G2);
+- [ ] **Layers** ([Layers](notes/space-layers.md), agreed 2026-10-10), in order: (1) the ground of the whole area (G1, G2);
       (2) lanes as whole items, one junction area, the pedestrian realm in NACTO's zones; (3) overlays and relations (crosswalks,
       parking, bus, tree pits, aprons, connections); (4) markings and objects with their parent; (5) stable ids and the page's hierarchy;
       (6) plots' ground from parcels and land use, and the type mapping to OpenDRIVE, CityGML, IFC. It replaces the earlier items on
       unassigned ground, construction sites, U14, nodes, short lane pieces and stable ids.
-- [ ] **Blocks first** ([Blocks first](design/blocks.md), agreed 2026-10-10, tested on Broadway x Granville): the street divided
+- [ ] **Blocks first** ([Blocks first](notes/blocks.md), agreed 2026-10-10, tested on Broadway x Granville): the street divided
       between neighbouring blocks instead of from the road network; it is how layer 0 of **Layers** is built from now on. In order:
       (1) `blocks.py` (the blocks, stable ids, checks B1, B6; built 2026-10-10); (2) the street as the ground outside the blocks, sections and
       intersections, replacing the cutting in `spaces.py` (built 2026-10-10, `division.py`); (3) `ground.py`'s land rules inside each
@@ -70,7 +70,7 @@ In order; each item is a general rule, checked on Broadway x Granville before an
       buses with their own tags; not yet: tree pits, bus lanes).
       `check` before and after each.
       A city's block outlines only cross-check ours. Test: `scripts/blocks_test.py`.
-- [x] **Bridge profiles** ([Bridge profile](design/bridge-profile.md), agreed and built 2026-10-11): one file per bridge (axes,
+- [x] **Bridge profiles** ([Bridge profile](notes/bridge-profile.md), agreed and built 2026-10-11): one file per bridge (axes,
       vertical profile, sections, bands, piers), each value with its source and method; the lanes from duckOSM's GMNS export (from SUMO);
       `urbanstyle bridge` writes them (Vancouver: 81 bridges), the dashboard draws the 3D model from them only.
 - [x] **Measured bridge heights** (built 2026-10-11, `urbanstyle bridge-measure`): the deck's height above the ground from the City of
@@ -79,12 +79,12 @@ In order; each item is a general rule, checked on Broadway x Granville before an
 - [ ] **Measured bridges, the rest:** the piers and the deck thickness (the survey does not see under the deck), the lane widths from
       the aerial photo; where OSM ends a ramp that the survey still sees in the air (w35354210), the level of the road after it.
 - [ ] **Slanted lanes** west of West Broadway's 4 -> 6 joint; **West Broadway's north kerb east of Hemlock** still about 8 m short.
-- [ ] Then the gaps of [What the sources hold](design/source-inventory.md): crossing and kerb details, every Mapillary class, the city's
+- [ ] Then the gaps of [What the sources hold](notes/source-inventory.md): crossing and kerb details, every Mapillary class, the city's
       turn rules as automatic checks, land cover and lidar; then the W 4th Ave unit; then the recipe.
 - [x] **The dashboard, local** ([its design](design/dashboard.md), built 2026-10-13): `urbanstyle serve`, one panel (Find with the
       tree and tick boxes, Filter, Ask), levels full / faded / hidden in 2D and 3D, a street space, block or group in focus, the AI agent
       (Claude, else Gemini).
-- [x] **The dashboard online** (`docs/design/online-dashboard.md`, built 2026-10-13): Find, Filter and Ask on the documentation
+- [x] **The dashboard online** (`docs/notes/online-dashboard.md`, built 2026-10-13): Find, Filter and Ask on the documentation
       site with no server: DuckDB-WASM on Parquet files, Gemini from the browser with a restricted free-tier key from a GitHub secret.
 - [ ] **Routes in Ask:** the agent also reads the area's duckOSM database (read-only: its networks, POIs, transit stops, streets), and a
       `route` tool: from and to as a place name, an id or a map point; walk, cycle or drive; fastest or shortest. The server runs duckOSM's
@@ -101,9 +101,14 @@ In order; each item is a general rule, checked on Broadway x Granville before an
       surveyors do), every value gets closer to the truth and its stated accuracy gets smaller.
 - [ ] **Source dates** (proposed 2026-10-13, design note first): a `source_date` with each sourced value, and a manifest of the sources
       and their dates for each area file, so that two builds of one area can be compared by their stable ids.
-- [ ] **Paths** (design note `docs/design/paths.md`, a trial, 2026-10-16): a public pedestrian way cuts a block and is a street of its own
-      kind, with a width, path sections and path intersections, one side; tested on cuts first; after rule 3.
-- [ ] **Tunnels in 3D** (design note `docs/design/tunnels-3d.md`, proposed 2026-10-16): a tunnel model at its depth with a portal ramp, drawn like the
+- [x] **Paths, rank 1** (design note `docs/notes/paths.md`, a trial, 2026-10-16): a public pedestrian way cuts the blocks at its width and
+      its corridor between them is the ground kind `path` (`space.corridor`); the road's street ends at the sidewalk's edge. Built on the
+      Rue Princesse Caroline cut (U2, G1-G3, L1 pass) and Monaco.
+- [x] **A divided road is one section** (`docs/notes/dual-carriageways.md`, 2026-10-16): the two one-way carriageways of one street
+      between the same two junctions are one space, the median its island.
+- [ ] **Paths, ranks 2 and 3** (`paths.md` rules 3-6): path sections and path intersections, one space each, one side; a square as the
+      path intersection of the paths that reach it; the mouth at the sidewalk's edge.
+- [ ] **Tunnels in 3D** (design note `docs/notes/tunnels-3d.md`, proposed 2026-10-16): a tunnel model at its depth with a portal ramp, drawn like the
       bridges; levels −1 and −2 with the same full / faded / hidden buttons, built and checked on Monaco, then Södermalm.
 - [ ] **The second city: Södermalm**, with no new code, and its check report.
 - [ ] Merge `network-first` into `main` (the docs site shows `main`).
@@ -163,7 +168,7 @@ The work stopped in the middle of the gap fix (2026-10-04). Finish it before any
 
 ## Phase 2: what is inside a street
 
-The order of work agreed in [Street objects](design/street-objects.md#6-proposed-order-of-work).
+The order of work agreed in [Street objects](notes/street-objects.md#6-proposed-order-of-work).
 
 12. **Boundaries** (step 2, WP8). Walls, fences and hedges become obstacles in the ray measurement and rows of
     `space.boundary`. *Done when:* the capped share (`open_share`) falls on both pilots and widths are re-measured.

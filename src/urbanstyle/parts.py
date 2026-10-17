@@ -1146,7 +1146,7 @@ def build(con, epsg):
             for ref_, lot in ([lots[k] for k in lot_tree.query(U)] if lot_tree is not None and level in park_ground else []):
                 add(uid, level, "parking", safe("intersection", safe("intersection", park_ground[level], lot.buffer(PARK_GAP_M)), U), "osm", ref=ref_,
                     holds="OSM street parking")
-            add(uid, level, "carriageway" if sub else "ring" if rb else "junction area", C, "sumo")   # the rest of the roadway, one part
+            add(uid, level, "paved" if sub else "ring" if rb else "junction area", C, "sumo")   # the rest of the roadway, one part
             names = [(roads[e]["name"], roads[e]["g"]) for e, _ in cuts.get(uid, []) if e in roads]
             pedestrian(uid, level, U, C, None if sub or not names else
                        lambda piece, k: " / ".join(nm for nm, _ in sorted(names, key=lambda t: t[1].distance(piece))[:2]), kerb_near=kerb_at(level, U))
@@ -1394,7 +1394,7 @@ def build(con, epsg):
                 nf, nb = (sum(x[0] in (d, "both") for x in lanes) for d in ("forward", "backward"))
                 counts.setdefault(e, []).append(((nf, nb) if along_own(roads[e], ln) else (nb, nf)) + (wl,))   # lanes src -> dst, dst -> src
                 taken = safe("union", taken, shapely.union_all([x[1] for x in lanes] or [shapely.Polygon()]))
-            add(uid, level, "carriageway", safe("difference", C, taken), "measured")
+            add(uid, level, "paved", safe("difference", C, taken), "measured")
             pedestrian(uid, level, U, C)
             if line is not None and line.length > 0:     # widths across the middle
                 mid = line.interpolate(0.5, normalized=True)

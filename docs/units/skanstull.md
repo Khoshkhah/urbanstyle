@@ -1,6 +1,6 @@
 # Skanstull: Götgatan × Ringvägen
 
-<p class="lead">The first unit of the unit dossier (<a href="../../design/unit-dossier/">one unit in full</a>): where Götgatan meets
+<p class="lead">The first unit of the unit dossier (<a href="../../design/sources/#the-unit-dossier">the unit dossier</a>): where Götgatan meets
 Ringvägen at the south end of Södermalm, Stockholm.</p>
 
 **Where:** 59.30776 N, 18.07660 E. The junction is four nodes within about 10 m: both Götgatan and Ringvägen have a separate

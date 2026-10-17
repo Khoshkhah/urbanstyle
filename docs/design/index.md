@@ -1,31 +1,23 @@
-# Design notes
+# The design
 
-<p class="lead">How urbanstyle came to be built the way it is: the problems, the options and what was decided.</p>
+<p class="lead">How urbanstyle models a city's street space, and how it builds the model from open data.</p>
 
-- [One unit in full](unit-dossier.md): the new direction: one intersection or street section with every source, in a
-  structure with provenance; three units in Stockholm and Vancouver.
-- [What the sources hold](source-inventory.md): every source around a unit counted against what reaches our
-  tables (the dossier's `inventory`), the gaps by topic (parking, bus stops, building use, ...) and a general rule for each.
-- [Street space](street-space.md): **read first.** Definitions, sources, the cross-section algorithm, levels,
-  containers, zones, rail and stations, links between levels, parameters and results.
-- [Street space specification](street-space-spec.md): sections and intersections as a formal partition, its
-  axioms and the invariants `urbanstyle check` runs.
-- [Sections and intersections, version 2](section-intersection-v2.md): the replacement of Voronoi and hulls by
-  offset corridors and straight arm cuts.
-- [Network first (preview)](network-first.md): divide the roads into subsections, then one space per subsection, intersection and
-  roundabout, cut at the block corners.
-- [The inside of a space](space-parts.md): lanes, junction area, crosswalks, sidewalks, markings and widths, with their sources.
-- [Mapillary observations](mapillary.md): street-level signs, signals, street lights and parking from Mapillary's photos.
-- [Street objects](street-objects.md): what goes inside a street space: axis and `(s, t)`, strips, objects,
-  boundaries, and the order of work.
-- [Objects, step 1](street-objects-step1.md): the point-object taxonomy and `space.object`.
-- [Strips, first version](street-strips-v1.md): how each container is filled with typed bands.
-- [The dashboard online](online-dashboard.md): Find, Filter and Ask on the documentation site, in the browser, with
-  no server; the rules for a public Gemini key.
-- [Glossary](glossary.md): every word, column and id in one place.
+The model is a hierarchy of six ranks over the area of a level. Each rank partitions the rank above it, with no overlap and no gap.
+Every value in the model names its source and its method. The chapters:
 
-Research:
+1. [The model](model.md): the ranks, the levels, the words and the ids.
+2. [Rank 1, the ground](ground.md): the blocks, the corridors, the street and the other kinds of ground.
+3. [Rank 2, the stretches](stretches.md): the junctions, the sections, the subsections and the intersections.
+4. [Ranks 3 and 4, the spaces and their sides](spaces.md): the partition of the street into spaces, the kerb, the driving side and
+   the walking side.
+5. [Ranks 5 and 6, the parts and the marks](parts.md): the lanes, the strips, the crosswalks, the sidewalk zones, the painted lines
+   and the turns.
+6. [Street objects](objects.md): what stands in the street, from every source, one object per real thing.
+7. [Levels, bridges and tunnels](levels.md): the decks, the tubes, the links between levels and the bridge model.
+8. [Sources and provenance](sources.md): the sources, the methods, which source wins, and the unit dossier.
+9. [The format](format.md): the requirements of the published format.
+10. [The dashboard](dashboard.md): the page, the panel, the layers by rank, the AI agent and the online version.
+11. [Glossary](glossary.md): every word, table, column and id in one place.
 
-- [How others partition a street space](partitioning-research.md): CityGML, IFC, OpenDRIVE, and whether an
-  intersection belongs to a street.
-- [How other software handles levels](levels-research.md): stacking order versus a real vertical coordinate.
+The research behind the design is in its own section: how the standards layer a street, how they partition it, how software handles
+levels, and how urbanstyle's format relates to the standards.

@@ -1,6 +1,6 @@
 # How standards layer a street (research)
 
-Status: research, 2026-10-10. Why: our parts are one flat layer in which a later part cuts an earlier one ("a part takes only ground no
+Why: our parts are one flat layer in which a later part cuts an earlier one ("a part takes only ground no
 earlier part took"), so a crosswalk cuts every lane it crosses, SUMO's nodes break lanes, and a junction's area is what is left over:
 around Broadway × Granville 301 of 1,056 lane pieces in junctions are under 5 m², 274 lanes are in several pieces, 42 of 104 junctions
 have their area in 2-8 pieces. The question: how do the standards structure a street, what lies on what, and what type and shape has

@@ -14,7 +14,7 @@ open the file read-only, then run `DESCRIBE space.<table>` and `SELECT count(*) 
 
 ## Provenance columns
 
-Most rows say who gave the data, how the source got it, and which item of the source it is. [Sources and methods](../design/provenance.md)
+Most rows say who gave the data, how the source got it, and which item of the source it is. [Sources and provenance](../design/sources.md)
 gives the rules that select a source.
 
 | column | meaning |
@@ -86,7 +86,7 @@ Three tables use their own words in `source`. `space.strip` uses `tag`, `measure
 
 ## The area and its blocks
 
-`blocks.py` writes these tables. [Blocks first](../design/blocks.md) gives the design.
+`blocks.py` writes these tables. [Rank 1: the ground](../design/ground.md) gives the design.
 
 ### space.area
 
@@ -438,7 +438,7 @@ Key: none. One row per intersection, incoming edge and lane.
 
 ## The ground
 
-`ground.py` writes these tables, except `space.lot`, which `container.py` writes. [Layers](../design/space-layers.md) gives the design.
+`ground.py` writes these tables, except `space.lot`, which `container.py` writes. [Rank 1: the ground](../design/ground.md) gives the design.
 
 ### space.ground
 

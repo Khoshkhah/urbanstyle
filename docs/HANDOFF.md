@@ -1,13 +1,13 @@
 # Handoff: the street at level 0, 2026-10-16
 
 Status: written at the end of the 2026-10-15/16 session, updated in the night of 2026-10-16 after the Monaco fails. Read `AGENTS.md`
-first, then this note, then `docs/design/street-rules.md` and `docs/design/sections.md`.
+first, then this note, then `docs/notes/street-rules.md` and `docs/notes/sections.md`.
 
 ## Where the work stands
 
 - `main` and `network-first` are one (2026-10-16): steps 2 and 3 of `sections.md`, the rules from the Vancouver spots, the dashboard's
   first-3D-draw fix, the rules from the Monaco fails (`sections.md`), the service-road rule, the servers that hold no lock, and the
-  document of the model: `docs/design/steps.md` (the hierarchy by rank, the steps, the dependencies, the levels, the words).
+  document of the model: `docs/notes/steps.md` (the hierarchy by rank, the steps, the dependencies, the levels, the words).
 - Vancouver (`data/units/broadway-granville.space.duckdb`) is rebuilt with the final code: no count changed. Its fails: I3 1 (the
   old container step) and one BR12 (an object inside a bridge lane at the on-ramp foot, -123.135954 49.266514), as before.
 - Monaco (`data/monaco.duckdb`) is rebuilt in full on 2026-10-16 afternoon from duckOSM's rebuilt database (its 57 overrides applied,
@@ -21,9 +21,65 @@ first, then this note, then `docs/design/street-rules.md` and `docs/design/secti
   roundabout, a kind of its own); the Sainte-Dévote cluster i0-25197679 (10 nodes, 3,200 m²) is the test, with West 8th and the
   Granville ramp foot as the places that must stay one intersection each. (2) The side as rank 4 of the hierarchy: `space.side`
   (driving, walking) and `side_id` on `space.part` (`steps.md` section 1). (3) The network rules for every level, then the tunnels
-  in 3D (`tunnels-3d.md`). (4) The part type `carriageway` renamed `paved`.
-- Two servers run on this machine: Vancouver on port 8784, Monaco on port 8785. One server serves one area: its `/api/` answers
-  for one database (levels, tree, search). Street View works on 8784 only, because of the key's restriction.
+  in 3D (`tunnels-3d.md`). (4) The part type `carriageway` renamed `paved`: done 2026-10-16 evening.
+- Two servers run on this machine: Monaco on port 8784, Vancouver on port 8785 (`scratch/serve.sh monaco|vancouver`). One server
+  serves one area: its `/api/` answers for one database (levels, tree, search). Street View works on 8784 only, because of the
+  key's restriction (Kaveh adds `http://localhost:8785/*` to the key's referrers himself).
+- **Paths, rank 1 (2026-10-16 evening, `paths.md` rules 1-2, 5 at rank 1):** Kaveh: "if you are adding path in rank 1, the area must
+  partition by paths, blocks and streets". Built: `blocks.py` cuts the blocks by the pedestrian ways too (`path_sql`: a
+  pedestrian street, a footway, steps or a path, named or not, Kaveh's word of 16:40; `PATH_W` 4 / 3 m where OSM gives no width; not
+  a crossing, a sidewalk, one that runs along a road inside its sidewalk zone, or a pedestrian area, which is a square), one strip per path chain (`pstrip`), the same strip up to the roads' carriageways is `space.corridor`;
+  `network.py` keeps the corridor out of the street, less the sidewalk's width at the roadway (the mouth, rule 5); `ground.py` gives
+  the corridors the kind `path`. The faults met on the Rue Princesse Caroline cut and their rules: a path's edge run on 50 m past a
+  T of paths (`ext_at`: to the widest path's far edge), a corridor from the raw line against a block from the chain (one strip for
+  both), one corridor per way (several element rows per way gave duplicate ids, L1). The cut: U2 0, G1-G3 0, L1 0 (A3 1 as before).
+  `build --from blocks` reruns the blocks and the steps after them from OUT.before-division. Ranks 2-3 of `paths.md` (path sections,
+  path intersections, a square as a path intersection) are not built. Vancouver has no pedestrian way: nothing changes there.
+- **Every footway a path, no parcels (2026-10-16, 16:40-17:00):** Kaveh: "footway is part of paths in rank 1" and "I prefer not to
+  use the parcels at all": `blocks.path_sql` takes every footway, steps and path that is not a crossing, a sidewalk (tagged, or along a
+  road inside its sidewalk zone) or a pedestrian area; the parcels set no edge, pull nothing in and make no block (rule 8 of blocks.md
+  is history). `steps.md`, "The walking ways in the hierarchy", holds the rules in his words' order: which walkway is which, the
+  sidewalk line as a measurement of the block edge, the paths and the blocks, what is not built. Open, proposed to him: the block edge
+  as the far side of the sidewalk strip everywhere the line runs (no 10 m corner rule, no 0.5 m simplification, no building pull-in,
+  a check instead) and the sidewalk part placed by the line.
+- **The room rule and `paved` (2026-10-16, 17:00-17:30):** Kaveh found s0-w473754701.2/2 reaching 84 m² into b0-w23189661l.4 (West
+  Broadway's 6-lane frame at its 4-lane piece) and ruled: a partition has no overlap. Built (`sections.md`, "The room rule", rule 17):
+  the street's edge of rank 1 caps every kerb, chosen lane widths narrow to fit (2.75 m least, `narrowed`), the change class `room`,
+  every unit, part and mark cut from the street; checks B7 and B8. The part type `carriageway` is `paved` everywhere (data, checks,
+  page, docs). Both pilots rebuilt after it (Monaco `--from division`, 36 min).
+- **The sidewalk strip and the corners (2026-10-16, 17:20-17:40; Kaveh on i0-11251856779 "why did it not use the footways", and "do
+  it, also fix all overlapping in the same rank"):** `sections.md` room rule 5: the sidewalk lines' strips are part of the street's
+  edge (the kerb and the junction's roadway end at the strip's near side, the block's edge is its far side); the block edge follows
+  the line with no simplification and round the corner (`blocks.CORNER_M` 0, `EDGE_SIMPLIFY_M` 0); the strip is the sidewalk part,
+  the band to the kerb the furnishing zone; a corridor ends at the street's edge (no mouth of street in a garden path's slot,
+  s0-w627712113/1); the roads' blocks are filtered before the paths cut them (West 8th, s0-w1318007190.2/1). U1 and U9 at 0.05 m².
+  Then (17:40) the one partition of the walking side (`sections.md` room rule 6): the street cut only by the stop lines and the joints,
+  each face to the roadway with the most area in it, corners to the intersection (Kaveh on Fir Street at West 8th: "why do the sections
+  and intersections not have a clean shape?"; i0-250765180). Then (18:15) a divided road is one section (`dual-carriageways.md`:
+  Fir Street's two one-way carriageways north of Broadway, the zig-zag through the median), a path-cut sliver joins its corridor
+  (b0-w336755750l.9), a walking-side piece goes to the roadway of its own face that it touches most (Pine Street s0-w1419312038/1
+  had its lanes alone). Still open: rule 3 tightened (i0-245673105, four nodes chained by 35 and
+  37 m pieces, and Sainte-Dévote); the `paved` part.
+- **Vancouver, final build of 2026-10-16 (18:36, served on 8785):** every rule of the day; 5 divided roads paired (Fir Street north
+  of Broadway among them, one section s0-w473723210/2 of 18.5 m with its median an island); rank 3 adds up to rank 1's street to 1 m²;
+  B7 0, U1 0, U9 0, G1-G3 0. Fails: I3 1 and BR12 1 (as before), A1 2 (West 6th s0-w1202371350/1 and Fir south-bound w299511148, corrected
+  to 3 lanes: lanes cut by the room on one side, see 0a). INFO: B8 61 spaces with narrowed lanes, K1 29 (the kerbs now follow the
+  sidewalk strips, the basins no longer mark them), R4 45. Counts against the afternoon: B1 20 → 29, B6 47 → 44, R4 61 → 45.
+  The corners at Broadway × Fir: the sidewalk beyond each arm's stop line (the crosswalk's far edge) is the section's, and only the
+  kerb return between the two stop lines is the intersection's; that is the one-partition rule as written, verified with the
+  division's prints on a scratch build (a build without the city's data, under another name, gives different stop lines and different
+  corners: build under the unit's name).
+- **The division top down, rank by rank (2026-10-16, 19:00-19:30):** Kaveh: the hierarchy is the specification, the code must be built
+  in its order, no excuse; "I want to test each rank one by one in Vancouver first; when the result of each rank is ready I want to
+  see it on the dashboard"; "not Monaco yet". Notes: `docs/notes/division-top-down.md` (the construction and the order of work),
+  `docs/notes/ranks-algorithm.md` (one chapter per step from each rank to the next, what is built that way today and what not).
+  Built: rank 1 as the page layer "Street (rank 1)" (page.py: the area less the blocks and the corridors, whole); rank 3 as
+  `division.py` (new module: the street cut by the stop lines and the joints, each face to the roadway with the most area in it) and
+  the layer "Spaces (rank 3, top down)" from `space.space3` on the Vancouver page, with three findings in the note (the 1 cm noding,
+  sections through a T junction, 886 m² of street with no roadway). Next: Kaveh judges rank 1 and rank 3 on 8785; then rank 4 (the
+  kerb, `space.side`), 5, 6; then `network.py` goes.
+- **The panel by rank (2026-10-16 evening):** the layer list is the hierarchy of `steps.md` by rank (`panel.js` LYTREE, KINDS; the
+  Area overlay in `page.py`); a kind the area has none of is greyed "none here"; a rank's click: all off when any is on, else all on.
 - Monaco cuts: `scratch/cut-monaco.py NAME LON LAT TAG SRC [RADIUS]` (a 250 m cut of `../duckOSM/monaco.duckdb`, a full build in 1-2
   min, the checks; the bridge profiles whose axes reach the cut go with it). `scratch/plot-place.py DB LON LAT RADIUS OUT.png` draws
   one place (parts, lines, units, junction nodes) into `viz/review/`. The Monaco duckOSM database is from an older duckOSM (no turn
@@ -33,7 +89,7 @@ first, then this note, then `docs/design/street-rules.md` and `docs/design/secti
 
 ## The rules added this session
 
-All in `docs/design/street-rules.md` (rules 7 to 13) and `docs/design/pipeline.md`. In short:
+All in `docs/notes/street-rules.md` (rules 7 to 13) and `docs/notes/pipeline.md`. In short:
 
 1. A junction arm is cut square at its stop line, never by a circle round the node (J2).
 2. A node is a junction only where a road ends or two streams cross. A merge (a ramp into a road) is a joint, not a junction.
@@ -58,7 +114,7 @@ place-specific inputs. The code names no place.
 
 ## The agreed direction (2026-10-16, evening)
 
-`docs/design/sections.md`: one frame per section, merges and forks are junctions, a connector under 40 m belongs to the
+`docs/notes/sections.md`: one frame per section, merges and forks are junctions, a connector under 40 m belongs to the
 intersection, every lane-count change classified before it touches the frame (J4), the line-moving rules removed. This comes before
 every item below. Its order of work:
 
@@ -93,6 +149,15 @@ every item below. Its order of work:
 - Step 4 next: Monaco rebuilt (`build --from division`), the checks before and after, its page on 8785; then the J4 table of the unit.
 
 ## Open items, in the order I would take them
+
+0a. **A1 at West 6th's three-lane piece (s0-w1202371350/1, -123.133965 49.266206, Vancouver, since the strip rule):** OSM draws the
+   line along the north kerb; three lanes centred on it, narrowed to 2.75 m, still pass the sidewalk line there and are cut, so their
+   middle is off the line. Proposed, not built: where one side's room is less than the lanes' half width, the lanes shift away from
+   that edge as far as the other side's room allows, the shift recorded like a merge shift (`mshift`), A1 expecting it.
+
+0. **The `paved` part is not agreed.** Kaveh, 2026-10-16 17:15, on s0-w473754701.2/2#10: "I am not convinced about that paved part; we
+   will come back to it later." Today it is the frame's rest beyond the lanes and the strips (the one-frame-per-section rule); after
+   the room rule, look at what is left of it on both pilots and decide with him whether the part exists at all.
 
 1. **Monaco, what is left.** A1 5: four carriageways where a neighbour's lanes or its cycle lane lie in our lane's space and our lane
    is cut at its edge, so its middle moves by half the overlap (Boulevard du Larvotto at the tunnel pair, 7.419119 43.735712, twice;

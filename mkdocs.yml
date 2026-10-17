@@ -58,47 +58,28 @@ nav:
       - Tables: reference/tables.md
       - Ids: reference/ids.md
       - Checks: reference/checks.md
-      - "The format: requirements": design/format.md
   - Explanation:
       - The street space: explanation/street-space.md
       - Sources and accuracy: explanation/sources.md
       - The format and the standards: explanation/standards.md
-  - Design notes:
+  - Design:
       - design/index.md
-      - "Our format and the standards (research)": design/standards-comparison.md
-      - "The dashboard: its design": design/dashboard.md
-      - "The dashboard online": design/online-dashboard.md
-      - One unit in full: design/unit-dossier.md
-      - What the sources hold: design/source-inventory.md
-      - "Plots: where the street ends": design/plots.md
-      - "Layers: the whole area as a hierarchy": design/space-layers.md
-      - "Blocks first: blocks, sections, intersections": design/blocks.md
-      - "The agreed street rules": design/street-rules.md
-      - Sections, intersections and the frame: design/sections.md
-      - Joints: design/joints.md
-      - How the street map is made: design/pipeline.md
-      - The steps and their dependencies: design/steps.md
-      - "Junctions from the road network": design/junctions.md
-      - "The street from SUMO (proposed)": design/street-from-sumo.md
-      - "Bridges in 3D": design/bridges-3d.md
-      - Tunnels in 3D (proposed): design/tunnels-3d.md
-      - Paths (proposed): design/paths.md
-      - "Bridge profile": design/bridge-profile.md
-      - "Bridge heights without LiDAR": design/bridge-heights.md
-      - "Research: how standards layer a street": design/layers-research.md
-      - Street space: design/street-space.md
-      - Specification: design/street-space-spec.md
-      - Sections and intersections v2: design/section-intersection-v2.md
-      - Network first (preview): design/network-first.md
-      - The inside of a space: design/space-parts.md
-      - Mapillary observations: design/mapillary.md
-      - Street objects: design/street-objects.md
-      - Objects, step 1: design/street-objects-step1.md
-      - Strips, first version: design/street-strips-v1.md
-      - "Sources and methods": design/provenance.md
+      - The model: design/model.md
+      - "Rank 1: the ground": design/ground.md
+      - "Rank 2: the stretches": design/stretches.md
+      - "Ranks 3 and 4: the spaces and their sides": design/spaces.md
+      - "Ranks 5 and 6: the parts and the marks": design/parts.md
+      - Street objects: design/objects.md
+      - Levels, bridges and tunnels: design/levels.md
+      - Sources and provenance: design/sources.md
+      - The format: design/format.md
+      - The dashboard: design/dashboard.md
       - Glossary: design/glossary.md
-      - "Research: partitioning": design/partitioning-research.md
-      - "Research: levels": design/levels-research.md
+  - Research:
+      - How the standards layer a street: design/layers-research.md
+      - How others partition a street space: design/partitioning-research.md
+      - How software handles levels: design/levels-research.md
+      - Our format and the standards: design/standards-comparison.md
       - Units:
           - Skanstull: units/skanstull.md
           - W Broadway × Granville St: units/broadway-granville.md
@@ -157,6 +138,7 @@ markdown_extensions:
 
 # the builders are scripts, not pages
 exclude_docs: |
+  notes/
   build_*.py
   plan.md
   HANDOFF.md

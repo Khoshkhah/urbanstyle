@@ -33,7 +33,7 @@ A new profile has heights from a rule: up from each end on the ground at 5 %, to
     urbanstyle bridge-heights data/bridges/granville-bridge.bridge.json heights.json data/bridges/granville-bridge.heights.bridge.json
     ```
 
-    The file's keys are in [Bridge heights without LiDAR](../design/bridge-heights.md).
+    The file's keys are in [Heights from a file](../design/levels.md#heights-from-a-file).
 
 ## Draw it
 
@@ -68,5 +68,5 @@ See [Check the data](check-the-data.md).
 
 ## Related
 
-- The profile's fields: [Bridge profile](../design/bridge-profile.md).
-- How the 3D model is made: [Bridges in 3D](../design/bridges-3d.md).
+- The profile's fields: [The bridge profile](../design/levels.md#the-bridge-profile).
+- How the 3D model is made: [The 3D model](../design/levels.md#the-3d-model).

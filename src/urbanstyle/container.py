@@ -901,7 +901,8 @@ def intersection_shapes(con):
     con.execute("CREATE OR REPLACE TEMP TABLE ishape AS SELECT cid::VARCHAR AS cid, shape::VARCHAR AS shape, n_arms::INT AS n_arms FROM sh")
 
 
-FROM = ("division", "ground")     # where `build --from` can start: the steps before it are kept in OUT.before-<step>
+FROM = ("blocks", "division", "ground")     # where `build --from` can start: the steps before it are kept in OUT.before-<step>
+                                            # (blocks: from OUT.before-division too; the blocks' tables are rebuilt whole)
 
 
 def build(osm, out, start=None, bridges=()):
@@ -913,7 +914,7 @@ def build(osm, out, start=None, bridges=()):
     if start is not None:
         if start not in FROM:
             raise ValueError(f"build --from: one of {', '.join(FROM)}")
-        shutil.copy(f"{out}.before-{start}", out)        # (the steps before it, exactly as the full build left them)
+        shutil.copy(f"{out}.before-{'division' if start == 'blocks' else start}", out)        # (the steps before it, exactly as the full build left them)
         if os.path.exists(out + ".wal"):
             os.remove(out + ".wal")
     con = duckdb.connect(out)
@@ -985,7 +986,11 @@ def _from_division(con, epsg, done, bridges=(), out=None, start="division"):
     start="ground": the ground steps only, from OUT.before-ground (a fix in ground.py: Monaco 7 min, not 36)."""
     import shutil
     from . import ground, network, turns
-    if start == "division":
+    if start == "blocks":
+        from . import blocks
+        blocks.build(con, epsg)
+        done("blocks")
+    if start in ("blocks", "division"):
         network.build(con, epsg, bridges)      # the street at level 0 from the road network (docs/design/pipeline.md, steps 2-7)
         turns.build(con, epsg)                 # SUMO's moves through each junction: turns, guide lines, turn arrows (step 8)
         done("division")

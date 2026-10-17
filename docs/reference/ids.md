@@ -227,5 +227,5 @@ each part its id.
 ## Stable ids (planned)
 
 Most ids on this page come from the smallest OSM or duckOSM id in a group, or from a count. If the source data changes, the id of a thing
-can change. Requirement R6 of [the format](../design/format.md#r6-stable-ids-from-profiles-agreed-2026-10-13) gives the plan: ids that
+can change. Requirement R6 of [the format](../design/format.md#r6-stable-ids-from-profiles) gives the plan: ids that
 come from profiles, kept in a registry from build to build. That page gives the rules.

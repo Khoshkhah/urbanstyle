@@ -35,6 +35,31 @@ def _frames(con, db, bridges):
     out["ground"] = f(f"""SELECT ST_AsWKB(geometry) AS geometry, ground_id, type, name, source, method, ref, level,
         round(ST_Area({gm}), 1) AS area_m2, {d.ALLEY_W.format(t='type', g=gm)} FROM space.ground""")
     out["ground"]["color"] = out["ground"]["type"].map(d.GROUND_COLORS).fillna("#9ca3af")
+    out["area"] = f(f"SELECT ST_AsWKB(geometry) AS geometry, 0 AS level, round(ST_Area({gm}), 0) AS area_m2 FROM space.area")   # (rank 0: the whole area)
+    # rank 1's street, whole: the area less the blocks and the corridors, one item per connected piece, built here from those tables
+    # and not from the spaces, so rank 1 is judged on its own (docs/design/division-top-down.md, step 2; Kaveh, 2026-10-16: "I want to
+    # test each rank one by one")
+    try:
+        import shapely
+        area_ = [shapely.from_wkb(bytes(w)) for (w,) in con.execute("SELECT ST_AsWKB(geometry) FROM space.area").fetchall()]
+        blocks_ = [shapely.from_wkb(bytes(w)) for (w,) in con.execute("SELECT ST_AsWKB(geometry) FROM space.block WHERE level = 0").fetchall()]
+        try:
+            cors_ = [shapely.from_wkb(bytes(w)) for (w,) in con.execute("SELECT ST_AsWKB(geometry) FROM space.corridor").fetchall()]
+        except Exception:
+            cors_ = []
+        st_ = shapely.make_valid(shapely.union_all(area_)).difference(shapely.make_valid(shapely.union_all(blocks_ + cors_ or [shapely.Polygon()]))) if area_ else None
+        pieces_ = [p for p in (shapely.get_parts(st_) if st_ is not None else []) if p.geom_type == "Polygon" and p.area > 0]
+        out["street1"] = gpd.GeoDataFrame({"street_id": [f"g0-street-{i + 1}" for i in range(len(pieces_))], "level": [0] * len(pieces_),
+                                           "pieces": [len(pieces_)] * len(pieces_)}, geometry=pieces_, crs=4326)
+    except Exception as e_:       # (a database with no blocks: no rank 1 street layer)
+        print(f"  no rank 1 street layer: {e_}")
+    # rank 3 built top down (division.py, docs/design/division-top-down.md step 3): the street cut by the stop lines and the joints
+    try:
+        out["space3"] = f(f"""SELECT ST_AsWKB(geometry) AS geometry, space_id, kind, section_id, level, faces, area_m2 FROM space.space3""")
+    except Exception:
+        out["space3"] = None
+    # every footpath at level 0, whole, lying on the ground (space.path: not a kind of rank 1, no ground of its own)
+    out["paths"] = f("""SELECT ST_AsWKB(geometry) AS geometry, path_id, kind, name, width_m, width_source, width_method, "on", 0 AS level FROM space.path""")
     blocks = d.blocks_frame(con)
     out["blocks"] = d.block_colors(blocks) if blocks is not None and len(blocks) else None
     out["lots"] = f("SELECT ST_AsWKB(geometry) AS geometry, lot_id AS id, type, name, operator, parking, access, fee, level FROM space.lot")
@@ -134,9 +159,20 @@ def _overlays(F):
     if have(F["bridge2d"]):
         ovs.append(rs.Overlay(F["bridge2d"], placement="over", color="#9ca3af", color_col="color", opacity=0.95, outline="#334155", width=0.6,
                               label="Bridge 2D", popup=d.BR_POPUP, tooltip=["id", "type"]))
+    if have(F["area"]):      # rank 0 (docs/design/steps.md): the whole area of the level, the one thing the ground partitions
+        ovs.append(under(F["area"], color="#e2e8f0", opacity=0.35, outline="#111827", width=1.5, label="Area", popup=["area_m2", "level"], tooltip=[]))
+    if have(F.get("space3")):
+        ovs.append(rs.Overlay(F["space3"], placement="over", color="#f59e0b", opacity=0.45, outline="#7c2d12", width=1.2, label="Spaces (rank 3, top down)",
+                              popup=["space_id", "kind", "section_id", "faces", "area_m2"], tooltip=["space_id", "kind"]))
+    if have(F.get("street1")):
+        ovs.append(under(F["street1"], color=d.GROUND_COLORS["street"], opacity=0.6, outline="#334155", width=1.0, label="Street (rank 1)",
+                         popup=["street_id", "pieces", "level"], tooltip=["street_id"]))
     if have(F["ground"]):
         ovs.append(under(F["ground"], color=d.GROUND_COLORS["plot"], color_col="color", opacity=0.55, outline="#94a3b8", width=0.5, label="Ground",
                          popup=d.GROUND_POPUP, tooltip=["type", "name"]))
+    if have(F["paths"]):
+        ovs.append(rs.Overlay(F["paths"], placement="over", color="#b91c1c", opacity=0.5, outline="#7f1d1d", width=0.5, label="Footways",
+                              popup=["path_id", "kind", "name", "width_m", "width_source", "width_method", "on"], tooltip=["kind", "name"]))
     if have(F["blocks"]):
         ovs.append(rs.Overlay(F["blocks"], placement="over", color=d.BLOCK_COLOR, color_col="color", opacity=0.45, outline="#5b3410", width=2.0,
                               label="Blocks", popup=d.BLOCK_POPUP, tooltip=["block_id"]))

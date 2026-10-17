@@ -1,8 +1,8 @@
 # Our format and the standards
 
-Status: research, 2026-10-13. The question: before we write a versioned specification of our format ("an open format for city street
+The question: before we write a versioned specification of our format ("an open format for city street
 space, plus an open tool that builds it from open data"), how does it compare with the standards that exist? The facts on each standard
-were checked on 2026-10-13 against its specification, schema or repository; the sources are at the end. Where a fact was not checked,
+were checked against its specification, schema or repository; the sources are at the end. Where a fact was not checked,
 the text says so.
 
 ## Summary

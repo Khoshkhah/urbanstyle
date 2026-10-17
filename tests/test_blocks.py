@@ -29,3 +29,35 @@ def test_a_block_is_parallel_to_its_streets_and_holds_its_buildings(tmp_path):
                           WHERE e.type = 'building' AND b.block_id = 'b0-w100l'""").fetchone()[0]
     sides = dict(con.execute("SELECT way_id, basis FROM space.block_side WHERE block_id = 'b0-w100l'").fetchall())
     assert sides == {100: "carriageway", 200: "carriageway", 300: "carriageway", 400: "carriageway"}
+
+
+def test_a_named_footway_cuts_the_block_and_has_a_corridor(tmp_path):
+    """The same block with a named footway from the south street to the north street through its middle (docs/design/paths.md, rank
+    1): two blocks, one corridor 3 m wide (PATH_W, OSM gives no width) from one carriageway's edge to the other's, and the ground
+    kind path on it, less the sidewalk's width at each mouth (network FURNISH_M + CLEAR_M)."""
+    from urbanstyle import blocks, network
+    mid = (LON[0] + LON[1]) / 2
+    xy = {1: (LON[0], LAT[0]), 2: (LON[1], LAT[0]), 3: (LON[1], LAT[1]), 4: (LON[0], LAT[1]),
+          11: (LON[0] - 0.0001, LAT[0]), 12: (LON[1] + 0.0001, LAT[0]), 13: (LON[1] + 0.0001, LAT[1]), 14: (LON[0] - 0.0001, LAT[1]),
+          15: (LON[0], LAT[0] - 0.0001), 16: (LON[1], LAT[0] - 0.0001), 17: (LON[1], LAT[1] + 0.0001), 18: (LON[0], LAT[1] + 0.0001),
+          21: (mid, LAT[0]), 22: (mid, LAT[1])}
+    pieces = [(11, 1, 100), (1, 2, 100), (2, 12, 100), (14, 4, 200), (4, 3, 200), (3, 13, 200),
+              (15, 1, 300), (1, 4, 300), (4, 18, 300), (16, 2, 400), (2, 3, 400), (3, 17, 400)]
+    line = lambda a, b: f"ST_GeomFromText('LINESTRING({xy[a][0]} {xy[a][1]}, {xy[b][0]} {xy[b][1]})')"
+    edges = [f"({i}, {way}, {a}, {b}, 'residential', 'St {way}', NULL, NULL, NULL, NULL, {line(a, b)})" for i, (a, b, way) in enumerate(pieces, 1)]
+    walk = [f"(13, 500, 21, 22, 'footway', 'Passage Test', NULL, NULL, NULL, NULL, {line(21, 22)})"]
+    osm = make_osm(tmp_path / "osm.duckdb", edges={"driving": edges, "walking": walk})
+    con = urbanstyle.build(osm, str(tmp_path / "out.duckdb"))
+    halves = con.execute("SELECT block_id, area_m2 FROM space.block WHERE area_m2 > 1000 ORDER BY 1").fetchall()      # (the strips
+    assert [b for b, _ in halves] == ["b0-w100l", "b0-w100l.2"]                                                      # beyond the ring not)
+    assert abs(halves[0][1] - halves[1][1]) < 0.02 * halves[0][1]
+    cors = con.execute("""SELECT corridor_id, width_m, width_source, ST_Area(ST_Transform(geometry, 'EPSG:4326', 'EPSG:32634', always_xy := true))
+                          FROM space.corridor""").fetchall()
+    assert len(cors) == 1 and cors[0][:3] == ("c0-w500", blocks.PATH_W["footway"], "urbanstyle")
+    h = 0.001 * 111320 - 2 * 3.25                           # between the two carriageways' edges (two lanes of 3.25 m each street)
+    assert abs(cors[0][3] - 3.0 * h) < 0.05 * 3.0 * h
+    path = con.execute("""SELECT sum(ST_Area(ST_Transform(geometry, 'EPSG:4326', 'EPSG:32634', always_xy := true)))
+                          FROM space.ground WHERE type = 'path'""").fetchone()[0]
+    mouth = network.FURNISH_M + network.CLEAR_M
+    assert abs(path - 3.0 * (h - 2 * mouth)) < 0.05 * path
+    assert con.execute("SELECT count(*) FROM space.unit WHERE level = 0 AND ST_GeometryType(geometry) <> 'POLYGON'").fetchone()[0] == 0

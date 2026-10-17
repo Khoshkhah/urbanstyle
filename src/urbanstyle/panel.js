@@ -218,39 +218,81 @@ const roadsOn=on=>{const m=M(); if(m&&!(typeof in3d!=='undefined'&&in3d))m.getSt
 const HIDE_LY=l=>/3D/.test(l);     // (3D's own layers: never in Layers, never drawn in 2D)
 // (the layers as a tree, each under the one it is part of: blocks, sections and intersections cover the area (docs/design/space-layers.md);
 // agreed with Kaveh, 2026-10-13. A group with ▸ opens to its types; its own box turns them all on or off)
+// the layers, as the hierarchy of docs/design/steps.md, rank by rank (Kaveh, 2026-10-16: "an exact match to the hierarchy"). A node is
+// [text, layer, note] (one layer), [text, null, note, kids] (a group: a rank, with its own box), or [text, layer, note, null, types]
+// (the layer filtered to these types: a kind of the ground, a type of part). A layer filtered by types is drawn only where its
+// KINDS set holds the type (levels2d applies it with the levels' filter).
+const KINDS={Ground:new Set(),Parts:new Set()};     // layer -> the types on (undefined: every type)
+const typeOn=(label,p)=>{const k=KINDS[label]; return !k||k.has(p.type)};
 const LYTREE=[
-  ['Blocks','Blocks','the land between the streets',[['Buildings','Buildings',''],['Car parks','Parking lots','']]],
-  ['Street',null,'',[
-    ['Sections','Sections','a stretch of street between two intersections',[['Subsections','Subsections','a stretch with one cross-section']]],
-    ['Intersections','Intersections','where streets meet'],
-    ['Parts','Parts','inside both: lanes, sidewalks, junction areas, corners',[
-      ['Crosswalks, bus zones, driveways','On the parts',''],
-      ['Painted lines','Mark: ',''],
-      ['Street objects','Street objects','lamps, trees, signs']]]]],
-  ['Between levels',null,'',[['Bridges','Bridge 2D',''],['Links','Link: ','ramps, stairs, elevators']]],
-  ['Land use',null,'another cut of the same area',[['Ground','Ground','street, plot, green, water']]],
-  ['How it was cut',null,'helper lines',[['Subsection axes','Subsection axes',''],['Subsection breaks','Subsection breaks',''],['Cuts','Cuts','']]],
-  ['Sources',null,'the input, not our model',[['Road centre lines (OSM)','Roads',''],['Track','Track',''],['Rail','Rail',''],['Stations','Station','']]]];
+  ['Rank 0: the area',null,'the level, its whole area, with its content',[
+    ['The area','Area','the whole area of the level'],['Road lines','Roads',"OSM's road and walkway centre lines"],['Buildings','Buildings',''],
+    ['Rail lines','Rail',''],['Track','Track',''],['Stations','Station','']]],
+  ['Rank 1: the ground',null,'the area cut into eight kinds, nothing left over',[
+    ['street','Street (rank 1)','the area less the blocks and the corridors, whole: one item per connected piece, built from those tables alone'],
+    ['street, as the spaces cut it','Ground','the same ground, one piece per space of rank 3',null,['street']],
+    ['plot (the blocks)','Blocks','the land between the streets'],['path','Ground','',null,['path']],
+    ['square','Ground','',null,['square']],['green','Ground','',null,['green']],['water','Ground','',null,['water']],['rail','Ground','',null,['rail']],
+    ['structure','Ground','the ground under a bridge',null,['structure']],
+    ['footways (on the ground)','Footways','every footpath at this level, whole, at its width: a sidewalk and a crossing lie on the street, every other footway, steps or path has its corridor in the kind path']]],
+  ['Rank 2: the stretches of the street',null,'from junction to junction, and where the arms meet',[
+    ['Sections','Sections',''],['Intersections','Intersections','its space is rank 3 too']]],
+  ['Rank 2: the pieces of the plot',null,'',[
+    ['building','Ground','',null,['building']],['yard','Ground','',null,['yard']],['alley','Ground','a service road inside the block',null,['alley']],
+    ['car park','Ground','',null,['car park']],['construction site','Ground','',null,['construction site']]]],
+  ['Rank 3: the spaces',null,'one per subsection (and per intersection, above)',[
+    ['spaces, top down','Spaces (rank 3, top down)','rank 1\'s street cut by the stop lines and the joints: each face one space, corners included (division.py, the new construction)'],
+    ['Subsections','Subsections','a stretch with one cross-section'],['Subsection axes','Subsection axes','its line'],
+    ['Subsection breaks','Subsection breaks','where it starts'],['Cuts','Cuts','where one space ends and the next begins']]],
+  ['Rank 4: the sides',null,'the driving side and the walking side of each space: to be built',[]],
+  ['Rank 5: the parts, driving side',null,'',[
+    ['lane','Parts','',null,['lane']],['paved','Parts','the paved rest of the frame beyond the lanes and the strips',null,['paved']],['junction area','Parts','',null,['junction area']],
+    ['strips','Parts','parking, no parking, shoulder, bus lane, cycle lane, bus zone',null,['parking','no parking','shoulder','bus lane','cycle lane','bus zone']],
+    ['crosswalk, cycle crossing','Parts','',null,['crosswalk','cycle crossing']],['bridge deck','Parts','',null,['bridge deck']]]],
+  ['Rank 5: the parts, walking side',null,'',[
+    ['furnishing','Parts','',null,['furnishing']],['sidewalk','Parts','',null,['sidewalk']],['frontage','Parts','',null,['frontage']],
+    ['island','Parts','',null,['island']],['driveway','Parts','',null,['driveway']]]],
+  ['Rank 6: the marks',null,'',[['Painted lines','Mark: ','']]],
+  ['On top',null,'lying on the tree, in no rank',[
+    ['Street objects','Street objects','lamps, trees, signs'],['Crossings and driveways, drawn over the parts','On the parts',''],
+    ['Bridges','Bridge 2D',''],['Links','Link: ','ramps, stairs, elevators'],['Mapillary','Mapillary','']]],
+  ['Base map',null,'not the model',[['Positron','Positron',''],['Voyager','Voyager',''],['Light Gray','Light Gray',''],['Dark Matter','Dark Matter',''],
+    ['OpenStreetMap','OpenStreetMap',''],['Satellite','Satellite',''],['Blank','Blank','']]]];
 function layersList(){if(typeof OVERLAYS==='undefined')return; const all=['Roads',...OVERLAYS.map(o=>o.label)].filter(l=>!HIDE_LY(l)), used=new Set();
   const take=k=>k.endsWith(': ')?all.filter(l=>l.startsWith(k)):all.filter(l=>l===k);
   const sm=note=>note?`<small>${esc(note)}</small>`:'';
   const box=(l,txt,note,grp)=>{used.add(l); return `<label><input type=checkbox data-ly="${esc(l)}" ${grp?`data-grp="${esc(grp)}"`:''} ${allow.has(l)?'checked':''}>${esc(txt)}${sm(note)}</label>`};
-  const node=([txt,k,note,kids])=>{const sub=(kids||[]).map(node).join('');
+  const kbox=(l,txt,note,types)=>{if(!take(l).length)return ''; used.add(l); const k=KINDS[l], on=allow.has(l)&&(!k||types.every(t=>k.has(t)));
+    const n=typeof rsQuery==='function'?rsQuery(p=>types.includes(p.type),l).length:1;     // (a kind with nothing in this area: greyed, "none here")
+    return `<label><input type=checkbox data-kind="${esc(l)}" data-types="${esc(types.join('|'))}" ${on?'checked':''}${n?'':' disabled'}>${esc(txt)}${sm(n?note:'none here'+(note?': '+note:''))}</label>`};
+  const node=([txt,k,note,kids,types])=>{
+    if(types)return kbox(k,txt,note,types);
+    const sub=(kids||[]).map(node).join('');
     if(k&&k.endsWith(': ')){const ls=take(k); if(!ls.length)return ''; const on=ls.every(l=>allow.has(l));
       return `<details><summary><input type=checkbox data-all="${esc(k)}" ${on?'checked':''}> ${esc(txt)}${sm(note)}</summary><div class=lt>`+
         ls.map(l=>box(l,l.slice(k.length),'',k)).join('')+'</div></details>'}
-    const head=k&&take(k).length?box(k,txt,note):(k?'':`<div class=lg>${esc(txt)}${sm(note)}</div>`);
-    if(!head&&!sub)return ''; return (head||`<div class=lg>${esc(txt)}${sm(note)}</div>`)+(sub?`<div class=lt>${sub}</div>`:'')};
-  let html=LYTREE.map(node).join('');
-  const rest=all.filter(l=>!used.has(l)); if(rest.length)html+=`<div class=lg>Other</div><div class=lt>`+rest.map(l=>box(l,l,'')).join('')+'</div>';
-  $('xplys').innerHTML=html}
+    if(k)return take(k).length?box(k,txt,note):'';
+    // a rank: its own box switches every layer and kind in it; ticked when any is on, half-ticked when not all (syncRanks)
+    return `<div class=rk><div class=lg><label><input type=checkbox data-rank="${esc(txt)}"${sub?'':' disabled'}> ${esc(txt)}</label>${sm(note)}</div>`+(sub?`<div class=lt>${sub}</div>`:'')+'</div>'};
+  $('xplys').innerHTML=LYTREE.map(node).join(''); syncRanks()}
+function syncRanks(){$('xplys').querySelectorAll('.rk').forEach(rk=>{const b=rk.querySelector('input[data-rank]'), ls=[...rk.querySelectorAll('input[data-ly]:not([disabled]),input[data-kind]:not([disabled])')], n=ls.filter(c=>c.checked).length;
+  if(b){b.checked=n>0; b.indeterminate=n>0&&n<ls.length}})}
+// a rank's own box: every layer and kind in it on or off ("only rank 0": tick rank 0, untick the others)
+$('xplys').addEventListener('click',e=>{const r=e.target.dataset&&e.target.dataset.rank; if(!r)return; e.stopPropagation();
+  // (a box that shows ticked, any layer on, turns every layer in the rank off; a box with nothing on turns every layer on)
+  const rk=e.target.closest('.rk'), ins=[...rk.querySelectorAll('input[data-ly]:not([disabled]),input[data-kind]:not([disabled])')], on=!ins.some(c=>c.checked);
+  ins.forEach(c=>{if(c.checked!==on){c.checked=on; c.dispatchEvent(new Event('change',{bubbles:true}))}});
+  rk.querySelectorAll('input[data-all]').forEach(c=>c.checked=on)},true);
 // (a group's own box: all its types on or off)
 $('xplys').addEventListener('click',e=>{const a=e.target.dataset&&e.target.dataset.all; if(!a)return; e.stopPropagation();
   const on=e.target.checked; $('xplys').querySelectorAll(`input[data-grp="${a}"]`).forEach(c=>{if(c.checked!==on){c.checked=on; c.dispatchEvent(new Event('change',{bubbles:true}))}})},true);
-$('xplys').onchange=e=>{const l=e.target.dataset.ly; if(!l)return; const on=e.target.checked; if(on)allow.add(l); else allow.delete(l);
-  if(l==='Roads')roadsOn(on); else rsSetOverlay(l,on); applyLooks()};
+$('xplys').onchange=e=>{const t=e.target, l=t.dataset.ly, kl=t.dataset.kind; if(!l&&!kl)return; const on=t.checked;
+  if(kl){const types=t.dataset.types.split('|'); KINDS[kl]=KINDS[kl]||new Set(); types.forEach(x=>on?KINDS[kl].add(x):KINDS[kl].delete(x));
+    const vis=KINDS[kl].size>0; if(vis)allow.add(kl); else allow.delete(kl); rsSetOverlay(kl,vis); levels2d()}
+  else{if(on)allow.add(l); else allow.delete(l); if(l==='Roads')roadsOn(on); else rsSetOverlay(l,on)}
+  applyLooks(); syncRanks()};
 // (the options keep their own code; what they switch on is allowed)
-const optLy={allparts:()=>['Parts',...(typeof OVERLAYS!=='undefined'?OVERLAYS.filter(o=>o.label.startsWith('Mark: ')).map(o=>o.label):[])],mlybox:()=>['Mapillary']};
+const optLy={allparts:()=>{KINDS.Parts=undefined; return ['Parts',...(typeof OVERLAYS!=='undefined'?OVERLAYS.filter(o=>o.label.startsWith('Mark: ')).map(o=>o.label):[])]},mlybox:()=>['Mapillary']};
 $('xpopts').addEventListener('change',e=>{if(e.target.id==='terrain3d'){if(typeof draw3d==='function')draw3d(); return}
   if(e.target.id==='lowbld'){if(typeof bldFade==='function')bldFade(); return}
   const f=optLy[e.target.id]; if(!f)return; f().forEach(l=>{e.target.checked?allow.add(l):allow.delete(l); rsSetOverlay(l,e.target.checked)}); levels2d(); setTimeout(layersList,100)},true);
@@ -313,7 +355,7 @@ function levels2d(){const m=M(); if(!m||d3()||typeof OVERLAYS==='undefined'||typ
   if(!waiting)rsFilter(rsQuery(p=>p.level==null||on(p.level)));      // the road centre lines
   OVERLAYS.forEach(o=>{if(o.label==='Bridge 2D'||/3D/.test(o.label))return;
     if(!rsQuery(()=>true,o.label).length){waiting=true; return}
-    rsFilter(rsQuery(keep,o.label),o.label)});
+    rsFilter(rsQuery(p=>keep(p)&&typeOn(o.label,p),o.label),o.label)});     // (and the kinds or types ticked in Layers)
   // a faded level: its things at FADE in every layer, by their level (only show / hide was done here, so levels -1, -2, -3 never
   // faded; Kaveh, 2026-10-14). Level 0 fades the basemap and the buildings, level 1 the bridge (applyLooks)
   // and drawn on top of the others: under an opaque level 0 a faint level below it was not seen (Kaveh, 2026-10-14)

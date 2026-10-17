@@ -19,8 +19,8 @@ def unit_checks(c, q, epsg):
                   JOIN (SELECT src AS node, {m('ST_StartPoint(geometry)')} AS p FROM space.element WHERE type = 'road' AND src IS NOT NULL
                         UNION SELECT dst, {m('ST_EndPoint(geometry)')} FROM space.element WHERE type = 'road' AND dst IS NOT NULL) n ON n.node = a.node_id""")
     return [
-        ("U1", "spaces overlapping by more than 0.5 m2", q("""SELECT count(*) FROM u a JOIN u b ON a.level = b.level AND a.unit_id < b.unit_id
-                                  AND ST_Intersects(a.g, b.g) WHERE ST_Area(ST_Intersection(a.g, b.g)) > 0.5"""), True),
+        ("U1", "spaces overlapping by more than 0.05 m2 (rank 3 partitions the street; the lon/lat storage leaves hairlines under that)", q("""SELECT count(*) FROM u a JOIN u b ON a.level = b.level AND a.unit_id < b.unit_id
+                                  AND ST_Intersects(a.g, b.g) WHERE ST_Area(ST_Intersection(a.g, b.g)) > 0.05"""), True),
         ("U2", "spaces invalid, empty or in more than one part", q("""SELECT count(*) FROM space.unit
                                   WHERE NOT ST_IsValid(geometry) OR ST_IsEmpty(geometry) OR ST_NumGeometries(geometry) > 1"""), True),
         ("U3", "junctions with no intersection space", q("""SELECT count(DISTINCT intersection_id) FROM space.junction
@@ -55,8 +55,8 @@ def part_checks(c, q, m):
         ("U8", "spaces whose parts do not add up to them (3% or 1.5 m2)", q(f"""SELECT count(*) FROM (SELECT u.unit_id, ST_Area({m('u.geometry')}) AS a,
                                   coalesce(sum(p.a), 0) AS pa FROM space.unit u LEFT JOIN pt p USING (unit_id) GROUP BY u.unit_id, u.geometry)
                                   WHERE abs(a - pa) > greatest(0.03 * a, 1.5)"""), True),
-        ("U9", "parts of one space overlapping by more than 0.5 m2", q("""SELECT count(*) FROM pt a JOIN pt b ON a.unit_id = b.unit_id AND a.part_id < b.part_id
-                                  AND ST_Intersects(a.g, b.g) WHERE ST_Area(ST_Intersection(a.g, b.g)) > 0.5"""), True),
+        ("U9", "parts of one space overlapping by more than 0.05 m2 (rank 5 partitions the space)", q("""SELECT count(*) FROM pt a JOIN pt b ON a.unit_id = b.unit_id AND a.part_id < b.part_id
+                                  AND ST_Intersects(a.g, b.g) WHERE ST_Area(ST_Intersection(a.g, b.g)) > 0.05"""), True),
         ("U10", "cuts where the roadway differs by more than 0.5 m on the two sides", roadway_mismatch(c, q, m), False),
         ("R1", "joints between two subsections where the roadway's edges step by more than 0.1 m (the frame changes only at a 'real' change, J4)",
          _r1(c, q, m)[0], True, _r1(c, q, m)[1]),
@@ -65,7 +65,7 @@ def part_checks(c, q, m):
          q("SELECT count(DISTINCT unit_id) FROM space.part WHERE level = 0 AND type = 'lane' AND source = 'osm' AND width_m < 2.75"), False),
         ("R2", "guide lines (SUMO's moves) leaving the roadway by more than 0.5 m", q(f"""WITH rw AS (SELECT ST_Union_Agg(ST_MakeValid(
                                   ST_Buffer({m('geometry')}, 0.1))) AS g FROM space.part WHERE level = 0 AND type IN ('lane', 'shoulder', 'parking',
-                                  'bus zone', 'cycle lane', 'junction area', 'carriageway', 'crosswalk', 'cycle crossing'))
+                                  'bus zone', 'cycle lane', 'junction area', 'paved', 'crosswalk', 'cycle crossing'))
                                   SELECT count(*) FROM space.mark, rw WHERE type = 'guide line' AND level = 0
                                   AND ST_Length(ST_Difference({m('space.mark.geometry')}, rw.g)) > 0.5"""), False),
     ] + approach_checks(q) + ground_checks(c, q, m)
@@ -115,6 +115,16 @@ def block_checks(c, q, m):
                         x AS (SELECT b.g, ST_Area(ST_Intersection(b.g, k.g)) AS inside FROM b JOIN bk k ON ST_Intersects(b.g, k.g))
                         SELECT count(*), coalesce(sum(ST_Area(g) - inside), 0) FROM x WHERE inside > 1 AND ST_Area(g) - inside > 1""").fetchone()
     out = [("B1", f"buildings reaching over a block's edge ({cut[1]:,.0f} m2 outside their block; drawn whole)", cut[0], False)]
+    # B7: rank 3 is cut from rank 1's street, so no space reaches into a block (Kaveh, 2026-10-16: a partition has no overlap); B8: the
+    # lanes that narrowed to fit between the street's edges (the sidewalk lines), their count as OSM maps it
+    if q("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'space' AND table_name = 'unit'"):
+        ov = c.execute(f"""WITH u AS (SELECT unit_id, ST_MakeValid({m('geometry')}) AS g FROM space.unit WHERE level = 0)
+                            SELECT count(*), coalesce(sum(a), 0) FROM (SELECT ST_Area(ST_Buffer(ST_Intersection(u.g, k.g), -0.02)) AS a FROM u JOIN bk k ON ST_Intersects(u.g, k.g)) WHERE a > 0.05""").fetchone()
+        # (an overlap is measured 2 cm inside its outline: the shared edge of a space and a block, stored in lon/lat and read back, leaves
+        # a hairline 3 mm wide along 150 m, 0.5 m2, which is no space in a block)
+        out.append(("B7", f"street spaces reaching into a block by over 0.05 m2 past a 2 cm hairline ({ov[1]:,.1f} m2 in all): every space is cut from rank 1's street", ov[0], True))
+        nar = c.execute("""SELECT count(DISTINCT unit_id), count(*) FROM space.part WHERE level = 0 AND type = 'lane' AND width_method = 'narrowed'""").fetchone()
+        out.append(("B8", f"spaces whose lanes narrowed to fit between the street's edges ({nar[1]} lane parts; the count as OSM maps it, down to {2.75} m)", nar[0], False))
     if q("SELECT count(*) FROM space.city_block"):
         mt = c.execute(f"""WITH cb AS (SELECT city_block_id, ST_MakeValid(ST_Intersection(ST_MakeValid({m('geometry')}), ar.g)) AS g
                                          FROM space.city_block, ar),
@@ -239,7 +249,7 @@ def rule_checks(c, epsg):
     # A2: a parking or cycle lane that no real source gives
     nosrc = [at(g) for u, t, ref, src, g in parts if t in ("parking", "cycle lane") and src == "urbanstyle"]
     # A3: a stretch of a road line over 2 m with no roadway under it, inside the area (not at its edge)
-    road_t = ("lane", "junction area", "carriageway", "bridge deck", "bus lane", "bus zone", "parking", "shoulder", "cycle lane", "crosswalk",
+    road_t = ("lane", "junction area", "paved", "bridge deck", "bus lane", "bus zone", "parking", "shoulder", "cycle lane", "crosswalk",
               "cycle crossing")
     cover0 = shapely.union_all([g for u, t, ref, src, g in parts if t in road_t])
     cover = cover0.buffer(0.3)
@@ -381,7 +391,7 @@ def roadway_mismatch(c, q, m):
     """Along each cut line, the roadway (lanes, shoulders, bus / cycle lanes, crosswalks, junction area) on the intersection side and on the
     road side should be the same width: the arm and the road meet there."""
     road = ("('lane', 'shoulder', 'parking', 'no parking', 'bus zone', 'bus lane', 'cycle lane', 'cycle crossing', 'island', 'crosswalk', "
-            "'junction area', 'carriageway')")     # the kerb strip is roadway whatever it is used for
+            "'junction area', 'paved')")     # the kerb strip is roadway whatever it is used for
     return q(f"""WITH cut AS (SELECT intersection_id, edge_id, {m('geometry')} AS g FROM space.cut),
       rw AS (SELECT unit_id, ST_MakeValid(ST_Union_Agg(ST_MakeValid(ST_Buffer({m('geometry')}, 0.01)))) AS g FROM space.part WHERE type IN {road} GROUP BY unit_id),
       side AS (SELECT cut.intersection_id, cut.edge_id, ST_Length(ST_Intersection(cut.g, ST_Buffer(i.g, 0.3))) AS iw,
@@ -446,12 +456,12 @@ def roadway_joints(c, epsg, has_change=False):
     m = lambda g: f"ST_AsWKB(ST_Transform({g}, 'EPSG:4326', '{epsg}', always_xy := true))"
     geo = lambda w: shapely.make_valid(shapely.from_wkb(bytes(w)))
     to_ll = pyproj.Transformer.from_crs(epsg, "EPSG:4326", always_xy=True).transform
-    road = ("lane", "shoulder", "parking", "no parking", "bus zone", "bus lane", "cycle lane", "carriageway", "bridge deck")
+    road = ("lane", "shoulder", "parking", "no parking", "bus zone", "bus lane", "cycle lane", "paved", "bridge deck")
     rw = {u: geo(w) for u, w in c.execute(f"""SELECT unit_id, ST_AsWKB(ST_Union_Agg(ST_MakeValid(ST_Buffer(ST_Transform(geometry, 'EPSG:4326', '{epsg}',
                                               always_xy := true), 0.02)))) FROM space.part WHERE level = 0 AND type IN {road} GROUP BY 1""").fetchall()}
     subs = {u: (sid, geo(w), wd) for u, sid, w, wd in c.execute(f"SELECT subsection_id, section_id, {m('geometry')}, width_m FROM space.subsection WHERE level = 0").fetchall()}
     units = {u: geo(w) for u, w in c.execute(f"SELECT unit_id, {m('geometry')} FROM space.unit WHERE level = 0 AND kind = 'subsection'").fetchall()}
-    real = shapely.union_all([geo(w) for (w,) in c.execute(f"SELECT {m('geometry')} FROM space.change WHERE class = 'real'").fetchall()] or [shapely.Point()]) if has_change else shapely.Point()
+    real = shapely.union_all([geo(w) for (w,) in c.execute(f"SELECT {m('geometry')} FROM space.change WHERE class IN ('real', 'room')").fetchall()] or [shapely.Point()]) if has_change else shapely.Point()
     by_sec = {}
     for u, (sid, ln, wd) in subs.items():
         by_sec.setdefault(sid, []).append(u)

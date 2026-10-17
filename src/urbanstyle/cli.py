@@ -11,7 +11,7 @@ def main(argv=None):
     b.add_argument("out", help="output .duckdb")
     b.add_argument("--bridge", action="extend", nargs="+", default=[], metavar="PROFILE",
                    help="a bridge profile (<name>.bridge.json): its ways are the bridge model's, the ground draws none of them")
-    b.add_argument("--from", dest="start", choices=["division", "ground"], help="only the street division and the steps after it, from the copy "
+    b.add_argument("--from", dest="start", choices=["blocks", "division", "ground"], help="only the street division and the steps after it, from the copy "
                    "the last full build kept (OUT.before-division): for a fix in network.py; `ground`: the ground steps only, from OUT.before-ground")
     ck = sub.add_parser("check", help="conformance checks; exit 1 if a hard check fails")
     ck.add_argument("db", nargs="+")

@@ -77,14 +77,71 @@ count, a missing `layer`, is fixed here and nowhere lower.
 
 **Rank 1. The ground**, table `space.ground` (every piece with its kind), `space.block` (the blocks).
 What: the whole area of rank 0 cut into eight kinds (`ground.py`): **street** (the street area between the blocks: the roads
-with their walking sides), **plot** (a block: the land between the streets, `space.block`), **path** (a space of footpaths with no
-road), **square** (a pedestrian place), **green**, **water**, **rail**, **structure** (the ground under a bridge: OSM's
+with their walking sides), **plot** (a block: the land between the streets, `space.block`), **path** (a pedestrian way's
+corridor between the blocks: a pedestrian street, a footway, steps or a path, named or not, at its width, `space.corridor`; the trial of
+`paths.md`, rank 1 built 2026-10-16: the roads and these ways cut the area into blocks together), **square** (a pedestrian place), **green**, **water**, **rail**, **structure** (the ground under a bridge: OSM's
 `man_made=bridge` outline, or the ground under a deck). Two kinds are divided further at rank 2: the
 street into sections and intersections, the plot into **building**, **yard**, **alley** (a service road inside the block), **car
 park** and **construction site** (`space.ground` holds these five as the plot's pieces). The kinds partition the area exactly (`ground.py`, 2026-10-16), as one planar construction: every outline
 is noded with the others, the faces are polygonized, each face goes to the first kind in the order of precedence that holds its
 inner point, a face no kind holds goes to the neighbour face's kind it shares the most edge with, and each item's faces are merged.
-Faces share their edges, so no hairline is left. Measured on Monaco after it: the area is 2,390,512.6 m², the kinds add up to
+Faces share their edges, so no hairline is left.
+
+### The walking ways in the hierarchy
+
+Kaveh, 2026-10-16: "the definition is not clear about paths, footways and pedestrian roads"; "a footway is a path at rank 1"; "how do
+you decide which one is a sidewalk, how do you fix the geometry conflict between the road and that footway, how do you use it to
+build the blocks". The rules, as the code has them (`blocks.py`, `network.py`, `ground.py`):
+
+**Which walkway is which.** A walkway at level 0 (OSM `highway=footway`, `steps`, `path`, `pedestrian`, in duckOSM's walking network)
+is, in this order: a **crossing** when OSM tags it `footway=crossing`; a **sidewalk** when OSM tags it `footway=sidewalk`, or when more
+than half of its length lies inside a road's sidewalk zone (the road's carriageway, OSM's lanes of 3 m, one each way when OSM gives
+none, widened by 8 m on each side, a chosen value: room for a parking lane and a verge); a **square** when it is a pedestrian area
+(`area=yes`, a closed way); else a **path**, named or not. A cycleway is never a path: along a road it is the street's cycle lane or
+track, away from roads it lies on the ground like a sidewalk line, in `space.path`.
+
+**The sidewalk and the road: no conflict, a measurement.** A sidewalk line is never drawn as a thing of its own. The block's street
+side is measured every 2.5 m along the road, square to it: the first sidewalk line that runs along the road (within 35 degrees) inside
+the zone sets the distance there, plus 1 m (the line is the sidewalk's middle), the median of each line and its two neighbours; the
+block's edge follows those distances, the line's own shape, to the junction and round the corner as the line curves (2026-10-16
+evening; until then simplified by 0.5 m and straight within 10 m of a junction). A side needs at least 3 such hits; else the edge
+stands 1.5 m behind the carriageway. A building that stands nearer than the edge pulls the edge in to its wall (a roof within 1.5 m
+does not). A city's parcels set no edge (Kaveh, 2026-10-16: "don't use the parcels at all"). Inside the street, the sidewalk line's
+strip (2 m, or OSM's width) is the sidewalk part, the kerb ends at its near side (the roadway and the junction's corner are cut by it),
+the band between the kerb and the strip is the furnishing zone, measured; where no line is mapped, the chosen bands from the kerb (1 m
+furnishing, 1.8 m clear path). The Footways layer under Rank 1 draws every line's strip on top.
+
+**The paths and the blocks.** The road chains and the path chains go into one polygonization: the faces they close are the raw
+blocks. From each face the code cuts, along each road, the strip to the street side above; along each path, its width either side of
+its chain (OSM's `width`, else 4 m for a pedestrian street, 3 m for a footway, steps or path), square where it meets another chain
+(run on to that road's edge, or to that path's far edge) and round at a dead end; and the roads' carriageways. What is left, at least
+400 m² and 8 m wide, is a block. A path that ends inside a face cuts a slot and splits nothing; a path that closes a loop splits the
+face. The same path strip, up to the street's sidewalk band, is the path's corridor (`space.corridor`): the ground kind `path`.
+
+**Rank 3 inside rank 1.** Every space (unit, parts, marks) is cut from the street of rank 1, the blocks and the corridors taken out,
+and the frame's kerb never passes the street's edge: the room from the run's line to the edge caps it, and chosen lane widths narrow
+to fit, down to 2.75 m (`sections.md`, "The room rule"; checks B7, B8).
+
+**A divided road is one section** (`dual-carriageways.md`): the two one-way carriageways of one street between the same two
+junctions are one section and one space, the median between them its island.
+
+**The walking side is one partition** (`sections.md`, "The room rule" 6): the street cut only by the arms' stop lines and the
+subsections' joints; each face belongs to the roadway with the most area in it, so a corner between two stop lines is the
+intersection's and a section's walking side is the band between its two cuts.
+
+**Not built:** the path street's own sections and intersections (ranks 2 and 3, `paths.md` rules 3 to 6); the snap of a footway that
+ends a few metres short of the road's line (a sliver of block stays between its end and the street).
+
+
+| OSM | rank 1 | below it |
+|---|---|---|
+| pedestrian street (`highway=pedestrian`, a line) | `path`: its corridor, OSM's `width` or 4 m; it cuts the blocks | `space.corridor`; ranks 2-3 of `paths.md` not built |
+| pedestrian area (`highway=pedestrian` + `area=yes`) | `square`: the way's own polygon | - |
+| footway, steps or path, named or not | `path`: its corridor, OSM's `width` or 3 m; it cuts the blocks | `space.corridor` |
+| footway along a road (inside its sidewalk zone over half its length, or `footway=sidewalk`) | `street` | rank 4 walking side, rank 5 part `sidewalk` |
+| crossing (`footway=crossing`) | `street` | rank 5 part `crosswalk` |
+| cycleway | along a road `street` (a cycle lane or track part); away from roads it lies on the ground like an unnamed footway | never cuts a block |
+ Measured on Monaco after it: the area is 2,390,512.6 m², the kinds add up to
 2,390,512.6 m², their union is 2,390,512.6 m², the gap 0.0 m², the overlaps 0. Before it, with each piece cut and snapped to the
 centimetre grid on its own, 7 km of shared edges left 36 m² of gaps and 12 m² of overlaps in hairlines. The checks: G1, no piece of
 unknown kind; G2, no two kinds overlap by over 0.05 m²; G3, the area less the kinds' union is under 1 m² (the lon/lat storage of
@@ -134,7 +191,7 @@ What: the parts of a side partition it. Every point of the side lies in exactly 
 and U9, no two parts of a space overlap).
 Driving side, built from the road's line outward: each lane is a band 3.25 m wide (or OSM's `width`), laid side by side from the
 frame's right edge to its left edge, centred on the carriageway's OSM line, as many as OSM counts (`lane`); where the frame is wider
-than the lanes the rest is paved roadway (`carriageway`); a strip is a band outside the lanes where a source gives it (`parking`,
+than the lanes the rest is paved roadway (`paved`); a strip is a band outside the lanes where a source gives it (`parking`,
 `no parking`, `shoulder`, `bus lane`, `cycle lane`); in an intersection the roadway is the `junction area`; a `crosswalk` or a
 `cycle crossing` is the roadway under a crossing way, a band as wide as the crossing, cut out of the others; a `bridge deck` is a
 bridge way's band, its lanes drawn by the bridge model.
@@ -155,6 +212,11 @@ Outside the tree, lying on it: the **paths** (every footpath whole, `space.path`
 On the page the layers follow the tree: **Sections** draws each section's area (its subsections' areas joined), **Subsections** each
 subsection's own area (`space.unit`), **Subsection axes** and **Subsection breaks** the subsections' lines and where each starts
 (`space.subsection`), **Intersections** the intersections' areas, **Parts** the parts, **Mark: ...** the marks, **Blocks** the blocks.
+The side panel's layer list is this tree by rank (2026-10-16): one box per rank, under it the layers of that rank; under rank 1 one box
+per ground kind, under rank 5 one per part type; a kind the area has none of is greyed, "none here". Under rank 1 too, **Footways**:
+every footpath whole (`space.path`), lying on the ground; it is no kind of rank 1 (Kaveh, 2026-10-16: "the dashboard in rank 1
+missed footway"). A rank's box ticked shows every
+layer of the rank; a click on it turns them all off when any is on, all on when none is.
 
 ![The sections (blue) and the intersections (red) at Sainte-Dévote. The roundabout and its neighbours are one intersection, i0-25197679, by rule 3 as it stands.](../img/steps/04-sections-intersections.png){ width=100% }
 
@@ -252,7 +314,7 @@ not the order of execution. The order is this:
 | l | **Barriers from a bridge landing** | the bridge corrections | a median barrier continued on the ground, its strip an island (rule 12) |
 | m | **The walking side** | the street (the area less the blocks), the roadway, the arms' stop lines, the service roads | the street less the roadway, each piece given to the nearest roadway; the strip between two roadways an island where it is 2 m wide, paved roadway where thinner (rule 15); the sidewalk cut square at each arm's stop line and at the block corners; a driveway where a service road crosses it |
 | n | **Crosswalks** | OSM's crossing ways and crossing nodes, the roadway | a crosswalk part per crossing that runs across the road, its paint from `crossing:markings` (rule 7, check X1) |
-| o | **Parts and marks** | all of the above | the parts of every unit: lanes, paved roadway (`carriageway`), junction area, crosswalk, island, sidewalk, furnishing, frontage, driveway; the marks: kerb, centre, lane, stop and give-way lines (rules 8, M1) |
+| o | **Parts and marks** | all of the above | the parts of every unit: lanes, paved roadway (`paved`), junction area, crosswalk, island, sidewalk, furnishing, frontage, driveway; the marks: kerb, centre, lane, stop and give-way lines (rules 8, M1) |
 | p | **Write** | the parts and marks | the level-0 rows of `space.unit`, `junction`, `subsection`, `change`, `part`, `mark`; a crosswalk is one object in one space (the loser's piece goes) |
 | q | **The kerbs** | the roadway, the walking side | `space.kerb`: one line for the level, the boundary between the roadway and the walking side |
 ![Sub-steps b to e and j: the junction nodes make the intersections (red) and the sections between them (blue). The roundabout and its neighbours are one intersection here, i0-25197679, by rule 3.](../img/steps/04-sections-intersections.png){ width=100% }

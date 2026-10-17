@@ -45,56 +45,52 @@ Two other ideas were tried and rejected:
 
 ## Step 1: blocks
 
-1. **Bounding roads.** OSM's public streets at level 0: motorway down to residential, living street and pedestrian street, with their
-   links. Service roads (alleys, driveways, parking aisles), paths and rail do not bound blocks: an alley lies inside its block. A road
-   on a deck at level 1 bounds blocks only when nothing at ground level passes under it (a temporary deck over works, not a bridge).
+1. **Bounding roads.** OSM's public streets at level 0: motorway down to residential and living street, with their links, and a
+   named service road with no service kind (`street-rules.md` 16). Service roads (alleys, driveways, parking aisles) and rail do not
+   bound blocks: an alley lies inside its block. A road on a deck at level 1 bounds blocks only when nothing at ground level passes
+   under it (a temporary deck over works, not a bridge). **And the pedestrian ways** (`paths.md`, 2026-10-16): a pedestrian
+   street, a footway, steps or a path, named or not (`blocks.path_sql`), each at its width (OSM's `width`, else 4 m for a pedestrian
+   street, 3 m for the others), except a crossing, a sidewalk (tagged, or one that runs along a road inside its sidewalk zone over
+   half its length) and a pedestrian area (`area=yes`: a square). Its
+   strip either side of its chain cuts the blocks; the same strip, up to the roads' carriageways, is its corridor (`space.corridor`,
+   `c0-w<way>`): the ground kind `path`, which the road's street never takes (`network.py`), ending at the street's sidewalk (the
+   furnishing and clear path widths from the roadway). An edge runs on past a chain's end to the next road's edge (a corner), but
+   where only paths meet there only to the widest path's far edge.
 2. **Chains.** The bounding roads joined end to end between junctions, with OSM's small wiggles taken out (simplified by 1 m).
 3. **Faces.** The areas the chains enclose, closed by the edge of the area.
 4. **One edge per street side.** Each side of each chain gets **one distance** from the road line, so the block's edge on that side runs
    parallel to the road. The distance comes from the best source that has it, measured on lines square to the road every 5 m, inside
    that face only:
-   - **the sidewalks** (2026-10-14: first, because most areas, Monaco among them, have no parcels; one rule reads every area the same
-     way): the median distance to OSM's sidewalk lines that run along the road (within 35°), plus 1 m (a sidewalk is drawn along its
-     middle), when at least 3 lines reach one. A sidewalk line counts only when it is at most 8 m beyond the carriageway (OSM's lanes ×
-     3.25 m): there is room for a parking lane and a verge, but a park path further away is not a sidewalk (2026-10-14);
-   - **else the parcels** (a city's property lots, `space.parcel`): the median distance to the nearest parcel, when at least half the
-     lines reach one;
-   - **else the road class**: half the usual right-of-way for that class (living street 8 m; residential, unclassified, tertiary and
-     pedestrian 10 m; secondary 12 m; primary 15 m; trunk 16 m; motorway 18 m).
+   - **the sidewalks** (2026-10-14: one rule reads every area the same way): the distance to OSM's sidewalk lines that run along the
+     road (within 35°), plus 1 m (a sidewalk is drawn along its middle), when at least 3 lines reach one. A sidewalk line counts only
+     when it is at most 8 m beyond the carriageway (OSM's lanes × 3.25 m): there is room for a parking lane and a verge, but a park
+     path further away is not a sidewalk (2026-10-14);
+   - **else the carriageway**: 1.5 m behind it (`MIN_EDGE_M`, the kerb and a strip; no guessed class width).
    
-   Each line's hit is taken only when it is within 1.5 × the class's half width, so a parcel or sidewalk of the next street does not count.
-   **The edge is straight** (2026-10-15, Kaveh: "their edges must be straight"): one distance for the whole side, the median of the lines square to the road (every 2.5 m) that end 1 m behind the
-   sidewalk it reaches, the median of it and its two neighbours (one line that reaches another path makes no spike). Within 10 m of a
-   junction (`CORNER_M`) the edge goes straight on in its own last direction (the footway's, not the road's: a slip lane bending into
-   the junction stuck a corner out of the footway line, 2026-10-16), so two edges meet in a sharp corner: an edge rounded
-   round a corner's sidewalk left the division no intersection there (i0-877917415).
-5. **No parcel is cut** (2026-10-10). The distance is pulled in to the nearest parcel on that side, so a block holds its parcels whole.
-   Where the sidewalks set the side (2026-10-14), a parcel does not move it: the sidewalks are the edge.
-   **Where parcels set the side, an OSM building does not move it:** the parcel line is surveyed, and an OSM outline (drawn from an
-   aerial photo, a tall building's roof shifted) can be a few metres off. Such a building is drawn whole and reaches over the edge
-   (check B1 counts them: 99 at Broadway × Granville, 1,771 m²). Where no parcel sets the side, the nearest building still pulls it in,
-   but only by more than 1.5 m (`ROOF_M`, 2026-10-13): OSM often draws a building by its roof, which reaches over the sidewalk
-   (Avenue Pasteur, Monaco, building w49209427, seen in Street View). A building nearer by 1.5 m or less does not move the edge.
-   Result: 194 of 201 sides set by parcels; the match with the city's blocks (B6) 47 of 51, median overlap 0.99 (was 0.97).
-6. **Sharp corners.** Each edge line is continued past the junction, so two edges meet in a corner, as two parallel offsets do. The
-   city's own blocks have sharp corners too: over 320 corners of rectangular blocks, the median rounding is 0.02 m.
-7. **What is a block.** What is left of each face, less its parts narrower than 8 m, is a block if it is at least 400 m². A part
-   narrower than 8 m (the strip between a divided road's two carriageways, also as a thin tail of a wider piece) is street
-   (2026-10-14: the two one-way ways of Fir Street made a block 190 m long and 2.7 m wide).
-8. **Where a city has parcels, the block is its parcels** (2026-10-11). Only in a face where no side is set by sidewalks (2026-10-14). A parallel edge is one straight line, so where the parcels
-   along it step back (land a city keeps for its street in front of some lots), the block held ground that no parcel holds. So, in each
-   face:
-   - take the parcels that lie more than half in the face (for a parcel that the area's edge cuts: half of its part inside the area);
-   - join them and close every gap narrower than 12 m (a back lane, a slit between two parcels): grow by 6 m, then shrink by 6 m;
-   - that shape is the block, and the street is all of the face that is not in a block.
-
-   The block's edge is the parcels' front. It crosses a lane's mouth in a straight line from parcel corner to parcel corner, and a lane
-   or a slit stays inside the block. If the joined parcels cover less than 80 % of the block from the parallel edges (a park, a rail
-   yard with no parcel), that face keeps the parallel edges. `space.block_side.basis` is `parcels (joined)` for such a side.
-
-   Until 2026-10-11 the street grew into its blocks after the cuts, up to the parcels' front ("step 3b"). Each street piece grew
-   separately, so each special case (a lane mouth, a slit, a corner strip, a crumb) needed its own rule. It is removed: the parcels
-   now set the block before the cuts, and the cuts need no change.
+   Each line's hit is taken only when it is within 1.5 × the class's half width, so a sidewalk of the next street does not count. A
+   city's parcels (`space.parcel`) are not used (Kaveh, 2026-10-16: "I prefer not to use the parcels at all"): they set no edge, pull
+   nothing in and replace no block; until then they were the second source and, in a face no sidewalk set, the block itself.
+   **The edge is the sidewalk line's shape** (2026-10-16 evening, Kaveh: the sidewalk line is the kerb data, corners included): every
+   2.5 m a line square to the road ends 1 m behind the sidewalk it reaches, the median of it and its two neighbours (one line that
+   reaches another path makes no spike), and the edge joins those points with no simplification, to the junction and round the corner
+   as the line curves. Past the chain's end the edge runs on in its own last direction (the footway's). Until then (2026-10-15,
+   "their edges must be straight"): simplified by 0.5 m and straight within 10 m of a junction, a sharp corner as the city's blocks have;
+   gone with the parcels.
+5. **No building is cut.** The nearest building on that side pulls the distance in to its wall, but only by more than 1.5 m (`ROOF_M`,
+   2026-10-13): OSM often draws a building by its roof, which reaches over the sidewalk (Avenue Pasteur, Monaco, building w49209427,
+   seen in Street View). A building nearer by 1.5 m or less does not move the edge; it is drawn whole and reaches over it (check B1
+   counts them).
+6. **Corners.** Where the sidewalk line curves round the corner, the edge follows it (rule 4); where no line is mapped, each edge runs
+   on past the junction and two edges meet in a sharp corner, as two parallel offsets do.
+7. **What is a block.** What is left of each face after the roads' cuts, less its parts narrower than 8 m, is a block if it is at
+   least 400 m². A part narrower than 8 m (the strip between a divided road's two carriageways, also as a thin tail of a wider piece)
+   is street (2026-10-14: the two one-way ways of Fir Street made a block 190 m long and 2.7 m wide). **Then the paths cut those
+   blocks**, and every piece they leave is a block, however small: two footways 2 m apart have ground between them (2026-10-16: the
+   filter threw such pieces away, and West 8th's frontage took them, s0-w1318007190.2/1).
+8. **The parcels made no block from 2026-10-16.** From 2026-10-11 to then, in a face no sidewalk set, the block was the face's parcels
+   joined and closed across gaps narrower than 12 m (its edge the parcels' front; 194 of 201 sides at Broadway × Granville, B6 47 of
+   51 city blocks matched, median overlap 0.99). Removed on Kaveh's word: the blocks come from the roads, the paths, the sidewalk lines
+   and the buildings, the same in every area.
 
    With sidewalks first (2026-10-14), Broadway × Granville: 51 blocks (454,828 m²); 201 street sides, 186 from sidewalks, 11 from a
    parcel, 4 from the class; B1 113 → 25 buildings over an edge; B6 47 of 51, median overlap 0.93 (was 1.00). The edges fall within

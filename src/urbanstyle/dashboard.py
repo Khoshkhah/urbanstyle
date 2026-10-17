@@ -31,7 +31,7 @@ KIND_COLORS = {
     "street": "#94a3b8", "block": "#d4a373",
     # layer 1: the street's pieces, and the land in the blocks
     "subsection": "#bfdbfe", "intersection": "#f97316",
-    "building": "#a8a29e", "yard": "#f3e9d2", "alley": "#cfc8c0", "green": "#6cc070", "path": "#a78bfa", "car park": "#22b8cf",
+    "building": "#a8a29e", "yard": "#f3e9d2", "alley": "#cfc8c0", "green": "#6cc070", "path": "#e0a96d", "car park": "#22b8cf",
     "construction site": "#fcd34d", "square": "#fbcfe8", "rail": "#64748b", "structure": "#8b5e3c", "water": "#38bdf8", "unknown": "#ff00ff",
     "plot": "#a16207",
     # layer 2: surfaces (a kind of layer 1 keeps its colour)
@@ -127,7 +127,7 @@ def tree_data(con, epsg):
 # the parts of a space (parts.py): a colour per type, lanes by direction
 PART_COLORS = {"lane circulating": "#4b5260", "ring": "#4b5260", "junction area": "#4b5260", "lane in": "#4b5260", "lane out": "#454c59", "lane forward": "#4b5260", "lane backward": "#454c59",
                "lane both": "#4b5260", "lane": "#4b5260", "shoulder": "#5c6370", "parking": "#64748b", "no parking": "#4b5260", "bus zone": "#7f1d1d",
-               "parking lot": "#94a3b8", "carriageway": "#4b5260", "bus lane": "#9b2c2c",
+               "parking lot": "#94a3b8", "paved": "#4b5260", "bus lane": "#9b2c2c",
                "cycle lane": "#2f855a", "cycle crossing": "#38a169", "crosswalk": "#6b7280", "island": "#8fbf6f",
                "sidewalk": "#d8d2c6", "furnishing": "#b9a58b", "frontage": "#ece6da", "open": "#e9e4d6", "bus stop": "#93c5fd",
                "tree pit": "#6b4f2a", "driveway": "#a8a29e", "verge": "#c9c4b8", "bridge deck": "#c9c4b8"}   # asphalt, paving; crosswalks are asphalt under their zebra bars
@@ -1739,7 +1739,7 @@ GROUND_NOTE = {"building": "each building, whole", "yard": "private ground aroun
                "alley": "a road inside a block: a back lane, a driveway, a parking aisle", "path": "a footpath or a greenway away from the street",
                "rail": "a railway's ground", "structure": "the land under a bridge", "square": "a pedestrian square",
                "water": "water", "unknown": "no rule claims it (check G1)"}
-PART_GROUPS = [("roadway", ("lane", "shoulder", "junction area", "parking", "bus lane", "cycle lane", "carriageway")), ("median", ("island",)),
+PART_GROUPS = [("roadway", ("lane", "shoulder", "junction area", "parking", "bus lane", "cycle lane", "paved")), ("median", ("island",)),
                ("pedestrian realm", ("furnishing", "sidewalk", "frontage", "tree pit", "driveway", "bus stop", "open"))]
 PART_NAMES = {"furnishing": "buffer (furnishing)", "sidewalk": "clear path (sidewalk)"}
 

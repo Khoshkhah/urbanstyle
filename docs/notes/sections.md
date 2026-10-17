@@ -99,7 +99,7 @@ every hard check passes with A1 at 0.5 m and R1 as a FAIL. 4. Both pilots rebuil
   computed per frame piece between `real` changes; the narrower piece gets a kerb taper over 15 m. No case in the two cuts yet.
 - The island and guardrail class is not detected yet: no case in the cuts. The kerb evidence does not narrow a frame yet.
 - The frame is the maximum on each side separately (the section's left kerb and right kerb are each one line). Where a piece is narrower,
-  the rest is a `carriageway` part ("paved roadway, no lane") whose `ref` names the frame, its widest way and the classes at the piece's
+  the rest is a `paved` part ("paved roadway, no lane"; `carriageway` until 2026-10-16) whose `ref` names the frame, its widest way and the classes at the piece's
   joints. A frame's rest never covers another road's own lanes (two parallel one-way ways of one street).
 - The intersection's area takes the arms' frames (rule 4); the core (where the arms overlap) is read from the arms' own lanes, so two
   parallel arms with one wide frame do not overlap along their length.
@@ -119,7 +119,7 @@ Kaveh checked the rebuilt unit spot by spot on his dashboard. Each spot got one 
    barrier on it is paved roadway, cut off square. The island's wide part keeps what is mapped on it. (A wedge ran 20 m into the
    junction at West 4th × West 6th.)
 3. **Inside an intersection a paved strip between roadways is junction area**, one surface with it (a section's strip stays a
-   `carriageway` part).
+   `paved` part).
 4. **The city's meters give parking only where the meters stand**, piece by piece; a strip that starts or stops is the class
    `parking`, inside the frame. (The old rule spread it along the section: a strip stood at the West 8th fork 40 m from its meter.)
 5. **A piece of the walking part that touches no block and touches an island is that island's**, also an island of the next space.
@@ -152,3 +152,39 @@ conflict to decide, split the overlap at the midline or narrow the lanes; one on
 established), A3 1 (Avenue Marquet, the lane 1.65 m off its line), and the bridge model's BR3 4 (Avenue de France: deck edges with
 no parapet among its connectors) and BR5 2 + 3 (Avenue de la Costa, Boulevard du Ténao: the model's own filling of the free deck
 beside a 3 m lane leaves slivers).
+
+## The room rule (2026-10-16, evening)
+
+Kaveh: "when some elements partition something, the result must not have any overlap or any gap". The spaces of rank 3 were built
+from the frame and never looked at the blocks: at West Broadway's 4-lane piece the section's 6-lane frame reached 2.5 m into the
+block the sidewalk line had set (s0-w473754701.2/2 × b0-w23189661l.4, 84 m²). The rule:
+
+1. **The street's edge of rank 1 caps every kerb.** For each run, the room on each side is the least distance from its line to the
+   blocks and the paths' corridors (`space.block`, `space.corridor`), measured every 2.5 m out to 60 m (`network.room`). The frame's
+   kerb on that side never passes it (`cap_room`), whatever the section's widest piece says.
+2. **The lanes narrow before they are cut.** The sidewalk line is data, the lane width a chosen value: where the lanes and the strips
+   do not fit between the two edges, the chosen lane width narrows on that piece, down to `LANE_MIN_M` 2.75 m, the count as OSM maps
+   it (`width_method` `narrowed`, check B8). A width OSM maps is not narrowed. What still does not fit is cut at the edge.
+3. **A joint where the cap changed the frame is the change class `room`** (`space.change`): a step there is a real change of the
+   street's width as the sidewalk lines map it; R1 allows it, J4 names it.
+4. **Every space is cut from the street of rank 1** at the end (`network.build`: the units, the parts and the marks less the blocks and
+   the corridors), so a space reaching into a block is impossible by construction; check B7 tests the claim like G1 to G3 test the
+   ground.
+5. **The sidewalk strip is the kerb's limit too** (2026-10-16 evening, Kaveh: "why did it not use the footways for a better shape?").
+   Every walkway at level 0 that is no crossing and has no corridor (a sidewalk line) is a strip, OSM's `width` or 2 m, centred on the
+   line (`SW_HALF_M`): it is part of the street's edge for the room (the kerb ends at its near side; the block's edge is 1 m behind the
+   line, its far side), and the junction's roadway is cut by it, so at a corner the kerb is the line's curve where OSM maps it and the
+   4 m fillet only where it does not. The walking side there: the strip is the sidewalk part (position OSM, width chosen or OSM's),
+   what lies between it and the roadway the furnishing zone (measured), what lies beyond it the frontage. Where no line is mapped the
+   chosen bands stay (1 m furnishing, 1.8 m clear path from the kerb). A path's corridor ends at the street's edge (`blocks.py`): no
+   mouth of street inside the slot.
+6. **One partition of the walking side** (2026-10-16 evening, Kaveh: "why do the sections and intersections not have a clean shape?").
+   The whole street of rank 1 is cut only by the cut lines, each arm's stop line and each joint between subsections, run across the
+   street to the blocks' edges. The face between two cuts along a road is that section's, the face between a junction's arm cuts is
+   that intersection's, corners included: the roadway with the most area inside a face owns the face, and every piece of the walking
+   side goes to the owner of the face that holds it. A face with no roadway in it keeps the old rule, the roadway it touches most.
+   Until then every piece went to the roadway it touched most, and a corner went to the section or the intersection by centimetres of
+   shared edge: bites and hooks in every outline (Fir Street at West 8th), and the block corners were the sections' (i0-250765180).
+7. **A divided road is one section** (`dual-carriageways.md`, 2026-10-16 evening): the two one-way carriageways of one street between
+   the same two junctions are one section and one space, each with its own lanes and kerbs, the median between them the space's
+   island. Two sections made the median go left and right piece by piece (Fir Street north of West Broadway).

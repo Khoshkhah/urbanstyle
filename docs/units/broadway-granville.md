@@ -1,6 +1,6 @@
 # W Broadway × Granville St
 
-<p class="lead">The second unit of the unit dossier (<a href="../../design/unit-dossier/">one unit in full</a>): where West Broadway
+<p class="lead">The second unit of the unit dossier (<a href="../../design/sources/#the-unit-dossier">the unit dossier</a>): where West Broadway
 meets Granville Street in Fairview, Vancouver.</p>
 
 **Where:** 49.263611 N, 123.138546 W (OSM node 11102738098, unit `i0-11102738098`). Both are major roads (Granville is trunk, Broadway primary on one

@@ -42,7 +42,7 @@ OSM line, added parking or shoulders to fill the space, broke the lane joints an
    subsection. At the joint the two roadways are cut on the bisector of their directions.
     - **The frame** (`sections.md` rules 5-8, 2026-10-16). The section has one frame: the lanes and the strips a source gives at its
       widest place, one width for the whole section. The lanes of each way stay centred on that way's line. Where a piece is narrower
-      than the frame, the rest is paved roadway with no lane (part `carriageway`, its `ref` names the frame and the class of the
+      than the frame, the rest is paved roadway with no lane (part `paved`, its `ref` names the frame and the class of the
       change). No line is moved sideways and no kerb tapers. Only a `real` change (an OSM `width` on both sides) starts a new frame
       piece, with a kerb taper over 15 m (chosen) in the narrower piece.
     - **The change classes** (`sections.md` section 3). Every joint is classified before it touches the frame, and `space.change`
@@ -56,7 +56,7 @@ OSM line, added parking or shoulders to fill the space, broke the lane joints an
 7. **Pedestrian side.** From each kerb out to the block edge: the furnishing zone, the sidewalk (on OSM's sidewalk line) and the
    frontage. A junction's corners take the sidewalks of their two arms.
     - A strip between two roadways that is narrower than 8 m and touches a block by less than 2 m (a corner touch is no contact: the
-      gore where a slip lane leaves a junction) is paved roadway with no lane (part `carriageway`). It is an island only where OSM maps a
+      gore where a slip lane leaves a junction) is paved roadway with no lane (part `paved`). It is an island only where OSM maps a
       kerb, an object (a tree, a sign, a pole) or a path along it, or where a barrier runs along it (rule 12 of `street-rules.md`).
     - A piece that touches no block and is smaller than 4 m² is not an island. It is part of the sidewalk.
 8. **Crosswalks, lines and arrows.**

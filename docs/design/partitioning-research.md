@@ -64,7 +64,7 @@ Not proposed: a functional (upstream) area, and a hand-drawn junction geometry a
 2. Replace the disc by the hull of the arms' cross-section corners, with merging of junctions closer than 15 m?
 3. Add a `plaza` kind (step later), or give open pieces to the nearest street as now?
 
-## 6. Decisions and status (2026-10-02)
+## 6. Decisions
 
 Agreed: do the standard approach. Built: the intersection stays a separate container, shared by the streets that meet there, with
 `space.arm`; its shape is the hull of the arms' corner points (not a disc) with junction nodes under 15 m merged; and a street is

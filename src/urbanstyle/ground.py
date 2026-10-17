@@ -5,8 +5,8 @@ kind, its sources in the order listed. What is left is `unknown`: check G1 repor
     water   OSM water areas, and the sea (duckOSM's features.ocean, from the coastline)
     rail    OSM railway land (landuse=railway); the rail lines' own beds
     street  our street spaces (space.unit)
-    path    walkways and cycleways away from roads (a greenway, a connector, a footpath): the measured path spaces (space.container `path`)
-    square  OSM pedestrian areas, squares; the measured plazas (space.container `plaza`)
+    path    the corridor of a pedestrian way between the blocks (blocks.path_sql, docs/design/paths.md) and the measured path spaces (space.container `path`)
+    square  OSM pedestrian areas (highway=pedestrian + area=yes, the way's own polygon), squares; the measured plazas (space.container `plaza`)
     structure  the land under a bridge (OSM man_made=bridge), whose deck is a level up; and, after the plots and the green, any land
             under a street space of a higher level (a deck OSM maps as a bridge, without its outline)
     green   public green: parks, playgrounds, pitches, recreation grounds, woods (before plots: a park is a parcel too)
@@ -84,7 +84,13 @@ def build(con, epsg):
         ("rail", land(("railway",)) + [(f"w{i}", n, g(w).buffer(max(wd or 4.0, 3.0) / 2, cap_style="flat")) for i, n, w, wd in rows(
             f"SELECT osm_id, name, {m()}, width_m FROM space.element WHERE type = 'rail' AND level_min = 0")], "osm", "mapped"),
         ("street", [(u, None, g(w)) for u, w in rows(f"SELECT unit_id, {m()} FROM space.unit WHERE level = 0")], "urbanstyle", "derived"),
-        ("square", land(SQUARE_LAND), "osm", "mapped"),
+        # (a pedestrian area, highway=pedestrian + area=yes: OSM's own polygon from the way's nodes; duckOSM's land has no such kind.
+        # Place d'Armes was a block with a path ring round it, 2026-10-16)
+        ("square", land(SQUARE_LAND) + [(f"w{i}", n, g(w)) for i, n, w in rows(f"""SELECT w.osm_id, w.tags['name'],
+            {m("ST_MakePolygon(ST_MakeLine(list(ST_Point(n.lon, n.lat) ORDER BY u.i) || [first(ST_Point(n.lon, n.lat) ORDER BY u.i)]))")}
+            FROM osm.raw.ways w, unnest(w.refs) WITH ORDINALITY AS u(ref, i) JOIN osm.raw.nodes n ON n.osm_id = u.ref
+            WHERE w.tags['highway'] = 'pedestrian' AND w.tags['area'] = 'yes' AND w.refs[1] = w.refs[-1]
+            AND coalesce(try_cast(w.tags['layer'] AS INT), 0) = 0 GROUP BY w.osm_id, w.tags['name'] HAVING count(*) >= 4""")], "osm", "mapped"),
         ("structure", [(f"w{i}", n, g(w)) for i, n, w in rows(f"SELECT osm_id, name, {m('geom')} FROM osm.features.sites WHERE kind = 'bridge'")],
          "osm", "mapped"),
         ("green", land(PUBLIC_GREEN), "osm", "mapped"),
@@ -145,7 +151,9 @@ def build(con, epsg):
         # not shown). Each building whole, before every other kind; then the land by its own kind; the rest of the ground is yard
         first = lambda t: [o for o in order if o[0] == t][:1]
         greens = [o for o in order if o[0] == "green"]
-        order = (first("street") + [("building",) + plots[4]] + first("water") + first("rail") + first("square") + first("structure")
+        # (after the street, before the blocks' kinds: the pedestrian ways' corridors, the ground's kind path, paths.md)
+        corridors = [("path", [(c_, n, g(w)) for c_, n, w in rows(f"SELECT corridor_id, name, {m()} FROM space.corridor")], "urbanstyle", "derived")]
+        order = (first("street") + corridors + [("building",) + plots[4]] + first("water") + first("rail") + first("square") + first("structure")
                  + greens[:1] + [o for o in order if o[0] == "alley"] + [("car park",) + plots[1], ("construction site",) + plots[2]]
                  + [("alley",) + o[1:] for o in order if o[0] == "driveway"]
                  + greens[1:] + order[-2:-1])     # the structures; (footpaths are not ground: they lie on it, whole, in space.path)
@@ -153,7 +161,7 @@ def build(con, epsg):
         order = [o for o in order if o[0] != "driveway"]
     taken, out = shapely.Polygon(), []
     for typ, items, src, meth in order:
-        within = land_ if land_ is not None and typ != "street" else area
+        within = land_ if land_ is not None and typ != "street" and not (typ == "path" and src == "urbanstyle" and meth == "derived") else area
         for ref, name, geom in items:
             try:
                 piece = poly(poly(geom.intersection(within, grid_size=0.01)).difference(taken, grid_size=0.01))
@@ -181,7 +189,8 @@ def build(con, epsg):
             t, ref, name, *_ = lines[on[0][1]]
             # inside a block a road is a back lane, a driveway, a parking aisle: an alley, not the street
             in_block = land_ is not None and p.intersection(land_).area > 0.5 * p.area
-            # in a block a road through it is an alley; a footpath is not ground (space.path lies on it, whole): its ground is yard
+            # in a block a road through it is an alley, a footpath's ground is yard (space.path lies on it, whole); between the blocks a
+            # pedestrian way's corridor (blocks.path_sql cut it out of the blocks, paths.md) is path
             kind = ("alley" if t == "road" else "yard") if in_block else ("street" if t == "road" else "path")
             if kind == "alley":
                 # the alley is the road itself, as wide as OSM says (else ALLEY_W_M), not the whole piece: where a city's parcels are
@@ -246,8 +255,14 @@ def build(con, epsg):
         near = sorted(((f.boundary.intersection(faces[j].boundary).length, id(faces[j])) for j in ftree.query(f) if id(faces[j]) in owner), reverse=True)
         if near and near[0][0] > 0:
             mine[owner[near[0][1]]].append(f)
-    out = [o[:6] + (poly(shapely.unary_union(fs)),) for o, fs in zip(out, mine) if fs]
-    out = [o for o in out if not o[6].is_empty]
+    # (one polygon per ground item, a row per piece: the page's street objects and the surfaces read one outline each)
+    merged = []
+    for o, fs in zip(out, mine):
+        if not fs:
+            continue
+        pieces = [q for q in shapely.get_parts(poly(shapely.unary_union(fs))) if q.geom_type == "Polygon" and not q.is_empty]
+        merged += [o[:6] + (pieces[0],)] if len(pieces) == 1 else [(f"{o[0]}/{k_ + 1}",) + o[1:6] + (q,) for k_, q in enumerate(pieces)]
+    out = merged
     con.execute("""CREATE OR REPLACE TABLE space.ground (ground_id VARCHAR, level INT, type VARCHAR, name VARCHAR, source VARCHAR,
                    method VARCHAR, ref VARCHAR, geometry GEOMETRY)""")
     if out:
@@ -258,7 +273,7 @@ def build(con, epsg):
 
 
 # layer 1: the surfaces inside each ground item (docs/design/space-layers.md). A street's from its parts (space.part), grouped by the kerb
-STREET_SURFACE = {**dict.fromkeys(("lane", "bus lane", "cycle lane", "carriageway", "junction area", "ring", "shoulder", "parking", "no parking",
+STREET_SURFACE = {**dict.fromkeys(("lane", "bus lane", "cycle lane", "paved", "junction area", "ring", "shoulder", "parking", "no parking",
                                    "bus zone", "crosswalk", "cycle crossing"), "roadway"),
                   **dict.fromkeys(("sidewalk", "furnishing", "frontage", "open", "bus stop", "tree pit", "driveway"), "pedestrian realm"),
                   "island": "median", "barrier": "median"}       # (a barrier between two carriageways stands where a median would)
@@ -372,7 +387,8 @@ PATH_KINDS = {"sidewalk": "sidewalk", "crossing": "crossing", "steps": "steps"} 
 
 def paths(con, epsg):
     """space.path: every footpath at level 0, whole (one item per OSM way, at its own width, PATH_W_M where OSM gives none), lying on the
-    ground and naming what it lies on (`on`: the ground items it crosses). A path is not cut by a block's edge: it is not ground."""
+    ground and naming what it lies on (`on`: the ground items it crosses). A path is not cut by a block's edge: only the public ways
+    (blocks.path_sql) have ground of their own, the kind `path` between the blocks; the others lie on a yard, a park, a sidewalk."""
     import duckdb
     import shapely
     m = lambda col="geometry": f"ST_AsWKB(ST_Transform({col}, 'EPSG:4326', '{epsg}', always_xy := true))"

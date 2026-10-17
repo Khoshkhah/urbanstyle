@@ -93,7 +93,7 @@ around the OSM centrelines, which left steps at the cuts and blobs at complex ju
    rest of the roadway as ONE part (across a node inside a road's space, where the lane count changes or an alley meets an alley, a lane
    goes on along SUMO's straight path through it, `holds` "through a node"; new lanes that start inside a node are not filled yet): the `junction area` of an intersection, the `ring` of a roundabout (its circulating lanes are
    painted on it, not separate parts; the ring is the ring's line ± half its roadway, round whatever SUMO's pieces), the
-   `carriageway` of a subsection. Then the pedestrian realm out to the buildings as before. Parts from SUMO have `source` = `sumo`.
+   `paved` (then `carriageway`) of a subsection. Then the pedestrian realm out to the buildings as before. Parts from SUMO have `source` = `sumo`.
    The dashboard draws parts without outlines: the asphalt is one surface, and the lines on it are the marks.
    A **tunnel or a bridge** (a space off level 0) is a tube: no buildings bound it, so its space is cut back to its roadway and
    1.5 m beside it (a narrow walkway), not out to open ground; a junction keeps its whole space if the cut would lose one of its

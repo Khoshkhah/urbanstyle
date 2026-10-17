@@ -1,7 +1,10 @@
 # Paths: the pedestrian ways as streets of their own
 
-Status: proposed 2026-10-16, a trial Kaveh agreed to ("I'm not sure it works well, but let's see"). Tested on cuts first; the blocks
-change, so it is rank 1 work (`steps.md`), after rule 3 of `sections.md`.
+Status: a trial Kaveh agreed to 2026-10-16 ("I'm not sure it works well, but let's see"). Rank 1 is built (2026-10-16): rules 1 and 2
+in `blocks.py` (`path_sql`, `PATH_W`): the public pedestrian ways cut the blocks, and each way's corridor between the blocks, up to the
+roads' carriageways, is `space.corridor` and the ground kind `path`; the road's street does not take it (`network.py`). Rules 3 to 6
+(path sections, intersections, spaces, sides; the mouth at the sidewalk) are not built: the corridor cuts through the road's
+pedestrian side to the kerb, and a square stays a plain kind.
 
 ## Today
 
@@ -15,9 +18,9 @@ change, so it is rank 1 work (`steps.md`), after rule 3 of `sections.md`.
 
 ## The rule
 
-1. **A public pedestrian way cuts a block** like a road does: `highway=pedestrian`, or a footway, steps or a path with a name, or
-   one that joins two streets through the block. A footway that serves one plot, a garden path, a driveway's footpath, stays inside
-   its block.
+1. **A pedestrian way cuts a block** like a road does: `highway=pedestrian`, or a footway, steps or a path, named or not (Kaveh,
+   2026-10-16: a footway is a path at rank 1). Not a crossing, not a sidewalk (tagged, or running along a road inside its sidewalk
+   zone over half its length: that is the street's), not a pedestrian area (`area=yes`: a square).
 2. **It has a width:** OSM's `width`, else a chosen one: 4 m for a pedestrian street, 3 m for a footway, the steps' own for stairs.
    The block side runs along the way's edge, as it runs 1 m behind a sidewalk's footway today.
 3. **It is a street of its own kind, a path street:** junction nodes where paths meet (3 or more ends), stretches between them,

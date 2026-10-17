@@ -1,7 +1,7 @@
 # The street space
 
 This page explains how urbanstyle divides a city's streets, and why. The rules behind each step are in the
-[design notes](../design/index.md).
+[design](../design/index.md).
 
 ## The street starts from the blocks
 

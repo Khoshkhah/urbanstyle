@@ -52,4 +52,4 @@ requirements ([The format](design/format.md)): a profile of CityGML 3.0, written
 | do one task | the how-to guides: [build an area](how-to/build-an-area.md), [use the dashboard](how-to/use-the-dashboard.md), [ask questions](how-to/ask-questions.md), [check the data](how-to/check-the-data.md), [model a bridge](how-to/bridges.md) |
 | look up a command, a table, an id or a check | [Commands](reference/commands.md), [Tables](reference/tables.md), [Ids](reference/ids.md), [Checks](reference/checks.md) |
 | understand the model and its choices | [The street space](explanation/street-space.md), [Sources and accuracy](explanation/sources.md), [The format and the standards](explanation/standards.md) |
-| read why a decision was made | the [design notes](design/index.md) |
+| read the design of the model | [The design](design/index.md) |

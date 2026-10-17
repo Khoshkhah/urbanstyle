@@ -23,6 +23,7 @@ Every rank table has the same columns in the same order. The thing's own values 
 | `source`, `method`, `ref` | who gave the row, how, and which of their items it is |
 | `geometry` | the thing: one polygon for a thing of rank 1 to 5, a line or a shape for a mark |
 
+Each `<thing>_id` is unique in its table; an intersection is a stretch and a space, so `urban.item`'s key is the id with the rank.
 A column that ends in `_m` is in metres, `_m2` in square metres. A thing with a profile in the registry has one more column, `uid`,
 its stable id ([The registry](#the-registry-urbanregistry)).
 
@@ -147,7 +148,7 @@ One space per subsection, per intersection, per path section and per path inters
 
 | Column | Meaning |
 |---|---|
-| `space_id` | `s<level>-w<way>/<k>`, `i<level>-<node>`, `p<level>-w<way>/<k>`, `q<level>-<node>` |
+| `space_id` | `s<level>-w<way>/<k>`, `i<level>-<node>`, `p<level>-w<way>`, `q<level>-<node>` |
 | `kind` | subsection, intersection, path section, path intersection |
 | `rank` | 3 |
 | `parent_id` | its stretch |

@@ -44,6 +44,16 @@ a junction begins; its strip is an island.
 A path's space has the walking side only. Its parts are the path's surface and what OSM maps on it: `steps`, `ramp`, `handrail`,
 `bollard`. A path has no marks.
 
+## Positions and lane links
+
+Every part and every mark has its place on its space's axis: `s_from` and `s_to` along, `t_from` and `t_to` across. The lanes of
+one space are ordered by `t_from`. A lane also has its own axis, its middle line in its direction of travel.
+
+A lane names the lanes that come before and after it. At a joint, a lane's successor is the lane of the next subsection that
+continues it; a lane that the next subsection does not have has no successor there (check R4). Through an intersection, an in-lane's
+successors are the out-lanes its turns reach (`urban.turn`), and an out-lane's predecessors are the in-lanes that reach it. These
+links make the lanes a graph for routing, as CityGML's `predecessor` and `successor` and OpenDRIVE's lane links.
+
 ## Widths and sizes
 
 Every part has `width_m` and `length_m` with `width_source` and `width_method`: a lane's width `osm, mapped` or `urbanstyle,
@@ -86,7 +96,8 @@ it has none.
 
 ## Writes
 
-`urban.part`: one row per part with its side, its type, its width and its sources. `urban.mark`: one row per mark with its part.
+`urban.part`: one row per part with its side, its kind, its place on the space's axis, its width and its sources; a lane with its
+axis, its predecessors and its successors. `urban.mark`: one row per mark with its part and its place on the space's axis.
 `urban.turn` and `urban.approach`: the moves and the lanes that come into each intersection ([The tables](tables.md)).
 
 ## Checks

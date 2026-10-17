@@ -52,10 +52,11 @@ A city's own words decide its method: a dataset whose accuracy note says "survey
 
 | Table | Columns |
 |---|---|
-| `urban.ground`, `urban.surface` | `source`, `method`, `ref` |
+| `urban.ground`, `urban.stretch`, `urban.plot_piece`, `urban.space`, `urban.side`, `urban.surface` | `source`, `method`, `ref` |
 | `urban.part`, `urban.mark` | `source`, `method`, `ref`; `width_source`, `width_method`; a part's `position_source`, `position_method`, `position_ref` |
 | `urban.element` (buildings) | `source`, `level_src`, `use_source`, `use_method`, `ground_source`, `ground_method` |
 | `urban.object` | `source`, `method`, `ref` |
+| `urban.meta` | every chosen value, with its name in the code and what it is for |
 | the dossier's `object` | `source`, `method`, `observed`, `confidence`; `width_source`, `width_method`, `height_source`, `height_method` |
 | the dossier's `source` | one row per source used: name, origin, licence, method, date fetched |
 

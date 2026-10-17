@@ -13,7 +13,7 @@ none. The checks test the partition at every rank.
 | 0 | the level: its whole area | | `urban.area`, `urban.element` |
 | 1 | the ground: the street, a plot (a block) or a path (a corridor) | `g0-<kind>-<ref>` | `urban.ground` |
 | 2 | a stretch of the street: a section or an intersection; a stretch of a path: a path section or a path intersection; a piece of a plot: building, yard, alley, car park, construction site, green, water, rail, square, structure | `s0-w<way>`, `i0-<node>`, `p0-w<way>`, `q0-<node>`, `g0-<kind>-<ref>` | `urban.stretch`, `urban.plot_piece` |
-| 3 | a space: a subsection, a subpath, an intersection or a path intersection | `s0-w<way>/<k>`, `i0-<node>` | `urban.space` |
+| 3 | a space: a subsection, an intersection, a path section or a path intersection | `s0-w<way>/<k>`, `i0-<node>`, `p0-w<way>`, `q0-<node>` | `urban.space` |
 | 4 | a side of a space: the driving side or the walking side | `<space>:d`, `<space>:w` | `urban.side` |
 | 5 | a part of a side | `<space>#<n>` | `urban.part` |
 | 6 | a mark on a part | | `urban.mark`, `urban.turn` |
@@ -74,12 +74,14 @@ One table per rank. Every row names its parent in the rank above (`parent_id`), 
 | 1 | the street, the plots, the paths | `urban.ground`: one row per item, three kinds |
 | 2 | a section, an intersection; a path section, a path intersection | `urban.stretch` |
 | 2 | a plot's piece: building, yard, alley, car park, construction site, green, water, rail, square, structure | `urban.plot_piece` |
-| 3 | a space: a subsection, a subpath, an intersection, a path intersection | `urban.space` |
+| 3 | a space: a subsection, an intersection, a path section, a path intersection | `urban.space` |
 | 4 | a side: the driving side, the walking side | `urban.side` |
 | 5 | a part | `urban.part` |
 | 6 | a mark; a turn | `urban.mark`, `urban.turn` |
 
-The [Tables](../reference/tables.md) reference lists the columns of each table.
+Every rank table has the same columns in the same order, and the view `urban.item` holds every rank in one table: `id`, `rank`,
+`kind`, `parent_id`, `level`, `geometry`. [The tables](tables.md) gives the columns of each table, the manifest of a build, the
+check rows, the registry of the stable ids and the codes of the standards.
 
 Three things lie on the tree and are not ranks:
 

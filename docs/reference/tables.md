@@ -3,6 +3,9 @@
 This page lists every table that `urbanstyle build` writes in the `urban` schema of an area's DuckDB file. It also lists the two tables
 that `urbanstyle serve` adds in memory.
 
+[The tables](../design/tables.md) in the design gives the structure that the build is brought to: one table per rank with the
+same columns, the view `urban.item`, the manifest `urban.meta`, the check rows `urban.check` and the registry `urban.registry`.
+
 The columns, the types and the row counts come from `data/units/broadway-granville.urban.duckdb` (built 2026-10-12). To get them again,
 open the file read-only, then run `DESCRIBE urban.<table>` and `SELECT count(*) FROM urban.<table>`. For the id formats, see [Ids](ids.md).
 
@@ -53,36 +56,36 @@ Three tables use their own words in `source`. `urban.strip` uses `tag`, `measure
 
 | table | group | rows in Broadway × Granville |
 |---|---|---|
-| [`area`](#spacearea) | the area and its blocks | 1 |
-| [`block`](#spaceblock) | the area and its blocks | 52 |
-| [`block_side`](#spaceblock_side) | the area and its blocks | 217 |
-| [`city_block`](#spacecity_block) | the area and its blocks | 79 |
-| [`container`](#spacecontainer) | the street space | 405 |
-| [`zone`](#spacezone) | the street space | 727 |
-| [`boundary`](#spaceboundary) | the street space | 1236 |
-| [`street`](#spacestreet) | the street space | 82 |
-| [`arm`](#spacearm) | the street space | 476 |
-| [`junction`](#spacejunction) | the street space | 218 |
-| [`unit`](#spaceunit) | the street space | 186 |
-| [`subsection`](#spacesubsection) | the street space | 145 |
-| [`cut`](#spacecut) | the street space | 167 |
-| [`part`](#spacepart) | the street space | 1834 |
-| [`mark`](#spacemark) | the street space | 1941 |
-| [`width`](#spacewidth) | the street space | 186 |
-| [`turn`](#spaceturn) | the street space | 519 |
-| [`approach`](#spaceapproach) | the street space | 255 |
-| [`ground`](#spaceground) | the ground | 866 |
-| [`surface`](#spacesurface) | the ground | 1387 |
-| [`path`](#spacepath) | the ground | 404 |
-| [`parcel`](#spaceparcel) | the ground | 958 |
-| [`lot`](#spacelot) | the ground | 16 |
-| [`element`](#spaceelement) | buildings and elements | 1977 |
-| [`object`](#spaceobject) | objects | 1068 |
-| [`observed`](#spaceobserved) | objects | 637 |
-| [`photo`](#spacephoto) | objects | 4199 |
-| [`strip`](#spacestrip) | objects | 3870 |
-| [`link`](#spacelink) | levels | 15 |
-| [`station`](#spacestation) | levels | 0 |
+| [`area`](#urbanarea) | the area and its blocks | 1 |
+| [`block`](#urbanblock) | the area and its blocks | 52 |
+| [`block_side`](#urbanblock_side) | the area and its blocks | 217 |
+| [`city_block`](#urbancity_block) | the area and its blocks | 79 |
+| [`container`](#urbancontainer) | the street space | 405 |
+| [`zone`](#urbanzone) | the street space | 727 |
+| [`boundary`](#urbanboundary) | the street space | 1236 |
+| [`street`](#urbanstreet) | the street space | 82 |
+| [`arm`](#urbanarm) | the street space | 476 |
+| [`junction`](#urbanjunction) | the street space | 218 |
+| [`unit`](#urbanunit) | the street space | 186 |
+| [`subsection`](#urbansubsection) | the street space | 145 |
+| [`cut`](#urbancut) | the street space | 167 |
+| [`part`](#urbanpart) | the street space | 1834 |
+| [`mark`](#urbanmark) | the street space | 1941 |
+| [`width`](#urbanwidth) | the street space | 186 |
+| [`turn`](#urbanturn) | the street space | 519 |
+| [`approach`](#urbanapproach) | the street space | 255 |
+| [`ground`](#urbanground) | the ground | 866 |
+| [`surface`](#urbansurface) | the ground | 1387 |
+| [`path`](#urbanpath) | the ground | 404 |
+| [`parcel`](#urbanparcel) | the ground | 958 |
+| [`lot`](#urbanlot) | the ground | 16 |
+| [`element`](#urbanelement) | buildings and elements | 1977 |
+| [`object`](#urbanobject) | objects | 1068 |
+| [`observed`](#urbanobserved) | objects | 637 |
+| [`photo`](#urbanphoto) | objects | 4199 |
+| [`strip`](#urbanstrip) | objects | 3870 |
+| [`link`](#urbanlink) | levels | 15 |
+| [`station`](#urbanstation) | levels | 0 |
 
 ## The area and its blocks
 

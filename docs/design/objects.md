@@ -72,7 +72,9 @@ front of it, 20 m behind the pole and 2 m past it, is a bus zone with no parking
 
 ## Writes
 
-`urban.object` (id, class, level, space, part, name, attributes, source, geometry); the dossier's `object` and `match`.
+`urban.object` (id, `uid`, kind: the class `group.class`, level, space, part, name, attributes, source, geometry); the dossier's
+`object` and `match`. An object's `uid` comes from the registry; its profile is its best source and that source's record id, so a
+rebuild gives the same object the same `uid` ([The tables](tables.md#the-registry-urbanregistry)).
 
 ## On the page
 

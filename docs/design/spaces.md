@@ -16,8 +16,15 @@ parking and cycle lanes, a city's meters and kerb evidence.
    with no joint is one subsection.
 3. **A cut** is clipped to the face it cuts and passes the face's boundary by 1 cm, so the noding joins them.
 
-The space of rank 3 is the face (`urban.unit`): a subsection, `s0-w<way>/<k>`, or an intersection, `i0-<node>`. The subsections of a
+The space of rank 3 is the face (`urban.space`): a subsection, `s0-w<way>/<k>`, or an intersection, `i0-<node>`. The subsections of a
 section partition the section; the spaces of the level partition the street.
+
+**The axis.** A subsection's axis is the piece of its section's axis that it covers, from `s_from` to `s_to`, in metres from the
+section's start. Every position inside the space is `(s, t)` on this axis: `s` along, `t` across, positive to the left.
+
+**The links.** Each space names the spaces before and after it along the street. A subsection's predecessor and successor are its
+neighbours in its section, or the intersection at the section's end. An intersection's predecessors and successors are the
+subsections at its arms: the arms that come in and the arms that go out. A two-way arm is both.
 
 ![The cuts at Sainte-Dévote.](../img/steps/06-cuts.png){ width=100% }
 
@@ -62,7 +69,8 @@ reaches into a block.
 
 ## Writes
 
-`urban.unit`: one row per space with its kind, its stretch, its axis, the frame's width and the merge shift. `urban.side`: the
+`urban.space`: one row per space with its kind, its stretch, its axis and its range on the section's axis, its predecessors and
+successors, the frame's width and the merge shift. `urban.side`: the
 driving side and the walking side of each space, the driving side with its kerb; an island is a part of the walking side ([The
 tables](tables.md)).
 

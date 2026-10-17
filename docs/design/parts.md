@@ -46,13 +46,15 @@ A path's space has the walking side only. Its parts are the path's surface and w
 
 ## Positions and lane links
 
-Every part and every mark has its place on its space's axis: `s_from` and `s_to` along, `t_from` and `t_to` across. The lanes of
-one space are ordered by `t_from`. A lane also has its own axis, its middle line in its direction of travel.
+Every part and every mark of a subsection has its place on the subsection's axis: `s_from` and `s_to` along, `t_from` and `t_to`
+across. The lanes of one subsection are ordered by `t_from`. A lane or a band of a subsection also has its own axis, its middle line
+in its direction of travel. An intersection has no axis, so its parts and marks have no place on one.
 
-A lane names the lanes that come before and after it. At a joint, a lane's successor is the lane of the next subsection that
-continues it; a lane that the next subsection does not have has no successor there (check R4). Through an intersection, an in-lane's
-successors are the out-lanes its turns reach (`urban.turn`), and an out-lane's predecessors are the in-lanes that reach it. These
-links make the lanes a graph for routing, as CityGML's `predecessor` and `successor` and OpenDRIVE's lane links.
+A lane names the lanes that come before and after it. At a joint, a lane's successor is the lane of the next subsection with the same
+direction and number that shares the joint with it; a lane that the next subsection does not have has no successor there (check R4).
+At an arm, a lane of the subsection and the lane of the intersection that share the stop line on the same road are linked. Through
+an intersection, a lane's successors are the lanes where its turns end (`urban.turn`). These links make the lanes a graph for
+routing, as CityGML's `predecessor` and `successor` and OpenDRIVE's lane links ([The tables](tables.md#the-links-of-spaces-and-lanes)).
 
 ## Widths and sizes
 

@@ -38,17 +38,17 @@ duckOSM gives each directed edge of its road networks an `edge_id`. The id is a 
 a 63-bit BIGINT. An edge that does not change keeps its id when duckOSM builds the area again. The two directions of a two-way road
 have different ids, because `source` and `target` change places.
 
-- Example: `721492229101496909` (`urban.arm.edge_id`).
+- Example: `721492229101496909` (`work.arm.edge_id`).
 - Made by: duckOSM, `graph_simplifier._rekey_edges`.
 
-urbanstyle keeps the edge id as text (VARCHAR) in `urban.element.source_id`, `urban.arm.edge_id`, `urban.turn.from_edge`,
-`urban.turn.to_edge` and `urban.approach.from_edge`. duckOSM keeps it as BIGINT.
+urbanstyle keeps the edge id as text (VARCHAR) in `work.element.source_id`, `work.arm.edge_id`, `work.turn.from_edge`,
+`work.turn.to_edge` and `work.approach.from_edge`. duckOSM keeps it as BIGINT.
 
 A duckOSM connector edge joins a loose path end to the network. Its `osm_id` is negative: `-min(a, b)` of the two ways that it joins.
 
 ## Containers
 
-`container.py` (`street_owner()` and the `CONTAINER` SQL) makes the container ids in `urban.container`. The number after the level is
+`container.py` (`street_owner()` and the `CONTAINER` SQL) makes the container ids in `work.container`. The number after the level is
 the smallest id among the elements of the container.
 
 | kind | pattern | example | the number is |
@@ -69,7 +69,7 @@ These rules change the base id:
 
 ## Streets
 
-A street is the group of connected roads of one level that share a name (`urban.street`).
+A street is the group of connected roads of one level that share a name (`work.street`).
 
 - Pattern: `k<level>-<way>`, where `<way>` is the smallest OSM way id among its roads.
 - Examples: `k0-48524371`, `k1-473723205`.
@@ -77,7 +77,7 @@ A street is the group of connected roads of one level that share a name (`urban.
 
 ## Blocks
 
-A block is the land between the streets at level 0 (`urban.block`).
+A block is the land between the streets at level 0 (`work.block`).
 
 - Pattern: `b<level>-w<way><side>`. `<way>` is the smallest OSM way id among the roads that bound the block. `<side>` is `l` or `r`: the
   side of that way that the block is on.
@@ -86,13 +86,13 @@ A block is the land between the streets at level 0 (`urban.block`).
 - If no bounding way is found, the id is `b0-x<X>y<Y>`, from the block's centre in UTM metres. This file has none.
 - Made by: `blocks.py`, `build()`.
 
-A city block (`urban.city_block`) has no id in the city's data. urbanstyle makes one from its centre point: `cb` with the longitude and
+A city block (`work.city_block`) has no id in the city's data. urbanstyle makes one from its centre point: `cb` with the longitude and
 the latitude to 5 decimals, for example `cb-123.14209+49.26666`. `blocks.city_blocks()` makes it.
 
 ## Level-0 sections and intersections
 
-At level 0, `division.py` divides the street between the blocks. It makes new section and intersection ids for `urban.unit`,
-`urban.subsection`, `urban.part` and `urban.mark`. These sections are not rows of `urban.container`.
+At level 0, `division.py` divides the street between the blocks. It makes new section and intersection ids for `work.unit`,
+`work.subsection`, `work.part` and `work.mark`. These sections are not rows of `work.container`.
 
 | item | pattern | example |
 |---|---|---|
@@ -104,11 +104,11 @@ At level 0, `division.py` divides the street between the blocks. It makes new se
 - If two blocks face each other on more than one section, the second section gets `.2`, the third `.3` and so on.
 - An intersection takes the smallest OSM node id inside it. With no node inside, the id is `i0-x<X>y<Y>`, from its centre in UTM metres.
   A second intersection with the same id gets `.2`. This file has neither case.
-- `urban.junction` lists the nodes of each level-0 intersection.
+- `work.junction` lists the nodes of each level-0 intersection.
 
 ## Subsections
 
-A subsection is a piece of a section (`urban.subsection`, `urban.unit`).
+A subsection is a piece of a section (`work.subsection`, `work.unit`).
 
 - Pattern: `<section id>/<k>`, with `k` = 1, 2, ... along the section.
 - Example at level 0: `s0-edge~w336755750l/1`. `division.py` makes it.
@@ -116,17 +116,17 @@ A subsection is a piece of a section (`urban.subsection`, `urban.unit`).
 
 ## Parts
 
-A part is one piece of the inside of a unit (`urban.part`).
+A part is one piece of the inside of a unit (`work.part`).
 
 - Pattern: `<unit id>#<n>`, with `n` = 1, 2, ... in the order that the code adds the parts to the unit.
 - Examples: `s0-edge~w336755750l/1#8` (a lane), `i0-1908456303#1`.
 - Made by: `division.py` (`add()`) at level 0, `parts.py` at other levels.
 
-`urban.mark` has no id. Its `unit_id` links it to its unit.
+`work.mark` has no id. Its `unit_id` links it to its unit.
 
 ## Strips
 
-A strip is one band of a container (`urban.strip`).
+A strip is one band of a container (`work.strip`).
 
 - Pattern: `<container id>.<n>`, with `n` = 1, 2, ... in each container.
 - Examples: `s0-2002513880381972879.1`, `p-1-37127178.1`.
@@ -134,7 +134,7 @@ A strip is one band of a container (`urban.strip`).
 
 ## Lanes
 
-`urban.part.lane_id` is a lane's id in duckOSM's GMNS export (`gmns_driving.lane.lane_id`).
+`work.part.lane_id` is a lane's id in duckOSM's GMNS export (`gmns_driving.lane.lane_id`).
 
 - Pattern: `<edge_id>_<lane_num>`. `<edge_id>` is the directed duckOSM edge under the lane's middle, in its direction of travel.
   `<lane_num>` is the lane's number from the left of that direction (1 = the leftmost).
@@ -145,7 +145,7 @@ A strip is one band of a container (`urban.strip`).
 
 ## Ground items and surfaces
 
-A ground item is one piece of layer 0 (`urban.ground`). `ground.py` (`build()`) makes the id in one of four forms:
+A ground item is one piece of layer 0 (`work.ground`). `ground.py` (`build()`) makes the id in one of four forms:
 
 | form | when | example |
 |---|---|---|
@@ -157,7 +157,7 @@ A ground item is one piece of layer 0 (`urban.ground`). `ground.py` (`build()`) 
 `<ref>` is the source item: an OSM way or relation, a city outline (`vb<id>`) or a unit id. `<X>` and `<Y>` are the piece's centre in
 UTM metres, rounded.
 
-A surface is one piece of layer 1 (`urban.surface`). `ground.surfaces()` makes its id.
+A surface is one piece of layer 1 (`work.surface`). `ground.surfaces()` makes its id.
 
 - Pattern: `<ground id>:<type>`, with `/<n>` where the surface has more than one piece.
 - Examples: `g0-building-w326974348:building`, `g0-street-s0-edge~w336755750l/1:roadway`,
@@ -169,14 +169,14 @@ An OSM item has its type letter and its OSM id: `n` for a node, `w` for a way, `
 
 | table | id | example |
 |---|---|---|
-| `urban.object` | `object_id`, an OSM node | `n13950936172` |
-| `urban.element`, buildings | `source_id`, a way or a relation | `w326974348`, `r4139550` |
-| `urban.element`, rail | `source_id`, a way | none in this file |
-| `urban.path` | `path_id`, a way | `w917506545` |
-| `urban.lot` | `lot_id`, a way | `w1008302252` |
-| `urban.station` | `id`, a node or a way | none in this file |
+| `work.object` | `object_id`, an OSM node | `n13950936172` |
+| `work.element`, buildings | `source_id`, a way or a relation | `w326974348`, `r4139550` |
+| `work.element`, rail | `source_id`, a way | none in this file |
+| `work.path` | `path_id`, a way | `w917506545` |
+| `work.lot` | `lot_id`, a way | `w1008302252` |
+| `work.station` | `id`, a node or a way | none in this file |
 
-A road, walkway or cycleway in `urban.element` has its duckOSM edge id as `source_id`, not its OSM way. Its OSM way is in `osm_id`.
+A road, walkway or cycleway in `work.element` has its duckOSM edge id as `source_id`, not its OSM way. Its OSM way is in `osm_id`.
 
 ## City records
 
@@ -193,13 +193,13 @@ list in the city file. It is not the city's own asset id.
 
 ## Mapillary
 
-- `urban.observed.feature_id`: Mapillary's map feature id, for example `1442040979927404`.
-- `urban.photo.photo_id`: Mapillary's image id, for example `599219062288532`.
-- `urban.photo.sequence`: Mapillary's sequence id, for example `xN3vq5ajPRGlTB8ewLpO7I`.
+- `work.observed.feature_id`: Mapillary's map feature id, for example `1442040979927404`.
+- `work.photo.photo_id`: Mapillary's image id, for example `599219062288532`.
+- `work.photo.sequence`: Mapillary's sequence id, for example `xN3vq5ajPRGlTB8ewLpO7I`.
 
 ## Street objects
 
-`urban.street_object` is one real object that more than one source can show. `urbanstyle serve` makes it in memory.
+`work.street_object` is one real object that more than one source can show. `urbanstyle serve` makes it in memory.
 
 - Pattern: the ids of the object in all of its sources, joined by `, `.
 - Examples: `public-trees-18, n14190549035` (a city tree and an OSM node), `n4879505023, 1953492915056162, 1953492925056161` (an OSM
@@ -208,7 +208,7 @@ list in the city file. It is not the city's own asset id.
 
 ## Bridge parts
 
-`urban.bridge_part` holds the parts of a bridge's 3D model. `urbanstyle serve --bridge PROFILE` makes it in memory. `bridge3d.py` gives
+`work.bridge_part` holds the parts of a bridge's 3D model. `urbanstyle serve --bridge PROFILE` makes it in memory. `bridge3d.py` gives
 each part its id.
 
 | part | pattern | example |

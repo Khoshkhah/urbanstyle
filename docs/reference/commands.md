@@ -132,10 +132,10 @@ urbanstyle mapillary db [--osm OSM]
 
 | Argument or option | Meaning | Default |
 |---|---|---|
-| `db` | A built `.duckdb`. Its area is the extent of `urban.unit`. | required |
+| `db` | A built `.duckdb`. Its area is the extent of `work.unit`. | required |
 | `--osm` | The duckOSM `.duckdb` that `db` came from. With it, `mapillary` builds the parts again at once. | none |
 
-Output: `<db>.mapillary.json` next to `db`, and the tables `urban.observed` and `urban.photo` in `db`. `mapillary` prints the number of features and photos. The token comes from `$MAPILLARY_TOKEN`, else from `~/.config/mapillary/token`. If there is no token, the command stops.
+Output: `<db>.mapillary.json` next to `db`, and the tables `work.observed` and `work.photo` in `db`. `mapillary` prints the number of features and photos. The token comes from `$MAPILLARY_TOKEN`, else from `~/.config/mapillary/token`. If there is no token, the command stops.
 
 Code: `mapillary.main`.
 

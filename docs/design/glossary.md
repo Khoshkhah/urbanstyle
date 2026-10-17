@@ -12,13 +12,13 @@ The words of the model, the code and the dashboard, in one place. When a word is
 | **area** | the whole area of a level (`urban.area`) |
 | **element** | one centre line or building in `urban.element`: a road, walkway, cycleway, rail line or building, with its level, width and OSM id |
 | **ground** | rank 1: every piece of the area is street, plot or path (`urban.ground`); a plot's pieces, rank 2, are building, yard, alley, car park, construction site, green, water, rail, square, structure |
-| **block** | the land between the streets and the pedestrian ways: a face the level-0 streets and pedestrian ways enclose, less each street side's distance and each path's half width (`urban.block`, `b<level>-w<way><side>`) |
-| **block side** | one side of one road chain within one face, with its distance from the road line and what set it (`urban.block_side`: sidewalks, carriageway, path width, building) |
+| **block** | the land between the streets and the pedestrian ways: a face the level-0 streets and pedestrian ways enclose, less each street side's distance and each path's half width (`b<level>-w<way><side>`; in the model, the plot `g<level>-plot-<block>`) |
+| **block side** | one side of one road chain within one face, with its distance from the road line and what set it (sidewalks, carriageway, path width, building); in the model, one entry of the plot's `sides` |
 | **bounding line** | a street or a pedestrian way of level 0 that bounds blocks |
 | **street** (rank 1) | the area less the blocks and the corridors; also the kind of ground |
 | **named street** | a group of sections that share a name and a node, with the intersections they arrive at (`urban.street`, `k<level>-<way>`); not a rank |
 | **pedestrian way** | a pedestrian street, a footway, steps or a path at level 0 that is not a crossing, not a sidewalk and not a pedestrian area; it cuts the blocks at its width |
-| **corridor** | a pedestrian way's own ground between the blocks, up to the street's edge (`urban.corridor`, `c<level>-w<way>`); the ground kind path |
+| **corridor** | a pedestrian way's own ground between the blocks, up to the street's edge (`c<level>-w<way>`; in the model, the path `g<level>-path-<corridor>`); the ground kind path |
 | **sidewalk line** | a walkway at level 0 that is no crossing and has no corridor: OSM's line of a sidewalk; its strip, OSM's width or 2 m, is the sidewalk part |
 | **sidewalk zone** | the band a road's sidewalk can lie in: the carriageway widened by 8 m on each side |
 | **alley** (ground) | a service road inside a block: the road's line at OSM's width or 6 m |
@@ -68,7 +68,7 @@ The words of the model, the code and the dashboard, in one place. When a word is
 | **match** | one real object that several sources describe, with every source's id |
 | **link** | a ramp, stairs, an elevator, an entrance or a connection between two levels at a shared node (`urban.link`) |
 | **station**, **entrance** | a rail, subway or tram station and its entrance (`urban.station`) |
-| **lot** | an off-street car park (`urban.lot`), a piece of its block |
+| **lot** | an off-street car park, an element of kind `lot`, a piece of its block |
 | **deck**, **tube**, **portal**, **landing** | a road above the ground; the area of a deck or a tunnel; where a tunnel meets the ground; where a deck meets the ground |
 
 ## The bridge model
@@ -97,7 +97,8 @@ The words of the model, the code and the dashboard, in one place. When a word is
 | **duckOSM** | the project that turns an OSM extract into a DuckDB file: the raw nodes and ways, the driving, walking and cycling networks, the feature layers |
 | **edge** | one directed piece of a road network between two nodes |
 | **GMNS** | duckOSM's export of the network with its lanes, as SUMO makes them |
-| `urban.*` | the tables urbanstyle writes, one per rank: `area`, `ground`, `stretch`, `plot_piece`, `space`, `side`, `part`, `mark`; on the tree: `element`, `joint`, `junction`, `street`, `arm`, `turn`, `approach`, `object`, `link`, `station`, `surface`, `observed`, `photo` ([The tables](tables.md)) |
+| `urban.*` | the model: the tables urbanstyle writes, one per rank: `area`, `ground`, `stretch`, `plot_piece`, `space`, `side`, `part`, `mark`; on the tree: `element`, `joint`, `junction`, `street`, `arm`, `turn`, `approach`, `object`, `link`, `station`, `surface`, `observed`, `photo` ([The tables](tables.md)) |
+| `work.*` | the build's intermediate tables, from which its last step writes `urban` |
 | **common columns** | the columns every rank table has, in this order: `<thing>_id`, `kind`, `rank`, `parent_id`, `level`, `name`, the thing's values, `source`, `method`, `ref`, `geometry` |
 | `urban.item` | the view over every rank: `id`, `rank`, `kind`, `parent_id`, `level`, `geometry` |
 | `urban.meta` | the manifest of a build: its version and date, the input files with their dates, every chosen value with its name |

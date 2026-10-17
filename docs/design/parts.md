@@ -41,8 +41,8 @@ a junction begins; its strip is an island.
 
 ## The parts of a path
 
-A path's space has the walking side only. Its parts are the path's surface and what OSM maps on it: `steps`, `ramp`, `handrail`,
-`bollard`. A path has no marks.
+A path's space has the walking side only. Its part is the path's surface, `path`, or `steps` where OSM maps steps. What else OSM maps on it (a ramp, a handrail,
+a bollard) is a street object on it. A path has no marks.
 
 ## Positions and lane links
 

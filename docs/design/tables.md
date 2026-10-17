@@ -124,6 +124,7 @@ The rank tables are `urban.area`, `urban.ground`, `urban.stretch`, `urban.plot_p
 | `parent_id` | VARCHAR | the id of the thing of the rank above that holds it; none for the area |
 | `level` | INTEGER | the level |
 | `name` | VARCHAR | the thing's name, from its source |
+| `uid` | VARCHAR | the thing's stable id, from the registry: it stays the same from build to build |
 | the thing's values | | its widths, its lengths, its lanes, with `<value>_source` and `<value>_method` where a value has a source of its own |
 | `source` | VARCHAR | who gave the row |
 | `method` | VARCHAR | how the source got it |
@@ -131,7 +132,8 @@ The rank tables are `urban.area`, `urban.ground`, `urban.stretch`, `urban.plot_p
 | `geometry` | GEOMETRY | the thing: one polygon for a thing of rank 1 to 5, a line or a shape for a mark |
 
 Each `<thing>_id` is unique in its table. An intersection is both a stretch and a space, so the key of `urban.item` is the id with
-the rank. A thing with a profile in the registry has one more column, `uid`, its stable id ([The registry](#the-registry-urbanregistry)).
+the rank. `uid` is the id to keep in a link or a note: the readable id can change when the build changes, the `uid` changes only when
+the thing does ([The registry](#the-registry-urbanregistry)).
 
 The other tables (`urban.element`, `urban.joint`, `urban.street`, `urban.arm`, `urban.junction`, `urban.turn`, `urban.approach` and
 the tables on the tree) have only the columns that their sections list.
@@ -150,6 +152,7 @@ The whole area of a level: one row per level. It is the root of the tree, so its
 | `parent_id` | VARCHAR | none |
 | `level` | INTEGER | the level |
 | `name` | VARCHAR | the area's name: the name of its file |
+| `uid` | VARCHAR | its stable id, from the registry |
 | `source` | VARCHAR | `osm` when OSM's boundary gives the area; `urbanstyle` when the box round the elements gives it |
 | `method` | VARCHAR | `mapped`; `chosen` |
 | `ref` | VARCHAR | the boundary, or the box |
@@ -204,6 +207,7 @@ One row is one piece of the area of a level: the street, a plot (a block) or a p
 | `parent_id` | VARCHAR | the area |
 | `level` | INTEGER | the level |
 | `name` | VARCHAR | a path's name |
+| `uid` | VARCHAR | its stable id, from the registry |
 | `sides` | JSON | a plot: its street sides, each with its way, the way's name and class, the distance from the road line and what set it (sidewalks, carriageway, path width, building) |
 | `width_m` | DOUBLE | a path: its width |
 | `width_source` | VARCHAR | OSM, or urbanstyle |
@@ -230,13 +234,14 @@ partition it.
 | `parent_id` | VARCHAR | the street or the path of rank 1 that holds it |
 | `level` | INTEGER | the level |
 | `name` | VARCHAR | a section: the name of its ways; an intersection: the names of the streets that meet there, joined by ` / ` |
+| `uid` | VARCHAR | its stable id, from the registry |
 | `street_id` | VARCHAR | the named street a section belongs to |
 | `ways` | VARCHAR[] | the OSM ways, `w<way>`, in order along the axis |
-| `nodes` | BIGINT[] | a section: the junction nodes at its start and its end; an intersection: its junction nodes |
-| `class` | VARCHAR | a section: the OSM class of its ways |
-| `oneway` | BOOLEAN | a section: one-way |
-| `length_m` | DOUBLE | a section: the length of its axis |
-| `axis` | GEOMETRY | a section: its subsections' axes chained, from its start node to its end node; none for an intersection |
+| `nodes` | BIGINT[] | a section or a path section: the junction nodes at its start and its end; an intersection or a path intersection: its junction nodes |
+| `class` | VARCHAR | a section or a path section: the OSM class of its ways |
+| `oneway` | BOOLEAN | a section or a path section: one-way |
+| `length_m` | DOUBLE | a section or a path section: the length of its axis |
+| `axis` | GEOMETRY | a section: its subsections' axes chained, from its start node to its end node; a path section: its way's line; none for an intersection |
 | `source` | VARCHAR | `urbanstyle` |
 | `method` | VARCHAR | `derived`: the street cut by the stop lines |
 | `ref` | VARCHAR | the ways, joined by `,` |
@@ -254,6 +259,7 @@ One row is one piece of a plot, inside its block. Rank 2 is the last rank of a p
 | `parent_id` | VARCHAR | the plot |
 | `level` | INTEGER | the level |
 | `name` | VARCHAR | from the source |
+| `uid` | VARCHAR | its stable id, from the registry |
 | `width_m` | DOUBLE | an alley: its width |
 | `width_source` | VARCHAR | OSM, or urbanstyle |
 | `width_method` | VARCHAR | mapped, or chosen |
@@ -320,11 +326,12 @@ partition it. A space never spans two levels.
 | `space_id` | VARCHAR | `s<level>-w<way>/<k>`, `i<level>-<node>`, `p<level>-w<way>`, `q<level>-<node>` |
 | `kind` | VARCHAR | subsection, intersection, path section, path intersection |
 | `rank` | INTEGER | 3 |
-| `parent_id` | VARCHAR | its stretch; an intersection's is the intersection itself, at rank 2 |
+| `parent_id` | VARCHAR | its stretch; an intersection, a path section and a path intersection are their own stretch at rank 2, with the same id |
 | `level` | INTEGER | the level |
 | `name` | VARCHAR | its stretch's name |
-| `axis` | GEOMETRY | a subsection: its piece of the section's axis; none for an intersection |
-| `s_from` | DOUBLE | a subsection: where it starts along the section's axis |
+| `uid` | VARCHAR | its stable id, from the registry |
+| `axis` | GEOMETRY | a subsection: its piece of the section's axis; a path section: its way's line; none for an intersection |
+| `s_from` | DOUBLE | a subsection: where it starts along the section's axis; a path section: 0 |
 | `s_to` | DOUBLE | where it ends |
 | `width_m` | DOUBLE | a subsection: the frame's width |
 | `oneway` | BOOLEAN | a subsection: one-way |
@@ -363,6 +370,7 @@ part of the walking side, not a side.
 | `parent_id` | VARCHAR | its space |
 | `level` | INTEGER | the level |
 | `name` | VARCHAR | none |
+| `uid` | VARCHAR | its stable id, from the registry |
 | `kerb` | GEOMETRY | the driving side: the line of its kerb |
 | `kerb_source` | VARCHAR | who gave the kerb: OSM's sidewalk line, or urbanstyle |
 | `kerb_method` | VARCHAR | measured from the sidewalk line, or derived from the lanes' edge |
@@ -380,18 +388,19 @@ One row is one piece of a side, of one kind: a lane, a sidewalk, a crosswalk and
 | Column | Type | Meaning |
 |---|---|---|
 | `part_id` | VARCHAR | `<space>#<n>` |
-| `kind` | VARCHAR | lane, paved, parking, no parking, shoulder, bus lane, cycle lane, junction area, crosswalk, cycle crossing, bridge deck, island, sidewalk, furnishing, frontage, driveway, verge, bus stop, bus zone, tree pit; a path's surface, steps, ramp, handrail, bollard |
+| `kind` | VARCHAR | lane, paved, parking, no parking, shoulder, bus lane, cycle lane, junction area, crosswalk, cycle crossing, bridge deck, island, sidewalk, furnishing, frontage, driveway, verge, bus stop, bus zone, tree pit; on a path: `path` (its surface) or `steps` |
 | `rank` | INTEGER | 5 |
 | `parent_id` | VARCHAR | its side |
 | `level` | INTEGER | the level |
 | `name` | VARCHAR | none |
+| `uid` | VARCHAR | its stable id, from the registry |
 | `space_id` | VARCHAR | its space |
 | `arm` | VARCHAR | a lane of an intersection: the road it belongs to |
 | `direction` | VARCHAR | a lane: forward or backward along the way, in or out of an intersection |
 | `lane` | INTEGER | a lane: its number from the middle of the road, 1 the innermost |
 | `lane_id` | VARCHAR | a lane: its GMNS id |
-| `axis` | GEOMETRY | a lane or a band of a subsection: its middle line, in the direction of travel; none in an intersection, and none for a crosswalk, a driveway, a tree pit or a bus stop |
-| `s_from` | DOUBLE | a part of a subsection: where it starts along the space's axis |
+| `axis` | GEOMETRY | a lane or a band of a subsection, or the part of a path section: its middle line, in the direction of travel; none in an intersection, and none for a crosswalk, a driveway, a tree pit or a bus stop |
+| `s_from` | DOUBLE | a part of a subsection or a path section: where it starts along the space's axis |
 | `s_to` | DOUBLE | where it ends |
 | `t_from` | DOUBLE | its right edge across the axis |
 | `t_to` | DOUBLE | its left edge |
@@ -432,9 +441,10 @@ One row is one painted line, arrow, zebra or kerb line, on a part. Rank 6 is the
 | `parent_id` | VARCHAR | the part it lies on; for the kerb line, the driving side whose border it is |
 | `level` | INTEGER | the level |
 | `name` | VARCHAR | none |
+| `uid` | VARCHAR | its stable id, from the registry |
 | `parent_rank` | INTEGER | 5, or 4 for the kerb line |
 | `space_id` | VARCHAR | its space |
-| `s_from` | DOUBLE | a mark of a subsection: where it starts along the space's axis |
+| `s_from` | DOUBLE | a mark of a subsection: where it starts along the section's axis |
 | `s_to` | DOUBLE | where it ends |
 | `t_from` | DOUBLE | its right edge across the axis |
 | `t_to` | DOUBLE | its left edge |
@@ -482,13 +492,36 @@ Not a rank table. One row per lane that comes into an intersection.
 
 ## The axes and (s, t)
 
-Every linear thing has an `axis`: its middle line, from its start to its end. A section's axis is its subsections' axes chained. A
-subsection's axis is its piece of the section's axis, from `s_from` to `s_to`. A lane's axis runs in its direction of travel: a
-forward lane along the subsection's axis, a backward lane against it. An intersection has no axis.
+An **axis** is the middle line of a linear thing, from its start to its end. A section's axis is its subsections' axes chained. A
+subsection's axis is its piece of the section's axis. A lane's axis runs in its direction of travel: a forward lane along the
+subsection's axis, a backward lane against it. A path section's axis is its way's line. An intersection has no axis.
 
-A thing's place on its space's axis is `(s, t)`: `s` in metres along the axis from the start of the section, `t` in metres across
-it, positive to the left ([The format](format.md), R4). `s_from` and `s_to` give the range along, `t_from` and `t_to` the range
-across. The lanes of one subsection are ordered by `t_from`. A thing inside an intersection has no `(s, t)`.
+**(s, t)** gives the place of a thing on a street in two numbers, in metres, measured on the axis of its section:
+
+- `s` is the distance along the axis, from the start of the section.
+- `t` is the distance across the axis: positive to the left, negative to the right, as seen along the axis.
+
+A part or a mark has a range: `s_from` to `s_to` along, `t_from` to `t_to` across. Example: a lane with `s_from` 40, `s_to` 95,
+`t_from` 0 and `t_to` 3.25 starts 40 m from the start of its section, ends at 95 m, and fills the first 3.25 m to the left of the
+axis. The lanes of one subsection, sorted by `t_from`, give the cross-section from right to left. OpenDRIVE and IFC place things in
+the same way ([The format](format.md), R4).
+
+<svg viewBox="0 0 640 190" width="100%" role="img" aria-label="s along the axis, t across it" style="max-width:640px">
+  <rect x="40" y="40" width="560" height="110" fill="#e5e7eb"/>
+  <rect x="200" y="62" width="220" height="33" fill="#94a3b8"/>
+  <line x1="40" y1="95" x2="600" y2="95" stroke="#dc2626" stroke-width="2"/>
+  <polygon points="600,95 588,89 588,101" fill="#dc2626"/>
+  <text x="44" y="112" font-size="13" fill="#dc2626">axis, s = 0</text>
+  <text x="530" y="112" font-size="13" fill="#dc2626">s grows</text>
+  <line x1="40" y1="170" x2="200" y2="170" stroke="#111827"/><text x="98" y="185" font-size="13">s_from = 40</text>
+  <line x1="40" y1="160" x2="420" y2="160" stroke="#111827"/><text x="300" y="155" font-size="13">s_to = 95</text>
+  <line x1="440" y1="95" x2="440" y2="62" stroke="#111827"/><text x="446" y="82" font-size="13">t: 0 to 3.25 (left)</text>
+  <text x="250" y="83" font-size="13">a forward lane</text>
+  <text x="44" y="30" font-size="13">left of the axis: t &gt; 0</text>
+  <text x="44" y="145" font-size="13">right of the axis: t &lt; 0</text>
+</svg>
+
+A thing inside an intersection has no `(s, t)`, because an intersection has no axis.
 
 ## The links of spaces and lanes
 
@@ -499,6 +532,8 @@ OpenDRIVE's links do.
   successor is the subsection after it, or the intersection at the section's end.
 - **An intersection:** its predecessors are the subsections whose successor it is, and its successors the subsections whose
   predecessor it is. The subsection of a two-way arm is both.
+- **A path section:** the path intersections at its two ends are both its predecessors and its successors, because a path is walked
+  both ways. A path intersection's predecessors and successors are the path sections that reach it.
 - **A lane at a joint:** its successor is the lane of the next subsection, in its direction of travel, with the same direction and
   the same number, that shares the joint with it. A lane that the next subsection does not have has no successor there (check R4).
 - **A lane at an arm:** a lane of a subsection and the lane of the intersection that shares the stop line with it, on the same road,
@@ -666,17 +701,33 @@ database it replaces. It gives every profile it knows its id again, and it gives
 |---|---|---|
 | `profile` | VARCHAR | the profile, as text: `osm:n13983466896`, `vancouver:vb6509215` |
 | `uid` | VARCHAR | the id, a UUID |
-| `kind` | VARCHAR | what the thing is: street object, building |
+| `kind` | VARCHAR | what the thing is: one of the kinds below |
 | `first_seen` | TIMESTAMP | the build that first had the profile |
 | `last_seen` | TIMESTAMP | the build that last had it |
 
 | Kind | Profile |
 |---|---|
+| area | `area:` its name and its level |
+| street | `street:` its level and the names of the streets in it, sorted |
+| plot | `plot:` its level and the names of the streets on its sides, sorted |
+| path | its OSM way: `osm:w<way>` |
+| section | `section:` its street's name, and the profiles of the intersections at its two ends |
+| intersection | `intersection:` its level and the names of the streets that meet there, sorted |
+| path section | its OSM way: `osm:w<way>` |
+| path intersection | its OSM node: `osm:n<node>` |
+| plot piece | its source and that source's id, where a source maps it: `osm:w<way>`; else its plot's profile and its kind |
+| subsection | its section's profile and its number |
+| side | its space's profile and `d` or `w` |
+| part | its side's profile; a lane: its direction and its number; any other part: its kind |
+| mark | its space's profile and its kind |
 | street object | its best source and that source's id: `osm:n<node>`, `vancouver:<record>` |
 | building | its source and that source's id: `osm:w<way>`, `vancouver:vb<id>` |
 
-The thing's own row carries the id in `uid`. The readable id (`s0-…`, `i0-…`, `n…`) stays as the label. The registry keeps the
-street objects and the buildings; [The format](format.md) gives the profiles of the other kinds.
+When two things of one build have the same profile, they get `#2`, `#3` and so on, in the order of their readable ids. So every
+profile in one build is unique. When a profile changes, the thing is a different thing and gets a new `uid`: a renamed street, or a
+new intersection on a section. The registry keeps the old profile with its `last_seen`.
+
+The thing's own row carries the id in `uid`. The readable id (`s0-…`, `i0-…`, `n…`) stays as the label.
 
 ### `urban.style`
 

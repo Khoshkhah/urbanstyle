@@ -53,18 +53,7 @@ Every thing has a profile, made only of facts that do not change, and the id bel
 - A registry per area, kept from build to build, maps each profile to an id, with `first_seen` and `last_seen`.
 - At each build, each thing's profile is looked up in the registry. An equal profile gives the thing that id. A new profile gets a new
   id, a UUID, and the registry keeps it.
-- The profiles, kind by kind:
-
-  | Kind | Profile |
-  |---|---|
-  | street object | its source and the source's own record id |
-  | building | its OSM or city building id |
-  | intersection | the names of the streets that meet there |
-  | section | its street's name and the two intersections at its ends |
-  | subsection | its section and its number along it |
-  | lane, sidewalk zone, other part | its subsection, its side and its place from the kerb |
-  | block | the names of the streets around it |
-
+- The profiles, kind by kind, are in [The tables](tables.md#the-registry-urbanregistry): every thing of every rank has one.
 - When a profile changes, the id changes: a renamed street or a new intersection on a section is a different thing. The registry
   keeps the old profile with its `last_seen`.
 - A city object's id is the city's own record id. OSM ids are the source's own.

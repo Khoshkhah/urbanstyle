@@ -53,14 +53,17 @@ the rank; a click on it turns them all off when any is on, all on when none is.
 
 | Rank | Layers |
 |---|---|
-| 0 | the area, the road lines, the buildings, the rail, the stations |
-| 1 | the street (whole, from the area, the blocks and the corridors), the street as the spaces cut it, the plots (the blocks), the paths (the corridors); the footways, every footpath whole at its width, lying on the ground |
-| 2 | the sections and the intersections; the plot's pieces: building, yard, alley, car park, construction site, green, water, rail, square, structure |
-| 3 | the spaces, the subsections, their axes and breaks, the cuts |
-| 4 | the driving side and the walking side |
-| 5 | one box per part type, the driving side first, then the walking side |
-| 6 | one box per mark type |
+| 0 | the area (`urban.area`), the road lines, the buildings, the rail, the stations |
+| 1 | the street, the plots and the paths (`urban.ground`); the footways, every footpath whole at its width, lying on the ground |
+| 2 | the sections, the intersections, the path sections and the path intersections (`urban.stretch`); the plot's pieces: building, yard, alley, car park, construction site, green, water, rail, square, structure (`urban.plot_piece`) |
+| 3 | the spaces (`urban.space`), their axes, the cuts |
+| 4 | the driving side and the walking side (`urban.side`) |
+| 5 | one box per part kind, the driving side first, then the walking side (`urban.part`) |
+| 6 | one box per mark kind (`urban.mark`) |
 | on top | the street objects, the objects on the parts, the bridge in 2D, the links, Mapillary's detections (validation) |
+
+The page draws the model: each layer of a rank is one table of `urban`, and its card shows the row of that table, with its parent,
+its `uid`, and its `(s, t)` and links where it has them. Each kind has the colour of `urban.style`.
 
 A kind box filters its layer to that kind. A kind the area has none of is greyed, "none here". The 3D view draws the parts, the kerbs,
 the painted lines, the buildings at their height, the bridge models and one model per street object; a hover lights a thing and names

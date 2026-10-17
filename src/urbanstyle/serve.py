@@ -280,6 +280,17 @@ class Area:
             seen[unit_id] = sorted(out)
         return seen[unit_id]
 
+    def checks(self):
+        """The rows of urban.check that are not a pass (`urbanstyle check` writes them), faults first; [] before a check ran."""
+        with self.lock:
+            try:
+                rows = self.con.execute("""SELECT check_id, status, count, what, items[1:50] FROM urban.check WHERE status <> 'pass'
+                                           ORDER BY status = 'info', check_id""").fetchall()
+            except Exception:
+                return []
+        return [{"id": i, "status": s, "count": n, "what": w, "at": [list(map(float, x.split(","))) for x in (at or [])]}
+                for i, s, n, w, at in rows]
+
     def street_levels(self):
         """The levels that hold a street space (the 3D view's levels: a building's floors go with the ground)."""
         with self.lock:
@@ -664,7 +675,8 @@ def handler(area, agent, viz, page):
                 self.end_headers()
                 self.wfile.write(b)
             elif u.path == "/api/meta":
-                self._json({"area": area.name, "layers": area.meta(), "levels": area.levels(), "street_levels": area.street_levels(), "agent": True})
+                self._json({"area": area.name, "layers": area.meta(), "levels": area.levels(), "street_levels": area.street_levels(), "agent": True,
+                            "checks": area.checks()})
             elif u.path == "/api/focus":
                 qs = parse_qs(u.query)
                 self._json(area.focus(qs.get("layer", [""])[0], qs.get("id", [""])[0]))

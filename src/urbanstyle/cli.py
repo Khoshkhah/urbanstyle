@@ -88,7 +88,16 @@ def main(argv=None):
         print("next: urbanstyle dashboard", a.out, "viz/<area>.html")
     elif a.cmd == "check":
         from .checks import bridge, run
-        return 1 if any([run(x) for x in a.db] + [bridge(b, a.db[0]) for b in a.bridge]) else 0
+        from .meta import write_checks
+        failed = False
+        for i, x in enumerate(a.db):      # each database gets its rows in urban.check; the bridges' rows go to the first
+            rows = []
+            failed |= run(x, rows)
+            if i == 0:
+                for b in a.bridge:
+                    failed |= bridge(b, x, rows)
+            write_checks(x, rows)
+        return 1 if failed else 0
     elif a.cmd == "quality":
         from .quality import run
         for x in a.db:

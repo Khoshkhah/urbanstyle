@@ -6,35 +6,27 @@ first, then this note, then `docs/notes/street-rules.md` and `docs/notes/section
 
 ## Where the work stands
 
-- **The data structure as design (2026-10-16 night, commit c04d878, main = network-first):** `docs/design/tables.md` gives the full
-  structure: the same columns in the same order in every rank table (`<thing>_id`, `kind`, `rank`, `parent_id`, `level`, `name`, the
-  thing's values, `source`, `method`, `ref`, `geometry`; `kind` everywhere, no `type`), the area with the id `a<level>`, the view
-  `urban.item` over every rank (`id`, `rank`, `kind`, `parent_id`, `level`, `geometry`), the manifest `urban.meta` (`key`, `kind`:
-  build / input / chosen, `value`, `note`), the check rows `urban.check` (`check_id`, `kind`, `status`, `count`, `what`, `items`,
-  `checked`), the registry `urban.registry` of R6 (`profile`, `uid`, `kind`, `first_seen`, `last_seen`; `uid` on each thing with a
-  profile), `predecessors` and `successors` on spaces and lanes, an `axis` with `s_from`, `s_to`, `t_from`, `t_to` on every linear
-  thing, and the table `urban.code` (our kinds in CityGML 3.0, OpenDRIVE, OpenSidewalks, IFC 4.3). The glossary and the model's id
-  table follow. The site builds with `mkdocs build --strict`. Kaveh stopped the session there: documentation only, no code.
-  **Nothing of it is in the code yet.** None of `urban.item`, `urban.meta`, `urban.check`, `urban.registry`, `urban.code`, `uid`,
-  the axes or the links exists in a build. The next steps, in order, each tested on Vancouver only: (1) `urban.meta`, `urban.check`
-  and the view `urban.item` on today's tables, with tests; `urbanstyle check` computes read-only, then opens the file for a moment
-  to write `urban.check` (the server holds no lock; a build does). The view on today's tables: rank 1 = `urban.ground` street and
-  path rows plus `urban.block` as the plots; rank 2 = the other `urban.ground` rows as plot pieces (parent: the block that contains
-  them), the sections as the union of their subsections' spaces (`urban.subsection.section_id`; today's `urban.container` sections
-  have other ids and are the old step), the intersections; rank 3 = `urban.unit` (parent: `section_id`, or itself for an
-  intersection); rank 4 does not exist in the data, so the parts hang on their space; rank 6 = `urban.mark` with no id of its own
-  (make `<space>:<kind>:<n>` in the view) and no part link. The chosen values: every module-level number constant of the build modules
-  with the comment on its line. (2) The registry: a build reads `urban.registry` from the file it replaces, keeps every known profile's
-  `uid` and gives a new profile a `uuid4`; street objects first (profile `osm:n<node>`), then buildings (`osm:w<way>`,
-  `vancouver:vb<id>`). (3) The check faults on the panel: `/api/meta` gives the rows of `urban.check` that are not `pass`, the panel
-  lists them with their places as links that fly the map there.
-- **A trap for the next build (found 2026-10-16 night, not fixed):** the code finds a pilot's city files by the output's name ending
-  `.urban.duckdb` (`buildings.py`, `ground.py`, `blocks.py`, `parts.py`, `dashboard.py`, since commit c024a08), but the Vancouver
-  file is `data/units/broadway-granville.space.duckdb`. A rebuild to that name gets no parcels, no kerb evidence, no bikeways and no
-  storefronts, and nothing fails. Before the next Vancouver build: rename the file and its sidecars (`.space.duckdb.mapillary.json`,
-  `.before-division`, `.before-ground`) to `.urban.duckdb`, or build to `broadway-granville.urban.duckdb`, and point
-  `scratch/serve.sh` there.
-
+- **The data structure (2026-10-16 night).** Kaveh: the data structure is the product; the dashboard only shows it.
+  - Design: `docs/design/tables.md` (the common columns in one order, `kind` everywhere, `urban.item`, `urban.meta`, `urban.check`,
+    `urban.registry` with `uid`, the axes with (s, t), the links of spaces and lanes, `urban.style`, `urban.code`) and the new chapter
+    `docs/design/drawing.md` (Kaveh: "add level order for each table and a document on how to visualize all the tables"; his "level
+    order" is the draw order: levels from the lowest up, then `draw_order` inside a level). The other chapters agree with it.
+  - Built (`meta.py`, the build's last step `container._finish`; `urbanstyle check` writes `urban.check`): `urban.meta`,
+    `urban.item` (a table derived once at the build's end, because today's tables carry no `parent_id`; it becomes a plain view
+    when they do), `urban.registry` with `uid` on `urban.object` and on the buildings of `urban.element`, `urban.style`, `urban.code`,
+    `urban.check`, and the failed checks on the panel (`Checks`, links to the places). Tests: `tests/test_meta.py` (the uids stay
+    the same over a rebuild; every kind of the tree has a style).
+  - Not built: the rank tables in the design's shape (`urban.stretch`, `urban.plot_piece`, `urban.space`, `urban.side` with the
+    common columns; `kind` and `parent_id` on `urban.part` and `urban.mark`; rank 1 as street, plot and path rows of
+    `urban.ground`), the axes with (s, t) on spaces, parts and marks, the predecessors and successors, the uids of the other kinds
+    (intersection, section, subsection, part, block). Today's working tables keep their old columns (`type`, `unit_id`), which the
+    network step, the checks and the page read; a change to them is one table at a time, with every reader.
+  - `urban.item` holds what today's data gives: the rank 4 sides are the parts joined (walking: sidewalk, furnishing, frontage,
+    driveway, island, verge, bus stop, tree pit), the marks' ids are made (`<space>:<kind>:<n>`), the old part kind `carriageway`
+    still in Vancouver's parts (built before the rename to `paved`) has no style row.
+  - Vancouver's files are renamed `data/units/broadway-granville.urban.duckdb*` (with `.before-division`, `.before-ground`,
+    `.mapillary.json`): the code finds a pilot's city files by that name since commit c024a08. `scratch/serve.sh` points there.
+  - The site that port 8784 shows at `/docs/` is a copy in `viz/docs/`: after `mkdocs build`, run `rsync -a --delete site/ viz/docs/`.
 - **Committed and pushed 9d225d3 (2026-10-16 evening), main = network-first:** the design as chapters by rank in `docs/design/`
   (the public site holds only the design as it is: no history, no names, no dates; the 31 old notes are in `docs/notes/`, off the
   site), and every rule of the day (paths at rank 1, no parcels, the room rule, the sidewalk strips, one partition, divided roads,
@@ -46,7 +38,7 @@ first, then this note, then `docs/notes/street-rules.md` and `docs/notes/section
 - `main` and `network-first` are one (2026-10-16): steps 2 and 3 of `sections.md`, the rules from the Vancouver spots, the dashboard's
   first-3D-draw fix, the rules from the Monaco fails (`sections.md`), the service-road rule, the servers that hold no lock, and the
   document of the model: `docs/notes/steps.md` (the hierarchy by rank, the steps, the dependencies, the levels, the words).
-- Vancouver (`data/units/broadway-granville.space.duckdb`) is rebuilt with the final code: no count changed. Its fails: I3 1 (the
+- Vancouver (`data/units/broadway-granville.urban.duckdb`) is rebuilt with the final code: no count changed. Its fails: I3 1 (the
   old container step) and one BR12 (an object inside a bridge lane at the on-ramp foot, -123.135954 49.266514), as before.
 - Monaco (`data/monaco.duckdb`) is rebuilt in full on 2026-10-16 afternoon from duckOSM's rebuilt database (its 57 overrides applied,
   issue 10: 1 lane on the Larvotto and Princesse Grace one-way ways) with the service-road rule (street-rules 16). From the start of
@@ -226,7 +218,7 @@ P=/home/kaveh/projects/duckOSM/.venv/bin/python
 # and holds no lock on the file (serve.py, 2026-10-16), so a build runs behind a live page; a rebuild ends with `scratch/serve.sh <area>`,
 # a 2 s restart. Kaveh asked for http://localhost:8785/* on the key's referrers, to get Street View on both.
 scratch/serve.sh monaco        # kills the server on 8784 by PID and starts it again from data/monaco.duckdb and viz/monaco.html
-scratch/serve.sh vancouver     # the same on 8785 from data/units/broadway-granville.space.duckdb
+scratch/serve.sh vancouver     # the same on 8785 from data/units/broadway-granville.urban.duckdb
 # an OSM fault (lanes, oneway, layer): into ../duckOSM/osm_overrides/osm_overrides.yaml + known_osm_issues.md, then (12 s)
 (cd ../duckOSM && .venv/bin/duckosm build --config config/sample_monaco.yaml)     # writes ../duckOSM/monaco.duckdb (a copy .2026-10-04 is kept)
 # then Monaco in full (about 1 h: the lanes, the profiles, the build, the checks, the page, the server)
@@ -241,9 +233,9 @@ scratch/serve.sh monaco
 $P scratch/cut-monaco.py NAME LON LAT TAG src [RADIUS]      # data/cuts/NAME.space.duckdb, the checks printed
 $P scratch/plot-place.py DB LON LAT RADIUS viz/review/NAME.png "title"     # a picture of one place, http://localhost:8784/review/NAME.png
 # Vancouver, from the division step (about 1 min), then the checks and the page
-PYTHONPATH=src $P -m urbanstyle build data/units/broadway-granville.osm.duckdb data/units/broadway-granville.space.duckdb --from division --bridge data/bridges-measured/granville-bridge.bridge.json
-PYTHONPATH=src $P -m urbanstyle check data/units/broadway-granville.space.duckdb --bridge data/bridges-measured/granville-bridge.bridge.json
-PYTHONPATH=src:../roadstyle/src python3 -m urbanstyle dashboard data/units/broadway-granville.space.duckdb viz/broadway-granville.html --bridge data/bridges-measured/granville-bridge.bridge.json
+PYTHONPATH=src $P -m urbanstyle build data/units/broadway-granville.osm.duckdb data/units/broadway-granville.urban.duckdb --from division --bridge data/bridges-measured/granville-bridge.bridge.json
+PYTHONPATH=src $P -m urbanstyle check data/units/broadway-granville.urban.duckdb --bridge data/bridges-measured/granville-bridge.bridge.json
+PYTHONPATH=src:../roadstyle/src python3 -m urbanstyle dashboard data/units/broadway-granville.urban.duckdb viz/broadway-granville.html --bridge data/bridges-measured/granville-bridge.bridge.json
 scratch/serve.sh vancouver
 # the docs site: the duckOSM env has mkdocs-material; the system mkdocs has not
 $P -m mkdocs build --strict

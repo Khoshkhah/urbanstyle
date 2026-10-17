@@ -8,6 +8,7 @@ B.insertAdjacentHTML('beforeend',`<button id=xpfold title="hide the panel">&laqu
 <div id=xp>
   <header><b>urbanstyle <span id=xparea style="font-weight:400;color:#64748b"></span></b></header>
   <div id=xpview>level <span id=xplk></span><span class=sp></span><button id=xp2d>2D</button><button id=xp3d>3D</button></div>
+  <details id=xpchecks><summary>Checks</summary><div id=xpchk></div></details>
   <details id=xplayers><summary>Layers <span class=xp3dl>(2D only)</span></summary><h5>Options</h5><div id=xpopts><label title="3D view only: the ground follows the hill (public 30 m terrain: rough, roads and buildings do not sit right on it)"><input type=checkbox id=terrain3d> rough terrain</label><label title="3D view only: each building at most 3 m high, so the streets are not hidden (also while a street object is selected)"><input type=checkbox id=lowbld> low buildings</label><label title="2D is a map: roads as lines, objects as dots. Tick to draw the real-size road surface in 2D too (lanes, crosswalks, sidewalks, markings), as 3D always does"><input type=checkbox id=allparts> road surface in 2D</label><label title="Mapillary's detections, for validation only: their positions are too rough to make an object. Green: it confirms a surveyed or mapped object; orange: nothing confirms it"><input type=checkbox id=mlybox> Mapillary detections (validation)</label></div><div id=xplys></div></details>
   <div id=xptabs><button data-t=s class=on>Find</button><button data-t=f>Filter</button><button data-t=a>Ask</button></div>
   <div class="xptab on" id=xp-s><div class=xprow><input id=xpq style="flex:1" placeholder="a street, a type, an OSM way, or an id (s0-…, i0-…)"><button class=xpgo id=xpqgo>Find</button></div>
@@ -154,6 +155,12 @@ function show(fc,title){
 $('xplist').onclick=e=>{const d=e.target.closest('[data-i]'); if(d&&last)select(last.features[+d.dataset.i])};
 // (on a web site with no server, the page's own /api/: XP_STATIC, urbanstyle publish)
 const S=window.XP_STATIC;
+// the checks that do not pass (urban.check, `urbanstyle check`): each with its places as links that move the map there
+function checksBox(cs){const box=$('xpchecks'); if(!cs.length){box.style.display='none'; return}
+  const nf=cs.filter(c=>c.status==='fail').length; box.querySelector('summary').textContent=`Checks: ${nf} fail, ${cs.length-nf} info`;
+  $('xpchk').innerHTML=cs.map(c=>`<div class="xpck ${c.status}"><b>${esc(c.id)}</b> ${esc(c.status)} ${c.count}<small>${esc(c.what)}</small>`+
+    c.at.map((p,k)=>`<button class=xplink data-at="${p[0]},${p[1]}">${k+1}</button>`).join('')+'</div>').join('');
+  $('xpchk').onclick=e=>{const a=e.target.dataset.at; if(!a)return; const [x,y]=a.split(',').map(Number); M().flyTo({center:[x,y],zoom:19.5,duration:800})}}
 const get=u=>S?S.api(u):fetch(u).then(r=>r.json()), post=(u,b)=>S?S.api(u,b):fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}).then(r=>r.json());
 // (a result list from the newest request only: a slow answer to an older one is dropped)
 let rq=0; const latest=pr=>{const n=++rq; return pr.then(r=>{if(n!==rq)throw 'stale'; return r})}, stale=e=>{if(e!=='stale')throw e};
@@ -472,7 +479,7 @@ function start(){const m=M(), data=typeof OVERLAYS!=='undefined'&&typeof rsQuery
   m.on('pitchend',()=>setTimeout(()=>{vis(); views(); applyLooks(); selSrc(selF&&$('xpcard').classList.contains('on')?selF:null)},50));
   m.once('idle',lift); setTimeout(lift,3000)}
 get('/api/meta').then(mt=>{meta=mt; (mt.street_levels||[]).forEach(l=>{if(l!==0&&l!==1&&!(l in LOOKS['2d']))LOOKS['2d'][l]='off'});
-  $('xparea').textContent='· '+mt.area; branch($('xpbr'),'');
+  $('xparea').textContent='· '+mt.area; branch($('xpbr'),''); checksBox(mt.checks||[]);
   $('xplayer').innerHTML=Object.entries(mt.layers).map(([k,v])=>`<option value="${esc(k)}">${esc(k)} (${v.count})</option>`).join(''); cond(); start()})
   // (no server, the page as plain files: the panel stays for the layers, the view and the levels, read from the page's data (start);
   // the search, the tree, the filter and the agent need the server and are hidden; Kaveh, 2026-10-16: "it shows only level 0 and 1")

@@ -911,12 +911,16 @@ def build(osm, out, start=None, bridges=()):
     min; Kaveh, 2026-10-13: "consider I want to fix 100 issues"). Each step prints its time."""
     import shutil
     import time
+    from . import meta
+    from .schema import migrate
+    old = meta.old_registry(out)        # (the stable ids of the last build: the copy below is older than them)
     if start is not None:
         if start not in FROM:
             raise ValueError(f"build --from: one of {', '.join(FROM)}")
         shutil.copy(f"{out}.before-{'division' if start == 'blocks' else start}", out)        # (the steps before it, exactly as the full build left them)
         if os.path.exists(out + ".wal"):
             os.remove(out + ".wal")
+        migrate(out)                    # (a copy kept before the schema was named urban)
     con = duckdb.connect(out)
     con.execute("INSTALL spatial; LOAD spatial")
     con.execute(f"ATTACH '{osm}' AS osm (READ_ONLY)")
@@ -932,7 +936,8 @@ def build(osm, out, start=None, bridges=()):
         con.execute(f"CREATE OR REPLACE TEMP VIEW osm_boundary AS SELECT {'geometry' if 'geometry' in cols else 'geom'} AS geometry FROM osm.main.boundary")
     if start is not None:
         lon = con.execute("SELECT avg(ST_X(ST_Centroid(geometry))) FROM urban.element").fetchone()[0]
-        return _from_division(con, f"EPSG:{32600 + int((lon + 180) // 6) + 1}", done, bridges, out, start)
+        _from_division(con, f"EPSG:{32600 + int((lon + 180) // 6) + 1}", done, bridges, out, start)
+        return _finish(con, osm, out, bridges, old, done)
     con.execute(BUILD)
     con.execute(ROADS)
     from . import buildings
@@ -978,7 +983,16 @@ def build(osm, out, start=None, bridges=()):
     done("blocks")
     con.execute("CHECKPOINT")      # (the file as it is before the division, for `build --from division`)
     shutil.copy(out, out + ".before-division")
-    return _from_division(con, epsg, done, bridges, out)
+    _from_division(con, epsg, done, bridges, out)
+    return _finish(con, osm, out, bridges, old, done)
+
+
+def _finish(con, osm, out, bridges, old, done):
+    """The last step of every build: the registry of stable ids, the tree urban.item and the manifest urban.meta (meta.py)."""
+    from . import meta
+    n = meta.finish(con, osm, out, bridges, old)
+    done(f"meta ({n} items)")
+    return con
 
 
 def _from_division(con, epsg, done, bridges=(), out=None, start="division"):

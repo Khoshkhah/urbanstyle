@@ -73,3 +73,7 @@ body.xp-off #xpfold{left:10px}
 #xplist div:hover{background:#f5f0ff}
 #xplist small{color:#64748b;margin-left:4px}
 .xpwait{color:#7c4dff}
+#xpchecks{border-bottom:1px solid #e2e8f0;padding:6px 12px;max-height:30vh;overflow:auto;flex:none}
+#xpchecks summary{cursor:pointer;font:600 12px system-ui;color:#475569;padding:2px 0}
+.xpck{font-size:12px;padding:3px 0;border-top:1px solid #f1f5f9}.xpck.fail b{color:#dc2626}.xpck.info b{color:#64748b}
+.xpck small{display:block;color:#64748b}.xpck button{margin:2px 3px 0 0;padding:0 6px}

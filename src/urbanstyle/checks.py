@@ -496,7 +496,8 @@ def roadway_joints(c, epsg, has_change=False):
     return len(bad), bad
 
 
-def run(path):
+def run(path, out=None):
+    """The checks of the database at `path`, printed; True when a hard check fails. `out`: a list the rows go to (urban.check)."""
     c = duckdb.connect(path, read_only=True)
     c.execute("LOAD spatial")
     lon = c.execute("SELECT avg(ST_X(ST_Centroid(geometry))) FROM urban.container").fetchone()[0]
@@ -550,6 +551,9 @@ def run(path):
         print(f"  {cid:3s} {status:5s} {value:6d}  {what}")
         for x, y in (at[0] if at else [])[:5]:      # where: a page link opens there (dashboard ?at=)
             print(f"            ?at={x:.6f},{y:.6f},20,60,0")
+    c.close()
+    if out is not None:
+        out += rows
     return failed
 
 
@@ -587,7 +591,7 @@ def objects_in_lanes(M, c, db):
     return ("BR12", f"street objects of a city's survey or OSM standing inside a bridge lane (where it is under {ON_GROUND_M} m high)", len(at), True, at)
 
 
-def bridge(profile, db=None):
+def bridge(profile, db=None, out=None):
     """The bridge model's checks (bridge3d.model_checks) for a bridge profile, as the page draws it: with a unit's `db`, its street's
     lanes near the bridge for the landings (as the dashboard passes them)."""
     import json
@@ -618,4 +622,8 @@ def bridge(profile, db=None):
         print(f"  {cid:3s} {status:5s} {value:6d}  {what}")
         for x, y in at[:5]:         # where: a page link opens there in 3D (dashboard ?at=)
             print(f"            ?at={x:.6f},{y:.6f},20,60,0")
+    if db:
+        c.close()
+    if out is not None:
+        out += [(cid, f"{P['name']}: {what}", value, hard, at) for cid, what, value, hard, at in rows]
     return failed

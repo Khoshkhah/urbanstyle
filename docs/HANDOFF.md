@@ -65,6 +65,30 @@ first, then this note, then `docs/notes/street-rules.md` and `docs/notes/section
   - Open, asked and waiting for Kaveh: whether a `_link` (a ramp) stays a connector or is cut like every arm (Kaveh: "intersection
     building is in rank 2, there are no ramps there"; my change was undone, he had not decided); parking on w390721485 and w74226330
     (Street View shows cars parked; OSM has no parking tag: proposed an override in duckOSM); the paved part (still not agreed).
+  - Night of 2026-10-17, background session (Kaveh away): Vancouver rebuilt from the blocks step with every rule of the night and
+    checked on the data. Verified: the short kerb across the road at the Granville ramp foot and its two walking-side slivers are gone
+    (viz/review/kerb-after.png; s0-w74226330/1:kerb:1 is now the 26.9 m kerb along the road); Fir Street at West Broadway ends along
+    its north, south and west crosswalks, the east side is cut square to Fir's two one-way carriageways because that crosswalk lies
+    inside their core (viz/review/fir-broadway-crosswalks.png). Found and fixed (a351104): the connector rule left a 4.2 m section
+    between i0-877917634 and i0-877917571 whose small leftover joined a junction with its WHOLE frame, so the two intersections
+    overlapped by 34.5 m2 (U1); now only the leftover roadway joins (stretches.md: a section under 20 m2 of roadway joins the
+    intersection it touches). Check J3 followed the old 40 m rule (7 false faults): it now tests the agreed rule. Vancouver's checks
+    now: I3 1, A1 4, BR12 1. A1's four places are the two known faults of item 0a (Fir southbound w299511148 and West 6th's
+    three-lane piece), each counted in two sections since the connector rule split them (a ramp-foot cut with the connector rule off
+    counts West 6th once); the proposal of 0a still waits for Kaveh.
+  - Monaco, the same night: the full build with a351104 stopped after the blocks step (a junction with an empty shape had no centre
+    to give its name). Fixed in bb7d9da: a junction with no shape is not made (its shape was empty before the cut at the street's
+    edge, so no roadway is lost). Then `build --from division`, the checks and the page ran to the end; the page is on port 8784.
+    The checks FAIL: A3 499 (1 in item 1 below), A1 27 (5), U4 1, U5 1, U6 1, J1 1, J3 1, M1 2, BR7 1 + 1, BR11 1, BR5 2 + 3 (the
+    same as before); BR3 is gone. Cause of A3 (found on a 300 m cut at 7.4280 43.7390, `data/cuts/lost157`, A3 53 there): the room
+    rule. The room of a run is the least distance from its whole line to the street's edge, and a footway that ends at the road
+    (its 2 m strip, rule 5 of the room rule) touches the road's line. Then the room is 0 on both sides for the whole run, the frame
+    has no width, and the junctions take the road with no roadway part (Avenue de l'Hermitage w4229537, 157 m; Square Beaumarchais
+    w95825511 and w176477342; on the full build also Avenue de Grande-Bretagne w157719645 south of i0-1789813053, probably the same
+    cause, not traced there). The commits since b0d9983 do not cause it (the
+    cut with b0d9983 and the guard: A3 53 too). A test, not committed: a room that ignores the edge pieces that touch the line
+    itself gives the cut A3 0 and every other hard check passes, but A1 3 -> 8. Not changed: it changes the agreed room rule. To
+    decide with Kaveh (item 0b).
   - No traffic in urbanstyle (Kaveh): `unit --nvdb` and `--flows` removed, the city's traffic counts and the dossier's speed rule
     removed; NVDB is out of the sources. The part's `speed` comes from duckOSM's edges (`maxspeed_kmh`), never from raw tags and with
     no chosen default. Open (duckOSM work): the widths, `surface`, `lit` and the lane tags are still read from raw OSM tags
@@ -232,6 +256,11 @@ every item below. Its order of work:
    line along the north kerb; three lanes centred on it, narrowed to 2.75 m, still pass the sidewalk line there and are cut, so their
    middle is off the line. Proposed, not built: where one side's room is less than the lanes' half width, the lanes shift away from
    that edge as far as the other side's room allows, the shift recorded like a merge shift (`mshift`), A1 expecting it.
+
+0b. **The room and the footways that touch a road (Monaco A3 499, 2026-10-17).** A walkway strip that touches a road's line sets that
+   run's room to 0 on both sides, so the whole road gets no roadway. Proposals, not built: (a) the room ignores the edge pieces that
+   touch the line itself (on the cut: A3 53 -> 0, A1 3 -> 8); (b) only walkways that run beside the road (a sidewalk line) are strips,
+   not a footway that ends at the road; (c) the room is measured per piece of the run, not as one least value. Kaveh decides.
 
 0. **The `paved` part is not agreed.** Kaveh, 2026-10-16 17:15, on s0-w473754701.2/2#10: "I am not convinced about that paved part; we
    will come back to it later." Today it is the frame's rest beyond the lanes and the strips (the one-frame-per-section rule); after

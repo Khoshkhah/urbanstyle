@@ -68,7 +68,7 @@ A stretch of the street or of a path: a section, an intersection, a path section
 | `nodes` | the junction nodes: the two ends of a section, the cluster of an intersection |
 | `class`, `name`, `oneway`, `length_m` | from the ways |
 | `axis` | a section's line, its ways chained |
-| `geometry` | the union of its spaces |
+| `geometry` | the stretch's face of the street, cut by the stop lines; its spaces partition it |
 
 ### `space.plot_piece`
 

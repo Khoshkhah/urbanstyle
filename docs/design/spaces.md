@@ -8,21 +8,16 @@ alone. Inside each space the kerb splits the driving side from the walking side.
 The street polygon of rank 1. The axes, the junctions and the change classes of rank 2. OSM's lanes, widths and sidewalk lines. OSM's
 parking and cycle lanes, a city's meters and kerb evidence.
 
-## Rank 3: one partition of the street
+## Rank 3: each stretch cut into its spaces
 
-1. **The stop line of each arm.** An arm is a run whose line ends at a junction node, within 1 m. The core of an arm is how far the
-   other arms' lanes overlap it from the node. The stop line is where the arm's lanes enter the junction: the far edge of OSM's
-   crossing on that arm within 15 m of the core, else 3 m past the core. It is a straight line square to the arm.
-2. **The cuts.** Each stop line and each joint between two subsections is run square to its road across the whole street, to the
-   edges of the blocks on both sides, 60 m to each side. A cut is clipped to the street and passes the street's boundary by 1 cm, so
-   the noding joins them.
-3. **The partition.** The street polygon is noded with all the cuts and polygonized. Each face is one space, whole, with its corners.
-4. **The owner of each face.** The roadway with the most area inside a face owns the face: a face between a junction's arm cuts is
-   that intersection's, a face between two cuts along one road is that subsection's. A face with no roadway in it joins the neighbour
-   it shares the most edge with.
+1. **An intersection** is one space: its face of rank 2, with its corners.
+2. **A section** is cut by its joints: each joint between two subsections is run square to the road across the section's face, to
+   its edges on both sides. The section's face noded with these cuts and polygonized gives its subsections, each one face. A section
+   with no joint is one subsection.
+3. **A cut** is clipped to the face it cuts and passes the face's boundary by 1 cm, so the noding joins them.
 
-The unit of rank 3 is the face (`space.unit`): a subsection, `s0-w<way>/<k>`, or an intersection, `i0-<node>`. A corner between two
-stop lines belongs to the intersection. A section's space is the band between its two cuts.
+The unit of rank 3 is the face (`space.unit`): a subsection, `s0-w<way>/<k>`, or an intersection, `i0-<node>`. The subsections of a
+section partition the section; the spaces of the level partition the street.
 
 ![The cuts at Sainte-Dévote.](../img/steps/06-cuts.png){ width=100% }
 

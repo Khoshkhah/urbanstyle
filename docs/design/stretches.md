@@ -64,8 +64,17 @@ meters on its kerb side; parking OSM maps on the way stays.
 
 ## The intersections
 
-One intersection per junction node, or per cluster of nodes that connectors join: `i0-<node>`, the smallest node id. Its area is the
-space of rank 3. Its nodes are in `space.junction`.
+One intersection per junction node, or per cluster of nodes that connectors join: `i0-<node>`, the smallest node id. Its nodes are
+in `space.junction`.
+
+## The geometry of a stretch
+
+Rank 2 cuts the street of rank 1 by the stop lines alone. The stop line of each arm is where its lanes enter the junction: the far edge
+of OSM's crossing on that arm within 15 m of the core, else 3 m past the core. Each stop line is run square to its road across the
+whole street to the edges of the blocks on both sides, 60 m to each side. The street polygon noded with these cuts and polygonized
+gives the faces of rank 2: the face between a junction's arm cuts is that intersection, with its corners; the face between two
+intersections along a road is that section. The roadway with the most area inside a face names its owner; a face with no roadway joins
+the neighbour it shares the most edge with. The stretches partition the street.
 
 ## The paths
 

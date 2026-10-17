@@ -34,14 +34,14 @@ The words of the model, the code and the dashboard, in one place. When a word is
 | **divided road** | a street whose two one-way carriageways run side by side with a median between them: one section and one space |
 | **subsection** | a piece of a section with one cross-section (`<section>/<k>`); its line in `urban.subsection`, its area in `urban.unit` |
 | **joint** | where two subsections of a section meet |
-| **change** | one row of `urban.change` per joint, with its class: turn pocket, merge, fork, parking, island, real, room, unknown, none |
+| **joint** (`urban.joint`) | one row per joint of a section, with its class: turn pocket, merge, fork, parking, island, real, room, unknown, none |
 | **intersection** | the space where the arms of one or more junction nodes meet (`i<level>-<node>`); its own stretch and its own space |
 | **arm** | a run whose line ends at a junction node, within 1 m |
 | **core** | how far the other arms' lanes overlap an arm from its node |
 | **stop line** | the line across an arm where its lanes enter the junction: the far edge of OSM's crossing within 15 m of the core, else 3 m past the core |
 | **cut** | a stop line or a joint run square to its road across the street to the blocks' edges; the lines that cut the street into spaces |
 | **space** | the area of a subsection or of an intersection, block edge to block edge (`urban.unit`); rank 3 |
-| **side** | the driving side or the walking side of a space (`urban.side`, `<space>:d`, `<space>:w`); rank 4 |
+| **side** | the driving side or the walking side of a space (`urban.side`, `<space>:d`, `<space>:w`); rank 4; the two partition the space |
 | **frame** | one width for a whole section: its lanes and strips at its widest place (`subsection.width_m`); the driving side's shape in a section |
 | **room** | the least distance from a run's line to the street's edge on one side; it caps the frame's kerb there |
 | **kerb** | the boundary between the roadway and the walking side: the near side of the sidewalk strip where OSM maps the line, else the lanes' outer edge |

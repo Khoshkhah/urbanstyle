@@ -86,9 +86,9 @@ A piece of a plot, inside its block. The pieces of one block partition it.
 | `surfaces` | the surfaces that cover it (`urban.surface`) |
 | `geometry` | the piece, one polygon |
 
-### `urban.change`
+### `urban.joint`
 
-One row per joint of a section where OSM's tags change, with its class.
+One row per joint of a section, where OSM's tags change, with its class.
 
 | Column | Meaning |
 |---|---|
@@ -136,12 +136,12 @@ The junction nodes of each intersection.
 
 ### `urban.side`
 
-The two sides of a space, and its islands.
+The two sides of a space. They partition the space (check S1). An island is a part of the walking side, not a side.
 
 | Column | Meaning |
 |---|---|
-| `side_id` | `<space>:d`, `<space>:w`, `<space>:i<n>` |
-| `kind` | driving, walking, island |
+| `side_id` | `<space>:d`, `<space>:w` |
+| `kind` | driving, walking |
 | `parent_id` | its space |
 | `kerb` | the driving side: the line of its kerb, with `kerb_source` and `kerb_method` (OSM's sidewalk line, measured; the lanes' edge, derived) |
 | `geometry` | the side, one polygon |
@@ -176,8 +176,8 @@ A painted line, an arrow, a zebra or the kerb line, on a part.
 |---|---|
 | `mark_id` | `<space>:<type>:<n>` |
 | `type` | kerb, lane line, centre line, edge line, parking line, stop line, give-way line, zebra, crossing line, arrow, guide line, barrier |
-| `parent_id` | its part |
-| `unit_id`, `level` | its space and level |
+| `parent_id`, `parent_rank` | the part it lies on (rank 5), or, for the kerb line, the driving side whose border it is (rank 4) |
+| `space_id`, `level` | its space and level |
 | `width_m`, `width_source`, `width_method`, `length_m` | the mark's width and length |
 | `source`, `method`, `ref` | where it comes from |
 | `geometry` | its middle line, or its shape |

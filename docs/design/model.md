@@ -159,7 +159,6 @@ SUMO or the street use for the same thing.
 | the area of a subsection or of an intersection, block edge to block edge | **space** | street space, right-of-way |
 | a named road with its intersections | **named street** | street |
 | one OSM way with one cross-section, between two junction nodes | **run** | edge |
-| where two subsections of a section meet | **joint** | |
 | a road under 40 m or a `_link` between two junction nodes, inside an intersection | **connector** | internal edge |
 | a run that ends at a junction node | **arm** | approach, leg |
 | how far the other arms' lanes overlap an arm from its node | **core** | |
@@ -181,7 +180,7 @@ SUMO or the street use for the same thing.
 | the edge of a block where it faces a street | **block side** | |
 | a pedestrian way's own ground between the blocks | **corridor** | |
 | a reading of the kerb's place from a city's data | **kerb evidence** | |
-| where OSM's tags change along a section, with its class | **change** | |
+| a place along a section where OSM's tags change, with its class | **joint** | change |
 
 ## The ids
 

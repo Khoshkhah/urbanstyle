@@ -39,11 +39,10 @@ section and one space. Each carriageway keeps its own lanes and kerbs on its own
 space. Two one-way streets of one name with buildings between them stay two sections. A boulevard whose carriageways are more than
 30 m apart stays two sections, and the land between them is green of rank 1.
 
-## The subsections and the change classes
+## The subsections and the joints
 
 A section is cut into subsections where the paint differs: a lane count, a turn pocket, a parking strip, an island. The id is
-`<section>/<k>`. Every place along a section where OSM's tags change is classified before it touches anything (`urban.change`, check
-J4):
+`<section>/<k>`. Every joint of a section, a place where OSM's tags change, is classified before it touches anything (`urban.joint`, check J4):
 
 | Change in the data | Class | The frame | Inside the frame |
 |---|---|---|---|
@@ -101,8 +100,8 @@ street that arrives at it.
 ## Writes
 
 `urban.stretch`: one row per section, intersection, path section and path intersection, with its ways, its nodes and its axis.
-`urban.junction`: the junction nodes of each intersection. `urban.change`: every tag change along a section with its class and the
-lanes on both sides. `urban.street` and `urban.arm`: the named streets and their arms ([The tables](tables.md)).
+`urban.junction`: the junction nodes of each intersection. `urban.joint`: every joint of a section with its class and the lanes on
+both sides. `urban.street` and `urban.arm`: the named streets and their arms ([The tables](tables.md)).
 
 ## Checks
 

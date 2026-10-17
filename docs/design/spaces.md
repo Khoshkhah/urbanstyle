@@ -63,7 +63,8 @@ reaches into a block.
 ## Writes
 
 `urban.unit`: one row per space with its kind, its stretch, its axis, the frame's width and the merge shift. `urban.side`: the
-driving side, the walking side and the islands of each space, the driving side with its kerb ([The tables](tables.md)).
+driving side and the walking side of each space, the driving side with its kerb; an island is a part of the walking side ([The
+tables](tables.md)).
 
 ## Checks
 

@@ -59,7 +59,9 @@ count as OSM maps it (`width_method` `narrowed`). A width OSM maps is not narrow
 where the room changed the frame is the change class `room`.
 
 **The sidewalk strip.** Every walkway at level 0 that is no crossing and has no corridor is a sidewalk line. Its strip is OSM's `width`
-or 2 m, centred on the line. The near side of the strip is the kerb's limit; the far side is the block's edge. At a corner the kerb is
+or 2 m, centred on the line. The near side of the strip is the kerb's limit; the far side is the block's edge. A sidewalk strip
+limits a road's room only where its line runs along that road, within 35°: a footway that ends at the road or crosses it does
+not. At a corner the kerb is
 the line's curve where OSM maps it, and a 4 m fillet only where it does not.
 
 **The driving side** is the part of the space inside the kerb: in a section the frame between the two stop lines, in a sub-intersection

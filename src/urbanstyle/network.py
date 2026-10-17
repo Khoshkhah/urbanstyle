@@ -65,7 +65,7 @@ STRAIGHT_M = 2.0        # a road between two junctions whose OSM line stays this
 ISLAND_TOUCH_M = 2.0    # a pedestrian piece whose boundary runs less than this along a block's edge lies between roadways: an island (chosen)
 ISLAND_MIN_M2 = 4.0     # a pedestrian piece that touches no block and is smaller than this is no island: it is part of the sidewalk (chosen)
 from .parts import ARROW_M  # noqa: E402
-from .blocks import street_sql  # noqa: E402
+from .blocks import ALONG_COS, street_sql  # noqa: E402
 
 SLIVER_ROAD_M2 = 2.0    # a piece of the walking side smaller than this that touches no block is roadway (chosen, as product.MIN_PART_M2)
 ROAD_T = ("lane", "paved", "junction area", "parking", "cycle lane", "bridge deck")     # the parts a crosswalk is cut from
@@ -172,6 +172,7 @@ def build(con, epsg, bridges=()):
     import duckdb
     import numpy as np
     import shapely
+    import shapely.ops
     import time
     t_step = [time.time()]
 
@@ -673,17 +674,25 @@ def build(con, epsg, bridges=()):
     # 2 SW_HALF_M, centred on its line: the walking side there, its near side the kerb (the room ends at it), its far side the block's edge
     # (blocks.py sets the edge 1 m behind the line)
     cor_ways = {w for (w,) in rows("SELECT way_id FROM work.corridor")}
-    sw_strips = shapely.union_all([g(w).buffer((wd / 2) if wd else SW_HALF_M) for o, wd, w in rows(f"""SELECT e.osm_id, e.width_m, {m('e.geometry')}
+    sw_items = [(g(w), g(w).buffer((wd / 2) if wd else SW_HALF_M)) for o, wd, w in rows(f"""SELECT e.osm_id, e.width_m, {m('e.geometry')}
                                    FROM work.element e WHERE e.type = 'walkway' AND e.level_min = 0 AND coalesce(e.subtype, '') <> 'crossing'
-                                   AND e.class IN ('footway', 'path', 'steps', 'pedestrian')""") if o not in cor_ways] or [shapely.Polygon()])
+                                   AND e.class IN ('footway', 'path', 'steps', 'pedestrian')""") if o not in cor_ways]
+    sw_strips = shapely.union_all([st_ for _, st_ in sw_items] or [shapely.Polygon()])
+    sw_tree = shapely.STRtree([st_ for _, st_ in sw_items]) if sw_items else None
+    hard_u = shapely.union_all([g(w) for (w,) in rows(f"SELECT {m()} FROM work.block WHERE level = 0")]
+                               + [g(w) for (w,) in rows(f"SELECT {m()} FROM work.corridor")] or [shapely.Polygon()])
+    htree = shapely.STRtree(list(shapely.get_parts(hard_u))) if not hard_u.is_empty else None
     edge_u = shapely.union_all([g(w) for (w,) in rows(f"SELECT {m()} FROM work.block WHERE level = 0")]
                                + [g(w) for (w,) in rows(f"SELECT {m()} FROM work.corridor")] + [sw_strips] or [shapely.Polygon()])
     etree = shapely.STRtree(list(shapely.get_parts(edge_u))) if not edge_u.is_empty else None
 
     def room(ln, sg):
-        """The least distance from line ln to the street's edge on side sg (+ left), measured every ROOM_STEP_M; inf with no edge."""
+        """The least distance from line ln to the street's edge on side sg (+ left), measured every ROOM_STEP_M; inf with no edge. A
+        sidewalk strip counts only where its line runs along ln (within ALONG_COS): a footway that ends at the road or crosses it is no
+        sidewalk of it (its strip touched the road's line and the room was 0 for the whole road: no roadway at all, Monaco A3 499,
+        Rue Bel Respiro; Kaveh, 2026-10-17, option b)"""
         best = math.inf
-        if etree is None:
+        if htree is None and sw_tree is None:
             return best
         n = max(2, int(ln.length // ROOM_STEP_M))
         for i in range(n):
@@ -693,9 +702,20 @@ def build(con, epsg, bridges=()):
             h = (dx * dx + dy * dy) ** .5 or 1
             q = ln.interpolate(t)
             ray = shapely.LineString([(q.x, q.y), (q.x - sg * dy / h * ROOM_REACH_M, q.y + sg * dx / h * ROOM_REACH_M)])
-            for k in etree.query(ray):
-                hit = ray.intersection(etree.geometries[k])
+            for k in (htree.query(ray) if htree is not None else []):
+                hit = ray.intersection(htree.geometries[k])
                 if not hit.is_empty:
+                    best = min(best, q.distance(hit))
+            for k in (sw_tree.query(ray) if sw_tree is not None else []):
+                hit = ray.intersection(sw_items[k][1])
+                if hit.is_empty:
+                    continue
+                wl = sw_items[k][0]
+                s_ = wl.project(shapely.ops.nearest_points(hit, q)[0])
+                a2, b2 = wl.interpolate(max(s_ - 1, 0)), wl.interpolate(min(s_ + 1, wl.length))
+                ddx, ddy = b2.x - a2.x, b2.y - a2.y
+                h2 = (ddx * ddx + ddy * ddy) ** .5 or 1
+                if abs(dx * ddx + dy * ddy) / (h * h2) >= ALONG_COS:
                     best = min(best, q.distance(hit))
         return best
 

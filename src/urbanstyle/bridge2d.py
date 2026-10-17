@@ -20,7 +20,8 @@ def write(profile, out, db=None):
         import duckdb
         con = duckdb.connect(db, read_only=True)
         con.execute("LOAD spatial")
-        ol = shapely.Polygon(P["deck"]["outline"]["value"])
+        from .bridge_profile import deck_polygon
+        ol = deck_polygon(P)
         to_crs = f"ST_Transform(geometry, 'EPSG:4326', '{P['crs']}', always_xy := true)"
         ground = [g for (w,) in con.execute(f"SELECT ST_AsWKB({to_crs}) FROM work.part WHERE level = 0 AND type = 'lane'").fetchall()
                   for g in [shapely.from_wkb(bytes(w))] if g.distance(ol) < 50]

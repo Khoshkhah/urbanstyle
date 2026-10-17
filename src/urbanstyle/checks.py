@@ -612,7 +612,8 @@ def bridge(profile, db=None, out=None):
     if db:
         c = duckdb.connect(db, read_only=True)
         c.execute("LOAD spatial")
-        ol = shapely.Polygon(P["deck"]["outline"]["value"])
+        from .bridge_profile import deck_polygon
+        ol = deck_polygon(P)
         to_crs = f"ST_Transform(geometry, 'EPSG:4326', '{P['crs']}', always_xy := true)"
         ground = [g for (w,) in c.execute(f"SELECT ST_AsWKB({to_crs}) FROM work.part WHERE level = 0 AND type = 'lane'").fetchall()
                   for g in [shapely.from_wkb(bytes(w))] if g.distance(ol) < 50]
@@ -621,7 +622,8 @@ def bridge(profile, db=None, out=None):
     poles = None
     if db:
         from .dashboard import bridge_poles
-        poles = bridge_poles(c, P["crs"], shapely.Polygon(P["deck"]["outline"]["value"]), db)
+        from .bridge_profile import deck_polygon
+        poles = bridge_poles(c, P["crs"], deck_polygon(P), db)
     M = model(P, None, None, ground, poles=poles)
     rows = list(M["checks"])
     if db:

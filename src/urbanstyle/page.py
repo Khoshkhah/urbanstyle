@@ -107,16 +107,19 @@ def _frames(con, db, bridges):
                                          {"barrier median": "#cfc8bd", "median": "#6b7280", "buffer": "#c4b5a0"}.get(key, "#9ca3af"), "geometry": g}
                                         for mm in ms for pr, key, g in mm["flat"]], geometry="geometry", crs=4326) if ms else None
     # a bridge deck at ground level (division: a way OSM tags bridge=yes) is the bridge model's: the page draws of it only what the model
-    # does not cover (between the model's wall and the street beside it), so nothing lies twice and nothing is left open
+    # does not cover (between the model's wall and the street beside it), so nothing lies twice and nothing is left open. A part above
+    # the ground that touches the model is the model's road: not drawn (its flat copy at 6 m a level, wider than the model's lanes,
+    # floated beside and under the model's real heights)
     deck = parts["type"] == "bridge deck"
-    if deck.any() and out["bridge2d"] is not None:
+    if (deck.any() or (parts["level"] > 0).any()) and out["bridge2d"] is not None:
         import numpy as np
         import shapely
         import geopandas as gpd_
         model = shapely.union_all(shapely.buffer(shapely.make_valid(np.asarray(out["bridge2d"].to_crs(ep).geometry)), 0.05))
         rest = shapely.buffer(shapely.buffer(shapely.difference(shapely.make_valid(np.asarray(parts[deck].to_crs(ep).geometry)), model), -0.05), 0.05)
         parts.loc[deck, "geometry"] = gpd_.GeoSeries(rest, crs=ep).to_crs(4326).values
-        out["parts"] = parts = parts[~(deck & parts.geometry.is_empty)]
+        up = (parts["level"] > 0).values & shapely.intersects(np.asarray(parts.to_crs(ep).geometry), model.buffer(1.0))
+        out["parts"] = parts = parts[~((deck & parts.geometry.is_empty).values | up)]
     # the street objects, one per real object from every source: in 2D a dot where it stands, in 3D its model
     place = d.placer(con, ep)
     try:

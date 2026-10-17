@@ -261,9 +261,11 @@ def measure(profile, tiles, survey="City of Vancouver LiDAR 2022", osm_db=None):
             # gap at each one; closed here, the ends kept square)
             corridor = corridor.buffer(CLOSE_M, join_style="mitre").buffer(-CLOSE_M, join_style="mitre").intersection(
                 pc.buffer(max(side_r.values()) + 0.01, cap_style="flat"))
-            grown = shapely.union_all([shapely.Polygon(P["deck"]["outline"]["value"]).buffer(0), corridor])
+            from .bridge_profile import deck_polygon
+            grown = shapely.union_all([deck_polygon(P).buffer(0), corridor])
             grown = max(shapely.get_parts(grown), key=lambda g_: g_.area)
             P["deck"]["outline"]["value"] = [[round(x, 2), round(y, 2)] for x, y in grown.exterior.coords]
+            P["deck"]["outline"]["holes"] = [[[round(x, 2), round(y, 2)] for x, y in h.coords] for h in grown.interiors]
             if "measured landings" not in P["deck"]["outline"]["source"]:
                 P["deck"]["outline"]["source"] += "; urbanstyle: the measured landings, as wide as their lanes"
                 P["deck"]["outline"]["method"] += "+derived"

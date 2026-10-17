@@ -15,19 +15,11 @@ const byKey=(key,table,dflt)=>['match',['get',key],...Object.entries(table).flat
 const NOT_IN_3D=['Mark: kerb'];   // the raised sidewalk's edge is the kerb; the guide lines (lane to lane through a junction) stay
 let lv3d=0, in3d=false, roads2d={};
 const U3D=[];
-// terrain in 3D, only when ticked (off by default): public terrain tiles on AWS (Terrarium, about 30 m detail) are too coarse for Monaco's
-// terraces and stacked streets - roads sink into the hill, buildings float. A fine terrain (1-5 m) is needed before it can be on by default.
-const DEM_TILES='https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
-function terrain(on){if(!map.setTerrain)return;
-  if(on&&!map.getSource('u3d-dem'))map.addSource('u3d-dem',{type:'raster-dem',tiles:[DEM_TILES],tileSize:256,encoding:'terrarium',maxzoom:15,
-    attribution:'Terrain: <a href="https://registry.opendata.aws/terrain-tiles/" target="_blank">AWS Terrain Tiles</a>'});
-  const now=!!map.getTerrain&&!!map.getTerrain(); if(on!==now)map.setTerrain(on?{source:'u3d-dem',exaggeration:1}:null)}
 // every level but 0 has its own layer in 3D (a deck above, a tunnel below), so each follows its own level button: full, faded or
 // hidden (Kaveh, 2026-10-13: "fading in 3D only works for level 0")
 const OTHER_LEVELS=[-5,-4,-3,-2,-1,1,2,3,4,5];
 function draw3d(){
   map.setLight({anchor:'viewport',intensity:0.15});   // a soft light: white walls stay near-white (MapLibre's 0.5 made them grey, Kaveh 2026-10-13)
-  terrain(in3d&&document.getElementById('terrain3d').checked);
   const add=(spec,filter)=>{if(!spec.source)return; if(!map.getLayer(spec.id)){map.addLayer(spec); U3D.push(spec.id)}
     map.setFilter(spec.id,filter); map.setLayoutProperty(spec.id,'visibility',in3d?'visible':'none')};
   const lvl=['==',['get','level'],lv3d];
@@ -155,7 +147,10 @@ function bind3d(){if(bound3d||!map.getLayer('u3d-furn'))return; bound3d=true;
       if(hov3d!==null){hov3d=null; paint3d(); tip3d.remove()}          // another thing: the last one off at once
       clearTimeout(hovT); hovT=setTimeout(()=>{hov3d=k; paint3d(); tip3d.setLngLat(ll).setText(t).addTo(map)},HOVER_MS)});  // lit once the mouse rests
     map.on('mouseleave',id,()=>{clearTimeout(hovT); hov3d=null; map.getCanvas().style.cursor=''; paint3d(); tip3d.remove()});
-    map.on('click',id,e=>{if(Date.now()-took<50||(window.brAt&&window.brAt(e.point)))return; took=Date.now(); const p=e.features[0].properties;
+    map.on('click',id,e=>{if(Date.now()-took<50||(window.brAt&&window.brAt(e.point)))return;
+      const top=map.queryRenderedFeatures(e.point,{layers:Object.keys(L3D).filter(x=>map.getLayer(x))})[0];
+      if(top&&top.layer.id!==id)return;        // (the topmost thing takes the click, as for the hover: a deck before the car park under it)
+      took=Date.now(); const p=e.features[0].properties;
       if(sel3d===p[key]){deselect3d(); return}          // a click on the selected one deselects it
       if(window.xpOnPick&&window.xpOnPick(id,p,e))return;      // (the Explore panel selects it: its card and its short popup)
       if(window.brDeselect)window.brDeselect();       // (a bridge part selected before: off, its popup closed)

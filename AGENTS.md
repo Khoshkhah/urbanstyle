@@ -149,7 +149,9 @@ PYTHONPATH=src $P -m urbanstyle build ../duckOSM/monaco.duckdb data/monaco.duckd
 # an area with bridges (every area whose roads reach level 1): their profiles first, then every later step with --bridge. Without them
 # a deck is drawn flat in the air with no lanes (`dashboard` warns). Monaco, 2026-10-14: 11 profiles in 1 s, the checks ~2 min
 ../duckOSM/.venv/bin/duckosm gmns ../duckOSM/monaco.duckdb --out data/monaco_gmns.duckdb -m driving     # the lanes (GMNS)
-PYTHONPATH=src $P -m urbanstyle bridge ../duckOSM/monaco.duckdb data/monaco_gmns.duckdb data/bridges-monaco   # one profile per road bridge
+# the profiles from the WIDE database (the region round the area): a bridge that leaves the area is taken whole, never cut at the edge
+W=../duckOSM/data/monaco-wide
+PYTHONPATH=src $P -m urbanstyle bridge $W/monaco-wide.duckdb $W/monaco-wide_gmns.duckdb data/bridges-monaco   # one profile per road bridge
 #   heights: LiDAR where there is some (`bridge-measure`), else `bridge-heights` with a heights file; the profile's own rule otherwise
 PYTHONPATH=src $P -m urbanstyle build ../duckOSM/monaco.duckdb data/monaco.duckdb --bridge data/bridges-monaco/*.bridge.json
 PYTHONPATH=src $P -m urbanstyle check data/monaco.duckdb --bridge data/bridges-monaco/*.bridge.json        # BR1-BR12 per bridge
@@ -208,8 +210,7 @@ mkdocs build --strict                                  # needs pip install ".[do
   BLD_POPUP, the Parts popup; with `urbanstyle serve` no popup, the panel's card); Esc, a second click or closing the popup deselects. A hover lights a thing only once the mouse rests on it
   300 ms (HOVER_MS; in 2D roadstyle's `hover_delay_ms`). Street View in 3D: every click moves an open window to the nearest road or bridge axis (svHere, `window.brAxes`),
   because 3D hides the road lines roadstyle's Street View follows. 2D overlays' wanted visibility is roadstyle's
-  `ov.visible`; a 3D layer is never drawn in 2D. Terrain only when "rough terrain" is ticked: the public AWS Terrain Tiles (~30 m) are
-  too coarse for Monaco and broke the map; needs a 1-5 m terrain.
+  `ov.visible`; a 3D layer is never drawn in 2D. There is no terrain: the map's objects do not sit on one.
   Tunnels in 3D (`u3d-tun`): flat under level 0's ground (the map draws nothing below 0); they show where level 0 is faded or hidden.
   "low buildings" (and a selected street object): buildings at most `LOW_M` (3 m) high. Each level but 0 has its own 3D layer (`u3d-deck<l>`,
   `u3d-tun<l>`), so every level button fades or hides its own level in 3D.

@@ -27,7 +27,7 @@ The profile uses the words of road design:
 
 | Value | Source |
 |---|---|
-| the deck outline | OSM's `man_made=bridge` outline; without one, the union of the sections, each as wide as its bands (derived) |
+| the deck outline | OSM's `man_made=bridge` outline; without one, the union of the sections, each as wide as its bands, with its holes of 10 m² or more: the open ground inside a loop of ramps is no deck (derived) |
 | the lanes | duckOSM's GMNS export, whose lanes come from SUMO, so the bridge and the street have the same lanes; the count is OSM's, mapped per direction, or derived by GMNS from the total, or chosen (one each way) |
 | the offset `t` of a band | the GMNS lane line's offset from the axis at the middle of the section (derived) |
 | a cycleway or footway band | a path within 25 m of the axis, parallel to it within 26°, nearer to this axis than to another |
@@ -69,7 +69,8 @@ height.
 
 ## The 3D model
 
-The model reads only the profile. It draws the deck (the outline triangulated, each point at the height of the vertical profile of the
+The profile takes the bridge's road ways from a duckOSM database that holds all of the bridge, also the parts outside the area, so
+every deck reaches its ground ends. The model reads only the profile. It draws the deck (the outline triangulated, each point at the height of the vertical profile of the
 nearest axis, as thick as the profile says), the parapet along the outline, one ribbon per band at the deck's height, the painted lines
 (an edge line at the outer edge of each run of lanes, lane lines between lanes of one direction, the centre line between the
 directions), the arrows and the guide lines, and a wall across the deck at each pier down to the ground. The heights of two axes blend

@@ -139,6 +139,8 @@ def grid(poly, step):
     """The pieces of poly in a square grid of `step` metres."""
     import numpy as np
     import shapely
+    if poly.is_empty:
+        return []
     x0, y0, x1, y1 = poly.bounds
     # one grid for every mesh (its lines at whole multiples of step): with each mesh's own grid, the deck and the lanes on it were cut into
     # different triangles, and on a curved or sloped deck the deck poked through (light spikes at the junctions)
@@ -160,7 +162,7 @@ def surface(P, x0=0.0, y0=0.0, edges_of=None):
 
     rel = lambda ps: [(x - x0, y - y0) for x, y in ps]
     axes = [(shapely.LineString(rel(a["line"]["value"])), a) for a in P["axes"]]
-    outline = shapely.make_valid(shapely.Polygon(rel(P["deck"]["outline"]["value"])))
+    outline = shapely.make_valid(shapely.Polygon(rel(P["deck"]["outline"]["value"]), [rel(h) for h in P["deck"]["outline"].get("holes") or []]))
 
     def frame(ln, s):
         """The point on the axis at s and its unit normal to the left."""

@@ -786,6 +786,7 @@ def bridge_decks(bridges, epsg, models=()):
             f = pyproj.Transformer.from_crs(P["crs"], epsg, always_xy=True).transform
             P = json.loads(json.dumps(P))
             P["deck"]["outline"]["value"] = [list(f(x, y)) for x, y in P["deck"]["outline"]["value"]]
+            P["deck"]["outline"]["holes"] = [[list(f(x, y)) for x, y in h] for h in P["deck"]["outline"].get("holes") or []]
             for a in P["axes"]:
                 a["line"]["value"] = [list(f(*q[:2])) for q in a["line"]["value"]]
         d_ = surface(P)
@@ -1148,7 +1149,8 @@ def bridge_models(con, bridges, db=None):
     ms, under = [], set()
     for b in bridges:
         P_ = json.load(open(b))
-        ol = shapely.Polygon(P_["deck"]["outline"]["value"])
+        from .bridge_profile import deck_polygon
+        ol = deck_polygon(P_)
         to_crs = f"ST_Transform(geometry, 'EPSG:4326', '{P_['crs']}', always_xy := true)"
         # the street spaces above level 0 on this bridge: their parts and marks lie on the deck; their flat 3D drawing is hidden.
         # Those on the deck's outline, and those of the axes' own ways: a ramp runs on beyond OSM's deck outline, and its level-1

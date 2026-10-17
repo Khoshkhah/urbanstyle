@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # A fast test of a change: build only a small square round one place, check it, write its page and serve it (about 2 min, not 30).
 #   scripts/cut.sh AREA NAME LON LAT [RADIUS_M]      AREA: monaco | vancouver; RADIUS_M: half the square's side (default 250)
-#   then open http://localhost:8786/cut-NAME.html (Street View works on port 8784 only)
+#   then open http://localhost:8786/cut-NAME.html. Street View: its Google key allows port 8784 only; PORT=8784 scripts/cut.sh ... serves
+#   the cut there (it stops the server on 8784)
 # The cut has the full area's code and rules. Only its edges differ: roads that leave the square end there.
 # Every bridge profile that comes near the square goes with it, whole.
 set -e
 cd "$(dirname "$0")/.."
-area=$1 name=$2 lon=$3 lat=$4 radius=${5:-250} port=8786
+area=$1 name=$2 lon=$3 lat=$4 radius=${5:-250} port=${PORT:-8786}
 P=/home/kaveh/projects/duckOSM/.venv/bin/python
 case $area in
   monaco)    src=../duckOSM/monaco.duckdb; bridges="data/bridges-monaco/*.bridge.json" ;;

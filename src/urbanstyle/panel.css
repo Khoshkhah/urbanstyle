@@ -30,9 +30,8 @@ body.xp-off #xp{display:none}
 #xplayers label{display:block;font-size:12px;padding:1px 0;cursor:pointer}
 #xplys .lt{margin-left:14px;border-left:1px solid #e2e8f0;padding-left:6px}#xplys small{color:#94a3b8;margin-left:4px}
 #xplys .lg{font-size:12px;font-weight:600;color:#475569;padding:2px 0}#xplys details>summary{font:600 12px system-ui;color:#94a3b8;cursor:pointer;margin-top:6px}
-/* the layers draw in 2D only (body.u3d: the 3D view): there they rest, greyed (Kaveh, 2026-10-13: "just inactive in 3D"); the
-   terrain is 3D's own and rests in 2D */
-body.u3d #xplys,body.u3d #xpopts label:has(#allparts),body.u3d #xpopts label:has(#mlybox),body:not(.u3d) #xpopts label:has(#terrain3d)
+/* the layers draw in 2D only (body.u3d: the 3D view): there they rest, greyed (Kaveh, 2026-10-13: "just inactive in 3D") */
+body.u3d #xplys,body.u3d #xpopts label:has(#allparts),body.u3d #xpopts label:has(#mlybox)
   {opacity:.4;pointer-events:none}
 body:not(.u3d) .xp3dl{display:none}.xp3dl{color:#94a3b8;font-weight:400}
 #xpfold{position:fixed;top:10px;left:388px;z-index:9;width:28px;height:28px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;

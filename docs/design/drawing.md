@@ -74,7 +74,8 @@ The marks and the street objects are drawn over any filled rank, because they li
 
 - The level in view is drawn full. Another level is faded or hidden.
 - In 2D every level lies flat. The levels are drawn in their order, so the level above lies on top.
-- In 3D a level lies 6 m above the level below it. A deck is drawn at its bridge model's heights where the model gives them. A tunnel
+- In 3D a level lies 6 m above the level below it. Where a bridge model stands, only the model draws the deck, at its own heights: a
+  part above the ground that touches the model is not drawn flat beside it. A tunnel
   is drawn flat under the ground of level 0, and it shows when level 0 is faded or hidden.
 - In 3D a building stands at its height (`height_m`). A part stands at its kind's `raise_m` above its level: the roadway at 0, the
   parts of the walking side and the islands above it, up to the kerb's top.

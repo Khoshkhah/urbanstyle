@@ -11,6 +11,7 @@ import re
 FORMAT = "urbanstyle.bridge/1"
 # urbanstyle's own values (chosen): no source gives them yet (LiDAR and the aerial photo will measure them)
 GRADE = 0.05        # the deck rises 5 m in 100 m from where its roads meet a ground road
+HOLE_MIN_M2 = 10.0  # a hole in a deck made from its sections: at least this big (a smaller one is a gap between two strips)
 TOP_M = 27.0        # the deck at most this high above the ground at its ends
 DECK_M = 1.8        # deck and girders, thick
 RAIL_M = 1.1        # parapet height
@@ -163,7 +164,7 @@ def _profile(g, tr, name, epsg, deck, outline, on, lines, pts, ground, osm_db, g
 
     roads = [w for w in on if lines[w][2]["highway"] not in PATHS]
     paths = [w for w in on if lines[w][2]["highway"] in PATHS]
-    merged = shapely.line_merge(shapely.union_all([lines[w][0] for w in roads]))
+    merged = shapely.line_merge(shapely.MultiLineString([lines[w][0] for w in roads]))   # (joined at shared ends only: a union would cut them where decks of two levels cross)
     parts = sorted(shapely.get_parts(merged), key=lambda a: -a.length)
     ends = [shapely.Point(pts[r]) for w in roads for r in lines[w][1] if r in ground]
     grounded = shapely.MultiPoint(ends)
@@ -222,6 +223,8 @@ def _profile(g, tr, name, epsg, deck, outline, on, lines, pts, ground, osm_db, g
         deck = max(shapely.get_parts(deck), key=lambda p: p.area)
         outline = _val([[round(x, 2), round(y, 2)] for x, y in deck.exterior.coords], "urbanstyle: the sections, each as wide as its bands",
                        "derived")
+        # the open ground inside a loop of ramps is no deck (with the outer ring only, the deck and its junction area covered it)
+        outline["holes"] = [[[round(x, 2), round(y, 2)] for x, y in h.coords] for h in deck.interiors if shapely.Polygon(h).area >= HOLE_MIN_M2]
     # the paths on the deck (sidewalks, cycleways), each once, along its own OSM line: a fixed offset from an axis broke a path that
     # curves away from it (w538616396, 6 bands on 2 axes)
     free = [{"way": f"w{w}", "type": "cycleway" if lines[w][2]["highway"] == "cycleway" else "footway", "name": lines[w][2].get("name"),
@@ -238,6 +241,13 @@ def _profile(g, tr, name, epsg, deck, outline, on, lines, pts, ground, osm_db, g
             "made": {"by": "urbanstyle bridge profile", "date": datetime.date.today().isoformat(), "inputs": [osm_db, gmns_db]},
             "deck": {"outline": outline, "thickness": _val(DECK_M, "urbanstyle", "chosen"), "parapet": _val(RAIL_M, "urbanstyle", "chosen")},
             "axes": axes, "connectors": connectors, "paths": free, "piers": piers}
+
+
+def deck_polygon(P):
+    """A profile's deck as one polygon: its outline and the holes in it."""
+    import shapely
+    o = P["deck"]["outline"]
+    return shapely.Polygon(o["value"], o.get("holes") or [])
 
 
 def height(vertical, s):

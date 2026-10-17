@@ -67,6 +67,10 @@ the line's curve where OSM maps it, and a 4 m fillet only where it does not.
 **The driving side** is the part of the space inside the kerb: in a section the frame between the two stop lines, in a sub-intersection
 the roadways of the arms to their stop lines, with the connectors' carriageways, joined, with the corners at the kerb.
 
+**At a landing** the deck's lanes reach the ground. The ground under them, from the landing back to where the deck is 2.5 m high, is
+roadway: junction area in a sub-intersection, paved roadway in a section. So the deck's lanes meet roadway, never the walking side.
+The walking side starts beside them.
+
 **The walking side** is the rest of the space, with the corners. A piece of the walking side that touches no block is an island of
 that space. An island is at least 2 m wide: a piece of it thinner than 2 m is paved roadway, cut off square, whatever OSM maps on it (a sidewalk line or a kerb point there means the roadway's edges are a little off), unless a barrier runs along it. A piece of the walking side under 2 m² that touches no block lies in the roadway: it is paved
 roadway. Inside an intersection a paved strip between roadways is junction area. The kerb is the roadway's outer edge; it never lies
@@ -93,4 +97,4 @@ tables](tables.md)).
 | B8 (INFO) | the spaces whose lanes narrowed to fit between the street's edges |
 | S1 | the two sides of a space add up to the space, with no overlap |
 | R1 | the roadway's edge steps at a joint only at a real change or a room change |
-| A1 | the middle of a carriageway's lanes lies within 0.5 m of its OSM line |
+| A1 | the middle of a road's lanes, taken together, lies within 0.5 m of the road's OSM line |

@@ -67,6 +67,7 @@ ISLAND_MIN_M2 = 4.0     # a pedestrian piece that touches no block and is smalle
 from .parts import ARROW_M  # noqa: E402
 from .blocks import ALONG_COS, street_sql  # noqa: E402
 
+LANDING_Z_M = 2.5       # at a landing, the ground under the deck's lanes is roadway out to where the deck is this high (chosen, as checks.ON_GROUND_M)
 SLIVER_ROAD_M2 = 2.0    # a piece of the walking side smaller than this that touches no block is roadway (chosen, as product.MIN_PART_M2)
 ROAD_T = ("lane", "paved", "junction area", "parking", "cycle lane", "bridge deck")     # the parts a crosswalk is cut from
 
@@ -1837,6 +1838,57 @@ def build(con, epsg, bridges=()):
             p_["geom"] = poly(in_street(p_["geom"]))
         marks = [m_[:2] + (in_street(m_[2]),) + m_[3:] for m_ in marks]
         marks = [m_ for m_ in marks if not m_[2].is_empty]
+    # ---- the landings (docs/design/spaces.md, "At a landing"; Kaveh, 2026-10-17: the bridge model's lanes are an arm of the ground's
+    # junction at the landing): the ground under a deck's lanes, from the landing back to where the deck is LANDING_Z_M high, is roadway,
+    # junction area in an intersection, paved in a section, so the deck's lanes meet roadway; the walking side there gives way to it
+    # (the a3 on-ramp's lanes landed on the furnishing of i0-877917375/2792935203)
+    land_bands = []
+    for pf in bridges:
+        prof = json.load(open(pf))
+        if prof.get("crs") and prof["crs"] != epsg:
+            continue
+        for ax in prof.get("axes", []):
+            pts_ = (ax.get("line") or {}).get("value") or []
+            if len(pts_) < 2:
+                continue
+            L_ = shapely.LineString([p_[:2] for p_ in pts_])
+            vp = sorted((ax.get("vertical") or {}).get("points") or [])
+            secs = sorted(ax.get("sections") or [], key=lambda x: x.get("s0", 0))
+            for e_ in ax.get("ends", []):
+                if not e_.get("ground") or not vp or not secs:
+                    continue
+                at0 = e_.get("s", 0) <= 0.01
+                ss_ = [p_[0] if at0 else L_.length - p_[0] for p_ in vp]       # (from this end)
+                zz_ = [p_[1] for p_ in vp]
+                pairs_ = sorted(zip(ss_, zz_))
+                reach_ = pairs_[-1][0]
+                for (s1, z1), (s2, z2) in zip(pairs_, pairs_[1:]):
+                    if z1 <= LANDING_Z_M < z2:
+                        reach_ = s1 + (LANDING_Z_M - z1) / (z2 - z1) * (s2 - s1)
+                        break
+                sec_ = secs[0] if at0 else secs[-1]
+                lanes_ = [(b_.get("t", 0.0), ((b_.get("width") or {}).get("value") or LANE_M)) for b_ in sec_.get("bands", []) if b_.get("type") == "lane"]
+                if not lanes_ or reach_ <= 0.5:
+                    continue
+                t1, t2 = min(t - w / 2 for t, w in lanes_), max(t + w / 2 for t, w in lanes_)
+                piece_ = substring(L_, 0.0, min(reach_, L_.length)) if at0 else substring(L_, max(L_.length - reach_, 0.0), L_.length)
+                if piece_.geom_type == "LineString" and piece_.length > 0.5:
+                    land_bands.append(band(piece_, t1, t2))
+    if land_bands:
+        LB_ = shapely.union_all(land_bands)
+        road_types = ROAD_T + ("crosswalk", "cycle crossing", "bus lane", "shoulder", "no parking", "bus zone", "island")
+        for p_ in parts:
+            if p_["type"] not in road_types and p_["geom"].intersects(LB_):
+                p_["geom"] = poly(p_["geom"].difference(LB_))
+        for u, k, s_, x in units:
+            if not x.intersects(LB_):
+                continue
+            mine_ = [p_["geom"] for p_ in parts if p_["unit_id"] == u and p_["type"] in road_types]
+            new_ = poly(LB_.intersection(x).difference(shapely.union_all(mine_) if mine_ else shapely.Polygon()))
+            if new_.area > 0.5:
+                pid[u] = pid.get(u, 0) + 1
+                parts.append(dict(unit_id=u, part_id=f"{u}#{pid[u]}", level=0, type="junction area" if k == "intersection" else "paved",
+                                  source="urbanstyle", method="derived", ref="the ground under a bridge deck's lanes at its landing", geom=new_))
     # parts of one space with the same type, source and lane that touch are one part (the pedestrian side and the strips between
     # roadways were shared out in cells: one part per cell drew "bricks", i0-414553083; Kaveh 2026-10-15)
     groups_ = {}

@@ -378,7 +378,7 @@ def rule_checks(c, epsg):
     for cl_, _ in chg:
         by_cls[cl_] = by_cls.get(cl_, 0) + 1
     return [
-        ("A1", f"carriageways whose lanes are off their OSM line (median of the middle > {A1_M} m)", len(off), True, off),
+        ("A1", f"roads whose lanes, taken together, are off the road's OSM line (their middle more than {A1_M} m from it, median along the road)", len(off), True, off),
         ("J3", "roads between two junction nodes outside the spaces: a `_link` not inside an intersection, a road under "
                f"{CONNECTOR_M:.0f} m inside neither an intersection nor a section", len(conn_out), True, conn_out),
         ("J4", "tag changes along a section, each with its class" + (" (" + ", ".join(f"{k} {v}" for k, v in sorted(by_cls.items())) + ")" if by_cls else ""),
@@ -531,7 +531,9 @@ def run(path, out=None):
                                   AND (SELECT count(*) FROM work.arm a WHERE a.intersection_id = i.container_id) < 3"""), True),
         ("I2", "intersections with only one street group (a loop road is the one legitimate case)", q("""SELECT count(*) FROM work.container i
                                   WHERE i.kind = 'intersection' AND (SELECT count(DISTINCT street_id) FROM work.arm a WHERE a.intersection_id = i.container_id) < 2"""), False),
-        ("I3", "intersections outside 30 to 10,000 m2", q("SELECT count(*) FROM m WHERE kind = 'intersection' AND (a < 30 OR a > 10000)"), True),
+        ("I3", "intersections of the old container step outside 30 to 10,000 m2", q("SELECT count(*) FROM m WHERE kind = 'intersection' AND (a < 30 OR a > 10000)"), True,
+         [tuple(r) for r in c.execute("""SELECT ST_X(ST_PointOnSurface(x.geometry)), ST_Y(ST_PointOnSurface(x.geometry)) FROM work.container x
+                                          JOIN m USING (container_id) WHERE m.kind = 'intersection' AND (m.a < 30 OR m.a > 10000)""").fetchall()]),
     ]
     # C2: the strips of a container add up to the container (its two zones cover it), within 3% or 1.5 m2
     za = f"ST_Area(ST_Transform(geometry, 'EPSG:4326', '{epsg}', always_xy := true))"

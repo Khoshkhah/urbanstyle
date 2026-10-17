@@ -5,6 +5,12 @@ first, then this note, then `docs/notes/street-rules.md` and `docs/notes/section
 
 ## Where the work stands
 
+- **Committed and pushed 9d225d3 (2026-10-16 evening), main = network-first:** the design as chapters by rank in `docs/design/`
+  (the public site holds only the design as it is: no history, no names, no dates; the 31 old notes are in `docs/notes/`, off the
+  site), and every rule of the day (paths at rank 1, no parcels, the room rule, the sidewalk strips, one partition, divided roads,
+  `paved`, the rank 1 and rank 3 layers of the top-down division on the Vancouver page). Monaco's final build with every rule
+  failed on 2026-10-16 19:42 on one junction whose roadway the strip cut emptied; guarded, restarted at 19:45, not judged.
+
 - `main` and `network-first` are one (2026-10-16): steps 2 and 3 of `sections.md`, the rules from the Vancouver spots, the dashboard's
   first-3D-draw fix, the rules from the Monaco fails (`sections.md`), the service-road rule, the servers that hold no lock, and the
   document of the model: `docs/notes/steps.md` (the hierarchy by rank, the steps, the dependencies, the levels, the words).

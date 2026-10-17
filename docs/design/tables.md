@@ -300,9 +300,24 @@ database it replaces, gives every profile it knows its id again, and gives a new
 
 The thing's own row carries the id in `uid`. The readable id (`s0-…`, `i0-…`, `n…`) stays as the label.
 
+## The style: `urban.style`
+
+One row per table and kind: how a viewer draws it. The levels are drawn from the lowest up; inside a level, the things are drawn in
+`draw_order`, lowest first ([Drawing the tables](drawing.md)).
+
+| Column | Meaning |
+|---|---|
+| `table`, `rank`, `kind` | the table, its rank, and the kind |
+| `draw_order` | the place in the stack of one level: rank 0 at 0, rank 1 from 10, rank 2 from 20, and so on to the marks from 60; the street objects at 70, the links at 80 |
+| `form` | polygon, line or point |
+| `colour` | the fill of a polygon, the colour of a line or a point |
+| `dash` | a dashed line: the metres drawn and the metres left out |
+| `raise_m` | in 3D, the height of the kind's top above the ground of its level |
+
 ## The codes of the standards: `urban.code`
 
-One row per kind of ours, with its code in each standard. An export reads this table; a reader of a standard finds our kind in it.
+One row per kind of ours, with its code in each standard. An export reads this table; a reader of a standard finds our kind in it. Its columns: `kind`, `citygml`,
+`opendrive`, `opensidewalks`, `ifc`; none where the standard has no code.
 
 | Ours | CityGML 3.0 | OpenDRIVE | OpenSidewalks | IFC 4.3 |
 |---|---|---|---|---|

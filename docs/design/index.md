@@ -17,8 +17,9 @@ Every value in the model names its source and its method. The chapters:
 8. [Levels, bridges and tunnels](levels.md): the decks, the tubes, the links between levels and the bridge model.
 9. [Sources and provenance](sources.md): the sources, the methods, which source wins, and the pilot dossier.
 10. [The format](format.md): the requirements of the published format.
-11. [The dashboard](dashboard.md): the page, the panel, the layers by rank, the AI agent and the online version.
-12. [Glossary](glossary.md): every word, table, column and id in one place.
+11. [Drawing the tables](drawing.md): the draw order, the colours and the forms of every kind, the levels, and what is a list.
+12. [The dashboard](dashboard.md): the page, the panel, the layers by rank, the AI agent and the online version.
+13. [Glossary](glossary.md): every word, table, column and id in one place.
 
 The research behind the design is in its own section: how the standards layer a street, how they partition it, how software handles
 levels, and how urbanstyle's format relates to the standards.

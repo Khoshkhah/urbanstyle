@@ -74,6 +74,7 @@ nav:
       - Levels, bridges and tunnels: design/levels.md
       - Sources and provenance: design/sources.md
       - The format: design/format.md
+      - Drawing the tables: design/drawing.md
       - The dashboard: design/dashboard.md
       - Glossary: design/glossary.md
   - Research:

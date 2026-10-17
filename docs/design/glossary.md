@@ -105,6 +105,8 @@ The words of the model, the code and the dashboard, in one place. When a word is
 | `urban.registry` | the stable ids: one row per profile, with `uid`, `first_seen` and `last_seen` |
 | **profile** | the facts of a thing that do not change, as text; its `uid` belongs to the profile (requirement R6) |
 | `uid` | a thing's stable id, a UUID from the registry; the readable id stays as its label |
+| `urban.style` | how a viewer draws each table and kind: `draw_order`, form, colour, dash, `raise_m` ([Drawing the tables](drawing.md)) |
+| **draw order** | the place of a kind in the stack of one level: lower first; the levels themselves are drawn from the lowest up |
 | `urban.code` | our kinds with their codes in CityGML 3.0, OpenDRIVE, OpenSidewalks and IFC 4.3 |
 | **axis** | a linear thing's middle line, from its start to its end; `s_from`, `s_to`, `t_from`, `t_to` place a thing on its parent's axis |
 | **predecessors**, **successors** | the spaces, or the lanes, that come before and after a space or a lane along the street |

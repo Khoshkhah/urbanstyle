@@ -84,7 +84,7 @@ def main(argv=None):
         print("level  type       n")
         for l, t, n in counts(c):
             print(f"{l:>5}  {t:<9} {n}")
-        print("links:", c.execute("SELECT type, level_a, level_b, count(*) FROM urban.link GROUP BY ALL ORDER BY ALL").fetchall())
+        print("links:", c.execute("SELECT type, level_a, level_b, count(*) FROM work.link GROUP BY ALL ORDER BY ALL").fetchall())
         print("next: urbanstyle dashboard", a.out, "viz/<area>.html")
     elif a.cmd == "check":
         from .checks import bridge, run

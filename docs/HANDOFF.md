@@ -6,26 +6,26 @@ first, then this note, then `docs/notes/street-rules.md` and `docs/notes/section
 
 ## Where the work stands
 
-- **The data structure (2026-10-16 night).** Kaveh: the data structure is the product; the dashboard only shows it.
-  - Design: `docs/design/tables.md` (the common columns in one order, `kind` everywhere, `urban.item`, `urban.meta`, `urban.check`,
-    `urban.registry` with `uid`, the axes with (s, t), the links of spaces and lanes, `urban.style`, `urban.code`) and the new chapter
-    `docs/design/drawing.md` (Kaveh: "add level order for each table and a document on how to visualize all the tables"; his "level
-    order" is the draw order: levels from the lowest up, then `draw_order` inside a level). The other chapters agree with it.
-  - Built (`meta.py`, the build's last step `container._finish`; `urbanstyle check` writes `urban.check`): `urban.meta`,
-    `urban.item` (a table derived once at the build's end, because today's tables carry no `parent_id`; it becomes a plain view
-    when they do), `urban.registry` with `uid` on `urban.object` and on the buildings of `urban.element`, `urban.style`, `urban.code`,
-    `urban.check`, and the failed checks on the panel (`Checks`, links to the places). Tests: `tests/test_meta.py` (the uids stay
-    the same over a rebuild; every kind of the tree has a style).
-  - Not built: the rank tables in the design's shape (`urban.stretch`, `urban.plot_piece`, `urban.space`, `urban.side` with the
-    common columns; `kind` and `parent_id` on `urban.part` and `urban.mark`; rank 1 as street, plot and path rows of
-    `urban.ground`), the axes with (s, t) on spaces, parts and marks, the predecessors and successors, the uids of the other kinds
-    (intersection, section, subsection, part, block). Today's working tables keep their old columns (`type`, `unit_id`), which the
-    network step, the checks and the page read; a change to them is one table at a time, with every reader.
-  - `urban.item` holds what today's data gives: the rank 4 sides are the parts joined (walking: sidewalk, furnishing, frontage,
-    driveway, island, verge, bus stop, tree pit), the marks' ids are made (`<space>:<kind>:<n>`), the old part kind `carriageway`
-    still in Vancouver's parts (built before the rename to `paved`) has no style row.
-  - Vancouver's files are renamed `data/units/broadway-granville.urban.duckdb*` (with `.before-division`, `.before-ground`,
-    `.mapillary.json`): the code finds a pilot's city files by that name since commit c024a08. `scratch/serve.sh` points there.
+- **The data structure (2026-10-16 night).** Kaveh: the data structure is the product; the dashboard only shows it. Order he set:
+  the document first, then the code to it, then one run.
+  - The document: `docs/design/tables.md` gives every table of the model with one row per column, its type and its meaning, the
+    rules of the axes, (s, t) and the links, and the working schema. `docs/design/drawing.md` (Kaveh's "level order for each table"
+    is the draw order: the levels from the lowest up, then `draw_order` in `urban.style`). A helper made both easier to read
+    (a reading guide, a diagram of the tables, one lane followed up the tree, SQL examples) with no column changed.
+  - The code: the build's steps write the schema `work` (every `urban.` of the old steps renamed); the last step `product.py`
+    writes `urban` exactly as the chapter, then `meta.py` the registry with `uid`, `urban.meta`, `urban.style`, `urban.code`;
+    `urban.item` is a plain view over the eight rank tables; `urbanstyle check` tests `work` and writes `urban.check`.
+    `schema.migrate` moves an older file's intermediate tables to `work` and keeps its registry. The object matching moved from
+    `dashboard.py` to `objects.py` (the build runs without roadstyle). `tests/test_product.py` compares the chapter with a build,
+    table by table, column by column, type by type: a change to one without the other fails.
+  - What the data fills today, column by column: the lanes in an intersection carry no edge, so a lane's link through an
+    intersection comes from the guide line's two ends; the links at an arm need the same road name on both lanes; `urban.street`
+    and the sections' `street_id` come from the old step's arms (by the section's way, else by name); the part kind `carriageway`
+    in old data has no style row. Not built: the path sections and path intersections (no rank 2-3 for paths yet), the uids of
+    the other R6 kinds.
+  - Readers: the page, the server, the panel, the agent and `publish` read `work`; the server also loads `urban` (the check list).
+    Moving the page to `urban` is the next step, one layer at a time.
+  - Vancouver's files are `data/units/broadway-granville.urban.duckdb*`; the code finds a pilot's city files by that name.
   - The site that port 8784 shows at `/docs/` is a copy in `viz/docs/`: after `mkdocs build`, run `rsync -a --delete site/ viz/docs/`.
 - **Committed and pushed 9d225d3 (2026-10-16 evening), main = network-first:** the design as chapters by rank in `docs/design/`
   (the public site holds only the design as it is: no history, no names, no dates; the 31 old notes are in `docs/notes/`, off the

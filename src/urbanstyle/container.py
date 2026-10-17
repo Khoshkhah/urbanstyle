@@ -2,7 +2,7 @@
 
     urbanstyle build <duckosm.duckdb> <out.duckdb>      # then: urbanstyle dashboard <out.duckdb> <out.html>
 
-urban.element: one row per element with an integer level span [level_min, level_max].
+work.element: one row per element with an integer level span [level_min, level_max].
 Ground floor = level 0, upper floors positive, basement floors negative.
 Buildings come from duckOSM's features.buildings (built on a copy if the database has none); roads, walkways and
 cycleways from its mode schemas, rail and stations from its features. Overture is not used (docs/design/street-space.md, "Sources").
@@ -16,8 +16,8 @@ LEVELS = (-5, 5)  # only these levels are kept; spans are clamped to them (Monac
 FLOOR_M = 3.0  # ponytail: flat 3 m/floor when only height is known; per-class heights if it matters
 
 BUILD = f"""
-CREATE SCHEMA IF NOT EXISTS urban;
-CREATE OR REPLACE TABLE urban.element AS
+CREATE SCHEMA IF NOT EXISTS work;
+CREATE OR REPLACE TABLE work.element AS
 SELECT 'osm' AS source, left(osm_type, 1) || osm_id AS source_id, 'building' AS type,
   CASE WHEN under THEN -coalesce(fl, ug, 1) ELSE coalesce(mn, 0) - coalesce(ug, 0) END AS level_min,
   CASE WHEN under THEN -1 ELSE coalesce(fl, round(h / {FLOOR_M})::INT, 1) - 1 + coalesce(mn, 0) END AS level_max,
@@ -41,7 +41,7 @@ FROM (SELECT *, try_cast(tags['building:levels'] AS INT) AS fl, try_cast(tags['b
 # Roads from duckOSM. A way keeps one row per direction, so dedupe on its two end nodes. A walkway is a
 # walking edge no car road shares; a cycleway is a cycling edge neither share.
 ROADS = """
-INSERT INTO urban.element
+INSERT INTO work.element
 SELECT 'osm', edge_id::VARCHAR, t,
   coalesce(try_cast(layer AS INT), CASE WHEN coalesce(bridge, 'no') <> 'no' THEN 1 WHEN coalesce(tunnel, 'no') <> 'no' THEN -1 ELSE 0 END),
   coalesce(try_cast(layer AS INT), CASE WHEN coalesce(bridge, 'no') <> 'no' THEN 1 WHEN coalesce(tunnel, 'no') <> 'no' THEN -1 ELSE 0 END),
@@ -68,14 +68,14 @@ FROM (
     UNION ALL BY NAME SELECT 'cycleway' t, * FROM osm.cycling.edges
       WHERE osm_id NOT IN (SELECT osm_id FROM osm.driving.edges UNION SELECT osm_id FROM osm.walking.edges))) e
 LEFT JOIN osm.raw.ways rw ON rw.osm_id = e.osm_id
-WHERE coalesce(rw.tags['service'], '') NOT IN ('parking_aisle', 'driveway');   -- inside a car park (urban.lot), into a property: no street
+WHERE coalesce(rw.tags['service'], '') NOT IN ('parking_aisle', 'driveway');   -- inside a car park (work.lot), into a property: no street
 """
 
 # Off-street car parks (OSM amenity=parking on the ground, not along the kerb): private ground beside the street, like a building's
 # plot. The street space stops at their edge (subsections.py and spaces.py read them with the buildings); each is one lot, whole.
 STREET_PARKING = ("lane", "street_side", "on_kerb", "half_on_kerb", "shoulder", "layby")
 LOTS = f"""
-CREATE OR REPLACE TABLE urban.lot AS
+CREATE OR REPLACE TABLE work.lot AS
 SELECT left(osm_type, 1) || osm_id AS lot_id, 'parking lot' AS type, name, coalesce(tags['parking'], 'surface') AS parking,
   tags['access'] AS access, tags['fee'] AS fee, coalesce(tags['operator'], tags['brand']) AS operator, 0 AS level, geom AS geometry
 FROM osm.features.sites
@@ -86,15 +86,15 @@ WHERE kind = 'parking' AND coalesce(tags['parking'], 'surface') NOT IN {STREET_P
 CLAMP = f"""
 -- roads, walkways, rail: a layer outside the kept range is shown at the nearest kept level (a metro at layer -3 sits at -2);
 -- only buildings lying entirely outside are dropped
-UPDATE urban.element SET level_min = greatest(least(level_min, {LEVELS[1]}), {LEVELS[0]}),
+UPDATE work.element SET level_min = greatest(least(level_min, {LEVELS[1]}), {LEVELS[0]}),
                          level_max = greatest(least(level_min, {LEVELS[1]}), {LEVELS[0]}) WHERE type <> 'building';
-DELETE FROM urban.element WHERE level_min > {LEVELS[1]} OR level_max < {LEVELS[0]};
-UPDATE urban.element SET level_min = greatest(level_min, {LEVELS[0]}), level_max = least(level_max, {LEVELS[1]});
+DELETE FROM work.element WHERE level_min > {LEVELS[1]} OR level_max < {LEVELS[0]};
+UPDATE work.element SET level_min = greatest(level_min, {LEVELS[0]}), level_max = least(level_max, {LEVELS[1]});
 """
 
 # ROW hierarchy (the CityGML / IFC / OpenDRIVE pattern, docs/design/partitioning-research.md): a STREET (roads of one level that share a name and are
 # connected) is divided at every junction into SECTIONS, the stretches between two intersections; the intersections are containers of their
-# own, shared by the streets that meet there (urban.arm). A section holds its roads, every carriageway of a dual road, and the walkways
+# own, shared by the streets that meet there (work.arm). A section holds its roads, every carriageway of a dual road, and the walkways
 # and cycleways that run along them (>= ALONG_MIN of their length within NEAR_M). Other containers: a PATH space (footpaths away from any
 # road) and a RAIL space. Ids: s<level>-<smallest edge id> (section), p/r<level>-<smallest way id>, i<level>-<smallest node id>.
 # Street space = measured cross-sections (docs/design/street-space.md): ground elements get rays every STEP_M metres to the first
@@ -126,7 +126,7 @@ PLAZA_BUILT = 0.3  # share of a plaza's outline that must run along building fac
 PARAPET_M = 1  # bridge/tunnel street space = centerline buffered by width/2 + this; buildings do not bound a deck
 CONTAINER = """
 CREATE OR REPLACE TEMP TABLE m AS SELECT rowid AS eid, level_min AS level, level_src, type, class, subtype, osm_id, source_id, oneway, name, width_m, zone, src, dst,
-  ST_Transform(geometry, 'EPSG:4326', '{epsg}', always_xy := true) AS g FROM urban.element WHERE type <> 'building';
+  ST_Transform(geometry, 'EPSG:4326', '{epsg}', always_xy := true) AS g FROM work.element WHERE type <> 'building';
 CREATE OR REPLACE TEMP TABLE rbuf AS SELECT eid, level, g, ST_Buffer(g, {near}) AS bg FROM m WHERE type = 'road';
 -- a walkway or cycleway runs along a road when at least ALONG_MIN of its length lies within NEAR_M of it; one that only passes close
 -- (a park path, a bike path leaving the street) is not part of that street
@@ -137,9 +137,9 @@ CREATE OR REPLACE TEMP TABLE near AS SELECT eid, road_eid FROM (
 -- STREETS-SPLIT (python fills own(eid, cid): which street or path space each element belongs to)
 CREATE OR REPLACE TEMP TABLE assigned AS
 SELECT m.*, own.cid, near.road_eid IS NOT NULL AS attached FROM m JOIN own USING (eid) LEFT JOIN near USING (eid);
-UPDATE urban.element e SET container_id = a.cid FROM assigned a WHERE e.rowid = a.eid;
+UPDATE work.element e SET container_id = a.cid FROM assigned a WHERE e.rowid = a.eid;
 CREATE OR REPLACE TEMP TABLE bm AS SELECT l AS level, source_id AS bid, ST_Transform(geometry, 'EPSG:4326', '{epsg}', always_xy := true) AS g
-  FROM urban.element, generate_series(level_min, level_max) t(l) WHERE type = 'building';
+  FROM work.element, generate_series(level_min, level_max) t(l) WHERE type = 'building';
 -- The building line bounds every section and intersection: the buildings closed by {bline} m, so a gap narrower than twice that between two
 -- buildings is frontage, not street space. The closing never covers an element's own ribbon: a footpath through a passage stays open.
 CREATE OR REPLACE TEMP TABLE bline AS
@@ -352,7 +352,7 @@ CREATE OR REPLACE TEMP TABLE norod AS
 SELECT r.cid FROM reg r WHERE r.kind = 'section' AND NOT EXISTS (SELECT 1 FROM assigned a WHERE a.cid = r.cid AND a.type = 'road');
 UPDATE assigned SET cid = 'p' || substr(cid, 2) WHERE cid IN (SELECT cid FROM norod);
 UPDATE reg SET kind = 'path', cid = 'p' || substr(cid, 2) WHERE cid IN (SELECT cid FROM norod);
-UPDATE urban.element e SET container_id = a.cid FROM assigned a WHERE e.rowid = a.eid;
+UPDATE work.element e SET container_id = a.cid FROM assigned a WHERE e.rowid = a.eid;
 INSERT INTO street_of SELECT r.cid, s.street_id FROM reg r JOIN street_of s ON s.cid = r.orig WHERE r.cid <> r.orig AND r.kind = 'section';
 -- a street's numbers come from its roads' sections only (a sidewalk's own short rays would dilute them); a path space uses its footpaths
 CREATE OR REPLACE TEMP TABLE stat AS SELECT a.cid, avg(s.w) AS mean_width_m, avg(s.o::INT) AS open_share,
@@ -383,14 +383,14 @@ GROUP BY a.cid;
 UPDATE reg SET g = ST_CollectionExtract(ST_MakeValid(ST_Difference(reg.g, o.g)), 3) FROM overl o WHERE reg.cid = o.cid AND ST_Area(o.g) > 0.01;
 DELETE FROM reg WHERE g IS NULL OR ST_IsEmpty(g) OR ST_Area(g) < 1.5;
 -- The buildings that BOUND a container: those whose face lies along its edge (within 1 m; 4 m for an intersection, whose hull edge is a chord across each corner), at least 2 m of it. Walls and fences join later.
-CREATE OR REPLACE TABLE urban.boundary AS
+CREATE OR REPLACE TABLE work.boundary AS
 SELECT container_id, level, 'building' AS kind, building_id, round(length_m, 1) AS length_m FROM (
   SELECT r.cid AS container_id, r.level, b.bid AS building_id, sum(ST_Length(ST_Intersection(ST_Boundary(r.g), ST_Buffer(b.g, {bound_tol})))) AS length_m
   FROM reg r JOIN bm b ON b.level = r.level AND ST_Intersects(r.g, ST_Buffer(b.g, {bound_tol})) GROUP BY r.cid, r.level, b.bid) WHERE length_m >= 2.0;
 CREATE OR REPLACE TEMP TABLE rb AS SELECT level, ST_Union_Agg(g) AS g FROM (
   SELECT level, g FROM twq
   UNION ALL SELECT level, ST_Buffer(g, width_m / 2) FROM assigned WHERE type = 'road' AND eid NOT IN (SELECT eid FROM ground)) GROUP BY level;
-CREATE OR REPLACE TABLE urban.zone AS
+CREATE OR REPLACE TABLE work.zone AS
 SELECT container_id, level, zone, ST_MakeValid(ST_Transform(ST_MakeValid(ST_SimplifyPreserveTopology(g, 0.05)), '{epsg}', 'EPSG:4326', always_xy := true)) AS geometry
 FROM (SELECT x.cid AS container_id, x.level, 'travelway' AS zone, ST_CollectionExtract(ST_MakeValid(ST_Intersection(x.g, b.g)), 3) AS g
       FROM reg x JOIN rb b USING (level) WHERE x.kind <> 'rail'
@@ -401,7 +401,7 @@ FROM (SELECT x.cid AS container_id, x.level, 'travelway' AS zone, ST_CollectionE
 WHERE g IS NOT NULL AND NOT ST_IsEmpty(g);
 -- arm: which streets meet at which intersection. An intersection belongs to every street group that arrives at it (many-to-many, as in
 -- CityGML: it is not a subsection of one street); the section is the stretch of that street that arrives.
-CREATE OR REPLACE TABLE urban.arm AS
+CREATE OR REPLACE TABLE work.arm AS
 SELECT DISTINCT jc.cid AS intersection_id, asg.cid AS section_id, so.street_id, a.osm_id, a.edge_id, a.node AS node_id, a.level
 FROM arms a JOIN assigned asg ON asg.eid = a.eid JOIN jcluster jc ON jc.level = a.level AND jc.node = a.node LEFT JOIN street_of so ON so.cid = asg.cid;
 -- dead ends: a node where only one road edge ends; counted per section
@@ -411,51 +411,51 @@ CREATE OR REPLACE TEMP TABLE deadends AS SELECT a.cid, count(DISTINCT d.node) AS
   JOIN deg1 d ON d.level = a.level AND (d.node = a.src OR d.node = a.dst) WHERE a.type = 'road' GROUP BY a.cid;
 CREATE OR REPLACE TEMP TABLE cnt AS SELECT cid AS container_id, coalesce(mode(name) FILTER (WHERE type = 'road'), mode(name)) AS n, count_if(type = 'road') n_road,
   count_if(type = 'walkway') n_walkway, count_if(type = 'cycleway') n_cycleway, count_if(type = 'rail') n_rail FROM assigned GROUP BY cid;
-CREATE OR REPLACE TABLE urban.container AS
+CREATE OR REPLACE TABLE work.container AS
 SELECT x.cid AS container_id, x.level, x.kind, so.street_id, ish.shape, ish.n_arms, bd.n_buildings, bd.boundary_m,
   CASE WHEN x.kind = 'section' THEN coalesce(de.n, 0) END AS n_dead_ends,
-  CASE WHEN x.kind = 'section' THEN (SELECT count(DISTINCT a.intersection_id) FROM urban.arm a WHERE a.section_id = x.cid) END AS n_intersections, CASE WHEN x.kind = 'intersection' THEN ii.name ELSE c.n END AS name,
+  CASE WHEN x.kind = 'section' THEN (SELECT count(DISTINCT a.intersection_id) FROM work.arm a WHERE a.section_id = x.cid) END AS n_intersections, CASE WHEN x.kind = 'intersection' THEN ii.name ELSE c.n END AS name,
   coalesce(c.n_road, ii.n_road, 0) AS n_road, coalesce(c.n_walkway, 0) AS n_walkway, coalesce(c.n_cycleway, 0) AS n_cycleway, coalesce(c.n_rail, 0) AS n_rail,
   st.mean_width_m, st.open_share, st.narrow_half_m, st.wide_half_m, st.one_side_open_share, ks.kerb_share,
   ST_MakeValid(ST_Transform(ST_MakeValid(ST_SimplifyPreserveTopology(x.g, 0.05)), '{epsg}', 'EPSG:4326', always_xy := true)) AS geometry
-FROM reg x LEFT JOIN cnt c ON c.container_id = x.cid LEFT JOIN iinfo ii ON ii.cid = x.orig LEFT JOIN stat st ON st.cid = x.cid LEFT JOIN kstat ks ON ks.cid = x.cid LEFT JOIN (SELECT container_id, count(*) AS n_buildings, sum(length_m) AS boundary_m FROM urban.boundary GROUP BY 1) bd ON bd.container_id = x.cid
+FROM reg x LEFT JOIN cnt c ON c.container_id = x.cid LEFT JOIN iinfo ii ON ii.cid = x.orig LEFT JOIN stat st ON st.cid = x.cid LEFT JOIN kstat ks ON ks.cid = x.cid LEFT JOIN (SELECT container_id, count(*) AS n_buildings, sum(length_m) AS boundary_m FROM work.boundary GROUP BY 1) bd ON bd.container_id = x.cid
 LEFT JOIN street_of so ON so.cid = x.cid LEFT JOIN ishape ish ON ish.cid = x.orig AND x.kind = 'intersection' LEFT JOIN deadends de ON de.cid = x.cid;
 -- Simplifying neighbours one by one moves a long shared edge by up to 5 cm on each side (15 m2 over 300 m): settle those overlaps on the final
 -- geometries, the lower-ranked container (intersection, section, path, rail; then the larger id) giving way.
 CREATE OR REPLACE TEMP TABLE crnk AS
-SELECT container_id, level, geometry AS g, CASE kind WHEN 'intersection' THEN 0 WHEN 'section' THEN 1 WHEN 'path' THEN 2 WHEN 'plaza' THEN 2 ELSE 3 END AS rk FROM urban.container;
+SELECT container_id, level, geometry AS g, CASE kind WHEN 'intersection' THEN 0 WHEN 'section' THEN 1 WHEN 'path' THEN 2 WHEN 'plaza' THEN 2 ELSE 3 END AS rk FROM work.container;
 CREATE OR REPLACE TEMP TABLE coverl AS
 SELECT a.container_id, ST_Union_Agg(ST_CollectionExtract(ST_MakeValid(ST_Intersection(a.g, b.g)), 3)) AS g
 FROM crnk a JOIN crnk b ON a.level = b.level AND a.container_id <> b.container_id
   AND (b.rk < a.rk OR (b.rk = a.rk AND b.container_id < a.container_id)) AND ST_Intersects(a.g, b.g) GROUP BY a.container_id;
-UPDATE urban.container c SET geometry = ST_CollectionExtract(ST_MakeValid(ST_Difference(c.geometry, o.g)), 3) FROM coverl o
+UPDATE work.container c SET geometry = ST_CollectionExtract(ST_MakeValid(ST_Difference(c.geometry, o.g)), 3) FROM coverl o
 WHERE c.container_id = o.container_id AND ST_Area(o.g) > 2e-11;
 CREATE OR REPLACE TEMP TABLE onepart AS
 SELECT container_id, geom FROM (SELECT container_id, d.geom AS geom, row_number() OVER (PARTITION BY container_id ORDER BY ST_Area(d.geom) DESC) AS rn
-  FROM (SELECT container_id, unnest(ST_Dump(geometry)) AS d FROM urban.container WHERE ST_NumGeometries(geometry) > 1)) WHERE rn = 1;
-UPDATE urban.container c SET geometry = f.geom FROM onepart f WHERE c.container_id = f.container_id;
+  FROM (SELECT container_id, unnest(ST_Dump(geometry)) AS d FROM work.container WHERE ST_NumGeometries(geometry) > 1)) WHERE rn = 1;
+UPDATE work.container c SET geometry = f.geom FROM onepart f WHERE c.container_id = f.container_id;
 -- simplification and the overlap step can leave a sliver: drop containers under 1 m2 (their elements are given to a neighbour below)
-DELETE FROM urban.container WHERE ST_IsEmpty(geometry) OR ST_Area(ST_Transform(geometry, 'EPSG:4326', '{epsg}', always_xy := true)) < 1.0;
-DELETE FROM urban.zone WHERE container_id NOT IN (SELECT container_id FROM urban.container);
+DELETE FROM work.container WHERE ST_IsEmpty(geometry) OR ST_Area(ST_Transform(geometry, 'EPSG:4326', '{epsg}', always_xy := true)) < 1.0;
+DELETE FROM work.zone WHERE container_id NOT IN (SELECT container_id FROM work.container);
 -- the zones were cut before the final overlap clean-up: clip them to the container's final shape so zones and strips add up to it
-UPDATE urban.zone z SET geometry = ST_CollectionExtract(ST_MakeValid(ST_Intersection(z.geometry, c.geometry)), 3) FROM urban.container c WHERE c.container_id = z.container_id;
-DELETE FROM urban.zone WHERE geometry IS NULL OR ST_IsEmpty(geometry);
-DELETE FROM urban.boundary WHERE container_id NOT IN (SELECT container_id FROM urban.container);
+UPDATE work.zone z SET geometry = ST_CollectionExtract(ST_MakeValid(ST_Intersection(z.geometry, c.geometry)), 3) FROM work.container c WHERE c.container_id = z.container_id;
+DELETE FROM work.zone WHERE geometry IS NULL OR ST_IsEmpty(geometry);
+DELETE FROM work.boundary WHERE container_id NOT IN (SELECT container_id FROM work.container);
 -- a street group: its sections, and the intersections it arrives at (an intersection counts for every street that meets there)
-CREATE OR REPLACE TABLE urban.street AS
+CREATE OR REPLACE TABLE work.street AS
 SELECT s.street_id, s.level, mode(s.name) AS name, count(*) AS n_section,
-  (SELECT count(DISTINCT a.intersection_id) FROM urban.arm a WHERE a.street_id = s.street_id AND a.level = s.level) AS n_intersection
-FROM urban.container s WHERE s.kind = 'section' GROUP BY s.street_id, s.level;
+  (SELECT count(DISTINCT a.intersection_id) FROM work.arm a WHERE a.street_id = s.street_id AND a.level = s.level) AS n_intersection
+FROM work.container s WHERE s.kind = 'section' GROUP BY s.street_id, s.level;
 -- a short road or footpath whose whole section was taken by an intersection (or shrank to a sliver) now belongs to that intersection
-UPDATE urban.element e SET container_id = i.cid
-FROM (SELECT e2.rowid AS rid, min(c.container_id) AS cid FROM urban.element e2
-      JOIN urban.container c ON c.level = e2.level_min AND c.kind = 'intersection' AND ST_Intersects(c.geometry, e2.geometry)
-      WHERE e2.type <> 'building' AND e2.container_id NOT IN (SELECT container_id FROM urban.container) GROUP BY e2.rowid) i
+UPDATE work.element e SET container_id = i.cid
+FROM (SELECT e2.rowid AS rid, min(c.container_id) AS cid FROM work.element e2
+      JOIN work.container c ON c.level = e2.level_min AND c.kind = 'intersection' AND ST_Intersects(c.geometry, e2.geometry)
+      WHERE e2.type <> 'building' AND e2.container_id NOT IN (SELECT container_id FROM work.container) GROUP BY e2.rowid) i
 WHERE e.rowid = i.rid;
-UPDATE urban.element e SET container_id = n.cid
-FROM (SELECT e2.rowid AS rid, arg_min(c.container_id, ST_Distance(c.geometry, e2.geometry)) AS cid FROM urban.element e2
-      JOIN urban.container c ON c.level = e2.level_min AND ST_Intersects(ST_Buffer(e2.geometry, 0.0002), c.geometry)
-      WHERE e2.type <> 'building' AND e2.container_id NOT IN (SELECT container_id FROM urban.container) GROUP BY e2.rowid) n
+UPDATE work.element e SET container_id = n.cid
+FROM (SELECT e2.rowid AS rid, arg_min(c.container_id, ST_Distance(c.geometry, e2.geometry)) AS cid FROM work.element e2
+      JOIN work.container c ON c.level = e2.level_min AND ST_Intersects(ST_Buffer(e2.geometry, 0.0002), c.geometry)
+      WHERE e2.type <> 'building' AND e2.container_id NOT IN (SELECT container_id FROM work.container) GROUP BY e2.rowid) n
 WHERE e.rowid = n.rid;
 """
 
@@ -463,7 +463,7 @@ WHERE e.rowid = n.rid;
 # Rail: duckOSM's features.streets (railway lines) as elements of type 'rail'. Level like roads (layer, else bridge +1, tunnel -1);
 # a Unicode minus in a layer tag (U+2212) is read as a minus. src/dst are the first and last node of the way.
 RAIL = """
-INSERT INTO urban.element
+INSERT INTO work.element
 SELECT 'osm', left(s.osm_type, 1) || s.osm_id, 'rail', s.lvl, s.lvl,
   CASE WHEN s.lay IS NOT NULL THEN 'layer' WHEN coalesce(s.tags['bridge'], 'no') <> 'no' THEN 'bridge'
        WHEN coalesce(s.tags['tunnel'], 'no') <> 'no' THEN 'tunnel' ELSE 'chosen' END,
@@ -481,7 +481,7 @@ LEFT JOIN osm.raw.ways w ON w.osm_id = s.osm_id;
 # Stations: points from features.public_transport. Level: an explicit level/layer tag, else the level of the nearest rail line
 # within ~60 m (a station sits where its tracks are), else -1 for a subway station, else 0. 0.0008 degrees is about 60-90 m.
 STATIONS = f"""
-CREATE OR REPLACE TABLE urban.station AS
+CREATE OR REPLACE TABLE work.station AS
 SELECT s.id, s.name, s.kind,
   greatest(least(coalesce(s.explicit, r.lvl, CASE WHEN s.kind = 'subway' THEN -1 END, 0), {LEVELS[1]}), {LEVELS[0]}) AS level, s.geometry
 FROM (SELECT left(osm_type, 1) || osm_id AS id, name,
@@ -489,7 +489,7 @@ FROM (SELECT left(osm_type, 1) || osm_id AS id, name,
         coalesce(try_cast(replace(tags['level'], '\u2212', '-') AS INT), try_cast(replace(tags['layer'], '\u2212', '-') AS INT)) AS explicit,
         geom AS geometry
       FROM osm.features.public_transport WHERE kind IN ('station', 'halt', 'tram_stop')) s
-LEFT JOIN LATERAL (SELECT e.level_min AS lvl FROM urban.element e WHERE e.type = 'rail' AND ST_Distance(e.geometry, s.geometry) < 0.0008
+LEFT JOIN LATERAL (SELECT e.level_min AS lvl FROM work.element e WHERE e.type = 'rail' AND ST_Distance(e.geometry, s.geometry) < 0.0008
                    ORDER BY ST_Distance(e.geometry, s.geometry) LIMIT 1) r ON true;
 """
 
@@ -503,11 +503,11 @@ ENTRANCE_NEAR_M = 250
 # entrances (the level below is assumed: rail and stations are not loaded yet). Type: elevator / stairs / ramp (a bridge or
 # tunnel is involved) / connection (a layer change on its own).
 LINKS = """
-CREATE OR REPLACE TABLE urban.link AS
+CREATE OR REPLACE TABLE work.link AS
 WITH ends AS (
-  SELECT src AS node, level_min AS lvl, class, level_src, ST_StartPoint(geometry) AS p FROM urban.element WHERE type <> 'building' AND src IS NOT NULL
+  SELECT src AS node, level_min AS lvl, class, level_src, ST_StartPoint(geometry) AS p FROM work.element WHERE type <> 'building' AND src IS NOT NULL
   UNION ALL
-  SELECT dst, level_min, class, level_src, ST_EndPoint(geometry) FROM urban.element WHERE type <> 'building' AND dst IS NOT NULL),
+  SELECT dst, level_min, class, level_src, ST_EndPoint(geometry) FROM work.element WHERE type <> 'building' AND dst IS NOT NULL),
 pairs AS (
   SELECT a.node, a.lvl AS level_a, b.lvl AS level_b, any_value(a.p) AS geometry,
     bool_or(a.class = 'steps' OR b.class = 'steps') AS stairs,
@@ -522,10 +522,10 @@ entr AS (
   SELECT n.osm_id, n.lat, n.lon, lower(n.tags['name']) AS nm, n.tags['railway'] = 'subway_entrance' AS sub, ST_Point(n.lon, n.lat)::GEOMETRY AS p
   FROM osm.raw.nodes n
   WHERE n.tags['railway'] IN ('subway_entrance', 'train_station_entrance')   -- on a level-0 way: within 0.00008 degrees (about 7 m)
-    AND EXISTS (SELECT 1 FROM urban.element z WHERE z.type <> 'building' AND z.level_min = 0 AND ST_Distance(z.geometry, ST_Point(n.lon, n.lat)) < 0.00008)),
+    AND EXISTS (SELECT 1 FROM work.element z WHERE z.type <> 'building' AND z.level_min = 0 AND ST_Distance(z.geometry, ST_Point(n.lon, n.lat)) < 0.00008)),
 cand AS (  -- a subway entrance can only serve a subway station, a train-station entrance a station that is not one
   SELECT e.osm_id AS node, s.id, s.level, lower(s.name) = e.nm AS named, ST_Distance_Sphere(ST_Point(e.lon, e.lat), s.geometry) AS d
-  FROM entr e JOIN urban.station s ON e.sub = (s.kind = 'subway')),
+  FROM entr e JOIN work.station s ON e.sub = (s.kind = 'subway')),
 best AS (
   SELECT * FROM (SELECT *, row_number() OVER (PARTITION BY node ORDER BY named DESC, d) AS rn FROM cand
                  WHERE (named AND d <= {name_m}) OR d <= {near_m}) WHERE rn = 1)
@@ -763,7 +763,7 @@ OBJECT_ATTRS = ("height", "material", "direction", "angle", "capacity", "lit", "
                 "crossing", "colour", "traffic_sign", "bin", "shelter", "bench", "amenity", "highway", "entrance", "barrier", "natural", "operator",
                 "name", "wheelchair", "route_ref", "trolleybus", "public_transport")
 OBJECTS = """
-CREATE OR REPLACE TABLE urban.object AS
+CREATE OR REPLACE TABLE work.object AS
 WITH c AS (
   SELECT osm_id, t, ST_Point(lon, lat)::GEOMETRY AS p,
     CASE
@@ -795,12 +795,12 @@ WITH c AS (
   FROM (SELECT osm_id, lat, lon, tags AS t FROM osm.raw.nodes)),
 o AS (SELECT * FROM c WHERE class IS NOT NULL),
 inside AS (SELECT o.osm_id, min(ct.container_id) AS container_id
-           FROM o JOIN urban.container ct ON ct.level = o.level AND ST_Intersects(ct.geometry, o.p) GROUP BY o.osm_id),
+           FROM o JOIN work.container ct ON ct.level = o.level AND ST_Intersects(ct.geometry, o.p) GROUP BY o.osm_id),
 zn AS (SELECT o.osm_id, min(z.zone) AS zone FROM o JOIN inside i USING (osm_id)
-       JOIN urban.zone z ON z.container_id = i.container_id AND ST_Intersects(z.geometry, o.p) GROUP BY o.osm_id),
+       JOIN work.zone z ON z.container_id = i.container_id AND ST_Intersects(z.geometry, o.p) GROUP BY o.osm_id),
 near AS (SELECT o.osm_id, min(ST_Distance(ST_Transform(ct.geometry, 'EPSG:4326', '{epsg}', always_xy := true),
                                            ST_Transform(o.p, 'EPSG:4326', '{epsg}', always_xy := true))) AS d
-         FROM o JOIN urban.container ct ON ct.level = o.level AND ST_Intersects(ST_Buffer(o.p, 0.0012), ct.geometry)
+         FROM o JOIN work.container ct ON ct.level = o.level AND ST_Intersects(ST_Buffer(o.p, 0.0012), ct.geometry)
          WHERE o.osm_id NOT IN (SELECT osm_id FROM inside) GROUP BY o.osm_id)
 SELECT 'n' || o.osm_id AS object_id, o.class, o.level, i.container_id, z.zone,
   CASE WHEN i.container_id IS NULL AND n.d <= {near_m} THEN round(n.d, 1) END AS near_m, o.t['name'] AS name,
@@ -935,7 +935,7 @@ def build(osm, out, start=None, bridges=()):
     if cols:
         con.execute(f"CREATE OR REPLACE TEMP VIEW osm_boundary AS SELECT {'geometry' if 'geometry' in cols else 'geom'} AS geometry FROM osm.main.boundary")
     if start is not None:
-        lon = con.execute("SELECT avg(ST_X(ST_Centroid(geometry))) FROM urban.element").fetchone()[0]
+        lon = con.execute("SELECT avg(ST_X(ST_Centroid(geometry))) FROM work.element").fetchone()[0]
         _from_division(con, f"EPSG:{32600 + int((lon + 180) // 6) + 1}", done, bridges, out, start)
         return _finish(con, osm, out, bridges, old, done)
     con.execute(BUILD)
@@ -948,9 +948,9 @@ def build(osm, out, start=None, bridges=()):
     try:
         con.execute(LOTS)
     except duckdb.CatalogException:     # a database without duckOSM's features: no car parks known
-        con.execute("CREATE OR REPLACE TABLE urban.lot (lot_id VARCHAR, type VARCHAR, name VARCHAR, parking VARCHAR, access VARCHAR, fee VARCHAR, operator VARCHAR, level INT, geometry GEOMETRY)")
+        con.execute("CREATE OR REPLACE TABLE work.lot (lot_id VARCHAR, type VARCHAR, name VARCHAR, parking VARCHAR, access VARCHAR, fee VARCHAR, operator VARCHAR, level INT, geometry GEOMETRY)")
     con.execute(CLAMP)
-    lon = con.execute("SELECT avg(ST_X(ST_Centroid(geometry))) FROM urban.element").fetchone()[0]
+    lon = con.execute("SELECT avg(ST_X(ST_Centroid(geometry))) FROM work.element").fetchone()[0]
     epsg = f"EPSG:{32600 + int((lon + 180) // 6) + 1}"  # northern-hemisphere UTM, metres
     fmt = dict(epsg=epsg, near=NEAR_M, along=ALONG_MIN, step=STEP_M, cap_max=CAP_MAX_M, parapet=PARAPET_M, bound_tol=BOUND_TOL_M, parallel=PARALLEL_COS, plaza_core=PLAZA_CORE_M, plaza_open=PLAZA_OPEN_M, plaza_min=PLAZA_MIN_M2, plaza_built=PLAZA_BUILT, int_margin=INTERSECTION_M, sw_half=SIDEWALK_HALF_M, setback=ARM_SETBACK_M, cross_margin=CROSS_MARGIN_M, smooth=SMOOTH_SAMPLES, bline=BLINE_M, slack=FACADE_SLACK_M)
     p1, rest = CONTAINER.split("-- STREETS-SPLIT")
@@ -988,10 +988,12 @@ def build(osm, out, start=None, bridges=()):
 
 
 def _finish(con, osm, out, bridges, old, done):
-    """The last step of every build: the registry of stable ids, the tree urban.item and the manifest urban.meta (meta.py)."""
+    """The last step of every build: the model, the schema urban, from the intermediate tables in work (product.py); then the registry
+    of stable ids, the manifest, the style and the codes (meta.py)."""
     from . import meta
-    n = meta.finish(con, osm, out, bridges, old)
-    done(f"meta ({n} items)")
+    lon = con.execute("SELECT avg(ST_X(ST_Centroid(geometry))) FROM work.element").fetchone()[0]
+    n = meta.finish(con, f"EPSG:{32600 + int((lon + 180) // 6) + 1}", osm, out, bridges, old)
+    done("the model: " + ", ".join(f"{t} {k}" for t, k in n.items() if k))
     return con
 
 
@@ -1039,5 +1041,5 @@ def counts(con, typ=None):
     """(level, n) for one element type, or (level, type, n) for all of them."""
     where = f"WHERE type = '{typ}'" if typ else ""
     cols, group = ("l, count(*)", "l") if typ else ("l, type, count(*)", "l, type")
-    return con.execute(f"SELECT {cols} FROM urban.element, generate_series(level_min, level_max) t(l) {where} GROUP BY {group} ORDER BY {group}").fetchall()
+    return con.execute(f"SELECT {cols} FROM work.element, generate_series(level_min, level_max) t(l) {where} GROUP BY {group} ORDER BY {group}").fetchall()
 

@@ -1,16 +1,16 @@
-"""Layer 0 of docs/design/space-layers.md: the ground. Every piece of the area at level 0 is exactly one item of `urban.ground`, of one
+"""Layer 0 of docs/design/space-layers.md: the ground. Every piece of the area at level 0 is exactly one item of `work.ground`, of one
 type: water, rail, street, path, square, structure, green, plot, unknown. Built in that order, each kind taking only ground no earlier kind took; within a
 kind, its sources in the order listed. What is left is `unknown`: check G1 reports it, to be traced to a missing rule.
 
     water   OSM water areas, and the sea (duckOSM's features.ocean, from the coastline)
     rail    OSM railway land (landuse=railway); the rail lines' own beds
-    street  our street spaces (urban.unit)
-    path    the corridor of a pedestrian way between the blocks (blocks.path_sql, docs/design/paths.md) and the measured path spaces (urban.container `path`)
-    square  OSM pedestrian areas (highway=pedestrian + area=yes, the way's own polygon), squares; the measured plazas (urban.container `plaza`)
+    street  our street spaces (work.unit)
+    path    the corridor of a pedestrian way between the blocks (blocks.path_sql, docs/design/paths.md) and the measured path spaces (work.container `path`)
+    square  OSM pedestrian areas (highway=pedestrian + area=yes, the way's own polygon), squares; the measured plazas (work.container `plaza`)
     structure  the land under a bridge (OSM man_made=bridge), whose deck is a level up; and, after the plots and the green, any land
             under a street space of a higher level (a deck OSM maps as a bridge, without its outline)
     green   public green: parks, playgrounds, pitches, recreation grounds, woods (before plots: a park is a parcel too)
-    plot    a city's parcels; else car parks (urban.lot), construction sites, OSM land use (residential, retail, ...), and a building
+    plot    a city's parcels; else car parks (work.lot), construction sites, OSM land use (residential, retail, ...), and a building
             no plot holds
     green   the rest of the green: grass, gardens, allotments
     (what is left that a path or a road runs through is that path's or that street's)
@@ -37,10 +37,10 @@ MIN_M2 = 0.5        # a piece of ground smaller than this is left to its neighbo
 
 
 def parcels(con):
-    """urban.parcel: a city's parcels, the property lines (Vancouver `property-parcel-polygons`, from the unit's city file next to the space
+    """work.parcel: a city's parcels, the property lines (Vancouver `property-parcel-polygons`, from the unit's city file next to the space
     database; "much of the land base at survey accuracy"), read by the partition (the street reaches them) and by the ground (plots).
     Empty where the city has none."""
-    con.execute("CREATE OR REPLACE TABLE urban.parcel (parcel_id VARCHAR, name VARCHAR, geometry GEOMETRY)")
+    con.execute("CREATE OR REPLACE TABLE work.parcel (parcel_id VARCHAR, name VARCHAR, geometry GEOMETRY)")
     (path,) = con.execute("SELECT path FROM duckdb_databases() WHERE database_name = current_database()").fetchone()
     city = path[:-len(".urban.duckdb")] + ".vancouver.json" if path and path.endswith(".urban.duckdb") else None
     if not city or not os.path.exists(city):
@@ -50,7 +50,7 @@ def parcels(con):
              " ".join(str(x) for x in ((f["properties"] or {}).get("civic_number"), (f["properties"] or {}).get("streetname")) if x),
              json.dumps(f["geometry"])) for i, f in enumerate(fc) if f.get("geometry")]
     if rows:
-        con.executemany("INSERT INTO urban.parcel VALUES (?, ?, ST_MakeValid(ST_GeomFromGeoJSON(?)))", rows)
+        con.executemany("INSERT INTO work.parcel VALUES (?, ?, ST_MakeValid(ST_GeomFromGeoJSON(?)))", rows)
     return len(rows)
 
 
@@ -69,7 +69,7 @@ def build(con, epsg):
 
     area = [g(w) for (w,) in rows(f"SELECT {m()} FROM osm_boundary")]
     area = shapely.union_all(area) if area else shapely.box(*shapely.union_all(
-        [g(w) for (w,) in rows(f"SELECT {m()} FROM urban.element")]).bounds)
+        [g(w) for (w,) in rows(f"SELECT {m()} FROM work.element")]).bounds)
     # (not an area OSM maps under the ground, layer < 0: Monaco's station is in a tunnel, landuse=railway on layer -3; Kaveh, 2026-10-13)
     land = lambda kinds: [(f"w{i}" if t == "way" else f"r{i}", n, g(w)) for i, t, n, w in rows(
         f"""SELECT osm_id, osm_type, name, {m('geom')} FROM osm.features.land l WHERE kind IN {tuple(kinds) + ('',)}
@@ -82,8 +82,8 @@ def build(con, epsg):
          + [(f"{'w' if t == 'way' else 'r'}{i}", n or "sea", g(w)) for i, t, n, w in rows(f"SELECT osm_id, osm_type, name, {m('geom')} FROM osm.features.ocean")],
          "osm", "mapped"),
         ("rail", land(("railway",)) + [(f"w{i}", n, g(w).buffer(max(wd or 4.0, 3.0) / 2, cap_style="flat")) for i, n, w, wd in rows(
-            f"SELECT osm_id, name, {m()}, width_m FROM urban.element WHERE type = 'rail' AND level_min = 0")], "osm", "mapped"),
-        ("street", [(u, None, g(w)) for u, w in rows(f"SELECT unit_id, {m()} FROM urban.unit WHERE level = 0")], "urbanstyle", "derived"),
+            f"SELECT osm_id, name, {m()}, width_m FROM work.element WHERE type = 'rail' AND level_min = 0")], "osm", "mapped"),
+        ("street", [(u, None, g(w)) for u, w in rows(f"SELECT unit_id, {m()} FROM work.unit WHERE level = 0")], "urbanstyle", "derived"),
         # (a pedestrian area, highway=pedestrian + area=yes: OSM's own polygon from the way's nodes; duckOSM's land has no such kind.
         # Place d'Armes was a block with a path ring round it, 2026-10-16)
         ("square", land(SQUARE_LAND) + [(f"w{i}", n, g(w)) for i, n, w in rows(f"""SELECT w.osm_id, w.tags['name'],
@@ -95,23 +95,23 @@ def build(con, epsg):
          "osm", "mapped"),
         ("green", land(PUBLIC_GREEN), "osm", "mapped"),
     ]
-    plots = [([(i, n, g(w)) for i, n, w in rows(f"SELECT parcel_id, name, {m()} FROM urban.parcel")], "vancouver", "surveyed")]
-    plots += [([(i, n, g(w)) for i, n, w in rows(f"SELECT lot_id, name, {m()} FROM urban.lot")], "osm", "mapped"),
+    plots = [([(i, n, g(w)) for i, n, w in rows(f"SELECT parcel_id, name, {m()} FROM work.parcel")], "vancouver", "surveyed")]
+    plots += [([(i, n, g(w)) for i, n, w in rows(f"SELECT lot_id, name, {m()} FROM work.lot")], "osm", "mapped"),
               ([(f"w{i}", n, g(w)) for i, n, w in rows(f"SELECT osm_id, name, {m('geom')} FROM osm.features.sites WHERE kind = 'construction'")],
                "osm", "mapped"),
               (land(PLOT_LAND), "osm", "mapped"),
-              ([(i, n, g(w)) for i, n, w in rows(f"""SELECT source_id, name, {m()} FROM urban.element
+              ([(i, n, g(w)) for i, n, w in rows(f"""SELECT source_id, name, {m()} FROM work.element
                                                    WHERE type = 'building' AND level_min <= 0 AND level_max >= 0""")], "osm", "mapped")]
     order += [("plot", items, src, meth) for items, src, meth in plots[:1]]       # the city's parcels
     # blocks first, with parcels: the ground between the parcels that a road runs through is an alley (a back lane, a driveway), before
     # OSM's land use (a residential area drawn over the whole block, its lanes too) can take it
-    blocks_ = [g(w) for (w,) in rows(f"SELECT {m()} FROM urban.block WHERE level = 0")]
+    blocks_ = [g(w) for (w,) in rows(f"SELECT {m()} FROM work.block WHERE level = 0")]
     if blocks_ and plots[0][0]:
         gaps = poly(shapely.union_all(blocks_).difference(shapely.union_all([x for *_, x in plots[0][0]]), grid_size=0.01))
         # only ground at least ALLEY_MIN_W_M wide: the slivers between parcels (a line drawn twice) are no lane; they join a plot later
         gaps = shapely.get_parts(poly(gaps.buffer(-ALLEY_MIN_W_M / 2, join_style="mitre").buffer(ALLEY_MIN_W_M / 2, join_style="mitre").intersection(gaps, grid_size=0.01)))
         roads_ = [(f"w{o}", n, g(w), wd) for o, n, w, wd in rows(f"""SELECT e.osm_id, e.name, {m('e.geometry')}, try_cast(w.tags['width'] AS DOUBLE)
-                  FROM urban.element e LEFT JOIN osm.raw.ways w USING (osm_id) WHERE e.type = 'road' AND e.level_min = 0""")]
+                  FROM work.element e LEFT JOIN osm.raw.ways w USING (osm_id) WHERE e.type = 'road' AND e.level_min = 0""")]
         rt = shapely.STRtree([x[2] for x in roads_]) if roads_ else None
         lane = []
         for p in gaps:
@@ -126,7 +126,7 @@ def build(con, epsg):
                     lane.append((f"{ref}-{round(q.centroid.x)}-{round(q.centroid.y)}", name, q))
         order.append(("alley", lane, "osm+vancouver", "derived"))      # an OSM road through a gap between the city's parcels
     order += [("plot", items, src, meth) for items, src, meth in plots[1:]]
-    # OSM's driveways (duckOSM's driving network; not in urban.element): a drivable strip inside the block, as wide as OSM's width or
+    # OSM's driveways (duckOSM's driving network; not in work.element): a drivable strip inside the block, as wide as OSM's width or
     # DRIVEWAY_M, kind alley; a parking aisle stays its car park's
     from .parts import DRIVEWAY_M
     drives = [(f"w{o}", n, g(w).buffer((wd or DRIVEWAY_M) / 2, cap_style="flat")) for o, n, wd, w in rows(f"""SELECT e.osm_id, any_value(w.tags['name']),
@@ -138,13 +138,13 @@ def build(con, epsg):
     # the measured path spaces after the plots and the green: a footpath through a park is the park's; they take what no parcel or green
     # holds (a greenway). (No square from urbanstyle's own plaza rule, 2026-10-11: no source maps them; a square is OSM's.)
     order += [
-        ("structure", [(u, None, g(w)) for u, w in rows(f"SELECT unit_id, {m()} FROM urban.unit WHERE level > 0")], "urbanstyle", "derived"),
-        ("path", [(c_, n, g(w)) for c_, n, w in rows(f"SELECT container_id, name, {m()} FROM urban.container WHERE kind = 'path' AND level = 0")],
+        ("structure", [(u, None, g(w)) for u, w in rows(f"SELECT unit_id, {m()} FROM work.unit WHERE level > 0")], "urbanstyle", "derived"),
+        ("path", [(c_, n, g(w)) for c_, n, w in rows(f"SELECT container_id, name, {m()} FROM work.container WHERE kind = 'path' AND level = 0")],
          "urbanstyle", "measured"),
     ]
 
     # blocks first (docs/design/blocks.md): the street is exactly the street spaces, and every other kind only fills the blocks
-    blocks = [g(w) for (w,) in rows(f"SELECT {m()} FROM urban.block WHERE level = 0")]
+    blocks = [g(w) for (w,) in rows(f"SELECT {m()} FROM work.block WHERE level = 0")]
     land_ = poly(shapely.union_all(blocks).intersection(area, grid_size=0.01)) if blocks else None
     if land_ is not None:
         # inside the blocks: no plots (a city's parcels cut buildings into pieces; they set the block edges and find the alleys, and are
@@ -152,11 +152,11 @@ def build(con, epsg):
         first = lambda t: [o for o in order if o[0] == t][:1]
         greens = [o for o in order if o[0] == "green"]
         # (after the street, before the blocks' kinds: the pedestrian ways' corridors, the ground's kind path, paths.md)
-        corridors = [("path", [(c_, n, g(w)) for c_, n, w in rows(f"SELECT corridor_id, name, {m()} FROM urban.corridor")], "urbanstyle", "derived")]
+        corridors = [("path", [(c_, n, g(w)) for c_, n, w in rows(f"SELECT corridor_id, name, {m()} FROM work.corridor")], "urbanstyle", "derived")]
         order = (first("street") + corridors + [("building",) + plots[4]] + first("water") + first("rail") + first("square") + first("structure")
                  + greens[:1] + [o for o in order if o[0] == "alley"] + [("car park",) + plots[1], ("construction site",) + plots[2]]
                  + [("alley",) + o[1:] for o in order if o[0] == "driveway"]
-                 + greens[1:] + order[-2:-1])     # the structures; (footpaths are not ground: they lie on it, whole, in urban.path)
+                 + greens[1:] + order[-2:-1])     # the structures; (footpaths are not ground: they lie on it, whole, in work.path)
     else:
         order = [o for o in order if o[0] != "driveway"]
     taken, out = shapely.Polygon(), []
@@ -179,7 +179,7 @@ def build(con, epsg):
     # what is left that a path or a road runs through is that path's or that street's ground (a greenway's corridor, a road under a
     # bridge's ramp): by the line with the most length in it
     lines = [(t, f"w{o}", n, g(w), wd) for t, o, n, w, wd in rows(f"""SELECT e.type, e.osm_id, e.name, {m('e.geometry')},
-                    try_cast(w.tags['width'] AS DOUBLE) FROM urban.element e LEFT JOIN osm.raw.ways w USING (osm_id)
+                    try_cast(w.tags['width'] AS DOUBLE) FROM work.element e LEFT JOIN osm.raw.ways w USING (osm_id)
                     WHERE e.type IN ('road', 'walkway', 'cycleway') AND e.level_min = 0""")]
     ltree = shapely.STRtree([x[3] for x in lines]) if lines else None
     kept = []
@@ -189,7 +189,7 @@ def build(con, epsg):
             t, ref, name, *_ = lines[on[0][1]]
             # inside a block a road is a back lane, a driveway, a parking aisle: an alley, not the street
             in_block = land_ is not None and p.intersection(land_).area > 0.5 * p.area
-            # in a block a road through it is an alley, a footpath's ground is yard (urban.path lies on it, whole); between the blocks a
+            # in a block a road through it is an alley, a footpath's ground is yard (work.path lies on it, whole); between the blocks a
             # pedestrian way's corridor (blocks.path_sql cut it out of the blocks, paths.md) is path
             kind = ("alley" if t == "road" else "yard") if in_block else ("street" if t == "road" else "path")
             if kind == "alley":
@@ -209,7 +209,7 @@ def build(con, epsg):
             kept.append(p)
     rest = kept
     tree = shapely.STRtree([x[6] for x in out]) if out else None
-    has_parcels = bool(rows("SELECT 1 FROM urban.parcel LIMIT 1"))
+    has_parcels = bool(rows("SELECT 1 FROM work.parcel LIMIT 1"))
     for p in rest:      # a sliver joins the neighbour it shares the most edge with; where a city's parcels exist, ground outside them that
         #                 touches a street is right-of-way: it joins that street (a junction's cut or a ramp's edge stopped short of it)
         near = sorted(((p.boundary.intersection(out[k][6].buffer(0.05)).length, k) for k in (tree.query(p.buffer(0.05)) if tree is not None else [])),
@@ -263,16 +263,16 @@ def build(con, epsg):
         pieces = [q for q in shapely.get_parts(poly(shapely.unary_union(fs))) if q.geom_type == "Polygon" and not q.is_empty]
         merged += [o[:6] + (pieces[0],)] if len(pieces) == 1 else [(f"{o[0]}/{k_ + 1}",) + o[1:6] + (q,) for k_, q in enumerate(pieces)]
     out = merged
-    con.execute("""CREATE OR REPLACE TABLE urban.ground (ground_id VARCHAR, level INT, type VARCHAR, name VARCHAR, source VARCHAR,
+    con.execute("""CREATE OR REPLACE TABLE work.ground (ground_id VARCHAR, level INT, type VARCHAR, name VARCHAR, source VARCHAR,
                    method VARCHAR, ref VARCHAR, geometry GEOMETRY)""")
     if out:
-        con.executemany(f"""INSERT INTO urban.ground VALUES (?, 0, ?, ?, ?, ?, ?,
+        con.executemany(f"""INSERT INTO work.ground VALUES (?, 0, ?, ?, ?, ?, ?,
                             ST_Transform(ST_GeomFromWKB(?), '{epsg}', 'EPSG:4326', always_xy := true))""",
                         [(i, t, n, s, me, r, shapely.to_wkb(p)) for i, t, n, s, me, r, p in out])
     return len(out)
 
 
-# layer 1: the surfaces inside each ground item (docs/design/space-layers.md). A street's from its parts (urban.part), grouped by the kerb
+# layer 1: the surfaces inside each ground item (docs/design/space-layers.md). A street's from its parts (work.part), grouped by the kerb
 STREET_SURFACE = {**dict.fromkeys(("lane", "bus lane", "cycle lane", "paved", "junction area", "ring", "shoulder", "parking", "no parking",
                                    "bus zone", "crosswalk", "cycle crossing"), "roadway"),
                   **dict.fromkeys(("sidewalk", "furnishing", "frontage", "open", "bus stop", "tree pit", "driveway"), "pedestrian realm"),
@@ -284,7 +284,7 @@ ONE_SURFACE = {"alley": "roadway", "building": "building", "car park": "car park
 
 
 def surfaces(con, epsg):
-    """urban.surface: layer 1. Every ground item is covered exactly by its surfaces, one row per piece of each kind of surface in it, id
+    """work.surface: layer 1. Every ground item is covered exactly by its surfaces, one row per piece of each kind of surface in it, id
     `<ground id>:<kind>` (`/<n>` where a kind is in several pieces): in a street the roadway, the pedestrian realm, the median (from its parts) and a verge (OSM's grass in the street);
     in a plot its buildings, car park, construction site, garden (OSM) and the yard (the rest); in green play (playgrounds, pitches), path
     (its footpaths, 2 m) and lawn (the rest); a path, a track bed, the ground under a bridge, a paved square. What no source names in a
@@ -310,19 +310,19 @@ def surfaces(con, epsg):
         return [(x, r) for x, r in ([items[k] for k in tree.query(G)] if tree is not None else [])]
 
     parts, psrc = {}, {}     # the parts of each street space by surface, and their sources
-    for u, t, s_, w in rows(f"SELECT unit_id, type, source, {m()} FROM urban.part"):
+    for u, t, s_, w in rows(f"SELECT unit_id, type, source, {m()} FROM work.part"):
         if t in STREET_SURFACE:
             parts.setdefault(u, {}).setdefault(STREET_SURFACE[t], []).append(g(w))
             psrc.setdefault((u, STREET_SURFACE[t]), set()).update((s_ or "urbanstyle").split("+"))
     land = lambda kinds: layer(f"SELECT 'w' || osm_id, {m('geom')} FROM osm.features.land WHERE kind IN {tuple(kinds) + ('',)}")
     verge, garden, play = land(VERGE_LAND), land(GARDEN_LAND), land(PLAY_LAND)
-    blds = layer(f"SELECT source_id, {m()} FROM urban.element WHERE type = 'building' AND level_min <= 0 AND level_max >= 0")
-    lots = layer(f"SELECT lot_id, {m()} FROM urban.lot")
+    blds = layer(f"SELECT source_id, {m()} FROM work.element WHERE type = 'building' AND level_min <= 0 AND level_max >= 0")
+    lots = layer(f"SELECT lot_id, {m()} FROM work.lot")
     sites = layer(f"SELECT 'w' || osm_id, {m('geom')} FROM osm.features.sites WHERE kind = 'construction'")
     walks = layer(f"SELECT 'w' || osm_id, ST_AsWKB(ST_Buffer(ST_Transform(geometry, 'EPSG:4326', '{epsg}', always_xy := true), 1.0)) "
-                  f"FROM urban.element WHERE type IN ('walkway', 'cycleway') AND level_min = 0")
+                  f"FROM work.element WHERE type IN ('walkway', 'cycleway') AND level_min = 0")
     out = []
-    for gid, typ, ref, g_src, g_meth, w in rows(f"SELECT ground_id, type, ref, source, method, {m()} FROM urban.ground"):
+    for gid, typ, ref, g_src, g_meth, w in rows(f"SELECT ground_id, type, ref, source, method, {m()} FROM work.ground"):
         G = poly(g(w))
         claims = []         # (surface kind, geometry, source, method, refs), in the order they take the ground
         if typ == "street":
@@ -373,10 +373,10 @@ def surfaces(con, epsg):
         for i, gi, k, s, me, r, p in mine:      # one item per piece: the sidewalk on each side, each building
             ps = sorted((x for x in shapely.get_parts(p) if x.area >= 0.01), key=lambda x: (round(x.centroid.x, 1), round(x.centroid.y, 1)))
             out += [[i if len(ps) == 1 else f"{i}/{n}", gi, k, s, me, r, x] for n, x in enumerate(ps, 1)]
-    con.execute("""CREATE OR REPLACE TABLE urban.surface (surface_id VARCHAR, ground_id VARCHAR, level INT, type VARCHAR, source VARCHAR,
+    con.execute("""CREATE OR REPLACE TABLE work.surface (surface_id VARCHAR, ground_id VARCHAR, level INT, type VARCHAR, source VARCHAR,
                    method VARCHAR, ref VARCHAR, geometry GEOMETRY)""")
     if out:
-        con.executemany(f"""INSERT INTO urban.surface VALUES (?, ?, 0, ?, ?, ?, ?,
+        con.executemany(f"""INSERT INTO work.surface VALUES (?, ?, 0, ?, ?, ?, ?,
                             ST_Transform(ST_GeomFromWKB(?), '{epsg}', 'EPSG:4326', always_xy := true))""",
                         [(i, gi, k, s, me, r, shapely.to_wkb(p)) for i, gi, k, s, me, r, p in out])
     return len(out)
@@ -386,7 +386,7 @@ PATH_KINDS = {"sidewalk": "sidewalk", "crossing": "crossing", "steps": "steps"} 
 
 
 def paths(con, epsg):
-    """urban.path: every footpath at level 0, whole (one item per OSM way, at its own width, PATH_W_M where OSM gives none), lying on the
+    """work.path: every footpath at level 0, whole (one item per OSM way, at its own width, PATH_W_M where OSM gives none), lying on the
     ground and naming what it lies on (`on`: the ground items it crosses). A path is not cut by a block's edge: only the public ways
     (blocks.path_sql) have ground of their own, the kind `path` between the blocks; the others lie on a yard, a park, a sidewalk."""
     import duckdb
@@ -394,8 +394,8 @@ def paths(con, epsg):
     m = lambda col="geometry": f"ST_AsWKB(ST_Transform({col}, 'EPSG:4326', '{epsg}', always_xy := true))"
     try:
         ways = con.execute(f"""SELECT osm_id, any_value(subtype), any_value(class), any_value(name), max(width_m), {m('ST_Union_Agg(geometry)')}
-                              FROM urban.element WHERE type IN ('walkway', 'cycleway') AND level_min = 0 GROUP BY osm_id""").fetchall()
-        ground = [(i, shapely.make_valid(shapely.from_wkb(bytes(w)))) for i, w in con.execute(f"SELECT ground_id, {m()} FROM urban.ground").fetchall()]
+                              FROM work.element WHERE type IN ('walkway', 'cycleway') AND level_min = 0 GROUP BY osm_id""").fetchall()
+        ground = [(i, shapely.make_valid(shapely.from_wkb(bytes(w)))) for i, w in con.execute(f"SELECT ground_id, {m()} FROM work.ground").fetchall()]
     except duckdb.CatalogException:
         return 0
     gt = shapely.STRtree([x for _, x in ground]) if ground else None
@@ -405,9 +405,9 @@ def paths(con, epsg):
         on = [ground[k][0] for k in (gt.query(gm) if gt is not None else []) if ground[k][1].intersection(gm).area > 0.5]
         rows.append((f"w{oid}", PATH_KINDS.get(sub_ or "", cl), name, round(wd or PATH_W_M, 2), "osm" if wd else "urbanstyle",
                      "mapped" if wd else "chosen", ",".join(sorted(on)), shapely.to_wkb(gm)))
-    con.execute("""CREATE OR REPLACE TABLE urban.path (path_id VARCHAR, kind VARCHAR, name VARCHAR, width_m DOUBLE, width_source VARCHAR,
+    con.execute("""CREATE OR REPLACE TABLE work.path (path_id VARCHAR, kind VARCHAR, name VARCHAR, width_m DOUBLE, width_source VARCHAR,
                    width_method VARCHAR, "on" VARCHAR, geometry GEOMETRY)""")
     if rows:
-        con.executemany(f"""INSERT INTO urban.path VALUES (?, ?, ?, ?, ?, ?, ?,
+        con.executemany(f"""INSERT INTO work.path VALUES (?, ?, ?, ?, ?, ?, ?,
                             ST_Transform(ST_GeomFromWKB(?), '{epsg}', 'EPSG:4326', always_xy := true))""", rows)
     return len(rows)

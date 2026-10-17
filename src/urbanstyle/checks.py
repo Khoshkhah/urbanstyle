@@ -11,28 +11,28 @@ KINDS = ("section", "intersection", "path", "rail", "plaza")
 
 
 def unit_checks(c, q, epsg):
-    """U1-U7: the network-first spaces (urban.unit, docs/design/network-first.md). A junction node must lie in its own intersection
+    """U1-U7: the network-first spaces (work.unit, docs/design/network-first.md). A junction node must lie in its own intersection
     and in no road's space or line, or a click on it in the dashboard opens the road instead of the intersection."""
     m = lambda g: f"ST_Transform({g}, 'EPSG:4326', '{epsg}', always_xy := true)"
-    c.execute(f"""CREATE TEMP TABLE u AS SELECT unit_id, kind, level, ST_MakeValid(ST_Buffer({m('geometry')}, -0.01)) AS g FROM urban.unit""")
-    c.execute(f"""CREATE TEMP TABLE jn AS SELECT DISTINCT a.intersection_id, a.level, n.p FROM urban.junction a
-                  JOIN (SELECT src AS node, {m('ST_StartPoint(geometry)')} AS p FROM urban.element WHERE type = 'road' AND src IS NOT NULL
-                        UNION SELECT dst, {m('ST_EndPoint(geometry)')} FROM urban.element WHERE type = 'road' AND dst IS NOT NULL) n ON n.node = a.node_id""")
+    c.execute(f"""CREATE TEMP TABLE u AS SELECT unit_id, kind, level, ST_MakeValid(ST_Buffer({m('geometry')}, -0.01)) AS g FROM work.unit""")
+    c.execute(f"""CREATE TEMP TABLE jn AS SELECT DISTINCT a.intersection_id, a.level, n.p FROM work.junction a
+                  JOIN (SELECT src AS node, {m('ST_StartPoint(geometry)')} AS p FROM work.element WHERE type = 'road' AND src IS NOT NULL
+                        UNION SELECT dst, {m('ST_EndPoint(geometry)')} FROM work.element WHERE type = 'road' AND dst IS NOT NULL) n ON n.node = a.node_id""")
     return [
         ("U1", "spaces overlapping by more than 0.05 m2 (rank 3 partitions the street; the lon/lat storage leaves hairlines under that)", q("""SELECT count(*) FROM u a JOIN u b ON a.level = b.level AND a.unit_id < b.unit_id
                                   AND ST_Intersects(a.g, b.g) WHERE ST_Area(ST_Intersection(a.g, b.g)) > 0.05"""), True),
-        ("U2", "spaces invalid, empty or in more than one part", q("""SELECT count(*) FROM urban.unit
+        ("U2", "spaces invalid, empty or in more than one part", q("""SELECT count(*) FROM work.unit
                                   WHERE NOT ST_IsValid(geometry) OR ST_IsEmpty(geometry) OR ST_NumGeometries(geometry) > 1"""), True),
-        ("U3", "junctions with no intersection space", q("""SELECT count(DISTINCT intersection_id) FROM urban.junction
-                                  WHERE intersection_id NOT IN (SELECT unit_id FROM urban.unit)"""), True),
+        ("U3", "junctions with no intersection space", q("""SELECT count(DISTINCT intersection_id) FROM work.junction
+                                  WHERE intersection_id NOT IN (SELECT unit_id FROM work.unit)"""), True),
         ("U4", "junction nodes outside their own intersection space (> 0.5 m)", q("""SELECT count(*) FROM jn
                                   JOIN u ON u.unit_id = jn.intersection_id WHERE ST_Distance(u.g, jn.p) > 0.5"""), True),
         ("U5", "junction nodes inside a road's space", q("""SELECT count(*) FROM jn JOIN u ON u.kind = 'subsection' AND u.level = jn.level
                                   AND ST_Intersects(u.g, jn.p)"""), True),
-        ("U6", "subsection lines reaching more than 1 m into an intersection", q(f"""SELECT count(*) FROM urban.subsection s
+        ("U6", "subsection lines reaching more than 1 m into an intersection", q(f"""SELECT count(*) FROM work.subsection s
                                   JOIN u ON u.kind IN ('intersection', 'roundabout') AND u.level = s.level AND ST_Intersects(u.g, {m('s.geometry')})
                                   WHERE ST_Length(ST_Intersection(u.g, {m('s.geometry')})) > 1"""), True),
-        ("U7", "subsections with no space", q("SELECT count(*) FROM urban.subsection WHERE subsection_id NOT IN (SELECT unit_id FROM urban.unit)"), True),
+        ("U7", "subsections with no space", q("SELECT count(*) FROM work.subsection WHERE subsection_id NOT IN (SELECT unit_id FROM work.unit)"), True),
     ] + part_checks(c, q, m)
 
 
@@ -42,18 +42,18 @@ _R1 = {}
 def _r1(c, q, m):
     if "v" not in _R1:
         epsg = m("x").split("'")[3]
-        _R1["v"] = roadway_joints(c, epsg, bool(q("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'urban' AND table_name = 'change'")))
+        _R1["v"] = roadway_joints(c, epsg, bool(q("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'work' AND table_name = 'change'")))
     return _R1["v"]
 
 
 def part_checks(c, q, m):
-    """U8-U10: the parts of a space (urban.part, docs/design/space-parts.md) cover it exactly."""
-    if not q("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'urban' AND table_name = 'part'"):
+    """U8-U10: the parts of a space (work.part, docs/design/space-parts.md) cover it exactly."""
+    if not q("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'work' AND table_name = 'part'"):
         return []
-    c.execute(f"CREATE TEMP TABLE pt AS SELECT unit_id, part_id, ST_MakeValid(ST_Buffer({m('geometry')}, -0.01)) AS g, ST_Area({m('geometry')}) AS a FROM urban.part")
+    c.execute(f"CREATE TEMP TABLE pt AS SELECT unit_id, part_id, ST_MakeValid(ST_Buffer({m('geometry')}, -0.01)) AS g, ST_Area({m('geometry')}) AS a FROM work.part")
     return [
         ("U8", "spaces whose parts do not add up to them (3% or 1.5 m2)", q(f"""SELECT count(*) FROM (SELECT u.unit_id, ST_Area({m('u.geometry')}) AS a,
-                                  coalesce(sum(p.a), 0) AS pa FROM urban.unit u LEFT JOIN pt p USING (unit_id) GROUP BY u.unit_id, u.geometry)
+                                  coalesce(sum(p.a), 0) AS pa FROM work.unit u LEFT JOIN pt p USING (unit_id) GROUP BY u.unit_id, u.geometry)
                                   WHERE abs(a - pa) > greatest(0.03 * a, 1.5)"""), True),
         ("U9", "parts of one space overlapping by more than 0.05 m2 (rank 5 partitions the space)", q("""SELECT count(*) FROM pt a JOIN pt b ON a.unit_id = b.unit_id AND a.part_id < b.part_id
                                   AND ST_Intersects(a.g, b.g) WHERE ST_Area(ST_Intersection(a.g, b.g)) > 0.05"""), True),
@@ -62,72 +62,72 @@ def part_checks(c, q, m):
          _r1(c, q, m)[0], True, _r1(c, q, m)[1]),
         ("R4", "edges of lanes, cycle lanes and parking at a joint with no edge on the other side (0.3 m in, within 0.25 m)", lane_joints(c, m), False),
         ("R3", "subsections where OSM's lane count does not fit between our kerbs (a lane under 2.75 m): our kerb is probably wrong",
-         q("SELECT count(DISTINCT unit_id) FROM urban.part WHERE level = 0 AND type = 'lane' AND source = 'osm' AND width_m < 2.75"), False),
+         q("SELECT count(DISTINCT unit_id) FROM work.part WHERE level = 0 AND type = 'lane' AND source = 'osm' AND width_m < 2.75"), False),
         ("R2", "guide lines (SUMO's moves) leaving the roadway by more than 0.5 m", q(f"""WITH rw AS (SELECT ST_Union_Agg(ST_MakeValid(
-                                  ST_Buffer({m('geometry')}, 0.1))) AS g FROM urban.part WHERE level = 0 AND type IN ('lane', 'shoulder', 'parking',
+                                  ST_Buffer({m('geometry')}, 0.1))) AS g FROM work.part WHERE level = 0 AND type IN ('lane', 'shoulder', 'parking',
                                   'bus zone', 'cycle lane', 'junction area', 'paved', 'crosswalk', 'cycle crossing'))
-                                  SELECT count(*) FROM urban.mark, rw WHERE type = 'guide line' AND level = 0
-                                  AND ST_Length(ST_Difference({m('urban.mark.geometry')}, rw.g)) > 0.5"""), False),
+                                  SELECT count(*) FROM work.mark, rw WHERE type = 'guide line' AND level = 0
+                                  AND ST_Length(ST_Difference({m('work.mark.geometry')}, rw.g)) > 0.5"""), False),
     ] + approach_checks(q) + ground_checks(c, q, m)
 
 
 def approach_checks(q):
-    """U11-U13: the lanes coming into each junction (urban.approach, written by parts.py) and what they may do. Reported, not failed: a
+    """U11-U13: the lanes coming into each junction (work.approach, written by parts.py) and what they may do. Reported, not failed: a
     missing move may be the law (a turn restriction, a T junction); the number says where to look."""
-    if not q("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'urban' AND table_name = 'approach'"):
+    if not q("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'work' AND table_name = 'approach'"):
         return []
     return [
-        ("U11", "lanes entering a junction with no move at all", q("SELECT count(*) FROM urban.approach WHERE moves = 0"), False),
+        ("U11", "lanes entering a junction with no move at all", q("SELECT count(*) FROM work.approach WHERE moves = 0"), False),
         # at a junction of 4 or more approaches each one usually goes straight on (at a T the stem cannot): the others are worth a look
         ("U12", "approaches with no straight move for all traffic, at junctions of 4+ approaches", q("""WITH ap AS (
-                                  SELECT a.unit_id, a.from_edge, bool_or(a.ways LIKE '%straight%') AS straight FROM urban.approach a
-                                  JOIN urban.unit u USING (unit_id) WHERE u.kind = 'intersection' AND a.moves > 0 GROUP BY ALL)
+                                  SELECT a.unit_id, a.from_edge, bool_or(a.ways LIKE '%straight%') AS straight FROM work.approach a
+                                  JOIN work.unit u USING (unit_id) WHERE u.kind = 'intersection' AND a.moves > 0 GROUP BY ALL)
                                   SELECT count(*) FROM ap WHERE NOT straight AND unit_id IN (SELECT unit_id FROM ap GROUP BY 1 HAVING count(*) >= 4)"""), False),
         ("U13", "lanes with a move for all traffic but no turn arrow (a lane piece under 4 m, another arrow in the way)", q("""SELECT count(*)
-                                  FROM urban.approach WHERE NOT arrow AND no_arrow_because IN ('lane piece under 4 m', 'another arrow in the way')"""), False),
+                                  FROM work.approach WHERE NOT arrow AND no_arrow_because IN ('lane piece under 4 m', 'another arrow in the way')"""), False),
     ]
 
 
 def ground_checks(c, q, m):
-    """G1-G2: layer 0, the ground (urban.ground, docs/design/space-layers.md): every piece of the area at level 0 is one ground item."""
-    if not q("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'urban' AND table_name = 'ground'"):
+    """G1-G2: layer 0, the ground (work.ground, docs/design/space-layers.md): every piece of the area at level 0 is one ground item."""
+    if not q("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'work' AND table_name = 'ground'"):
         return []
-    unknown = c.execute(f"SELECT count(*), coalesce(sum(ST_Area({m('geometry')})), 0) FROM urban.ground WHERE type = 'unknown'").fetchone()
-    c.execute(f"CREATE TEMP TABLE gr AS SELECT ground_id, level, ST_MakeValid({m('geometry')}) AS g FROM urban.ground")
+    unknown = c.execute(f"SELECT count(*), coalesce(sum(ST_Area({m('geometry')})), 0) FROM work.ground WHERE type = 'unknown'").fetchone()
+    c.execute(f"CREATE TEMP TABLE gr AS SELECT ground_id, level, ST_MakeValid({m('geometry')}) AS g FROM work.ground")
     return [
         ("G1", f"pieces of ground of no known kind ({unknown[1]:,.0f} m2)", unknown[0], False),
         ("G3", "the ground's kinds leave a gap: the area less their union, over 1 m2 in all (rank 1 partitions rank 0; hairlines of the lon/lat storage under that)", q(f"""SELECT CASE WHEN
-                                  ST_Area(ST_Difference((SELECT ST_Union_Agg({m('geometry')}) FROM urban.area), (SELECT ST_Union_Agg({m('geometry')}) FROM urban.ground))) > 1
+                                  ST_Area(ST_Difference((SELECT ST_Union_Agg({m('geometry')}) FROM work.area), (SELECT ST_Union_Agg({m('geometry')}) FROM work.ground))) > 1
                                   THEN 1 ELSE 0 END"""), True),
         ("G2", "ground items overlapping by more than 0.05 m2 (the kinds partition the area; the lon/lat storage leaves hairlines under that)", q("""SELECT count(*) FROM gr a JOIN gr b ON a.level = b.level
                                   AND a.ground_id < b.ground_id AND ST_Intersects(a.g, b.g) WHERE ST_Area(ST_Intersection(a.g, b.g)) > 0.05"""), True),    ] + surface_checks(c, q, m) + block_checks(c, q, m)
 
 
 def block_checks(c, q, m):
-    """B1, B6: the blocks (urban.block, docs/design/blocks.md). B1: a building cut by a block's edge (inside the area); B6: how well our
+    """B1, B6: the blocks (work.block, docs/design/blocks.md). B1: a building cut by a block's edge (inside the area); B6: how well our
     blocks match a city's own, where it has them (a cross-check, never an input)."""
-    if not q("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'urban' AND table_name = 'block'"):
+    if not q("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'work' AND table_name = 'block'"):
         return []
-    c.execute(f"CREATE TEMP TABLE bk AS SELECT block_id, ST_MakeValid({m('geometry')}) AS g FROM urban.block")
-    c.execute(f"CREATE TEMP TABLE ar AS SELECT ST_MakeValid({m('geometry')}) AS g FROM urban.area")
-    cut = c.execute(f"""WITH b AS (SELECT ST_MakeValid(ST_Intersection(ST_MakeValid({m('e.geometry')}), ar.g)) AS g FROM urban.element e, ar
+    c.execute(f"CREATE TEMP TABLE bk AS SELECT block_id, ST_MakeValid({m('geometry')}) AS g FROM work.block")
+    c.execute(f"CREATE TEMP TABLE ar AS SELECT ST_MakeValid({m('geometry')}) AS g FROM work.area")
+    cut = c.execute(f"""WITH b AS (SELECT ST_MakeValid(ST_Intersection(ST_MakeValid({m('e.geometry')}), ar.g)) AS g FROM work.element e, ar
                           WHERE e.type = 'building' AND e.level_min <= 0 AND e.level_max >= 0),
                         x AS (SELECT b.g, ST_Area(ST_Intersection(b.g, k.g)) AS inside FROM b JOIN bk k ON ST_Intersects(b.g, k.g))
                         SELECT count(*), coalesce(sum(ST_Area(g) - inside), 0) FROM x WHERE inside > 1 AND ST_Area(g) - inside > 1""").fetchone()
     out = [("B1", f"buildings reaching over a block's edge ({cut[1]:,.0f} m2 outside their block; drawn whole)", cut[0], False)]
     # B7: rank 3 is cut from rank 1's street, so no space reaches into a block (Kaveh, 2026-10-16: a partition has no overlap); B8: the
     # lanes that narrowed to fit between the street's edges (the sidewalk lines), their count as OSM maps it
-    if q("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'urban' AND table_name = 'unit'"):
-        ov = c.execute(f"""WITH u AS (SELECT unit_id, ST_MakeValid({m('geometry')}) AS g FROM urban.unit WHERE level = 0)
+    if q("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'work' AND table_name = 'unit'"):
+        ov = c.execute(f"""WITH u AS (SELECT unit_id, ST_MakeValid({m('geometry')}) AS g FROM work.unit WHERE level = 0)
                             SELECT count(*), coalesce(sum(a), 0) FROM (SELECT ST_Area(ST_Buffer(ST_Intersection(u.g, k.g), -0.02)) AS a FROM u JOIN bk k ON ST_Intersects(u.g, k.g)) WHERE a > 0.05""").fetchone()
         # (an overlap is measured 2 cm inside its outline: the shared edge of a space and a block, stored in lon/lat and read back, leaves
         # a hairline 3 mm wide along 150 m, 0.5 m2, which is no space in a block)
         out.append(("B7", f"street spaces reaching into a block by over 0.05 m2 past a 2 cm hairline ({ov[1]:,.1f} m2 in all): every space is cut from rank 1's street", ov[0], True))
-        nar = c.execute("""SELECT count(DISTINCT unit_id), count(*) FROM urban.part WHERE level = 0 AND type = 'lane' AND width_method = 'narrowed'""").fetchone()
+        nar = c.execute("""SELECT count(DISTINCT unit_id), count(*) FROM work.part WHERE level = 0 AND type = 'lane' AND width_method = 'narrowed'""").fetchone()
         out.append(("B8", f"spaces whose lanes narrowed to fit between the street's edges ({nar[1]} lane parts; the count as OSM maps it, down to {2.75} m)", nar[0], False))
-    if q("SELECT count(*) FROM urban.city_block"):
+    if q("SELECT count(*) FROM work.city_block"):
         mt = c.execute(f"""WITH cb AS (SELECT city_block_id, ST_MakeValid(ST_Intersection(ST_MakeValid({m('geometry')}), ar.g)) AS g
-                                         FROM urban.city_block, ar),
+                                         FROM work.city_block, ar),
                               cbp AS (SELECT city_block_id, g FROM cb WHERE ST_Area(g) > 50),
                               io AS (SELECT p.city_block_id, max(ST_Area(ST_Intersection(p.g, k.g)) / ST_Area(ST_Union(p.g, k.g))) AS iou
                                      FROM cbp p JOIN bk k ON ST_Intersects(p.g, k.g) GROUP BY 1)
@@ -138,13 +138,13 @@ def block_checks(c, q, m):
 
 
 def surface_checks(c, q, m):
-    """L1-L2: layer 1, the surfaces (urban.surface): they cover their ground item exactly and do not overlap."""
-    if not q("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'urban' AND table_name = 'surface'"):
+    """L1-L2: layer 1, the surfaces (work.surface): they cover their ground item exactly and do not overlap."""
+    if not q("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'work' AND table_name = 'surface'"):
         return []
-    c.execute(f"CREATE TEMP TABLE sf AS SELECT surface_id, ground_id, ST_MakeValid(ST_Buffer({m('geometry')}, -0.01)) AS g, ST_Area({m('geometry')}) AS a FROM urban.surface")
+    c.execute(f"CREATE TEMP TABLE sf AS SELECT surface_id, ground_id, ST_MakeValid(ST_Buffer({m('geometry')}, -0.01)) AS g, ST_Area({m('geometry')}) AS a FROM work.surface")
     return [
         ("L1", "ground items whose surfaces do not cover them (3% or 1.5 m2)", q(f"""SELECT count(*) FROM (SELECT gd.ground_id,
-                                  ST_Area({m('gd.geometry')}) AS a, coalesce(sum(s.a), 0) AS sa FROM urban.ground gd LEFT JOIN sf s USING (ground_id)
+                                  ST_Area({m('gd.geometry')}) AS a, coalesce(sum(s.a), 0) AS sa FROM work.ground gd LEFT JOIN sf s USING (ground_id)
                                   GROUP BY gd.ground_id, gd.geometry) WHERE abs(a - sa) > greatest(0.03 * a, 1.5)"""), True),
         ("L2", "surfaces of one ground item overlapping by more than 0.5 m2", q("""SELECT count(*) FROM sf a JOIN sf b ON a.ground_id = b.ground_id
                                   AND a.surface_id < b.surface_id AND ST_Intersects(a.g, b.g) WHERE ST_Area(ST_Intersection(a.g, b.g)) > 0.5"""), True),
@@ -161,15 +161,15 @@ def rule_checks(c, epsg):
     from .network import LANE_M, STREET, TAPER_M, CONNECTOR_M, XWALK_MAX_M, straight
     from .blocks import street_sql
     A1_M = 0.5      # a carriageway's lanes are centred on their OSM line within this (sections.md: the 2 m tolerance of the shift era is gone)
-    if not c.execute("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'urban' AND table_name = 'part'").fetchone()[0]:
+    if not c.execute("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'work' AND table_name = 'part'").fetchone()[0]:
         return []
     m = lambda g: f"ST_AsWKB(ST_Transform({g}, 'EPSG:4326', '{epsg}', always_xy := true))"
     to_ll = pyproj.Transformer.from_crs(epsg, "EPSG:4326", always_xy=True).transform
     at = lambda g: to_ll(*g.representative_point().coords[0])
     geo = lambda w: shapely.make_valid(shapely.from_wkb(bytes(w)))
     parts = [(u, t, ref, src, geo(w)) for u, t, ref, src, w in c.execute(f"""SELECT unit_id, type, coalesce(ref, ''), coalesce(source, ''),
-                 {m('geometry')} FROM urban.part WHERE level = 0""").fetchall()]
-    roads = [(o, cl, geo(w)) for o, cl, w in c.execute(f"""SELECT osm_id, class, {m('geometry')} FROM urban.element e
+                 {m('geometry')} FROM work.part WHERE level = 0""").fetchall()]
+    roads = [(o, cl, geo(w)) for o, cl, w in c.execute(f"""SELECT osm_id, class, {m('geometry')} FROM work.element e
                  WHERE type IN ('road', 'walkway') AND level_min = 0 AND {street_sql('e')}""").fetchall()]
     lines = {}
     for o, cl, g in roads:
@@ -203,19 +203,19 @@ def rule_checks(c, epsg):
     lines = {o: drawn(v) for o, v in lines.items()}
     # A1: per space and OSM way, the middle of its lanes on cross lines every 5 m along the way's line; failed if the median is > 0.5 m
     groups, widened = {}, {}
-    wide_rows = {(u, pid): w for u, pid, w in c.execute("""SELECT unit_id, part_id, width_m FROM urban.part WHERE level = 0 AND type = 'lane'
+    wide_rows = {(u, pid): w for u, pid, w in c.execute("""SELECT unit_id, part_id, width_m FROM work.part WHERE level = 0 AND type = 'lane'
                                                           AND holds = 'parking'""").fetchall()}
-    pids = [pid for (pid,) in c.execute("SELECT part_id FROM urban.part WHERE level = 0").fetchall()]
+    pids = [pid for (pid,) in c.execute("SELECT part_id FROM work.part WHERE level = 0").fetchall()]
     for (u, t, ref, src, g), pid in zip(parts, pids):
         if t == "lane":
             for o in re.findall(r"w(\d+)", ref.split(" ")[0]):     # (a lane along several ways: checked against each)
                 groups.setdefault((u, int(o)), []).append(g)
                 if (u, pid) in wide_rows:       # (an outer lane widened to the kerb evidence, parking in it: its extra moves the middle)
                     widened.setdefault((u, int(o)), []).append((g, wide_rows[(u, pid)] - LANE_M))
-    area = shapely.union_all([geo(w) for (w,) in c.execute(f"SELECT {m('geometry')} FROM urban.area").fetchall()]).buffer(-2.0)
+    area = shapely.union_all([geo(w) for (w,) in c.execute(f"SELECT {m('geometry')} FROM work.area").fetchall()]).buffer(-2.0)
     # (a section that keeps the through arm's kerb at a merge or fork has its lanes moved off the OSM line by half the merging lanes'
     # width: the subsection's left_extra, expected there; sections.md section 3)
-    mshift = {u_: (x_ or 0.0) for u_, x_ in c.execute("SELECT subsection_id, left_extra FROM urban.subsection WHERE level = 0").fetchall()}
+    mshift = {u_: (x_ or 0.0) for u_, x_ in c.execute("SELECT subsection_id, left_extra FROM work.subsection WHERE level = 0").fetchall()}
     off = []
     for (u, o), gs in groups.items():
         ln, U = lines.get(o), shapely.union_all(gs)
@@ -262,7 +262,7 @@ def rule_checks(c, epsg):
             if q_.geom_type == "LineString" and q_.length > 2.0:
                 bare.append(at(q_))
     # J1: an intersection with no junction node in it
-    nojn = [at(g) for u, g in ((u, geo(w)) for u, w in c.execute(f"""SELECT unit_id, {m('geometry')} FROM urban.unit
+    nojn = [at(g) for u, g in ((u, geo(w)) for u, w in c.execute(f"""SELECT unit_id, {m('geometry')} FROM work.unit
                  WHERE level = 0 AND kind = 'intersection'""").fetchall()) if jn.is_empty or g.buffer(0.5).disjoint(jn)]
     # J2: a junction area outside its arms: each subsection's line as drawn, as wide as its roadway (+2.5 m: parking on one side puts the
     # line off the middle), run on 25 m past its ends, is an arm's band; a piece of a junction area over 5 m2 outside every band (a 4 m
@@ -280,9 +280,9 @@ def rule_checks(c, epsg):
         h = math.hypot(x1 - x0, y1 - y0) or 1
         b_ = (x1 + (x1 - x0) / h * d, y1 + (y1 - y0) / h * d)
         return shapely.LineString([a_] + pts + [b_])
-    subs = c.execute(f"SELECT width_m, {m('geometry')} FROM urban.subsection WHERE level = 0 AND width_m IS NOT NULL").fetchall()
+    subs = c.execute(f"SELECT width_m, {m('geometry')} FROM work.subsection WHERE level = 0 AND width_m IS NOT NULL").fetchall()
     # (and every road line itself, as wide as its lanes (element.width_m): an arm a junction takes whole has no subsection)
-    subs += c.execute(f"""SELECT width_m, {m('geometry')} FROM urban.element e WHERE type = 'road' AND level_min = 0 AND width_m IS NOT NULL
+    subs += c.execute(f"""SELECT width_m, {m('geometry')} FROM work.element e WHERE type = 'road' AND level_min = 0 AND width_m IS NOT NULL
                           AND {street_sql('e')}""").fetchall()
     bands = shapely.union_all([extend(q_).buffer(wd / 2 + 2.5, cap_style="flat") for wd, w in subs for q_ in shapely.get_parts(geo(w))
                                if q_.geom_type == "LineString"] or [shapely.Polygon()])
@@ -293,7 +293,7 @@ def rule_checks(c, epsg):
     # X1: a crossing way over the roadway with no crosswalk part on it (under 80 % of its stretch over the roadway covered)
     xw_u = shapely.union_all([g for u, t, ref, src, g in parts if t in ("crosswalk", "cycle crossing")] or [shapely.Polygon()]).buffer(0.3)
     xways = {}
-    for o, w in c.execute(f"""SELECT osm_id, {m('geometry')} FROM urban.element WHERE type IN ('walkway', 'cycleway') AND level_min = 0
+    for o, w in c.execute(f"""SELECT osm_id, {m('geometry')} FROM work.element WHERE type IN ('walkway', 'cycleway') AND level_min = 0
                               AND subtype = 'crossing'""").fetchall():
         xways.setdefault(o, []).append(geo(w))
     noxw = []
@@ -309,7 +309,7 @@ def rule_checks(c, epsg):
     # M1: a lane line, or a centre line with a real source, where the lane count is chosen (no source maps the lanes, so none maps a
     # line between them; the centre line between the directions is drawn as urbanstyle's own there)
     chosen = {u for u, t, ref, src, g in parts if t == "lane" and src == "urbanstyle"}
-    nolines = [at(geo(w)) for u, t, src, w in c.execute(f"""SELECT unit_id, type, source, {m('geometry')} FROM urban.mark WHERE level = 0
+    nolines = [at(geo(w)) for u, t, src, w in c.execute(f"""SELECT unit_id, type, source, {m('geometry')} FROM work.mark WHERE level = 0
                  AND type IN ('centre line', 'lane line')""").fetchall() if u in chosen and (t == "lane line" or src != "urbanstyle")]
     # K1: the kerb against a city's kerb evidence: catch basins stand in the gutter at the kerb; a subsection whose kerb lies more than
     # 1.5 m from them (the median of 2 or more) has a kerb the data does not confirm: parking at the kerb that no source maps, or a wrong
@@ -317,7 +317,7 @@ def rule_checks(c, epsg):
     from .blocks import _city
     basins = [shapely.Point(pyproj.Transformer.from_crs("EPSG:4326", epsg, always_xy=True).transform(*f["geometry"]["coordinates"]))
               for f in (_city(c).get("sewer-catch-basins") or {}).get("features", []) if (f.get("geometry") or {}).get("type") == "Point"]
-    kerbs = [(u, geo(w)) for u, w in c.execute(f"SELECT unit_id, {m('geometry')} FROM urban.mark WHERE level = 0 AND type = 'kerb'").fetchall()]
+    kerbs = [(u, geo(w)) for u, w in c.execute(f"SELECT unit_id, {m('geometry')} FROM work.mark WHERE level = 0 AND type = 'kerb'").fetchall()]
     ktree = shapely.STRtree([g for _, g in kerbs]) if kerbs else None
     by_u = {}
     for b in basins:
@@ -329,7 +329,7 @@ def rule_checks(c, epsg):
     # K2: loose kerb ends: an end of a kerb line that touches no other kerb and no crosswalk within 0.3 m (a kerb ends only at a crossing)
     kerb_t = shapely.STRtree([g for _, g in kerbs]) if kerbs else None
     xw_t = shapely.union_all([g for u, t, ref, src, g in parts if t in ("crosswalk", "cycle crossing")] or [shapely.Polygon()])
-    service = shapely.union_all([geo(w) for (w,) in c.execute(f"""SELECT {m('geometry')} FROM urban.element e WHERE type IN ('road', 'walkway')
+    service = shapely.union_all([geo(w) for (w,) in c.execute(f"""SELECT {m('geometry')} FROM work.element e WHERE type IN ('road', 'walkway')
                                  AND level_min = 0 AND class = 'service' AND NOT {street_sql('e')}""").fetchall()] or [shapely.LineString()])
     loose = []
     for i_, (u, g) in enumerate(kerbs):
@@ -341,12 +341,12 @@ def rule_checks(c, epsg):
     # J3: every connector (a road piece between two of the build's junction nodes under CONNECTOR_M, or a `_link`; sections.md rule 3)
     # lies in an intersection, or on a bridge deck (the bridge model draws it)
     mt = lambda g: f"ST_Transform({g}, 'EPSG:4326', '{epsg}', always_xy := true)"
-    jn_pts = [shapely.Point(x, y) for x, y in c.execute(f"""SELECT DISTINCT ST_X(n.p), ST_Y(n.p) FROM urban.junction a JOIN (
-                 SELECT src AS node, {mt('ST_StartPoint(geometry)')} AS p FROM urban.element WHERE type = 'road' AND src IS NOT NULL
-                 UNION SELECT dst, {mt('ST_EndPoint(geometry)')} FROM urban.element WHERE type = 'road' AND dst IS NOT NULL) n ON n.node = a.node_id
+    jn_pts = [shapely.Point(x, y) for x, y in c.execute(f"""SELECT DISTINCT ST_X(n.p), ST_Y(n.p) FROM work.junction a JOIN (
+                 SELECT src AS node, {mt('ST_StartPoint(geometry)')} AS p FROM work.element WHERE type = 'road' AND src IS NOT NULL
+                 UNION SELECT dst, {mt('ST_EndPoint(geometry)')} FROM work.element WHERE type = 'road' AND dst IS NOT NULL) n ON n.node = a.node_id
                  WHERE a.level = 0""").fetchall()]
     jn_tree = shapely.STRtree(jn_pts) if jn_pts else None
-    cover_c = shapely.union_all([geo(w) for (w,) in c.execute(f"""SELECT {m('geometry')} FROM urban.unit WHERE level = 0
+    cover_c = shapely.union_all([geo(w) for (w,) in c.execute(f"""SELECT {m('geometry')} FROM work.unit WHERE level = 0
                                  AND kind = 'intersection'""").fetchall()] + [g for u, t, ref, src, g in parts if t == "bridge deck"]
                                 or [shapely.Polygon()]).buffer(0.5)
     cls_of = {o: cl for o, cl, _ in roads}
@@ -364,9 +364,9 @@ def rule_checks(c, epsg):
                 if (pc.length < CONNECTOR_M or str(cls_of.get(o) or "").endswith("_link")) and area.contains(pc) \
                         and pc.difference(cover_c).length > 1.0:
                     conn_out.append(at(pc.difference(cover_c)))
-    # J4: every tag change along a section, with its class (urban.change, network.py step 6b): a report; the unknown ones first
-    has_ch = c.execute("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'urban' AND table_name = 'change'").fetchone()[0]
-    chg = c.execute(f"""SELECT class, {m('geometry')} FROM urban.change WHERE level = 0 ORDER BY (class = 'unknown') DESC, class""").fetchall() if has_ch else []
+    # J4: every tag change along a section, with its class (work.change, network.py step 6b): a report; the unknown ones first
+    has_ch = c.execute("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'work' AND table_name = 'change'").fetchone()[0]
+    chg = c.execute(f"""SELECT class, {m('geometry')} FROM work.change WHERE level = 0 ORDER BY (class = 'unknown') DESC, class""").fetchall() if has_ch else []
     by_cls = {}
     for cl_, _ in chg:
         by_cls[cl_] = by_cls.get(cl_, 0) + 1
@@ -392,10 +392,10 @@ def roadway_mismatch(c, q, m):
     road side should be the same width: the arm and the road meet there."""
     road = ("('lane', 'shoulder', 'parking', 'no parking', 'bus zone', 'bus lane', 'cycle lane', 'cycle crossing', 'island', 'crosswalk', "
             "'junction area', 'paved')")     # the kerb strip is roadway whatever it is used for
-    return q(f"""WITH cut AS (SELECT intersection_id, edge_id, {m('geometry')} AS g FROM urban.cut),
-      rw AS (SELECT unit_id, ST_MakeValid(ST_Union_Agg(ST_MakeValid(ST_Buffer({m('geometry')}, 0.01)))) AS g FROM urban.part WHERE type IN {road} GROUP BY unit_id),
+    return q(f"""WITH cut AS (SELECT intersection_id, edge_id, {m('geometry')} AS g FROM work.cut),
+      rw AS (SELECT unit_id, ST_MakeValid(ST_Union_Agg(ST_MakeValid(ST_Buffer({m('geometry')}, 0.01)))) AS g FROM work.part WHERE type IN {road} GROUP BY unit_id),
       side AS (SELECT cut.intersection_id, cut.edge_id, ST_Length(ST_Intersection(cut.g, ST_Buffer(i.g, 0.3))) AS iw,
-                 (SELECT max(ST_Length(ST_Intersection(cut.g, ST_Buffer(s.g, 0.3)))) FROM rw s JOIN urban.unit su ON su.unit_id = s.unit_id
+                 (SELECT max(ST_Length(ST_Intersection(cut.g, ST_Buffer(s.g, 0.3)))) FROM rw s JOIN work.unit su ON su.unit_id = s.unit_id
                   WHERE su.kind = 'subsection' AND ST_DWithin(s.g, cut.g, 0.5)) AS sw
                FROM cut JOIN rw i ON i.unit_id = cut.intersection_id)
       SELECT count(*) FROM side WHERE sw IS NOT NULL AND abs(iw - sw) > 0.5""")
@@ -408,10 +408,10 @@ def lane_joints(c, m):
     import shapely
     from shapely import wkb
     items = ('lane', 'cycle lane', 'parking', 'bus zone')
-    units = {u: wkb.loads(bytes(w)) for u, w in c.execute(f"SELECT unit_id, ST_AsWKB(ST_MakeValid({m('geometry')})) FROM urban.unit "
+    units = {u: wkb.loads(bytes(w)) for u, w in c.execute(f"SELECT unit_id, ST_AsWKB(ST_MakeValid({m('geometry')})) FROM work.unit "
                                                            "WHERE level = 0 AND kind = 'subsection'").fetchall()}
     parts = {}
-    for u, pid, w in c.execute(f"SELECT unit_id, part_id, ST_AsWKB(ST_MakeValid({m('geometry')})) FROM urban.part WHERE level = 0 AND type IN {items}").fetchall():
+    for u, pid, w in c.execute(f"SELECT unit_id, part_id, ST_AsWKB(ST_MakeValid({m('geometry')})) FROM work.part WHERE level = 0 AND type IN {items}").fetchall():
         parts.setdefault(u, []).append((pid, wkb.loads(bytes(w))))
     ids = list(units)
     tree = shapely.STRtree([units[u] for u in ids])
@@ -444,7 +444,7 @@ def lane_joints(c, m):
 
 def roadway_joints(c, epsg, has_change=False):
     """Where two subsections of one section meet, the roadway (no median) reaches the joint at the same points from both sides: the frame
-    is one width for the section (sections.md rule 6). A joint at a 'real' change (urban.change, J4) is allowed to step. The joint is
+    is one width for the section (sections.md rule 6). A joint at a 'real' change (work.change, J4) is allowed to step. The joint is
     the two spaces' shared boundary round the end of one line nearest the other, its pieces that run across the road (over 45° to
     the line): two subsections of a section that folds back run side by side too, round an island, and that boundary is no joint
     (Avenue des Spélugues' hairpin, Monaco 2026-10-16). Level 0 only, as R2-R4: the change classes exist at level 0 alone, and a joint
@@ -458,10 +458,10 @@ def roadway_joints(c, epsg, has_change=False):
     to_ll = pyproj.Transformer.from_crs(epsg, "EPSG:4326", always_xy=True).transform
     road = ("lane", "shoulder", "parking", "no parking", "bus zone", "bus lane", "cycle lane", "paved", "bridge deck")
     rw = {u: geo(w) for u, w in c.execute(f"""SELECT unit_id, ST_AsWKB(ST_Union_Agg(ST_MakeValid(ST_Buffer(ST_Transform(geometry, 'EPSG:4326', '{epsg}',
-                                              always_xy := true), 0.02)))) FROM urban.part WHERE level = 0 AND type IN {road} GROUP BY 1""").fetchall()}
-    subs = {u: (sid, geo(w), wd) for u, sid, w, wd in c.execute(f"SELECT subsection_id, section_id, {m('geometry')}, width_m FROM urban.subsection WHERE level = 0").fetchall()}
-    units = {u: geo(w) for u, w in c.execute(f"SELECT unit_id, {m('geometry')} FROM urban.unit WHERE level = 0 AND kind = 'subsection'").fetchall()}
-    real = shapely.union_all([geo(w) for (w,) in c.execute(f"SELECT {m('geometry')} FROM urban.change WHERE class IN ('real', 'room')").fetchall()] or [shapely.Point()]) if has_change else shapely.Point()
+                                              always_xy := true), 0.02)))) FROM work.part WHERE level = 0 AND type IN {road} GROUP BY 1""").fetchall()}
+    subs = {u: (sid, geo(w), wd) for u, sid, w, wd in c.execute(f"SELECT subsection_id, section_id, {m('geometry')}, width_m FROM work.subsection WHERE level = 0").fetchall()}
+    units = {u: geo(w) for u, w in c.execute(f"SELECT unit_id, {m('geometry')} FROM work.unit WHERE level = 0 AND kind = 'subsection'").fetchall()}
+    real = shapely.union_all([geo(w) for (w,) in c.execute(f"SELECT {m('geometry')} FROM work.change WHERE class IN ('real', 'room')").fetchall()] or [shapely.Point()]) if has_change else shapely.Point()
     by_sec = {}
     for u, (sid, ln, wd) in subs.items():
         by_sec.setdefault(sid, []).append(u)
@@ -500,49 +500,49 @@ def run(path, out=None):
     """The checks of the database at `path`, printed; True when a hard check fails. `out`: a list the rows go to (urban.check)."""
     c = duckdb.connect(path, read_only=True)
     c.execute("LOAD spatial")
-    lon = c.execute("SELECT avg(ST_X(ST_Centroid(geometry))) FROM urban.container").fetchone()[0]
+    lon = c.execute("SELECT avg(ST_X(ST_Centroid(geometry))) FROM work.container").fetchone()[0]
     epsg = f"EPSG:{32600 + int((lon + 180) // 6) + 1}"
     m = f"ST_Transform(geometry, 'EPSG:4326', '{epsg}', always_xy := true)"
     q = lambda sql: c.execute(sql).fetchone()[0]
     c.execute(f"""CREATE TEMP TABLE m AS SELECT container_id, level, kind, ST_MakeValid(ST_Buffer({m}, -0.01)) AS g, ST_Area({m}) AS a
-                  FROM urban.container""")
+                  FROM work.container""")
     rows = [  # id, what, value, hard (a nonzero value fails), expected-text
         ("P1", "container pairs overlapping by more than 0.5 m2", q("""SELECT count(*) FROM m a JOIN m b ON a.level = b.level AND a.container_id < b.container_id
                                   AND ST_Intersects(a.g, b.g) WHERE ST_Area(ST_Intersection(a.g, b.g)) > 0.5"""), True),
-        ("P3", "invalid, empty or under 1 m2 containers", q("SELECT count(*) FROM m JOIN urban.container c USING (container_id) "
+        ("P3", "invalid, empty or under 1 m2 containers", q("SELECT count(*) FROM m JOIN work.container c USING (container_id) "
                                                           "WHERE NOT ST_IsValid(c.geometry) OR ST_IsEmpty(c.geometry) OR m.a < 1"), True),
-        ("P4", "containers with more than one part", q("SELECT count(*) FROM urban.container WHERE ST_NumGeometries(geometry) > 1"), True),
-        ("P5", "elements with no container or one that does not exist", q("""SELECT count(*) FROM urban.element WHERE type <> 'building'
-                                  AND (container_id IS NULL OR container_id NOT IN (SELECT container_id FROM urban.container))"""), True),
-        ("P6", "containers with a kind that is not allowed", q(f"SELECT count(*) FROM urban.container WHERE kind NOT IN {KINDS}"), True),
-        ("P7", "duplicate container ids", q("SELECT count(*) - count(DISTINCT container_id) FROM urban.container"), True),
-        ("S1", "sections with no road or no street_id", q("SELECT count(*) FROM urban.container WHERE kind = 'section' AND (n_road = 0 OR street_id IS NULL)"), True),
-        ("S2", "sections that meet more than two intersections", q("""SELECT count(*) FROM (SELECT s.container_id FROM urban.container s
-                                  JOIN urban.arm a ON a.section_id = s.container_id GROUP BY 1 HAVING count(DISTINCT a.intersection_id) > 2)"""), True),
-        ("I1", "intersections with fewer than 3 arms", q("""SELECT count(*) FROM urban.container i WHERE i.kind = 'intersection'
-                                  AND (SELECT count(*) FROM urban.arm a WHERE a.intersection_id = i.container_id) < 3"""), True),
-        ("I2", "intersections with only one street group (a loop road is the one legitimate case)", q("""SELECT count(*) FROM urban.container i
-                                  WHERE i.kind = 'intersection' AND (SELECT count(DISTINCT street_id) FROM urban.arm a WHERE a.intersection_id = i.container_id) < 2"""), False),
+        ("P4", "containers with more than one part", q("SELECT count(*) FROM work.container WHERE ST_NumGeometries(geometry) > 1"), True),
+        ("P5", "elements with no container or one that does not exist", q("""SELECT count(*) FROM work.element WHERE type <> 'building'
+                                  AND (container_id IS NULL OR container_id NOT IN (SELECT container_id FROM work.container))"""), True),
+        ("P6", "containers with a kind that is not allowed", q(f"SELECT count(*) FROM work.container WHERE kind NOT IN {KINDS}"), True),
+        ("P7", "duplicate container ids", q("SELECT count(*) - count(DISTINCT container_id) FROM work.container"), True),
+        ("S1", "sections with no road or no street_id", q("SELECT count(*) FROM work.container WHERE kind = 'section' AND (n_road = 0 OR street_id IS NULL)"), True),
+        ("S2", "sections that meet more than two intersections", q("""SELECT count(*) FROM (SELECT s.container_id FROM work.container s
+                                  JOIN work.arm a ON a.section_id = s.container_id GROUP BY 1 HAVING count(DISTINCT a.intersection_id) > 2)"""), True),
+        ("I1", "intersections with fewer than 3 arms", q("""SELECT count(*) FROM work.container i WHERE i.kind = 'intersection'
+                                  AND (SELECT count(*) FROM work.arm a WHERE a.intersection_id = i.container_id) < 3"""), True),
+        ("I2", "intersections with only one street group (a loop road is the one legitimate case)", q("""SELECT count(*) FROM work.container i
+                                  WHERE i.kind = 'intersection' AND (SELECT count(DISTINCT street_id) FROM work.arm a WHERE a.intersection_id = i.container_id) < 2"""), False),
         ("I3", "intersections outside 30 to 10,000 m2", q("SELECT count(*) FROM m WHERE kind = 'intersection' AND (a < 30 OR a > 10000)"), True),
     ]
     # C2: the strips of a container add up to the container (its two zones cover it), within 3% or 1.5 m2
     za = f"ST_Area(ST_Transform(geometry, 'EPSG:4326', '{epsg}', always_xy := true))"
     rows.append(("C2", "containers whose strips do not add up to their area (3% or 1.5 m2)", q(f"""SELECT count(*) FROM (
-        SELECT c.container_id, {za} AS a, coalesce(s.a, 0) AS sa FROM urban.container c
-        LEFT JOIN (SELECT container_id, sum({za}) AS a FROM urban.strip GROUP BY 1) s USING (container_id)
+        SELECT c.container_id, {za} AS a, coalesce(s.a, 0) AS sa FROM work.container c
+        LEFT JOIN (SELECT container_id, sum({za}) AS a FROM work.strip GROUP BY 1) s USING (container_id)
         WHERE c.kind IN ('section', 'intersection') AND abs({za} - coalesce(s.a, 0)) > greatest(0.03 * {za}, 1.5))"""), True))
     # I4: an arm's node should lie in (or within 3 m of) its intersection
     c.execute(f"""CREATE TEMP TABLE nodepts AS
-                  SELECT src AS node, ST_StartPoint(geometry) AS p FROM urban.element WHERE type = 'road' AND src IS NOT NULL
-                  UNION SELECT dst, ST_EndPoint(geometry) FROM urban.element WHERE type = 'road' AND dst IS NOT NULL""")
-    rows.append(("I4", "arm nodes more than 3 m from their intersection", q(f"""SELECT count(*) FROM (SELECT DISTINCT a.intersection_id, a.node_id FROM urban.arm a) a
-                  JOIN urban.container i ON i.container_id = a.intersection_id JOIN nodepts n ON n.node = a.node_id
+                  SELECT src AS node, ST_StartPoint(geometry) AS p FROM work.element WHERE type = 'road' AND src IS NOT NULL
+                  UNION SELECT dst, ST_EndPoint(geometry) FROM work.element WHERE type = 'road' AND dst IS NOT NULL""")
+    rows.append(("I4", "arm nodes more than 3 m from their intersection", q(f"""SELECT count(*) FROM (SELECT DISTINCT a.intersection_id, a.node_id FROM work.arm a) a
+                  JOIN work.container i ON i.container_id = a.intersection_id JOIN nodepts n ON n.node = a.node_id
                   WHERE ST_Distance(ST_Transform(i.geometry, 'EPSG:4326', '{epsg}', always_xy := true),
                                     ST_Transform(n.p, 'EPSG:4326', '{epsg}', always_xy := true)) > 3"""), False))
-    if q("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'urban' AND table_name = 'unit'"):
+    if q("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'work' AND table_name = 'unit'"):
         rows += unit_checks(c, q, epsg)
         rows += rule_checks(c, epsg)
-    total = q("SELECT count(*) FROM urban.container")
+    total = q("SELECT count(*) FROM work.container")
     print(f"\n== {path}  ({total} containers, all levels)")
     failed = False
     for cid, what, value, hard, *at in rows:
@@ -604,7 +604,7 @@ def bridge(profile, db=None, out=None):
         c.execute("LOAD spatial")
         ol = shapely.Polygon(P["deck"]["outline"]["value"])
         to_crs = f"ST_Transform(geometry, 'EPSG:4326', '{P['crs']}', always_xy := true)"
-        ground = [g for (w,) in c.execute(f"SELECT ST_AsWKB({to_crs}) FROM urban.part WHERE level = 0 AND type = 'lane'").fetchall()
+        ground = [g for (w,) in c.execute(f"SELECT ST_AsWKB({to_crs}) FROM work.part WHERE level = 0 AND type = 'lane'").fetchall()
                   for g in [shapely.from_wkb(bytes(w))] if g.distance(ol) < 50]
     print(f"\n== {profile}  (bridge model: {P['name']})")
     failed = False

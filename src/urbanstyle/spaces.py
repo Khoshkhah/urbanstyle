@@ -1,4 +1,4 @@
-"""urban.unit: one clean space per subsection and one per intersection (step 2 of the network-first partition; the roads were
+"""work.unit: one clean space per subsection and one per intersection (step 2 of the network-first partition; the roads were
 divided into subsections first, see subsections.py).
 
 INTERSECTION: each arm is cut at the block corners. The corner between two neighbouring arms is the building-line vertex nearest the
@@ -13,7 +13,7 @@ space, one part. The intersection is the whole area its cuts enclose (the polygo
 building line): its core (the nodes, the roads between them at a dogleg or a roundabout) and every arriving road from its node up to its
 cut are its own, and of the rest it takes everything the arriving roads' spaces (which end on the cuts) do not hold.
 
-Every arm's cut is kept in urban.cut (one line per arm, `how`: block corners, one corner, distance or crosswalk).
+Every arm's cut is kept in work.cut (one line per arm, `how`: block corners, one corner, distance or crosswalk).
 
 SUBSECTION: a subsection has one kind of frontage on each side, so its space is a parallel ribbon: a side with buildings reaches
 FACADE_SLACK_M past the facade line and the building line cut out of it is the edge itself; an open side reaches the cap (or halfway
@@ -283,23 +283,23 @@ def build(con, epsg):
     import shapely
     to_m = f"ST_AsWKB(ST_Transform(geometry, 'EPSG:4326', '{epsg}', always_xy := true))"
     subs = con.execute(f"""SELECT subsection_id, section_id, level, width_m, left_m, right_m, left_extra, right_extra, with_sections, color, {to_m}
-                           FROM urban.subsection""").fetchall()
-    road_rows = con.execute(f"""SELECT source_id, level_min, src, dst, width_m, container_id, {to_m}, name, class FROM urban.element
+                           FROM work.subsection""").fetchall()
+    road_rows = con.execute(f"""SELECT source_id, level_min, src, dst, width_m, container_id, {to_m}, name, class FROM work.element
                                 WHERE type = 'road' AND ST_Length(geometry) > 0""").fetchall()
     try:    # roundabout rings: their road edges and their nodes (a junction holding one is a roundabout, a space of its own kind)
         ring_osm = {r[0] for r in con.execute("SELECT osm_id FROM osm.raw.ways WHERE tags['junction'] IN ('roundabout', 'circular')").fetchall()}
     except Exception:
         ring_osm = set()
-    ring_edges = {r[0] for r in con.execute("SELECT source_id, osm_id FROM urban.element WHERE type = 'road'").fetchall() if r[1] in ring_osm}
-    arm_rows = con.execute("""SELECT DISTINCT j.intersection_id, a.node_id, a.edge_id, a.level FROM urban.arm a
-                              JOIN urban.junction j ON j.cluster_id = a.intersection_id AND j.node_id = a.node_id AND j.level = a.level""").fetchall()
-    blds = con.execute(f"""SELECT l, {to_m} FROM urban.element, generate_series(level_min, level_max) t(l) WHERE type = 'building'
-                           UNION ALL SELECT level, {to_m} FROM urban.lot""").fetchall()     # a car park is a plot, as a building is
-    parcel_rows = con.execute(f"SELECT {to_m} FROM urban.parcel").fetchall()           # a city's property lines, where it has them
+    ring_edges = {r[0] for r in con.execute("SELECT source_id, osm_id FROM work.element WHERE type = 'road'").fetchall() if r[1] in ring_osm}
+    arm_rows = con.execute("""SELECT DISTINCT j.intersection_id, a.node_id, a.edge_id, a.level FROM work.arm a
+                              JOIN work.junction j ON j.cluster_id = a.intersection_id AND j.node_id = a.node_id AND j.level = a.level""").fetchall()
+    blds = con.execute(f"""SELECT l, {to_m} FROM work.element, generate_series(level_min, level_max) t(l) WHERE type = 'building'
+                           UNION ALL SELECT level, {to_m} FROM work.lot""").fetchall()     # a car park is a plot, as a building is
+    parcel_rows = con.execute(f"SELECT {to_m} FROM work.parcel").fetchall()           # a city's property lines, where it has them
     # the street ground (the measured street space: sections and intersections), so that none of it is left to no space
-    street_rows = con.execute(f"SELECT level, {to_m} FROM urban.container WHERE kind IN ('section', 'intersection')").fetchall()
-    xing_rows = con.execute(f"""SELECT level_min, {to_m} FROM urban.element WHERE type = 'walkway' AND subtype = 'crossing'
-                               UNION ALL SELECT level, {to_m} FROM urban.object WHERE class LIKE 'crossing.%'""").fetchall()
+    street_rows = con.execute(f"SELECT level, {to_m} FROM work.container WHERE kind IN ('section', 'intersection')").fetchall()
+    xing_rows = con.execute(f"""SELECT level_min, {to_m} FROM work.element WHERE type = 'walkway' AND subtype = 'crossing'
+                               UNION ALL SELECT level, {to_m} FROM work.object WHERE class LIKE 'crossing.%'""").fetchall()
     rows, cut_rows, clipped = [], [], []
     for lv in sorted({s[2] for s in subs} | {a[3] for a in arm_rows}):
         from urbanstyle.subsections import building_line
@@ -542,16 +542,16 @@ def build(con, epsg):
                 if inside:
                     clipped.append((sid_ := uid, shapely.to_wkb(max(inside, key=lambda x: x.length))))
     cdf = pd.DataFrame(cut_rows, columns=["intersection_id", "edge_id", "level", "how", "length_m", "wkb"])
-    con.execute(f"""CREATE OR REPLACE TABLE urban.cut AS
+    con.execute(f"""CREATE OR REPLACE TABLE work.cut AS
         SELECT intersection_id, edge_id, level::INT AS level, how, length_m,
                ST_Transform(ST_GeomFromWKB(wkb::BLOB), '{epsg}', 'EPSG:4326', always_xy := true) AS geometry FROM cdf""")
     ldf = pd.DataFrame(clipped, columns=["subsection_id", "wkb"])
-    con.execute(f"""UPDATE urban.subsection s SET geometry = ST_Transform(ST_GeomFromWKB(l.wkb::BLOB), '{epsg}', 'EPSG:4326', always_xy := true),
+    con.execute(f"""UPDATE work.subsection s SET geometry = ST_Transform(ST_GeomFromWKB(l.wkb::BLOB), '{epsg}', 'EPSG:4326', always_xy := true),
                      length_m = round(ST_Length(ST_GeomFromWKB(l.wkb::BLOB)), 1)
                      FROM ldf l WHERE s.subsection_id = l.subsection_id""")
     df = pd.DataFrame(rows, columns=["unit_id", "kind", "section_id", "level", "color", "wkb"])
-    con.execute(f"""CREATE OR REPLACE TABLE urban.unit AS
+    con.execute(f"""CREATE OR REPLACE TABLE work.unit AS
         SELECT unit_id, kind, section_id, level::INT AS level, color,
                ST_CollectionExtract(ST_MakeValid(ST_Transform(ST_GeomFromWKB(wkb::BLOB), '{epsg}', 'EPSG:4326', always_xy := true)), 3) AS geometry FROM df""")
     # a subsection that lies wholly inside its intersection has no space of its own: its road is the intersection's piece, not a subsection
-    con.execute("DELETE FROM urban.subsection WHERE subsection_id NOT IN (SELECT unit_id FROM urban.unit)")
+    con.execute("DELETE FROM work.subsection WHERE subsection_id NOT IN (SELECT unit_id FROM work.unit)")

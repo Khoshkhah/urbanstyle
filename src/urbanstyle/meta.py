@@ -1,12 +1,8 @@
-"""The data about the data (docs/design/tables.md): the manifest `urban.meta`, the tree `urban.item`, the registry of stable ids
-`urban.registry` with `uid` on the things it knows, and the check rows `urban.check`.
+"""The data about the data (docs/design/tables.md): the manifest `urban.meta`, the registry of stable ids `urban.registry` with `uid` on
+the things it knows, the style `urban.style`, the codes `urban.code` and the check rows `urban.check`. The model itself is product.py's.
 
     urban.meta      key, kind (build, input, chosen), value, note: the version and the date of the build, every input file with its
                     date, every chosen value (a module-level number of a build module) with its name and the comment on its line
-    urban.item      id, rank, kind, parent_id, level, geometry: every rank in one table. Today's tables carry no parent_id, so the build
-                    derives the links once at its end: rank 1 the street's connected pieces, the plots (blocks) and the paths; rank 2
-                    the sections (their subsections' spaces joined), the intersections and the plot pieces; rank 3 the spaces; rank 4
-                    the two sides of each space (its parts joined); rank 5 the parts; rank 6 the marks (`<space>:<kind>:<n>`)
     urban.registry  profile, uid, kind, first_seen, last_seen (requirement R6): kept from build to build
     urban.style     table, rank, kind, draw_order, form, colour, dash, raise_m: how a viewer draws each kind (docs/design/drawing.md)
     urban.code      kind, citygml, opendrive, opensidewalks, ifc: our kinds in the standards
@@ -23,13 +19,10 @@ import duckdb
 HERE = os.path.dirname(os.path.abspath(__file__))
 # the modules a build runs: their module-level numbers are the build's chosen values
 BUILD_MODULES = ("container", "blocks", "buildings", "strips", "subsections", "spaces", "parts", "network", "turns", "ground", "sumo")
-# the parts of the walking side (rank 4); every other part is on the driving side
-WALKING = ("sidewalk", "furnishing", "frontage", "driveway", "island", "verge", "bus stop", "tree pit", "steps", "ramp", "handrail",
-           "bollard")
 # the things with a profile (R6): kind -> (table, profile, which rows)
-PROFILES = {
-    "street object": ("urban.object", "source || ':' || object_id", "TRUE"),
-    "building": ("urban.element", "source || ':' || source_id", "type = 'building'"),
+PROFILES = {      # kind -> (table, profile, which rows); `x.` is the thing's own row
+    "street object": ("urban.object", "x.source || ':' || x.object_id", "TRUE"),
+    "building": ("urban.element", "x.source || ':' || x.source_id", "x.kind = 'building'"),
 }
 
 
@@ -228,105 +221,25 @@ def write_registry(con, old, built):
     if old:
         con.executemany("INSERT INTO urban.registry VALUES (?, ?, ?, ?, ?)", old)
     for kind, (table, profile, where) in PROFILES.items():
-        have = f"SELECT DISTINCT {profile} AS p FROM {table} WHERE {where} AND {profile} IS NOT NULL"
+        have = f"SELECT DISTINCT {profile} AS p FROM {table} x WHERE {where} AND {profile} IS NOT NULL"
         con.execute(f"""INSERT INTO urban.registry SELECT p, uuid()::VARCHAR, ?, ?, ? FROM ({have})
                         WHERE p NOT IN (SELECT profile FROM urban.registry WHERE kind = ?)""", [kind, built, built, kind])
         con.execute(f"UPDATE urban.registry SET last_seen = ? WHERE kind = ? AND profile IN ({have})", [built, kind])
-        con.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS uid VARCHAR")
-        con.execute(f"""UPDATE {table} SET uid = r.uid FROM urban.registry r
+        con.execute(f"""UPDATE {table} AS x SET uid = r.uid FROM urban.registry r
                         WHERE r.kind = ? AND r.profile = {profile} AND {where}""", [kind])
 
 
 def _has(con, table):
-    return con.execute("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'urban' AND table_name = ?", [table]).fetchone()[0]
+    return con.execute("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'work' AND table_name = ?", [table]).fetchone()[0]
 
 
-def write_item(con):
-    """urban.item: every rank of the tree with its parent (the module's doc). Geometry in lon/lat; a parent found by its shape is the
-    one of the rank above that holds the most of the child (lon/lat areas: only compared, never reported)."""
-    import shapely
-    g = lambda w: shapely.make_valid(shapely.from_wkb(bytes(w)))
-    q = lambda sql: con.execute(sql).fetchall() if all(_has(con, t) for t in __import__("re").findall(r"urban\.(\w+)", sql)) else []
-    items = []      # (id, rank, kind, parent_id, level, geometry)
-
-    def best(child, cands, tree):
-        """The candidate that holds the most of `child`: the one containing its inner point, else the largest overlap."""
-        if not cands:
-            return None
-        pt = child.representative_point()
-        ks = tree.query(child)
-        if not len(ks):
-            return None
-        inside = [k for k in ks if cands[k][1].covers(pt)]
-        if inside:
-            return cands[min(inside, key=lambda k: cands[k][1].area)][0]
-        if child.geom_type in ("LineString", "MultiLineString", "Point"):
-            return cands[min(ks, key=lambda k: cands[k][1].distance(pt))][0]
-        return cands[max(ks, key=lambda k: cands[k][1].intersection(child).area)][0]
-
-    units = [(u, k, s, lv, g(w)) for u, k, s, lv, w in q("SELECT unit_id, kind, section_id, level, ST_AsWKB(geometry) FROM urban.unit")]
-    ground = [(i, t, lv, g(w)) for i, t, lv, w in q("SELECT ground_id, type, level, ST_AsWKB(geometry) FROM urban.ground")]
-    levels = sorted({u[3] for u in units} | {x[2] for x in ground}) or [0]
-    area = shapely.union_all([g(w) for (w,) in q("SELECT ST_AsWKB(geometry) FROM urban.area")])
-    for lv in levels:                                                                   # rank 0
-        items.append((f"a{lv}", 0, "area", None, lv, area))
-    # rank 1: the street (its connected pieces), the plots, the paths
-    street = {}
-    for lv in levels:
-        pieces = [x[3] for x in ground if x[2] == lv and x[1] == "street"] or [u[4] for u in units if u[3] == lv]
-        polys = sorted((p for p in shapely.get_parts(shapely.union_all(pieces)) if p.geom_type == "Polygon"), key=lambda p: -p.area) if pieces else []
-        street[lv] = [(f"g{lv}-street-{n}", p) for n, p in enumerate(polys, 1)]
-        items += [(i, 1, "street", f"a{lv}", lv, p) for i, p in street[lv]]
-    plots = {}
-    for b, lv, w in q("SELECT block_id, level, ST_AsWKB(geometry) FROM urban.block"):
-        plots.setdefault(lv, []).append((f"g{lv}-plot-{b}", g(w)))
-        items.append((f"g{lv}-plot-{b}", 1, "plot", f"a{lv}", lv, plots[lv][-1][1]))
-    items += [(i, 1, "path", f"a{lv}", lv, p) for i, t, lv, p in ground if t == "path"]
-    tree_of = lambda cands: shapely.STRtree([c[1] for c in cands]) if cands else None
-    # rank 2: the sections (their subsections joined), the intersections; the plot pieces
-    stretches = {}
-    for u, k, s, lv, p in units:
-        key = (s if k == "subsection" and s else u, lv)
-        stretches.setdefault(key, ["section" if k == "subsection" else k, []])[1].append(p)
-    st_tree = {lv: tree_of(street[lv]) for lv in levels}
-    for (i, lv), (k, ps) in stretches.items():
-        p = shapely.union_all(ps)
-        items.append((i, 2, k, best(p, street[lv], st_tree[lv]) if st_tree[lv] else None, lv, p))
-    pl_tree = {lv: tree_of(v) for lv, v in plots.items()}
-    for i, t, lv, p in ground:
-        if t not in ("street", "path"):
-            items.append((i, 2, t, best(p, plots[lv], pl_tree[lv]) if pl_tree.get(lv) else None, lv, p))
-    # rank 3: the spaces; rank 4: their sides; rank 5: the parts
-    items += [(u, 3, k, s if k == "subsection" and s else u, lv, p) for u, k, s, lv, p in units]
-    sides = {}
-    parts = [(pid, u, t, lv, g(w)) for pid, u, t, lv, w in q("SELECT part_id, unit_id, type, level, ST_AsWKB(geometry) FROM urban.part")]
-    for pid, u, t, lv, p in parts:
-        sid = f"{u}:{'w' if t in WALKING else 'd'}"
-        sides.setdefault(sid, [u, lv, []])[2].append(p)
-        items.append((pid, 5, t, sid, lv, p))
-    items += [(sid, 4, "walking" if sid.endswith(":w") else "driving", u, lv, shapely.union_all(ps)) for sid, (u, lv, ps) in sides.items()]
-    # rank 6: the marks, on the part that holds them; the kerb on its driving side
-    by_unit = {}
-    for pid, u, t, lv, p in parts:
-        by_unit.setdefault(u, []).append((pid, p))
-    trees = {u: tree_of(v) for u, v in by_unit.items()}
-    seq = {}
-    marks = [(u, t, lv, g(w)) for u, t, lv, w in q("SELECT unit_id, type, level, ST_AsWKB(geometry) FROM urban.mark")]
-    for u, t, lv, p in sorted(marks, key=lambda m: (m[0] or "", m[1] or "", m[3].centroid.x, m[3].centroid.y)):
-        seq[(u, t)] = seq.get((u, t), 0) + 1
-        par = f"{u}:d" if t == "kerb" else (best(p, by_unit[u], trees[u]) if u in by_unit else None)
-        items.append((f"{u}:{t}:{seq[(u, t)]}", 6, t, par, lv, p))
-    con.execute("CREATE OR REPLACE TABLE urban.item (id VARCHAR, rank INTEGER, kind VARCHAR, parent_id VARCHAR, level INTEGER, geometry GEOMETRY)")
-    con.executemany("INSERT INTO urban.item VALUES (?, ?, ?, ?, ?, ST_GeomFromWKB(?))",
-                    [(i, r, k, par, lv, shapely.to_wkb(p)) for i, r, k, par, lv, p in items])
-    return len(items)
-
-
-def finish(con, osm, out, bridges, old):
-    """The build's last step: the registry, the tree and the manifest."""
+def finish(con, epsg, osm, out, bridges, old):
+    """The build's last step: the model (product.py), the registry and its uids, the manifest, the style and the codes. Returns the
+    row count of each table of the model."""
+    from . import product
     built = datetime.datetime.now()
+    n = product.write(con, epsg, out)
     write_registry(con, old, built)
-    n = write_item(con)
     write_meta(con, osm, out, bridges, built)
     write_style(con)
     write_code(con)
@@ -339,6 +252,7 @@ def write_checks(path, rows):
     now = datetime.datetime.now()
     con = duckdb.connect(path)
     try:
+        con.execute("CREATE SCHEMA IF NOT EXISTS urban")
         con.execute("""CREATE OR REPLACE TABLE urban.check (check_id VARCHAR, kind VARCHAR, status VARCHAR, count INTEGER, what VARCHAR,
                        items VARCHAR[], checked TIMESTAMP)""")
         con.executemany("INSERT INTO urban.check VALUES (?, ?, ?, ?, ?, ?, ?)", [

@@ -100,21 +100,21 @@ def city(con):
     except duckdb.CatalogException:
         con.execute("CREATE OR REPLACE TEMP TABLE site (geom GEOMETRY)")
     # outlines OSM lacks (shares of areas in lon/lat: a ratio, so degrees do)
-    con.execute(f"""INSERT INTO urban.element BY NAME
+    con.execute(f"""INSERT INTO work.element BY NAME
         SELECT 'vancouver' AS source, 'vb' || c.i AS source_id, 'building' AS type, 0 AS level_min, 0 AS level_max,
                'chosen' AS level_src, c.g AS geometry, 1 AS floors
         FROM cfp c WHERE c.ds = 'building-footprints-2015'
-          AND coalesce((SELECT sum(ST_Area(ST_Intersection(c.g, e.geometry))) FROM urban.element e
+          AND coalesce((SELECT sum(ST_Area(ST_Intersection(c.g, e.geometry))) FROM work.element e
                         WHERE e.type = 'building' AND e.source = 'osm' AND ST_Intersects(c.g, e.geometry)), 0) < {CITY_OVER} * ST_Area(c.g)
           AND NOT EXISTS (SELECT 1 FROM site s WHERE ST_Intersects(s.geom, ST_Centroid(c.g)))
-          AND NOT EXISTS (SELECT 1 FROM urban.element r WHERE r.type = 'road' AND ST_Intersects(r.geometry, c.g))""")
+          AND NOT EXISTS (SELECT 1 FROM work.element r WHERE r.type = 'road' AND ST_Intersects(r.geometry, c.g))""")
     # heights from the 2009 LiDAR where its roof parts still cover the footprint
     con.execute(f"""CREATE OR REPLACE TEMP TABLE lidar AS
-        SELECT e.source_id, max(c.h) AS h FROM urban.element e JOIN cfp c ON c.ds = 'building-footprints-2009' AND c.h IS NOT NULL
+        SELECT e.source_id, max(c.h) AS h FROM work.element e JOIN cfp c ON c.ds = 'building-footprints-2009' AND c.h IS NOT NULL
           AND ST_Intersects(e.geometry, ST_Centroid(c.g))
         WHERE e.type = 'building' GROUP BY e.source_id, e.geometry
         HAVING sum(ST_Area(ST_Intersection(c.g, e.geometry))) >= {LIDAR_COVER} * ST_Area(e.geometry)""")
-    con.execute(f"""UPDATE urban.element e SET height_m = round(l.h, 1),
+    con.execute(f"""UPDATE work.element e SET height_m = round(l.h, 1),
             floors = CASE WHEN e.level_src = 'num_floors' THEN e.floors ELSE greatest(1, round(l.h / {FLOOR_M})::INT) END,
             level_max = CASE WHEN e.level_src = 'num_floors' THEN e.level_max ELSE e.level_min + greatest(1, round(l.h / {FLOOR_M})::INT) - 1 END,
             level_src = CASE WHEN e.level_src = 'num_floors' THEN 'num_floors; height: city LiDAR 2009 (approximate)'
@@ -125,11 +125,11 @@ def city(con):
 
 
 def build(con, epsg):
-    """Add use, use_source, use_method, ground_use, ground_source, ground_method and uses to the buildings of urban.element."""
+    """Add use, use_source, use_method, ground_use, ground_source, ground_method and uses to the buildings of work.element."""
     import duckdb
     import shapely
     m = lambda g: f"ST_AsWKB(ST_Transform({g}, 'EPSG:4326', '{epsg}', always_xy := true))"     # lon/lat -> metres
-    bld = con.execute(f"""SELECT source_id, {m('geometry')}, b.tags FROM urban.element e
+    bld = con.execute(f"""SELECT source_id, {m('geometry')}, b.tags FROM work.element e
                          LEFT JOIN osm.features.buildings b ON e.source_id = left(b.osm_type, 1) || b.osm_id
                          WHERE e.type = 'building'""").fetchall()
     ids = [r[0] for r in bld]
@@ -190,10 +190,10 @@ def build(con, epsg):
         tagtxt = f"OSM {'building:use' if t.get('building:use') else 'building'}={tag}" if tag else None
         rows.append((bid, use, src, meth, ground, gsrc, gmeth, "; ".join(filter(None, [tagtxt, *(x[3] for x in f)])) or None))
     for c in ("use", "use_source", "use_method", "ground_use", "ground_source", "ground_method", "uses"):
-        con.execute(f'ALTER TABLE urban.element ADD COLUMN IF NOT EXISTS "{c}" VARCHAR')
+        con.execute(f'ALTER TABLE work.element ADD COLUMN IF NOT EXISTS "{c}" VARCHAR')
     con.execute("CREATE TEMP TABLE bu (id VARCHAR, u VARCHAR, us VARCHAR, um VARCHAR, g VARCHAR, gs VARCHAR, gm VARCHAR, w VARCHAR)")
     if rows:
         con.executemany("INSERT INTO bu VALUES (?, ?, ?, ?, ?, ?, ?, ?)", rows)
-    con.execute("""UPDATE urban.element e SET "use" = u, use_source = us, use_method = um, ground_use = g, ground_source = gs,
+    con.execute("""UPDATE work.element e SET "use" = u, use_source = us, use_method = um, ground_use = g, ground_source = gs,
                    ground_method = gm, uses = w FROM bu WHERE e.source_id = bu.id AND e.type = 'building'""")
     con.execute("DROP TABLE bu")

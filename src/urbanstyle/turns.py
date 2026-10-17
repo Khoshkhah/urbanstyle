@@ -1,13 +1,13 @@
 """The moves through each junction at level 0 (docs/design/pipeline.md, step 8): SUMO's lane-to-lane connections on network.py's lanes.
 
-network.py writes the lanes (`urban.part`, type lane: per OSM way, direction forward / backward, lane 1 at the middle of the road). SUMO
+network.py writes the lanes (`work.part`, type lane: per OSM way, direction forward / backward, lane 1 at the middle of the road). SUMO
 (sumo.network: duckOSM's to_sumo and netconvert) gets the same lane count per direction and decides which lane goes on to which. Each
 of its connections becomes, on our lanes:
-    urban.turn      one row per move (from SUMO lane, to SUMO lane, straight / left / right), its line the guide line;
-    urban.mark      a 'guide line' from the lane's end at the junction to the start of the lane it goes to (none on a roundabout: the
+    work.turn      one row per move (from SUMO lane, to SUMO lane, straight / left / right), its line the guide line;
+    work.mark      a 'guide line' from the lane's end at the junction to the start of the lane it goes to (none on a roundabout: the
                     ring shows the way), and a turn 'arrow' in each lane coming in, its tip TIP_BACK_M before the junction (1 m behind
                     the stop line), a head for each way open to all traffic;
-    urban.approach  each lane coming in: its moves, its ways, and why it has no arrow.
+    work.approach  each lane coming in: its moves, its ways, and why it has no arrow.
 No move without SUMO: without netconvert nothing is written (source sumo, method derived).
 """
 import math
@@ -29,12 +29,12 @@ def build(con, epsg):
     g = lambda w: shapely.make_valid(shapely.from_wkb(bytes(w)))
     to_ll = f"ST_Transform(ST_GeomFromWKB(?), '{epsg}', 'EPSG:4326', always_xy := true)"
     lanes = []      # (unit, oid, direction, lane, width, polygon)
-    for u, d, n, ref, w, x in con.execute(f"""SELECT unit_id, direction, lane, ref, width_m, {m()} FROM urban.part
+    for u, d, n, ref, w, x in con.execute(f"""SELECT unit_id, direction, lane, ref, width_m, {m()} FROM work.part
                                               WHERE level = 0 AND type = 'lane' AND direction IN ('forward', 'backward')""").fetchall():
         ws = re.findall(r"w(\d+)", ref or "")      # (a lane can run along several OSM ways: one subsection with one cross-section)
         if ws and n:
             lanes.append((u, int(ws[0]), d, int(n), w, g(x), [int(o) for o in ws]))
-    inter = [(u, g(x)) for u, x in con.execute(f"SELECT unit_id, {m()} FROM urban.unit WHERE level = 0 AND kind = 'intersection'").fetchall()]
+    inter = [(u, g(x)) for u, x in con.execute(f"SELECT unit_id, {m()} FROM work.unit WHERE level = 0 AND kind = 'intersection'").fetchall()]
     if not lanes or not inter:
         return dict(turns=0, arrows=0)
     # SUMO gets our lane count and width for each direction of a way
@@ -56,9 +56,9 @@ def build(con, epsg):
     net = sumo.network(con, attrs, epsg)
     if net is None:
         return dict(turns=0, arrows=0)
-    # the road element of each SUMO edge (urban.element.source_id: one of its two directed duckOSM edges) and its line
+    # the road element of each SUMO edge (work.element.source_id: one of its two directed duckOSM edges) and its line
     elem, line = {}, {}
-    for o, a, b, sid, w in con.execute(f"""SELECT osm_id, src, dst, source_id, {m()} FROM urban.element
+    for o, a, b, sid, w in con.execute(f"""SELECT osm_id, src, dst, source_id, {m()} FROM work.element
                                           WHERE type IN ('road', 'walkway') AND level_min IN (0, 1) AND src IS NOT NULL""").fetchall():
         # (level 1 too: a deck with nothing under it is street at level 0, as in network.py: West Broadway at Granville)
         elem[(o, min(a, b), max(a, b))] = sid
@@ -83,7 +83,7 @@ def build(con, epsg):
             n_of[e] = n_of.get(e, 0) + 1
     jat = {}        # junction node -> our intersection (its index in inter)
     ix = {u: k for k, (u, _) in enumerate(inter)}
-    for iid, node in con.execute("SELECT intersection_id, node_id FROM urban.junction WHERE level = 0").fetchall():
+    for iid, node in con.execute("SELECT intersection_id, node_id FROM work.junction WHERE level = 0").fetchall():
         if iid in ix:
             jat[node] = ix[iid]
     by_way = {}
@@ -98,7 +98,7 @@ def build(con, epsg):
     def ours(e, i, at_end):
         """Our lane for SUMO lane i (from the right) of edge e where e meets its junction (at_end: e comes in, else e goes out): (lane
         index, junction index, point at the junction's edge, heading in the way the lane runs), or None. The junction is ours at e's node
-        (urban.junction); the lane is of e's way and direction, on e's side of the junction, numbered as SUMO's (SUMO counts from the
+        (work.junction); the lane is of e's way and direction, on e's side of the junction, numbered as SUMO's (SUMO counts from the
         right, we from the middle of the road)."""
         if e not in way_of or e not in n_of:
             return None
@@ -194,13 +194,13 @@ def build(con, epsg):
             marks.append((lanes[k][0], "arrow", piece, f"w{lanes[k][1]}"))
         arrows += 1
     if turns:
-        con.executemany(f"""INSERT INTO urban.turn (unit_id, level, from_edge, from_lane, to_edge, to_lane, turn, source, vehicles, condition, geometry)
+        con.executemany(f"""INSERT INTO work.turn (unit_id, level, from_edge, from_lane, to_edge, to_lane, turn, source, vehicles, condition, geometry)
                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, {to_ll})""", turns)
     if approach:
-        con.executemany("INSERT INTO urban.approach (unit_id, level, from_edge, lane, moves, ways, arrow, no_arrow_because) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        con.executemany("INSERT INTO work.approach (unit_id, level, from_edge, lane, moves, ways, arrow, no_arrow_because) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                         approach)
     if marks:
-        con.executemany(f"""INSERT INTO urban.mark (unit_id, level, type, length_m, width_m, width_source, width_method, source, method, ref, geometry)
+        con.executemany(f"""INSERT INTO work.mark (unit_id, level, type, length_m, width_m, width_source, width_method, source, method, ref, geometry)
                             VALUES (?, 0, ?, ?, ?, 'urbanstyle', 'chosen', 'sumo', 'derived', ?, {to_ll})""",
                         [(u, t, round(x.length, 1), LINE.get(t), rf, shapely.to_wkb(x)) for u, t, x, rf in marks])
     return dict(turns=len(turns), arrows=arrows)

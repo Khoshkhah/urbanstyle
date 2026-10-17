@@ -23,28 +23,28 @@ def _frames(con, db, bridges):
         CASE WHEN level_min > 0 OR level_src = 'bridge' THEN 'yes' END AS bridge,
         CASE WHEN level_max < 0 OR level_src = 'tunnel' THEN 'yes' END AS tunnel,       -- (by its level: most bridges get it from `layer`)
         level_min AS layer, try_cast(source_id AS BIGINT) AS edge_id, coalesce(oneway, false) AS oneway, round(width_m, 2) AS width_m, width_src
-        FROM urban.element WHERE type <> 'building'""")
+        FROM work.element WHERE type <> 'building'""")
     out["edges"]["edge_id"] = out["edges"]["edge_id"].astype("Int64")
     out["buildings"] = f("""SELECT ST_AsWKB(geometry) AS geometry, source_id AS id, source, name, class, level_min, level_max, level_src,
         CASE WHEN coalesce(class, 'yes') = 'yes' THEN 'building' ELSE 'building (' || class || ')' END AS type,
-        -- its real size (urban.element floors, height_m: before levels are clamped to LEVELS), else one floor
+        -- its real size (work.element floors, height_m: before levels are clamped to LEVELS), else one floor
         coalesce(floors, greatest(level_max, 0) + 1) AS floors, coalesce(height_m, round((greatest(level_max, 0) + 1) * 3.2, 1)) AS height_m,
         "use" || ' (' || use_source || ', ' || use_method || ')' AS "use", ground_use || ' (' || ground_source || ', ' || ground_method || ')' AS ground_floor,
-        uses AS evidence FROM urban.element WHERE type = 'building'""")
+        uses AS evidence FROM work.element WHERE type = 'building'""")
     gm = f"ST_Transform(geometry, 'EPSG:4326', '{ep}', always_xy := true)"
     out["ground"] = f(f"""SELECT ST_AsWKB(geometry) AS geometry, ground_id, type, name, source, method, ref, level,
-        round(ST_Area({gm}), 1) AS area_m2, {d.ALLEY_W.format(t='type', g=gm)} FROM urban.ground""")
+        round(ST_Area({gm}), 1) AS area_m2, {d.ALLEY_W.format(t='type', g=gm)} FROM work.ground""")
     out["ground"]["color"] = out["ground"]["type"].map(d.GROUND_COLORS).fillna("#9ca3af")
-    out["area"] = f(f"SELECT ST_AsWKB(geometry) AS geometry, 0 AS level, round(ST_Area({gm}), 0) AS area_m2 FROM urban.area")   # (rank 0: the whole area)
+    out["area"] = f(f"SELECT ST_AsWKB(geometry) AS geometry, 0 AS level, round(ST_Area({gm}), 0) AS area_m2 FROM work.area")   # (rank 0: the whole area)
     # rank 1's street, whole: the area less the blocks and the corridors, one item per connected piece, built here from those tables
     # and not from the spaces, so rank 1 is judged on its own (docs/design/division-top-down.md, step 2; Kaveh, 2026-10-16: "I want to
     # test each rank one by one")
     try:
         import shapely
-        area_ = [shapely.from_wkb(bytes(w)) for (w,) in con.execute("SELECT ST_AsWKB(geometry) FROM urban.area").fetchall()]
-        blocks_ = [shapely.from_wkb(bytes(w)) for (w,) in con.execute("SELECT ST_AsWKB(geometry) FROM urban.block WHERE level = 0").fetchall()]
+        area_ = [shapely.from_wkb(bytes(w)) for (w,) in con.execute("SELECT ST_AsWKB(geometry) FROM work.area").fetchall()]
+        blocks_ = [shapely.from_wkb(bytes(w)) for (w,) in con.execute("SELECT ST_AsWKB(geometry) FROM work.block WHERE level = 0").fetchall()]
         try:
-            cors_ = [shapely.from_wkb(bytes(w)) for (w,) in con.execute("SELECT ST_AsWKB(geometry) FROM urban.corridor").fetchall()]
+            cors_ = [shapely.from_wkb(bytes(w)) for (w,) in con.execute("SELECT ST_AsWKB(geometry) FROM work.corridor").fetchall()]
         except Exception:
             cors_ = []
         st_ = shapely.make_valid(shapely.union_all(area_)).difference(shapely.make_valid(shapely.union_all(blocks_ + cors_ or [shapely.Polygon()]))) if area_ else None
@@ -55,40 +55,40 @@ def _frames(con, db, bridges):
         print(f"  no rank 1 street layer: {e_}")
     # rank 3 built top down (division.py, docs/design/division-top-down.md step 3): the street cut by the stop lines and the joints
     try:
-        out["space3"] = f(f"""SELECT ST_AsWKB(geometry) AS geometry, space_id, kind, section_id, level, faces, area_m2 FROM urban.space3""")
+        out["space3"] = f(f"""SELECT ST_AsWKB(geometry) AS geometry, space_id, kind, section_id, level, faces, area_m2 FROM work.space3""")
     except Exception:
         out["space3"] = None
-    # every footpath at level 0, whole, lying on the ground (urban.path: not a kind of rank 1, no ground of its own)
-    out["paths"] = f("""SELECT ST_AsWKB(geometry) AS geometry, path_id, kind, name, width_m, width_source, width_method, "on", 0 AS level FROM urban.path""")
+    # every footpath at level 0, whole, lying on the ground (work.path: not a kind of rank 1, no ground of its own)
+    out["paths"] = f("""SELECT ST_AsWKB(geometry) AS geometry, path_id, kind, name, width_m, width_source, width_method, "on", 0 AS level FROM work.path""")
     blocks = d.blocks_frame(con)
     out["blocks"] = d.block_colors(blocks) if blocks is not None and len(blocks) else None
-    out["lots"] = f("SELECT ST_AsWKB(geometry) AS geometry, lot_id AS id, type, name, operator, parking, access, fee, level FROM urban.lot")
-    out["rails"] = f("SELECT ST_AsWKB(geometry) AS geometry, source_id AS id, name, class, level_min AS level FROM urban.element WHERE type = 'rail'")
-    out["stations"] = f("SELECT ST_AsWKB(geometry) AS geometry, id, name, kind, level FROM urban.station")
+    out["lots"] = f("SELECT ST_AsWKB(geometry) AS geometry, lot_id AS id, type, name, operator, parking, access, fee, level FROM work.lot")
+    out["rails"] = f("SELECT ST_AsWKB(geometry) AS geometry, source_id AS id, name, class, level_min AS level FROM work.element WHERE type = 'rail'")
+    out["stations"] = f("SELECT ST_AsWKB(geometry) AS geometry, id, name, kind, level FROM work.station")
     out["links"] = f("""SELECT ST_AsWKB(geometry) AS geometry, node_id, level_a, level_b, type, assumed, station_id, match, round(dist_m) AS dist_m
-        FROM urban.link""")
+        FROM work.link""")
     # the street: its spaces (a subsection or an intersection each), the subsections' axes and breaks, the cuts
     units = f(f"""SELECT ST_AsWKB(geometry) AS geometry, unit_id, kind, section_id, level, color,
-        round(ST_Area({gm}))::INT AS area_m2 FROM urban.unit""")
+        round(ST_Area({gm}))::INT AS area_m2 FROM work.unit""")
     sub = units[units.kind == "subsection"]
     out["sections"] = sub.dissolve(by=["section_id", "level"], as_index=False)[["section_id", "level", "geometry"]] if len(sub) else sub
     out["intersections"], out["subsections"] = units[units.kind != "subsection"], sub
     out["axes"] = f("""SELECT ST_AsWKB(geometry) AS geometry, subsection_id, section_id, level, class, width_m, oneway, length_m, "left", "right",
-        starts_at, color FROM urban.subsection""")
-    out["breaks"] = f("""SELECT ST_AsWKB(ST_StartPoint(geometry)) AS geometry, subsection_id, section_id, level, starts_at FROM urban.subsection
+        starts_at, color FROM work.subsection""")
+    out["breaks"] = f("""SELECT ST_AsWKB(ST_StartPoint(geometry)) AS geometry, subsection_id, section_id, level, starts_at FROM work.subsection
         WHERE starts_at <> 'section end'""")
     out["cuts"] = f("""SELECT ST_AsWKB(geometry) AS geometry, intersection_id, edge_id, level, how, length_m,
         CASE how WHEN 'block corners' THEN '#16a34a' WHEN 'one corner' THEN '#f59e0b' WHEN 'crosswalk' THEN '#2563eb' ELSE '#6b7280' END AS color
-        FROM urban.cut""")
+        FROM work.cut""")
     # inside the spaces: the parts and the painted lines; the kerbs as stones 0.25 m wide for 3D
     parts = f(f"""SELECT ST_AsWKB(geometry) AS geometry, unit_id, part_id, level, type, coalesce(arm, '') AS arm, coalesce(direction, '') AS direction,
         lane, lane_id, width_m, length_m, source, method, ref, road, road_class, speed, surface, lit, road_lanes, oneway, holds, rule,
         width_source, width_method, position_source, position_method, position_ref, round(ST_Area({gm}), 1) AS area_m2
-        FROM urban.part ORDER BY level""")      # (upper levels drawn last)
+        FROM work.part ORDER BY level""")      # (upper levels drawn last)
     parts["color"] = [d.PART_COLORS.get(f"{t} {r}".strip(), d.PART_COLORS.get(t, "#999999")) for t, r in zip(parts["type"], parts["direction"])]
     out["parts"] = parts
     marks = f("""SELECT ST_AsWKB(geometry) AS geometry, unit_id, level, type, coalesce(arm, '') AS arm, length_m, width_m, width_source,
-        width_method, source, method, ref FROM urban.mark ORDER BY level""")
+        width_method, source, method, ref FROM work.mark ORDER BY level""")
     out["marks"] = marks
     kerbs = marks[marks["type"].isin(["kerb", "barrier"])].copy()     # (a guardrail stands like a kerbstone in 3D, for now)
     kerbs = kerbs.set_geometry(kerbs.to_crs(ep).buffer(d.LINE["kerb"] / 2, cap_style="flat").to_crs(4326))
@@ -129,8 +129,8 @@ def _frames(con, db, bridges):
     try:
         seen = f("""SELECT ST_AsWKB(any_value(o.geometry)) AS geometry, o.feature_id, any_value(o.class) AS class, any_value(o.grp) AS grp,
             any_value(o.last_seen)::DATE::VARCHAR AS last_seen, coalesce(min(u.unit_id), '') AS space,
-            coalesce(min(u.level) FILTER (WHERE u.level = 0), min(u.level), 0) AS level FROM urban.observed o
-            LEFT JOIN urban.unit u ON ST_Intersects(u.geometry, ST_Buffer(o.geometry, 0.00003)) GROUP BY o.feature_id""")
+            coalesce(min(u.level) FILTER (WHERE u.level = 0), min(u.level), 0) AS level FROM work.observed o
+            LEFT JOIN work.unit u ON ST_Intersects(u.geometry, ST_Buffer(o.geometry, 0.00003)) GROUP BY o.feature_id""")
         from .unit import MATCH_M
         conf = {r: (o[1], o[5].split(", ")[0]) for o in mobjs for r in o[5].split(", ")}
         seen["type"] = [d.type_of(d.SEEN_CLASS.get(g, g)) for g in seen["grp"]]
@@ -248,7 +248,7 @@ def build(db, out, bridges=None):
     con.execute("LOAD spatial")
     # (with no bridge model, a deck is drawn flat in the air with no lanes: Monaco's page was built so, and no one saw why; Kaveh,
     # 2026-10-14)
-    n_br = con.execute("SELECT count(DISTINCT osm_id) FROM urban.element WHERE type = 'road' AND level_min > 0").fetchone()[0]
+    n_br = con.execute("SELECT count(DISTINCT osm_id) FROM work.element WHERE type = 'road' AND level_min > 0").fetchone()[0]
     if n_br and not bridges:
         print(f"WARNING: {n_br} road ways are on bridges but no --bridge profile is given: their decks are drawn flat in the air, with no "
               "lanes. Make the profiles first: `urbanstyle bridge OSM GMNS DIR`, then `--bridge DIR/*.bridge.json` (AGENTS.md)")

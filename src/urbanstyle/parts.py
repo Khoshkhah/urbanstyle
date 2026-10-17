@@ -1,9 +1,9 @@
-"""The inside of every new space (urban.unit): its parts, its marks and the widths of its edges (docs/design/space-parts.md).
+"""The inside of every new space (work.unit): its parts, its marks and the widths of its edges (docs/design/space-parts.md).
 
-urban.part   the parts that cover a unit exactly: junction area, lane (in / out of a junction, forward / backward along a subsection),
+work.part   the parts that cover a unit exactly: junction area, lane (in / out of a junction, forward / backward along a subsection),
              bus lane, cycle lane, crosswalk, cycle crossing, carriageway (roadway no lane took), sidewalk, furnishing, open
-urban.mark   lines on it, at real size: kerb, centre line, lane line, stop line, give-way line, zebra (one bar of a crosswalk)
-urban.width  per intersection arm (at its cut) and per subsection (across its middle): total, roadway and sidewalk widths, lanes, lane width
+work.mark   lines on it, at real size: kerb, centre line, lane line, stop line, give-way line, zebra (one bar of a crosswalk)
+work.width  per intersection arm (at its cut) and per subsection (across its middle): total, roadway and sidewalk widths, lanes, lane width
 
 Widths are MEASURED where the data allows and say so (`source`): a road's kerbs from its mapped sidewalks (`measured`, or `measured one
 side`), else from a crossing path across it (`crossing`), else estimated from its lanes (`estimated`); the roadway runs kerb to kerb, the
@@ -26,7 +26,7 @@ SIDEWALK_HALF_M = 1.0  # a sidewalk is mapped along its middle: the kerb lies th
 KERB_BEYOND_M = 10.0   # a road's sidewalks are looked for up to this far beyond its estimated roadway edge (an OSM line metres off
                        # the middle of a wide road, a sidewalk's half, a boulevard); farther away is not this road's
 CROSSWALK_M = 3.0
-# how a part was made -> (where its data comes from, how it was obtained): urban.part `source`, `method`; `ref` is the source's own id
+# how a part was made -> (where its data comes from, how it was obtained): work.part `source`, `method`; `ref` is the source's own id
 PROV = {"sumo": ("sumo", "derived"), "measured": ("osm", "measured"), "measured one side": ("osm", "measured"), "crossing": ("osm", "measured"),
         "tag": ("osm", "mapped"), "osm": ("osm", "mapped"), "mapillary": ("mapillary", "observed"), "estimated": ("urbanstyle", "chosen"),
         "rule": ("urbanstyle", "derived")}   # rule: drawn from a rule, e.g. every roundabout entry gives way
@@ -65,7 +65,7 @@ RAISED = {"verge": 0.15, "sidewalk": 0.15, "furnishing": 0.15, "frontage": 0.15,
           "barrier": 0.8}
 DRIVEWAY_M = 3.5       # a driveway's apron across the sidewalk, when OSM gives no width (urbanstyle's chosen width)
 CROSS_ON_M = 1.0       # a crossing point is a node of the road it crosses: this close to its line, else it crosses something else
-# urbanstyle's chosen width of each painted or built line (m), stored on every mark (urban.mark.width_m) and drawn at it in 2D and 3D;
+# urbanstyle's chosen width of each painted or built line (m), stored on every mark (work.mark.width_m) and drawn at it in 2D and 3D;
 # a kerb's width is its stone's, standing KERB_TOP_M above the roadway
 LINE = {"stop line": 0.4, "give-way line": 0.35, "zebra": 0.5, "crossing line": 0.15, "barrier": 0.3, "parking line": 0.12, "lane line": 0.12, "edge line": 0.12, "centre line": 0.12, "arrow": 0.15,
         "guide line": 0.1, "kerb": 0.25}
@@ -169,7 +169,7 @@ def build(con, epsg):
 
     # ---- inputs
     units = [(uid, kind, sec, lv, g(w)) for uid, kind, sec, lv, w in con.execute(
-        f"SELECT unit_id, kind, section_id, level, {tr()} FROM urban.unit").fetchall()]
+        f"SELECT unit_id, kind, section_id, level, {tr()} FROM work.unit").fetchall()]
     edge_kind = {"lane": "cycle lane", "opposite_lane": "cycle lane", "share_busway": "bus lane"}
     tags, sides = {}, {}
     try:
@@ -197,26 +197,26 @@ def build(con, epsg):
         ring_osm = set()
     roads = {}
     for eid, osm, lv, w, ow, src, dst, cid, name, wk in con.execute(f"""SELECT source_id, osm_id, level_min, coalesce(width_m, 6), coalesce(oneway, false),
-            src, dst, container_id, name, {tr()} FROM urban.element WHERE type = 'road' AND ST_Length(geometry) > 0""").fetchall():
+            src, dst, container_id, name, {tr()} FROM work.element WHERE type = 'road' AND ST_Length(geometry) > 0""").fetchall():
         roads[eid] = dict(osm=osm, level=lv, w=w, oneway=ow, src=src, dst=dst, cid=cid, name=name or "(unnamed)", g=g(wk))
     rtree_ids = list(roads)
     rtree = shapely.STRtree([roads[e]["g"] for e in rtree_ids]) if rtree_ids else None
-    prows = con.execute(f"SELECT type, coalesce(subtype, ''), level_min, {tr()}, osm_id FROM urban.element WHERE type IN ('walkway', 'cycleway')").fetchall()
+    prows = con.execute(f"SELECT type, coalesce(subtype, ''), level_min, {tr()}, osm_id FROM work.element WHERE type IN ('walkway', 'cycleway')").fetchall()
     paths = [(typ, sub, lv, g(w)) for typ, sub, lv, w, _ in prows]
     path_osm = {id(p[3]): f"w{r[4]}" for p, r in zip(paths, prows) if r[4] is not None}   # a path's OSM way, by its geometry
     ptree = shapely.STRtree([p[3] for p in paths]) if paths else None
     objs = [(oid, cls, lv, ctl, g(w)) for oid, cls, lv, ctl, w in con.execute(f"""SELECT object_id, class, level,
             CASE WHEN class = 'furniture.signal' THEN 'signal' WHEN json_extract_string(attrs, '$.highway') IN ('stop', 'give_way')
                  THEN json_extract_string(attrs, '$.highway') END, {tr()}
-            FROM urban.object WHERE class LIKE 'crossing.%' OR class IN {FURNITURE}
+            FROM work.object WHERE class LIKE 'crossing.%' OR class IN {FURNITURE}
                OR json_extract_string(attrs, '$.highway') IN ('stop', 'give_way')""").fetchall()]
-    # Mapillary's detections (urban.observed) build nothing here: their positions are too rough (unit.CONFIRM_ONLY); they confirm the
+    # Mapillary's detections (work.observed) build nothing here: their positions are too rough (unit.CONFIRM_ONLY); they confirm the
     # objects of other sources in the dossier and the dashboard, and what they alone see is a check
     # parking mapped in OSM: areas (along the kerb: parking=lane / street_side; else a lot; not underground or multi-storey) and
     # motorcycle parking points
     lots, moto = [], []
     try:
-        from urbanstyle.container import STREET_PARKING     # a car park off the street is no part: it is a lot (urban.lot)
+        from urbanstyle.container import STREET_PARKING     # a car park off the street is no part: it is a lot (work.lot)
         lots = [(ref_, g(w)) for ref_, w in con.execute(f"""SELECT left(osm_type, 1) || osm_id, {tr('geom')} FROM osm.features.sites
                 WHERE kind = 'parking' AND tags['parking'] IN {STREET_PARKING}""").fetchall()]
         moto = [g(w) for (w,) in con.execute(f"SELECT {tr('geom')} FROM osm.features.pois WHERE kind = 'motorcycle_parking'").fetchall()]
@@ -293,7 +293,7 @@ def build(con, epsg):
                     elif ds == "disability-parking":
                         bays.append((f"vancouver accessible bay {ds}-{i}", pt, f"{pr.get('description') or 'accessible parking'}"
                                      + (f", {pr['spaces']} space(s)" if pr.get("spaces") else "")))
-        seen_at = {f"mly{f}": (a, b) for f, a, b in con.execute("SELECT feature_id, first_seen, last_seen FROM urban.observed").fetchall()}
+        seen_at = {f"mly{f}": (a, b) for f, a, b in con.execute("SELECT feature_id, first_seen, last_seen FROM work.observed").fetchall()}
     except Exception:       # no Mapillary for this area
         seen_at = {}
     lv_of = {o[0]: o[2] for o in objs}
@@ -316,7 +316,7 @@ def build(con, epsg):
     # [id, point, level, tags, timetable or None, source]
     from urbanstyle import gtfs as gt
     stops = [[oid, g(w), lv_of.get(oid, 0), json.loads(a or "{}"), None, "osm"] for oid, w, a in
-             con.execute(f"SELECT object_id, {tr()}, attrs::VARCHAR FROM urban.object WHERE class = 'transit.stop'").fetchall()]
+             con.execute(f"SELECT object_id, {tr()}, attrs::VARCHAR FROM work.object WHERE class = 'transit.stop'").fetchall()]
     tt = json.load(open(stem + ".gtfs.json")) if stem and os.path.exists(stem + ".gtfs.json") else {}
     if tt:
         import pyproj
@@ -338,12 +338,12 @@ def build(con, epsg):
         bits = [", ".join(has) if has else "no shelter, bench or bin mapped"] + [f"{k} {a[k]}" for k in ("lit", "wheelchair", "kerb") if a.get(k)]
         name = a.get("name") or (st[4] or {}).get("name") or "bus stop"
         return f"{name}" + (f" ({a['ref']})" if a.get("ref") else "") + ": " + "; ".join(bits), gt.describe(st[4])
-    blds = [(lv, g(w)) for lv, w in con.execute(f"SELECT l, {tr()} FROM urban.element, generate_series(level_min, level_max) t(l) WHERE type = 'building'").fetchall()]
+    blds = [(lv, g(w)) for lv, w in con.execute(f"SELECT l, {tr()} FROM work.element, generate_series(level_min, level_max) t(l) WHERE type = 'building'").fetchall()]
     btree = shapely.STRtree([b[1] for b in blds]) if blds else None
     cuts = {}
-    for iid, eid, w in con.execute(f"SELECT intersection_id, edge_id, {tr()} FROM urban.cut").fetchall():
+    for iid, eid, w in con.execute(f"SELECT intersection_id, edge_id, {tr()} FROM work.cut").fetchall():
         cuts.setdefault(iid, []).append((eid, g(w)))
-    sub_of = {r[0]: (r[1], g(r[2])) for r in con.execute(f"SELECT subsection_id, with_sections, {tr()} FROM urban.subsection").fetchall()}
+    sub_of = {r[0]: (r[1], g(r[2])) for r in con.execute(f"SELECT subsection_id, with_sections, {tr()} FROM work.subsection").fetchall()}
 
     def kerbs(ln, level, r):
         """(left, right, source): where the kerbs of road `r` (its line `ln`) are. From the mapped sidewalks either side: a sidewalk is
@@ -520,7 +520,7 @@ def build(con, epsg):
     # in one lane (less than ARROW_GAP_M apart across it) keep ARROW_M + ARROW_GAP_M between their tips along it, so they never overlap;
     # this also keeps two roads mapped on top of each other from painting two arrows in one spot. A turn arrow (at a junction) says more
     # than a plain direction arrow: it takes the place of one in its way.
-    approach_rows = []      # (unit, level, road, lane, moves, ways open to all, arrow painted, why not): urban.approach
+    approach_rows = []      # (unit, level, road, lane, moves, ways open to all, arrow painted, why not): work.approach
     arrow_tips = {}         # (level, cell) -> [arrow record]; a record: [x, y, kind, indices of its pieces in `marks`]
     ARROW_CELL = ARROW_M + ARROW_GAP_M
 
@@ -871,27 +871,27 @@ def build(con, epsg):
 
     refuges = []        # mapped refuge islands: crossings tagged crossing:island=yes (ways and nodes)
     try:
-        refuges = [g(w) for (w,) in con.execute(f"""SELECT {tr()} FROM urban.element WHERE osm_id IN
+        refuges = [g(w) for (w,) in con.execute(f"""SELECT {tr()} FROM work.element WHERE osm_id IN
                        (SELECT osm_id FROM osm.raw.ways WHERE tags['crossing:island'] = 'yes')""").fetchall()]
         refuges += [g(w) for (w,) in con.execute(f"""SELECT {tr('ST_Point(lon, lat)')} FROM osm.raw.nodes WHERE tags['crossing:island'] = 'yes'""").fetchall()]
     except Exception:
         pass
     reshaped = {}       # unit id -> its new outline (a tunnel or a bridge cut back to its tube)
     jnodes = {}         # intersection -> its nodes
-    for iid, w in con.execute(f"""SELECT j.intersection_id, {tr('n.p')} FROM urban.junction j JOIN (SELECT src AS node, ST_StartPoint(geometry) AS p
-            FROM urban.element WHERE type = 'road' UNION SELECT dst, ST_EndPoint(geometry) FROM urban.element WHERE type = 'road') n ON n.node = j.node_id""").fetchall():
+    for iid, w in con.execute(f"""SELECT j.intersection_id, {tr('n.p')} FROM work.junction j JOIN (SELECT src AS node, ST_StartPoint(geometry) AS p
+            FROM work.element WHERE type = 'road' UNION SELECT dst, ST_EndPoint(geometry) FROM work.element WHERE type = 'road') n ON n.node = j.node_id""").fetchall():
         jnodes.setdefault(iid, []).append(g(w))
 
     def from_sumo(net):
         """Every unit's parts on SUMO's roadway: its lanes (each at its own width, numbered from the right) and junction shapes are the
-        roadway; to it come the mapped crosswalks, a roundabout's island, the markings, the turns (urban.turn) and the pedestrian realm
+        roadway; to it come the mapped crosswalks, a roundabout's island, the markings, the turns (work.turn) and the pedestrian realm
         out to the buildings (docs/design/space-parts.md, "The roadway from SUMO")."""
         lane_type = {"driving": "lane", "bus": "bus lane", "bike": "cycle lane"}
         way = {"s": "straight", "l": "left", "L": "left", "r": "right", "R": "right"}      # SUMO's dir; "t", a u-turn, is left out
         # where a road only continues (its OSM way split there, no junction of ours), each lane runs on into the same lane of the next
         # piece: SUMO ends one and starts the other, which left the lane and its lines broken at the join
         import re
-        real = {str(n) for (n,) in con.execute("SELECT node_id FROM urban.junction").fetchall()}
+        real = {str(n) for (n,) in con.execute("SELECT node_id FROM work.junction").fetchall()}
         is_join = lambda j: not any(n in real for n in re.findall(r"\d+", j))
         into_j, out_j = {}, {}
         for edge, (fj, tj) in net["ends"].items():
@@ -1168,7 +1168,7 @@ def build(con, epsg):
                         and inside.length >= ARROW_M + 2:
                     arrow(uid, level, inside, 0.0, inside.length / 2 + ARROW_M / 2, 1, ref=wref(x["edge"]))
             # the lanes coming into this junction (SUMO's, wherever its junction shape ends: maybe beyond the cut, in a subsection):
-            # the ways each may go (urban.turn, a guide line, a turn arrow) and a stop / give-way line where it enters the junction.
+            # the ways each may go (work.turn, a guide line, a turn arrow) and a stop / give-way line where it enters the junction.
             # An arrow or a line belongs to the unit it lies in.
             # every road ending at the junction is an approach, whatever its level: roads that share a node meet there (a bridge whose
             # deck ends at the junction, as on West Broadway at Granville), a road passing over a junction never shares its node
@@ -1422,7 +1422,7 @@ def build(con, epsg):
 
     if reshaped:
         rdf = pd.DataFrame([(u, shapely.to_wkb(g)) for u, g in reshaped.items()], columns=["unit_id", "wkb"])
-        con.execute(f"""UPDATE urban.unit u SET geometry = ST_Transform(ST_GeomFromWKB(r.wkb::BLOB), '{epsg}', 'EPSG:4326', always_xy := true)
+        con.execute(f"""UPDATE work.unit u SET geometry = ST_Transform(ST_GeomFromWKB(r.wkb::BLOB), '{epsg}', 'EPSG:4326', always_xy := true)
                         FROM rdf r WHERE u.unit_id = r.unit_id""")
     # the parts cover their space (docs/design/space-layers.md, L1): ground of a space no part took (a strip between a lane's edge and the
     # pedestrian realm that a rule left over) joins the part it shares the longest edge with
@@ -1464,7 +1464,7 @@ def build(con, epsg):
     # a part of a road (a lane, a shoulder) takes what is known of its road (its OSM way, `ref`): name, class, speed limit, surface,
     # lighting, the road's lane count. Where OSM says nothing, a stated default: 50 km/h, the limit in built-up areas in Canada, Sweden
     # and Monaco (not on a motorway), and asphalt; each value says where it comes from
-    con.execute(f"""CREATE OR REPLACE TABLE urban.part AS SELECT p.unit_id, p.part_id, p.level::INT AS level, p.type, p.arm, p.direction,
+    con.execute(f"""CREATE OR REPLACE TABLE work.part AS SELECT p.unit_id, p.part_id, p.level::INT AS level, p.type, p.arm, p.direction,
                     p.lane::INT AS lane, p.width_m::DOUBLE AS width_m, p.width_source::VARCHAR AS width_source, p.width_method::VARCHAR AS width_method,
                     p.length_m::DOUBLE AS length_m, p.source, p.method, p.ref::VARCHAR AS ref,
                     e.name AS road, e.class AS road_class,
@@ -1476,19 +1476,19 @@ def build(con, epsg):
                     w.tags['lanes'] AS road_lanes, CASE WHEN e.osm_id IS NOT NULL THEN coalesce(w.tags['oneway'], 'no') END AS oneway,
                     p.holds::VARCHAR AS holds, p.rule::VARCHAR AS rule, ST_CollectionExtract(ST_MakeValid({to_ll}), 3) AS geometry
                     FROM pdf p
-                    LEFT JOIN (SELECT osm_id, any_value(name) AS name, any_value(class) AS class FROM urban.element WHERE type = 'road' GROUP BY osm_id) e
+                    LEFT JOIN (SELECT osm_id, any_value(name) AS name, any_value(class) AS class FROM work.element WHERE type = 'road' GROUP BY osm_id) e
                       ON p.ref = 'w' || e.osm_id
                     LEFT JOIN osm.raw.ways w ON w.osm_id = e.osm_id""")
-    con.execute(f"""CREATE OR REPLACE TABLE urban.mark AS SELECT unit_id, level::INT AS level, type, arm, length_m,
+    con.execute(f"""CREATE OR REPLACE TABLE work.mark AS SELECT unit_id, level::INT AS level, type, arm, length_m,
                     width_m::DOUBLE AS width_m, 'urbanstyle' AS width_source, 'chosen' AS width_method, source, method, ref::VARCHAR AS ref,
                     {to_ll} AS geometry FROM mdf""")
-    con.execute("CREATE OR REPLACE TABLE urban.width AS SELECT * FROM wdf")
+    con.execute("CREATE OR REPLACE TABLE work.width AS SELECT * FROM wdf")
     adf = pd.DataFrame(approach_rows, columns=["unit_id", "level", "from_edge", "lane", "moves", "ways", "arrow", "no_arrow_because"])
-    con.execute("""CREATE OR REPLACE TABLE urban.approach AS SELECT unit_id::VARCHAR AS unit_id, level::INT AS level, from_edge::VARCHAR AS from_edge,
+    con.execute("""CREATE OR REPLACE TABLE work.approach AS SELECT unit_id::VARCHAR AS unit_id, level::INT AS level, from_edge::VARCHAR AS from_edge,
                    lane::INT AS lane, moves::INT AS moves, ways::VARCHAR AS ways, arrow::BOOLEAN AS arrow, no_arrow_because::VARCHAR AS no_arrow_because
                    FROM adf""")
     tdf = pd.DataFrame(turn_rows, columns=["unit_id", "level", "from_edge", "from_lane", "to_edge", "to_lane", "turn", "source", "vehicles", "condition", "wkb"])
-    con.execute(f"""CREATE OR REPLACE TABLE urban.turn AS SELECT unit_id::VARCHAR AS unit_id, level::INT AS level, from_edge::VARCHAR AS from_edge,
+    con.execute(f"""CREATE OR REPLACE TABLE work.turn AS SELECT unit_id::VARCHAR AS unit_id, level::INT AS level, from_edge::VARCHAR AS from_edge,
                     from_lane::INT AS from_lane, to_edge::VARCHAR AS to_edge, to_lane::INT AS to_lane, turn::VARCHAR AS turn, source::VARCHAR AS source,
                     vehicles::VARCHAR AS vehicles,   -- NULL: open to all traffic; else the classes it is open to, e.g. bus,taxi
                     condition::VARCHAR AS condition, -- when a time rule binds (OSM restriction:conditional), e.g. Mo-Su 07:00-19:00

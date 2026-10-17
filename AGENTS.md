@@ -17,7 +17,7 @@ starting work). The agreed model of sections, intersections and the frame, which
 
 - `src/urbanstyle/container.py` is SQL generation: `BUILD` (buildings), `ROADS`, `CLAMP` (levels −2…2), `CONTAINER`
   (street space by cross-section rays, then the partition into streets, path spaces and intersections, zones,
-  containers), `LINKS`, `RAIL`, `STATIONS`, `OBJECTS`. Everything lands in the `urban` schema: `element`, `container`,
+  containers), `LINKS`, `RAIL`, `STATIONS`, `OBJECTS`. Everything lands in the `work` schema: `element`, `container`,
   `zone`, `link`, `street`, `arm`, `station`, `object`, `strip`. A container is a section (a stretch of a street
   between two junctions), a path space, a rail space, a plaza or an intersection; ids are `s<level>-<edge>`,
   `p<level>-<way>`, `r<level>-<way>`, `i<level>-<node>`. A street is a group of sections plus the intersections it
@@ -56,13 +56,15 @@ starting work). The agreed model of sections, intersections and the frame, which
 - `src/urbanstyle/strips.py` (called at the end of `build`) fills every container with typed bands in `urban.strip`
   (`docs/notes/street-strips-v1.md`; check C2). `urban.object` holds the point objects (taxonomy in
   `docs/notes/street-objects-step1.md`).
-- `src/urbanstyle/meta.py` (the last step of every build, `container._finish`): the data about the data of `docs/design/tables.md`:
-  `urban.registry` (the stable ids of R6: `uid` on `urban.object` and on the buildings of `urban.element`, kept from build to build:
-  the build reads the old registry before it replaces the file), `urban.item` (every rank with its `parent_id`, derived once from
-  today's tables), `urban.meta` (version with the git commit, build time, input files with their dates, every module-level number of
-  the build modules as `chosen.<module>.<NAME>`), `urban.style` (`docs/design/drawing.md`: the draw order, form, colour, dash and 3D
-  raise of each kind), `urban.code` (our kinds in CityGML, OpenDRIVE, OpenSidewalks, IFC). `urbanstyle check` writes `urban.check`
-  (`meta.write_checks`), and the panel lists its faults with links to their places.
+- **Two schemas** (`docs/design/tables.md`): the build's steps write their intermediate tables in `work` (`work.unit`, `work.part`,
+  ...: everything this file names below as a table); the last step, `src/urbanstyle/product.py` (`container._finish`), writes the
+  model, the schema `urban`, exactly as the chapter gives it (one table per rank with the common columns, `parent_id`, the axes and
+  (s, t), the links of spaces and lanes; `urban.item` a view). Then `src/urbanstyle/meta.py`: `urban.registry` (`uid` on the street
+  objects and the buildings, kept from build to build), `urban.meta` (version, inputs, every chosen value), `urban.style` (the draw
+  order: `docs/design/drawing.md`), `urban.code` (the kinds in the standards). `urbanstyle check` tests `work` and writes
+  `urban.check`. `tests/test_product.py` holds the chapter against a build: change a column in both, or the test fails. A step never
+  writes `urban`. `schema.migrate` moves an older file's intermediate tables to `work`. `src/urbanstyle/objects.py`: the street
+  objects matched from every source (the build and the page).
 - `src/urbanstyle/checks.py`: the invariants of `docs/notes/street-space-spec.md` section 8. `quality.py`: section
   shape over a whole area.
 - The dashboard, one for every area (2026-10-13; `docs/design/dashboard.md`, "How the page is made"): `src/urbanstyle/page.py`

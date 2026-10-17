@@ -51,7 +51,7 @@ def test_level_rules(tmp_path):
         (7, {"building:levels": "3", "building:min_level": "5"}, SQUARE),          # floors 5..7: clamped to 5..5
     ])
     con = urbanstyle.build(osm, str(tmp_path / "out.duckdb"))
-    got = dict(con.execute("SELECT source_id, [level_min, level_max] FROM urban.element WHERE type = 'building'").fetchall())
+    got = dict(con.execute("SELECT source_id, [level_min, level_max] FROM work.element WHERE type = 'building'").fetchall())
     assert got == {"w1": [0, 2], "w2": [0, 2], "w3": [0, 0], "w4": [-1, 1], "w5": [-1, -1], "w6": [-4, 5], "w7": [5, 5]}
 
 
@@ -63,9 +63,9 @@ def test_containers(tmp_path):
                     f"(2, 200, 3, 4, 'footway', NULL, NULL, NULL, NULL, NULL, {line(0.00005)})",  # ~5 m from the road: joins it
                     f"(3, 300, 5, 6, 'footway', NULL, NULL, NULL, NULL, NULL, {line(0.001)})"]})  # ~110 m away: own container
     con = urbanstyle.build(osm, str(tmp_path / "out.duckdb"))
-    got = dict(con.execute("SELECT source_id, container_id FROM urban.element WHERE type <> 'building'").fetchall())
+    got = dict(con.execute("SELECT source_id, container_id FROM work.element WHERE type <> 'building'").fetchall())
     assert got == {"1": "s0-1", "2": "s0-1", "3": "p0-300"}
-    assert con.execute("SELECT n_road, n_walkway FROM urban.container WHERE container_id = 's0-1'").fetchone() == (1, 1)
+    assert con.execute("SELECT n_road, n_walkway FROM work.container WHERE container_id = 's0-1'").fetchone() == (1, 1)
 
 
 def test_street_space_width(tmp_path):
@@ -79,9 +79,9 @@ def test_street_space_width(tmp_path):
         edges={"driving": [f"(1, 100, 1, 2, 'residential', 'Main St', NULL, NULL, NULL, 1, {ROAD})",
                            f"(2, 101, 3, 4, 'residential', 'Bridge St', NULL, 'yes', NULL, 2, {ROAD})"]})
     con = urbanstyle.build(osm, str(tmp_path / "out.duckdb"))
-    w, op = con.execute("SELECT mean_width_m, open_share FROM urban.container WHERE container_id = 's0-1'").fetchone()
+    w, op = con.execute("SELECT mean_width_m, open_share FROM work.container WHERE container_id = 's0-1'").fetchone()
     assert 15 <= w <= 17 and op == 0, (w, op)
-    assert con.execute("SELECT mean_width_m FROM urban.container WHERE container_id = 's1-2'").fetchone() == (None,)  # bridge: no rays
+    assert con.execute("SELECT mean_width_m FROM work.container WHERE container_id = 's1-2'").fetchone() == (None,)  # bridge: no rays
 
 
 def test_links(tmp_path):
@@ -96,7 +96,7 @@ def test_links(tmp_path):
     o.execute("INSERT INTO raw.nodes VALUES (5, 59.301, 18.0, CAST(MAP {'railway': 'subway_entrance'} AS MAP(VARCHAR, VARCHAR)))")
     o.close()
     con = urbanstyle.build(osm, str(tmp_path / "out.duckdb"))
-    got = set(con.execute("SELECT node_id, level_a, level_b, type, assumed FROM urban.link").fetchall())
+    got = set(con.execute("SELECT node_id, level_a, level_b, type, assumed FROM work.link").fetchall())
     assert got == {(2, -1, 0, "ramp", False), (6, 0, 1, "stairs", False), (5, -1, 0, "entrance", True)}, got
 
 
@@ -107,14 +107,14 @@ def test_partition_has_no_overlap(tmp_path):
     arm = lambda i, x, y: f"({i}, {100 + i}, 1, {10 + i}, 'residential', 'Arm{i}', NULL, NULL, NULL, 2, ST_GeomFromText('LINESTRING({cx} {cy}, {cx + x} {cy + y})'))"
     osm = make_osm(tmp_path / "osm.duckdb", edges={"driving": [arm(1, dx, 0), arm(2, -dx, 0), arm(3, 0, dy), arm(4, 0, -dy)]})
     con = urbanstyle.build(osm, str(tmp_path / "out.duckdb"))
-    kinds = dict(con.execute("SELECT kind, count(*) FROM urban.container WHERE level = 0 GROUP BY kind").fetchall())
+    kinds = dict(con.execute("SELECT kind, count(*) FROM work.container WHERE level = 0 GROUP BY kind").fetchall())
     assert kinds.get("intersection") == 1 and kinds.get("section", 0) >= 3, kinds
-    total, union = con.execute("SELECT sum(ST_Area(geometry)), ST_Area(ST_Union_Agg(geometry)) FROM urban.container WHERE level = 0").fetchone()
+    total, union = con.execute("SELECT sum(ST_Area(geometry)), ST_Area(ST_Union_Agg(geometry)) FROM work.container WHERE level = 0").fetchone()
     assert abs(total - union) / union < 0.01, (total, union)  # areas add up: nothing is counted twice
 
 
 def test_a_street_is_one_container(tmp_path):
-    """Two one-way carriageways of the same name joined at both ends are one street; an unnamed footpath far away is a path urban."""
+    """Two one-way carriageways of the same name joined at both ends are one street; an unnamed footpath far away is a path work."""
     line = lambda y, a, b: f"ST_GeomFromText('LINESTRING({18 + a} {59.3 + y}, {18 + b} {59.3 + y})')"
     osm = make_osm(tmp_path / "osm.duckdb", edges={
         "driving": [f"(1, 200, 1, 2, 'primary', 'Boulevard', NULL, NULL, NULL, 2, {line(0.00007, 0, .001)})",
@@ -122,7 +122,7 @@ def test_a_street_is_one_container(tmp_path):
         "walking": [f"(3, 300, 8, 9, 'footway', NULL, NULL, NULL, NULL, NULL, {line(0.01, 0, .001)})",
                     f"(4, 301, 9, 10, 'footway', NULL, NULL, NULL, NULL, NULL, {line(0.01, .001, .002)})"]})
     con = urbanstyle.build(osm, str(tmp_path / "out.duckdb"))
-    got = con.execute("SELECT container_id, kind, n_road, n_walkway FROM urban.container WHERE level = 0 ORDER BY 1").fetchall()
+    got = con.execute("SELECT container_id, kind, n_road, n_walkway FROM work.container WHERE level = 0 ORDER BY 1").fetchall()
     assert got == [("p0-300", "path", 0, 2), ("s0-1", "section", 2, 0)], got
 
 
@@ -137,9 +137,9 @@ def test_kerb_travelway_and_asymmetry(tmp_path):
                "walking": [f"(2, 200, 3, 4, 'footway', NULL, NULL, NULL, NULL, NULL, {line(dy(5))})",
                            f"(3, 201, 5, 6, 'footway', NULL, NULL, NULL, NULL, NULL, {line(-dy(5))})"]})
     con = urbanstyle.build(osm, str(tmp_path / "out.duckdb"))
-    row = con.execute("SELECT kerb_share, narrow_half_m, wide_half_m, one_side_open_share FROM urban.container WHERE container_id = 's0-1'").fetchone()
+    row = con.execute("SELECT kerb_share, narrow_half_m, wide_half_m, one_side_open_share FROM work.container WHERE container_id = 's0-1'").fetchone()
     assert row[0] >= 0.9 and 9 <= row[1] <= 11 and row[2] > 14 and row[3] >= 0.9, row
-    tw = con.execute("""SELECT ST_Area(ST_Transform(geometry, 'EPSG:4326', 'EPSG:32634', always_xy := true)) FROM urban.zone
+    tw = con.execute("""SELECT ST_Area(ST_Transform(geometry, 'EPSG:4326', 'EPSG:32634', always_xy := true)) FROM work.zone
                         WHERE container_id = 's0-1' AND zone = 'travelway'""").fetchone()[0]
     assert 6.5 * 56 <= tw <= 9.5 * 58, tw  # ~8 m x 57 m, not the 6.5 m lane width
 
@@ -155,10 +155,10 @@ def test_rail_and_stations(tmp_path):
                              (3, "station", {}, pt(59.36), "Nowhere")])
     con = urbanstyle.build(osm, str(tmp_path / "out.duckdb"))
     # (layer -3 is kept as it is: LEVELS is -5..5)
-    assert con.execute("SELECT level_min, type, class FROM urban.element WHERE type = 'rail'").fetchall() == [(-3, "rail", "subway")]
-    assert con.execute("SELECT container_id, kind, n_rail FROM urban.container WHERE level = -3 AND kind = 'rail'").fetchall() == [("r-3-500", "rail", 1)]
-    assert con.execute("SELECT zone FROM urban.zone WHERE container_id = 'r-3-500'").fetchall() == [("track",)]
-    got = dict(con.execute("SELECT name, level FROM urban.station").fetchall())
+    assert con.execute("SELECT level_min, type, class FROM work.element WHERE type = 'rail'").fetchall() == [(-3, "rail", "subway")]
+    assert con.execute("SELECT container_id, kind, n_rail FROM work.container WHERE level = -3 AND kind = 'rail'").fetchall() == [("r-3-500", "rail", 1)]
+    assert con.execute("SELECT zone FROM work.zone WHERE container_id = 'r-3-500'").fetchall() == [("track",)]
+    got = dict(con.execute("SELECT name, level FROM work.station").fetchall())
     assert got == {"Beside the tunnel": -3, "Tagged": -1, "Nowhere": 0}, got
 
 
@@ -176,7 +176,7 @@ def test_entrance_tied_to_station(tmp_path):
     o.execute(f"INSERT INTO raw.nodes VALUES (5, 59.3, 18.0, {tags('Central')}), (7, 59.31, 18.0, {tags('Elsewhere')})")
     o.close()
     con = urbanstyle.build(osm, str(tmp_path / "out.duckdb"))
-    got = set(con.execute("SELECT node_id, level_a, level_b, assumed, station_id, match FROM urban.link WHERE type = 'entrance'").fetchall())
+    got = set(con.execute("SELECT node_id, level_a, level_b, assumed, station_id, match FROM work.link WHERE type = 'entrance'").fetchall())
     assert got == {(5, -2, 0, False, "n1", "name"), (7, -1, 0, True, None, None)}, got
 
 
@@ -186,7 +186,7 @@ def test_intersection_id_is_the_junction_node(tmp_path):
     arm = lambda i, x, y: f"({i}, {100 + i}, 1, {10 + i}, 'residential', 'Arm{i}', NULL, NULL, NULL, 2, ST_GeomFromText('LINESTRING({cx} {cy}, {cx + x} {cy + y})'))"
     osm = make_osm(tmp_path / "osm.duckdb", edges={"driving": [arm(1, dx, 0), arm(2, -dx, 0), arm(3, 0, dy), arm(4, 0, -dy)]})
     con = urbanstyle.build(osm, str(tmp_path / "out.duckdb"))
-    assert con.execute("SELECT container_id FROM urban.container WHERE kind = 'intersection'").fetchall() == [("i0-1",)]
+    assert con.execute("SELECT container_id FROM work.container WHERE kind = 'intersection'").fetchall() == [("i0-1",)]
 
 
 def test_objects(tmp_path):
@@ -207,14 +207,14 @@ def test_objects(tmp_path):
         node(7, 6, {"amenity": "waste_basket", "material": "metal", "colour": "green", "fixme": "x"})]))
     o.close()
     con = urbanstyle.build(osm, str(tmp_path / "out.duckdb"))
-    got = {r[0]: r[1:] for r in con.execute("SELECT object_id, class, level, container_id, zone, near_m IS NULL FROM urban.object ORDER BY 1").fetchall()}
+    got = {r[0]: r[1:] for r in con.execute("SELECT object_id, class, level, container_id, zone, near_m IS NULL FROM work.object ORDER BY 1").fetchall()}
     assert got["n1"] == ("furniture.bench", 0, "s0-1", "pedestrian_realm", True), got["n1"]
     assert got["n2"][:4] == ("crossing.zebra", 0, "s0-1", "travelway"), got["n2"]
     assert got["n3"][0] == "crossing.signalised", got["n3"]
     assert got["n4"][0] == "furniture.lamp" and got["n4"][2] is None and got["n4"][4] is False, got["n4"]
     assert got["n5"][:3] == ("vegetation.tree", -1, None), got["n5"]
     assert "n6" not in got
-    attrs = con.execute("SELECT attrs FROM urban.object WHERE object_id = 'n7'").fetchone()[0]
+    attrs = con.execute("SELECT attrs FROM work.object WHERE object_id = 'n7'").fetchone()[0]
     assert "material" in attrs and "colour" in attrs and "fixme" not in attrs, attrs
 
 
@@ -229,7 +229,7 @@ def test_a_path_that_only_passes_close_is_not_part_of_the_street(tmp_path):
         "walking": [f"(2, 200, 3, 4, 'footway', NULL, NULL, NULL, NULL, NULL, {parallel})",
                     f"(3, 300, 5, 6, 'footway', NULL, NULL, NULL, NULL, NULL, {leaving})"]})
     con = urbanstyle.build(osm, str(tmp_path / "out.duckdb"))
-    got = dict(con.execute("SELECT source_id, container_id FROM urban.element WHERE type = 'walkway'").fetchall())
+    got = dict(con.execute("SELECT source_id, container_id FROM work.element WHERE type = 'walkway'").fetchall())
     assert got == {"2": "s0-1", "3": "p0-300"}, got
 
 
@@ -239,9 +239,9 @@ def test_arms_and_merged_intersections(tmp_path):
     arm = lambda i, x, y: f"({i}, {100 + i}, 1, {10 + i}, 'residential', 'Arm{i}', NULL, NULL, NULL, 2, ST_GeomFromText('LINESTRING({cx} {cy}, {cx + x} {cy + y})'))"
     osm = make_osm(tmp_path / "osm.duckdb", edges={"driving": [arm(1, dx, 0), arm(2, -dx, 0), arm(3, 0, dy), arm(4, 0, -dy)]})
     con = urbanstyle.build(osm, str(tmp_path / "out.duckdb"))
-    assert con.execute("SELECT intersection_id, count(*) FROM urban.arm GROUP BY 1").fetchall() == [("i0-1", 4)]
-    assert con.execute("SELECT name, n_section, n_intersection FROM urban.street ORDER BY name").fetchall() == [(f"Arm{i}", 1, 1) for i in (1, 2, 3, 4)]
-    assert con.execute("SELECT count(DISTINCT street_id), count(DISTINCT section_id) FROM urban.arm").fetchone() == (4, 4)   # one intersection, four streets
+    assert con.execute("SELECT intersection_id, count(*) FROM work.arm GROUP BY 1").fetchall() == [("i0-1", 4)]
+    assert con.execute("SELECT name, n_section, n_intersection FROM work.street ORDER BY name").fetchall() == [(f"Arm{i}", 1, 1) for i in (1, 2, 3, 4)]
+    assert con.execute("SELECT count(DISTINCT street_id), count(DISTINCT section_id) FROM work.arm").fetchone() == (4, 4)   # one intersection, four streets
     # dog-leg: main street through nodes 1 and 2 (10 m apart), a side street north of node 1 and one south of node 2
     x1, x2, m = 18.0, 18.0 + 10 / 56_800, 18.0003
     ed = lambda i, way, a, b, name, x0, y0, x9, y9: (f"({i}, {way}, {a}, {b}, 'residential', '{name}', NULL, NULL, NULL, 2, "
@@ -251,8 +251,8 @@ def test_arms_and_merged_intersections(tmp_path):
         ed(3, 303, 2, 11, "Main", x2, 59.3, x2 + 0.0008, 59.3),
         ed(4, 304, 1, 20, "North", x1, 59.3, x1, 59.3 + 0.0005), ed(5, 305, 2, 21, "South", x2, 59.3, x2, 59.3 - 0.0005)]})
     con2 = urbanstyle.build(osm2, str(tmp_path / "out2.duckdb"))
-    assert con2.execute("SELECT container_id FROM urban.container WHERE kind = 'intersection'").fetchall() == [("i0-1",)]
-    assert con2.execute("SELECT count(DISTINCT street_id) FROM urban.arm").fetchone()[0] >= 3
+    assert con2.execute("SELECT container_id FROM work.container WHERE kind = 'intersection'").fetchall() == [("i0-1",)]
+    assert con2.execute("SELECT count(DISTINCT street_id) FROM work.arm").fetchone()[0] >= 3
 
 
 def test_a_disconnected_region_becomes_separate_containers(tmp_path):
@@ -267,9 +267,9 @@ def test_a_disconnected_region_becomes_separate_containers(tmp_path):
                    edges={"driving": [f"(1, 100, 1, 2, 'residential', 'Main St', NULL, NULL, NULL, 1, {road})"],
                           "walking": [f"(2, 200, 3, 4, 'footway', NULL, NULL, NULL, NULL, NULL, {path})"]})
     con = urbanstyle.build(osm, str(tmp_path / "out.duckdb"))
-    got = con.execute("SELECT container_id, kind, street_id, ST_NumGeometries(geometry) FROM urban.container WHERE level = 0 ORDER BY 1").fetchall()
+    got = con.execute("SELECT container_id, kind, street_id, ST_NumGeometries(geometry) FROM work.container WHERE level = 0 ORDER BY 1").fetchall()
     assert [(g[0], g[1]) for g in got] == [("p0-1.1", "path"), ("s0-1", "section")] and all(g[3] == 1 for g in got), got   # the part with no road is a path space
-    assert dict(con.execute("SELECT source_id, container_id FROM urban.element WHERE type <> 'building'").fetchall()) == {"1": "s0-1", "2": "p0-1.1"}
+    assert dict(con.execute("SELECT source_id, container_id FROM work.element WHERE type <> 'building'").fetchall()) == {"1": "s0-1", "2": "p0-1.1"}
 
 
 def star(tmp_path, name, bearings, length_m=60):
@@ -287,7 +287,7 @@ def test_junction_shapes(tmp_path):
     shapes = {}
     for name, bearings in {"T": [0, 90, 180], "Y": [0, 120, 240], "cross": [0, 90, 180, 270], "multi": [0, 72, 144, 216, 288]}.items():
         con = star(tmp_path, name, bearings)
-        shapes[name] = con.execute("SELECT shape, n_arms FROM urban.container WHERE kind = 'intersection'").fetchall()
+        shapes[name] = con.execute("SELECT shape, n_arms FROM work.container WHERE kind = 'intersection'").fetchall()
     assert shapes == {"T": [("T", 3)], "Y": [("Y", 3)], "cross": [("cross", 4)], "multi": [("multi", 5)]}, shapes
 
 
@@ -297,8 +297,8 @@ def test_arm_cuts_are_perpendicular(tmp_path):
     import shapely
     con = star(tmp_path, "perp", [0, 90, 180, 270])
     metric = "ST_AsWKB(ST_Transform(geometry, 'EPSG:4326', 'EPSG:32634', always_xy := true))"
-    poly = shapely.from_wkb(bytes(con.execute(f"SELECT {metric} FROM urban.container WHERE kind = 'intersection'").fetchone()[0]))
-    roads = [shapely.from_wkb(bytes(r[0])) for r in con.execute(f"SELECT {metric} FROM urban.element WHERE type = 'road'").fetchall()]
+    poly = shapely.from_wkb(bytes(con.execute(f"SELECT {metric} FROM work.container WHERE kind = 'intersection'").fetchone()[0]))
+    roads = [shapely.from_wkb(bytes(r[0])) for r in con.execute(f"SELECT {metric} FROM work.element WHERE type = 'road'").fetchall()]
     ring = list(poly.exterior.coords)
     for road in roads:
         p = road.intersection(poly.exterior)
@@ -324,16 +324,16 @@ def test_roundabout_is_one_intersection_with_its_island(tmp_path):
     o.execute("INSERT INTO raw.ways VALUES (400, CAST(MAP {'junction': 'roundabout'} AS MAP(VARCHAR, VARCHAR)), [1, 2, 3, 4, 5, 6, 1])")
     o.close()
     con = urbanstyle.build(osm, str(tmp_path / "out.duckdb"))
-    assert con.execute("SELECT shape FROM urban.container WHERE kind = 'intersection'").fetchall() == [("roundabout",)]   # 25 m apart, merged by the tag
-    assert con.execute(f"SELECT ST_Contains(geometry, ST_Point({cx}, {cy})) FROM urban.container WHERE kind = 'intersection'").fetchone()[0]   # the island
+    assert con.execute("SELECT shape FROM work.container WHERE kind = 'intersection'").fetchall() == [("roundabout",)]   # 25 m apart, merged by the tag
+    assert con.execute(f"SELECT ST_Contains(geometry, ST_Point({cx}, {cy})) FROM work.container WHERE kind = 'intersection'").fetchone()[0]   # the island
 
 
 def test_dead_ends_and_ends_at_intersections(tmp_path):
     con = star(tmp_path, "ends", [0, 90, 180, 270])
-    assert con.execute("SELECT n_dead_ends, n_intersections FROM urban.container WHERE kind = 'section'").fetchall() == [(1, 1)] * 4
+    assert con.execute("SELECT n_dead_ends, n_intersections FROM work.container WHERE kind = 'section'").fetchall() == [(1, 1)] * 4
     con2 = urbanstyle.build(make_osm(tmp_path / "iso.duckdb", edges={"driving": [f"(1, 100, 1, 2, 'residential', 'Lone', NULL, NULL, NULL, 2, {ROAD})"]}),
                             str(tmp_path / "iso.out.duckdb"))
-    assert con2.execute("SELECT n_dead_ends, n_intersections FROM urban.container WHERE kind = 'section'").fetchall() == [(2, 0)]
+    assert con2.execute("SELECT n_dead_ends, n_intersections FROM work.container WHERE kind = 'section'").fetchall() == [(2, 0)]
 
 
 def test_a_dual_carriageway_is_one_section(tmp_path):
@@ -352,7 +352,7 @@ def test_a_dual_carriageway_is_one_section(tmp_path):
     o.execute("UPDATE driving.edges SET oneway = true WHERE osm_id IN (301, 302)")   # one east, one west
     o.close()
     con = urbanstyle.build(osm, str(tmp_path / "out.duckdb"))
-    assert con.execute("SELECT n_road, n_intersections FROM urban.container WHERE kind = 'section' AND name = 'Boulevard'").fetchall() == [(2, 2)]
+    assert con.execute("SELECT n_road, n_intersections FROM work.container WHERE kind = 'section' AND name = 'Boulevard'").fetchall() == [(2, 2)]
     con.close()
     # the same two roads with different names, or two-way, are not a dual carriageway
     for tag, sql in (("names", "UPDATE driving.edges SET name = 'Other Boulevard' WHERE osm_id = 302"), ("twoway", "UPDATE driving.edges SET oneway = false")):
@@ -360,7 +360,7 @@ def test_a_dual_carriageway_is_one_section(tmp_path):
         o.execute(sql)
         o.close()
         con = urbanstyle.build(osm, str(tmp_path / f"{tag}.duckdb"))
-        assert con.execute("SELECT count(*) FROM urban.container WHERE kind = 'section' AND name LIKE '%Boulevard'").fetchone()[0] == 2, tag
+        assert con.execute("SELECT count(*) FROM work.container WHERE kind = 'section' AND name LIKE '%Boulevard'").fetchone()[0] == 2, tag
         con.close()
 
 
@@ -384,7 +384,7 @@ def test_a_side_street_on_one_half_cuts_both_halves(tmp_path):
     o.execute("UPDATE driving.edges SET oneway = true WHERE osm_id IN (301, 302, 303, 304)")
     o.close()
     con = urbanstyle.build(osm, str(tmp_path / "out.duckdb"))
-    assert sorted(con.execute("SELECT n_road, n_intersections FROM urban.container WHERE kind = 'section' AND name = 'Boulevard'").fetchall()) == [(2, 2), (2, 2)]
+    assert sorted(con.execute("SELECT n_road, n_intersections FROM work.container WHERE kind = 'section' AND name = 'Boulevard'").fetchall()) == [(2, 2), (2, 2)]
 
 
 def test_a_container_records_the_buildings_that_bound_it(tmp_path):
@@ -395,9 +395,9 @@ def test_a_container_records_the_buildings_that_bound_it(tmp_path):
     osm = make_osm(tmp_path / "osm.duckdb", [(1, {"building:levels": "3"}, box(dy(10), dy(40))), (2, {"building:levels": "3"}, box(-dy(40), -dy(6)))],
                    edges={"driving": [f"(1, 100, 1, 2, 'residential', 'Main St', NULL, NULL, NULL, 1, {ROAD})"]})
     con = urbanstyle.build(osm, str(tmp_path / "out.duckdb"))
-    got = con.execute("SELECT building_id, length_m FROM urban.boundary WHERE container_id = 's0-1' ORDER BY 1").fetchall()
+    got = con.execute("SELECT building_id, length_m FROM work.boundary WHERE container_id = 's0-1' ORDER BY 1").fetchall()
     assert [g[0] for g in got] == ["w1", "w2"] and all(30 <= g[1] <= 70 for g in got), got
-    assert con.execute("SELECT n_buildings FROM urban.container WHERE container_id = 's0-1'").fetchone()[0] == 2
+    assert con.execute("SELECT n_buildings FROM work.container WHERE container_id = 's0-1'").fetchone()[0] == 2
 
 
 def test_a_wide_open_space_framed_by_buildings_is_a_plaza(tmp_path):
@@ -411,10 +411,10 @@ def test_a_wide_open_space_framed_by_buildings_is_a_plaza(tmp_path):
                        edges={"driving": [f"(1, 100, 1, 2, 'residential', 'Main St', NULL, NULL, NULL, 1, {ROAD})"]})
         return urbanstyle.build(osm, str(tmp_path / f"{name}-out.duckdb"))
     wide = build(16, "wide")
-    plazas = wide.execute("SELECT container_id, ST_IsValid(geometry), ST_NumGeometries(geometry) FROM urban.container WHERE kind = 'plaza'").fetchall()
+    plazas = wide.execute("SELECT container_id, ST_IsValid(geometry), ST_NumGeometries(geometry) FROM work.container WHERE kind = 'plaza'").fetchall()
     assert plazas and all(p[1] and p[2] == 1 for p in plazas), plazas
-    assert wide.execute("SELECT count(*) FROM urban.container WHERE container_id = 's0-1'").fetchone()[0] == 1
-    assert build(8, "narrow").execute("SELECT count(*) FROM urban.container WHERE kind = 'plaza'").fetchone()[0] == 0
+    assert wide.execute("SELECT count(*) FROM work.container WHERE container_id = 's0-1'").fetchone()[0] == 1
+    assert build(8, "narrow").execute("SELECT count(*) FROM work.container WHERE kind = 'plaza'").fetchone()[0] == 0
 
 
 def test_strips_fill_the_zones_completely(tmp_path):
@@ -427,8 +427,8 @@ def test_strips_fill_the_zones_completely(tmp_path):
                    edges={"driving": [f"(1, 100, 1, 2, 'residential', 'Main St', NULL, NULL, NULL, 1, {ROAD})"]})
     con = urbanstyle.build(osm, str(tmp_path / "out.duckdb"))
     m = "ST_AsWKB(ST_Transform(geometry, 'EPSG:4326', 'EPSG:32634', always_xy := true))"
-    zones = sum(shapely.from_wkb(bytes(r[0])).area for r in con.execute(f"SELECT {m} FROM urban.zone WHERE container_id = 's0-1'").fetchall())
-    strips = [(r[0], shapely.from_wkb(bytes(r[1]))) for r in con.execute(f"SELECT type, {m} FROM urban.strip WHERE container_id = 's0-1'").fetchall()]
+    zones = sum(shapely.from_wkb(bytes(r[0])).area for r in con.execute(f"SELECT {m} FROM work.zone WHERE container_id = 's0-1'").fetchall())
+    strips = [(r[0], shapely.from_wkb(bytes(r[1]))) for r in con.execute(f"SELECT type, {m} FROM work.strip WHERE container_id = 's0-1'").fetchall()]
     assert abs(sum(s[1].area for s in strips) - zones) < 0.02 * zones, (zones, sum(s[1].area for s in strips))
     assert shapely.union_all([shapely.make_valid(s[1]).buffer(0.01) for s in strips]).area > 0.98 * zones
     assert sum(1 for s in strips if s[0] == "travel") >= 2, [s[0] for s in strips]
@@ -436,7 +436,7 @@ def test_strips_fill_the_zones_completely(tmp_path):
 
 
 def test_turns_at_a_t_junction_come_from_sumo(tmp_path):
-    """A T junction of two-way streets: SUMO's lane-to-lane connections (urban.turn) let the stem turn left and right, and the main
+    """A T junction of two-way streets: SUMO's lane-to-lane connections (work.turn) let the stem turn left and right, and the main
     street go straight on or turn into the stem; no U-turns."""
     import pytest
     sumo = pytest.importorskip("duckosm.sumo")
@@ -463,15 +463,15 @@ def test_turns_at_a_t_junction_come_from_sumo(tmp_path):
                  FROM driving.edges a JOIN driving.edges b ON a.target = b.source AND a.osm_id <> b.osm_id""")
     o.close()
     con = urbanstyle.build(osm, str(tmp_path / "out.duckdb"))
-    got = set(con.execute("""SELECT f.name, t.turn, d.name FROM urban.turn t JOIN urban.element f ON f.source_id = t.from_edge
-                             JOIN urban.element d ON d.source_id = t.to_edge""").fetchall())
+    got = set(con.execute("""SELECT f.name, t.turn, d.name FROM work.turn t JOIN work.element f ON f.source_id = t.from_edge
+                             JOIN work.element d ON d.source_id = t.to_edge""").fetchall())
     assert {("Stem St", "left", "West St"), ("Stem St", "right", "East St"), ("West St", "straight", "East St"),
             ("West St", "right", "Stem St"), ("East St", "left", "Stem St")} <= got, got
     assert all(f != d for f, _, d in got)
 
 
 def test_mapillary_features_load_into_groups(tmp_path):
-    """A fetched Mapillary file loads as urban.observed (only the classes urbanstyle uses, in their groups) and urban.photo."""
+    """A fetched Mapillary file loads as work.observed (only the classes urbanstyle uses, in their groups) and work.photo."""
     import json
     from urbanstyle import mapillary
     feat = lambda i, v: {"id": str(i), "object_value": v, "geometry": {"type": "Point", "coordinates": [7.42, 43.73]},
@@ -483,9 +483,9 @@ def test_mapillary_features_load_into_groups(tmp_path):
     con = duckdb.connect()
     con.execute("INSTALL spatial; LOAD spatial")
     assert mapillary.load(con, str(path)) == (4, 1)
-    assert dict(con.execute("SELECT feature_id, grp FROM urban.observed").fetchall()) == {"1": "no parking", "2": "parking", "3": "lane arrow", "4": "give way"}
+    assert dict(con.execute("SELECT feature_id, grp FROM work.observed").fetchall()) == {"1": "no parking", "2": "parking", "3": "lane arrow", "4": "give way"}
     assert mapillary.group("object--support--pole") is None
-    assert con.execute("SELECT captured::DATE::VARCHAR FROM urban.photo").fetchone()[0] == "2018-10-02"
+    assert con.execute("SELECT captured::DATE::VARCHAR FROM work.photo").fetchone()[0] == "2018-10-02"
 
 
 def test_lane_overrides_from_duckosm_fixes(tmp_path, monkeypatch):

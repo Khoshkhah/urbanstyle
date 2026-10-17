@@ -21,16 +21,16 @@ SQL_ROWS = 200          # rows run_sql gives the agent
 AGENT_TURNS = 12        # model calls for one question
 # the layers the panel searches and filters: name -> (table, id column, the rows of the table it holds)
 LAYERS = {
-    "Street parts": ("urban.part", "part_id", None),
-    "Painted lines": ("urban.mark", "unit_id", None),
-    "Street objects": ("urban.street_object", "id", None),     # (one per real object, every source: as the 3D page draws them)
-    "Buildings": ("urban.element", "source_id", "type = 'building'"),
-    "Car parks": ("urban.lot", "lot_id", None),
-    "Ground": ("urban.ground", "ground_id", None),
-    "Surfaces": ("urban.surface", "surface_id", None),
-    "Blocks": ("urban.block", "block_id", None),
-    "Street spaces": ("urban.unit", "unit_id", None),
-    "Bridge parts": ("urban.bridge_part", "id", None),
+    "Street parts": ("work.part", "part_id", None),
+    "Painted lines": ("work.mark", "unit_id", None),
+    "Street objects": ("work.street_object", "id", None),     # (one per real object, every source: as the 3D page draws them)
+    "Buildings": ("work.element", "source_id", "type = 'building'"),
+    "Car parks": ("work.lot", "lot_id", None),
+    "Ground": ("work.ground", "ground_id", None),
+    "Surfaces": ("work.surface", "surface_id", None),
+    "Blocks": ("work.block", "block_id", None),
+    "Street spaces": ("work.unit", "unit_id", None),
+    "Bridge parts": ("work.bridge_part", "id", None),
 }
 SEARCH_COLS = ("name", "road", "class", "type", "use", "ref", "osm", "kind", "subtype", "axis", "details", "sources", "edge_id", "lane_id")
 KIND_COLS = ("type", "class", "kind", "use")      # a result's label: its type, then its name
@@ -41,7 +41,7 @@ NOT_READ_ONLY = re.compile(r"\b(attach|detach|copy|install|load|pragma|create|in
 
 
 class Area:
-    """One unit's space db, read-only, plus its bridges' parts (urban.bridge_part), behind one lock."""
+    """One unit's space db, read-only, plus its bridges' parts (work.bridge_part), behind one lock."""
 
     def __init__(self, db, bridges=()):
         import duckdb
@@ -52,12 +52,13 @@ class Area:
         # so a server that kept the file open blocked every build, and every build stopped the server (Kaveh, 2026-10-16: "every
         # time I want to check something in the dashboard it's down"). A rebuilt db shows after a restart.
         c.execute(f"ATTACH '{db}' AS unit (READ_ONLY)")
-        c.execute("CREATE SCHEMA urban")
-        for (t,) in c.execute("SELECT table_name FROM information_schema.tables WHERE table_catalog = 'unit' "
-                              "AND table_schema = 'urban'").fetchall():
-            c.execute(f'CREATE TABLE urban."{t}" AS SELECT * FROM unit.urban."{t}"')
+        for sch in ("work", "urban"):       # the build's intermediate tables (the page draws them) and the model
+            c.execute(f"CREATE SCHEMA {sch}")
+            for (t,) in c.execute("SELECT table_name FROM information_schema.tables WHERE table_catalog = 'unit' "
+                                  "AND table_schema = ? AND table_type = 'BASE TABLE'", [sch]).fetchall():
+                c.execute(f'CREATE TABLE {sch}."{t}" AS SELECT * FROM unit.{sch}."{t}"')
         c.execute("DETACH unit")
-        lon = c.execute("SELECT avg(ST_X(ST_Centroid(geometry))) FROM urban.container").fetchone()[0]
+        lon = c.execute("SELECT avg(ST_X(ST_Centroid(geometry))) FROM work.container").fetchone()[0]
         self.epsg = f"EPSG:{32600 + int((lon + 180) // 6) + 1}"
         self.name = os.path.basename(db).split(".")[0]
         self._bridge_parts(bridges, db)
@@ -70,10 +71,10 @@ class Area:
                 pass
 
     def _bridge_parts(self, bridges, db=None):
-        """urban.bridge_part: every part of each bridge's model (the flat outlines bridge2d draws), with its id and fields."""
+        """work.bridge_part: every part of each bridge's model (the flat outlines bridge2d draws), with its id and fields."""
         c = self.con
         # (a lane's duckOSM edge and GMNS lane ids as their own fields, to find and to quote: Kaveh, 2026-10-14)
-        c.execute("""CREATE TABLE urban.bridge_part (id VARCHAR, type VARCHAR, kind VARCHAR, bridge VARCHAR, axis VARCHAR, direction VARCHAR,
+        c.execute("""CREATE TABLE work.bridge_part (id VARCHAR, type VARCHAR, kind VARCHAR, bridge VARCHAR, axis VARCHAR, direction VARCHAR,
                      width_m DOUBLE, osm VARCHAR, edge_id VARCHAR, lane_id VARCHAR, source VARCHAR, method VARCHAR, fields JSON,
                      geometry GEOMETRY)""")
         if not bridges:
@@ -86,24 +87,24 @@ class Area:
                  str(p["osm"]) if p.get("osm") else None, str(p["edge_id"]) if p.get("edge_id") else None, p.get("lane_id"), p.get("source"),
                  p.get("method"), json.dumps(p, default=str), shapely.to_wkb(g))
                 for m in ms for p, key, g in m["flat"]]
-        c.executemany("INSERT INTO urban.bridge_part VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ST_GeomFromWKB(?))", rows)
+        c.executemany("INSERT INTO work.bridge_part VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ST_GeomFromWKB(?))", rows)
 
     def _street_objects(self, db):
-        """urban.street_object: the area's street objects, one per real object, matched from every source (OSM, the city's survey,
+        """work.street_object: the area's street objects, one per real object, matched from every source (OSM, the city's survey,
         Mapillary: dashboard.matched_objects), as the 3D page draws them; id: every source's id ("public-trees-0, n123"), the 3D key.
-        urban.object alone held OSM's (200 trees of 800; Kaveh, 2026-10-13: "street objects doesn't show all trees")."""
+        work.object alone held OSM's (200 trees of 800; Kaveh, 2026-10-13: "street objects doesn't show all trees")."""
         import pyproj
         import shapely
         import shapely.ops
         from .dashboard import matched_objects
         c = self.con
-        c.execute("""CREATE TABLE urban.street_object (id VARCHAR, class VARCHAR, type VARCHAR, level INTEGER, sources VARCHAR,
+        c.execute("""CREATE TABLE work.street_object (id VARCHAR, class VARCHAR, type VARCHAR, level INTEGER, sources VARCHAR,
                      height_m DOUBLE, details VARCHAR, methods VARCHAR, geometry GEOMETRY)""")
         to_ll = pyproj.Transformer.from_crs(self.epsg, "EPSG:4326", always_xy=True).transform
         rows = [(refs, cls, cls.split(".")[-1].replace("_", " "), lv, srcs, h[0] if h else None, details or None, methods,
                  shapely.to_wkb(shapely.ops.transform(to_ll, p)))
                 for oid, cls, lv, grp, p, refs, srcs, h, details, methods, wd in matched_objects(c, self.epsg, db)]
-        c.executemany("INSERT INTO urban.street_object VALUES (?, ?, ?, ?, ?, ?, ?, ?, ST_GeomFromWKB(?))", rows)
+        c.executemany("INSERT INTO work.street_object VALUES (?, ?, ?, ?, ?, ?, ?, ?, ST_GeomFromWKB(?))", rows)
 
     def meta(self):
         """Each layer: its count and its fields, for the filters (a field with 40 values or fewer lists them)."""
@@ -146,81 +147,81 @@ class Area:
                 # (the street and what is in it first, then the land beside it: streets, the bridge above them, their objects; blocks,
                 # their buildings, the ground)
                 out = [kid("streets", "Streets", len(self._streets()), True, "Street spaces", []),
-                       kid("bridge", "Bridge", cnt("urban.bridge_part"), True, "Bridge parts", []),
-                       kid("obj", "Street objects", cnt("urban.street_object"), True, "Street objects", []),
-                       kid("blocks", "Blocks", cnt("urban.block"), True, "Blocks", []),
-                       kid("bld", "Buildings", cnt("urban.element", "WHERE type = 'building'"), True, "Buildings", []),
-                       kid("ground", "Ground", cnt("urban.ground"), True, "Ground", [])]
+                       kid("bridge", "Bridge", cnt("work.bridge_part"), True, "Bridge parts", []),
+                       kid("obj", "Street objects", cnt("work.street_object"), True, "Street objects", []),
+                       kid("blocks", "Blocks", cnt("work.block"), True, "Blocks", []),
+                       kid("bld", "Buildings", cnt("work.element", "WHERE type = 'building'"), True, "Buildings", []),
+                       kid("ground", "Ground", cnt("work.ground"), True, "Ground", [])]
                 return [k for k in out if k["count"]]
             if node == "streets":
                 return [kid(f"street:{name}", name, len(us), True, "Street spaces", ids("Street spaces", "unit_id", us))
                         for name, us in sorted(self._streets().items())]
             if node.startswith("street:"):
                 name = node[7:]
-                secs = q("""SELECT section_id, list(DISTINCT unit_id ORDER BY unit_id) FROM urban.unit WHERE kind = 'subsection' AND unit_id IN
-                            (SELECT unit_id FROM urban.part WHERE road = ?) GROUP BY 1 ORDER BY 1""", [name])
-                ints = q("""SELECT a.intersection_id, (SELECT count(*) FROM urban.part p WHERE p.unit_id = a.intersection_id) FROM
-                            (SELECT DISTINCT a.intersection_id FROM urban.arm a JOIN urban.street s USING (street_id) WHERE s.name = ?) a
-                            WHERE a.intersection_id IN (SELECT unit_id FROM urban.unit) ORDER BY 1""", [name])
+                secs = q("""SELECT section_id, list(DISTINCT unit_id ORDER BY unit_id) FROM work.unit WHERE kind = 'subsection' AND unit_id IN
+                            (SELECT unit_id FROM work.part WHERE road = ?) GROUP BY 1 ORDER BY 1""", [name])
+                ints = q("""SELECT a.intersection_id, (SELECT count(*) FROM work.part p WHERE p.unit_id = a.intersection_id) FROM
+                            (SELECT DISTINCT a.intersection_id FROM work.arm a JOIN work.street s USING (street_id) WHERE s.name = ?) a
+                            WHERE a.intersection_id IN (SELECT unit_id FROM work.unit) ORDER BY 1""", [name])
                 return ([kid(f"sec:{sid}", f"Section {sid}", len(us), True, "Street spaces", ids("Street spaces", "unit_id", us)) for sid, us in secs] +
                         [kid(f"unit:{iid}", f"Intersection {iid}", n, True, "Street parts", ids("Street parts", "unit_id", [iid])) for iid, n in ints])
             if node.startswith("sec:"):
                 return [kid(f"unit:{uid}", f"Subsection {uid}", n, True, "Street parts", ids("Street parts", "unit_id", [uid])) for uid, n in
-                        q("""SELECT u.unit_id, count(p.part_id) FROM urban.unit u LEFT JOIN urban.part p USING (unit_id) WHERE u.section_id = ?
+                        q("""SELECT u.unit_id, count(p.part_id) FROM work.unit u LEFT JOIN work.part p USING (unit_id) WHERE u.section_id = ?
                              GROUP BY 1 ORDER BY 1""", [node[4:]])]
             if node.startswith("unit:"):
                 return [item("Street parts", pid, " ".join(x for x in (t, d) if x)) for pid, t, d in
-                        q("SELECT part_id, type, direction FROM urban.part WHERE unit_id = ? ORDER BY type, part_id", [node[5:]])]
+                        q("SELECT part_id, type, direction FROM work.part WHERE unit_id = ? ORDER BY type, part_id", [node[5:]])]
             if node == "bld":
-                spans = q("SELECT level_min, level_max FROM urban.element WHERE type = 'building'")
+                spans = q("SELECT level_min, level_max FROM work.element WHERE type = 'building'")
                 ls = sorted({l for lo, hi in spans for l in range(lo, hi + 1)})
                 return [kid(f"bldl:{l}", f"Level {l}", sum(lo <= l <= hi for lo, hi in spans), True, "Buildings",
                             [{"field": "level_min", "op": "<=", "value": l}, {"field": "level_max", "op": ">=", "value": l}]) for l in ls]
             if node.startswith("bldl:"):
                 l = int(node[5:])
-                return [item("Buildings", i, lab) for i, lab in q("""SELECT source_id, coalesce(name, use, class, 'building') FROM urban.element
+                return [item("Buildings", i, lab) for i, lab in q("""SELECT source_id, coalesce(name, use, class, 'building') FROM work.element
                         WHERE type = 'building' AND level_min <= ? AND level_max >= ? ORDER BY 2, 1 LIMIT 500""", [l, l])]
             if node == "obj":
                 return [kid(f"objg:{g}", g, n, True, "Street objects", [{"field": "class", "op": "contains", "value": g + "."}]) for g, n in
-                        q("SELECT split_part(class, '.', 1), count(*) FROM urban.street_object GROUP BY 1 ORDER BY 2 DESC")]
+                        q("SELECT split_part(class, '.', 1), count(*) FROM work.street_object GROUP BY 1 ORDER BY 2 DESC")]
             if node.startswith("objg:"):
                 return [kid(f"objc:{c}", c.split(".", 1)[-1].replace("_", " "), n, True, "Street objects", [{"field": "class", "op": "=", "value": c}])
-                        for c, n in q("SELECT class, count(*) FROM urban.street_object WHERE class LIKE ? GROUP BY 1 ORDER BY 2 DESC", [node[5:] + ".%"])]
+                        for c, n in q("SELECT class, count(*) FROM work.street_object WHERE class LIKE ? GROUP BY 1 ORDER BY 2 DESC", [node[5:] + ".%"])]
             if node.startswith("objc:"):
                 return [item("Street objects", i, lab) for i, lab in
-                        q("SELECT id, coalesce(left(details, 60), type) FROM urban.street_object WHERE class = ? ORDER BY 2 LIMIT 1000", [node[5:]])]
+                        q("SELECT id, coalesce(left(details, 60), type) FROM work.street_object WHERE class = ? ORDER BY 2 LIMIT 1000", [node[5:]])]
             # (more than one bridge: each bridge, then its axes; their axes share names, a1, a2, ...: Monaco's 11, 2026-10-13)
-            brs = q("SELECT bridge, count(*) FROM urban.bridge_part GROUP BY 1 ORDER BY 1") if node == "bridge" else []
+            brs = q("SELECT bridge, count(*) FROM work.bridge_part GROUP BY 1 ORDER BY 1") if node == "bridge" else []
             if node == "bridge" and len(brs) > 1:
                 return [kid(f"brb:{b}", b, n, True, "Bridge parts", [{"field": "bridge", "op": "=", "value": b}]) for b, n in brs]
             if node == "bridge" or node.startswith("brb:"):
                 b = node[4:] if node.startswith("brb:") else brs[0][0] if brs else ""
                 return [kid(f"bra:{b}|{a}", f"Axis {a}", n, True, "Bridge parts",
                             [{"field": "bridge", "op": "=", "value": b}, {"field": "axis", "op": "=", "value": a}]) for a, n in
-                        q("SELECT axis, count(*) FROM urban.bridge_part WHERE bridge = ? AND axis IS NOT NULL GROUP BY 1 ORDER BY 1", [b])]
+                        q("SELECT axis, count(*) FROM work.bridge_part WHERE bridge = ? AND axis IS NOT NULL GROUP BY 1 ORDER BY 1", [b])]
             if node.startswith("bra:"):
                 b, a = node[4:].split("|", 1)
                 return [item("Bridge parts", i, t) for i, t in
-                        q("SELECT id, type FROM urban.bridge_part WHERE bridge = ? AND axis = ? ORDER BY 2, 1", [b, a])]
+                        q("SELECT id, type FROM work.bridge_part WHERE bridge = ? AND axis = ? ORDER BY 2, 1", [b, a])]
             if node == "ground":
                 return [kid(f"grt:{t}", t, n, True, "Ground", [{"field": "type", "op": "=", "value": t}]) for t, n in
-                        q("SELECT type, count(*) FROM urban.ground GROUP BY 1 ORDER BY 2 DESC")]
+                        q("SELECT type, count(*) FROM work.ground GROUP BY 1 ORDER BY 2 DESC")]
             if node.startswith("grt:"):
-                return [item("Ground", i, lab) for i, lab in q("SELECT ground_id, coalesce(name, type) FROM urban.ground WHERE type = ? ORDER BY 2, 1 LIMIT 500",
+                return [item("Ground", i, lab) for i, lab in q("SELECT ground_id, coalesce(name, type) FROM work.ground WHERE type = ? ORDER BY 2, 1 LIMIT 500",
                                                                [node[4:]])]
             if node == "blocks":
-                return [item("Blocks", i, i) for (i,) in q("SELECT block_id FROM urban.block ORDER BY 1")]
+                return [item("Blocks", i, i) for (i,) in q("SELECT block_id FROM work.block ORDER BY 1")]
         return []
 
     def _streets(self):
         """Each street's name -> its street spaces: the subsections whose parts carry the name, and the intersections its arms reach."""
         if not hasattr(self, "_st"):
             st = {}
-            for name, u in self.con.execute("""SELECT DISTINCT p.road, p.unit_id FROM urban.part p JOIN urban.unit u USING (unit_id)
+            for name, u in self.con.execute("""SELECT DISTINCT p.road, p.unit_id FROM work.part p JOIN work.unit u USING (unit_id)
                                                WHERE p.road IS NOT NULL AND u.kind = 'subsection'""").fetchall():
                 st.setdefault(name, set()).add(u)
-            for name, u in self.con.execute("""SELECT DISTINCT s.name, a.intersection_id FROM urban.arm a JOIN urban.street s USING (street_id)
-                                               WHERE s.name IS NOT NULL AND a.intersection_id IN (SELECT unit_id FROM urban.unit)""").fetchall():
+            for name, u in self.con.execute("""SELECT DISTINCT s.name, a.intersection_id FROM work.arm a JOIN work.street s USING (street_id)
+                                               WHERE s.name IS NOT NULL AND a.intersection_id IN (SELECT unit_id FROM work.unit)""").fetchall():
                 st.setdefault(name, set()).add(u)
             self._st = {k: sorted(v) for k, v in st.items()}
         return self._st
@@ -233,17 +234,17 @@ class Area:
             ids = [i for i in fid.split(",") if i]
             utm = lambda g: f"ST_Transform({g}, 'EPSG:4326', '{self.epsg}', always_xy := true)"
             with self.lock:
-                objs = [i for (i,) in self.con.execute(f"""SELECT DISTINCT o.id FROM urban.street_object o, urban.unit u WHERE u.unit_id IN
+                objs = [i for (i,) in self.con.execute(f"""SELECT DISTINCT o.id FROM work.street_object o, work.unit u WHERE u.unit_id IN
                         (SELECT unnest(?::VARCHAR[])) AND ST_DWithin({utm('o.geometry')}, {utm('u.geometry')}, 1.0)""", [ids]).fetchall()]
             return {"units": ids, "blds": sorted({b for u in ids for b in self.bounding(u)}), "objs": objs}
         if layer != "Blocks":
             return None
         inside = lambda t, idc, extra="": [i for (i,) in self.con.execute(
-            f"SELECT x.{idc} FROM {t} x, urban.block b WHERE b.block_id = ? {extra} AND ST_Within(ST_Centroid(x.geometry), b.geometry)", [fid]).fetchall()]
+            f"SELECT x.{idc} FROM {t} x, work.block b WHERE b.block_id = ? {extra} AND ST_Within(ST_Centroid(x.geometry), b.geometry)", [fid]).fetchall()]
         with self.lock:
-            return {"unit": None, "parts": inside("urban.part", "part_id"), "ground": inside("urban.ground", "ground_id"),
-                    "blds": inside("urban.element", "source_id", "AND x.type = 'building'"), "lots": inside("urban.lot", "lot_id"),
-                    "objs": inside("urban.street_object", "id")}
+            return {"unit": None, "parts": inside("work.part", "part_id"), "ground": inside("work.ground", "ground_id"),
+                    "blds": inside("work.element", "source_id", "AND x.type = 'building'"), "lots": inside("work.lot", "lot_id"),
+                    "objs": inside("work.street_object", "id")}
 
     def bounding(self, unit_id, reach_m=10.0):
         """The buildings that frame a street space: those seen from it. The shortest line from the space to a building is reach_m or
@@ -254,8 +255,8 @@ class Area:
         if not hasattr(self, "_frame"):
             utm = f"ST_AsWKB(ST_Transform(geometry, 'EPSG:4326', '{self.epsg}', always_xy := true))"
             with self.lock:
-                us = self.con.execute(f"SELECT unit_id, level, {utm} FROM urban.unit").fetchall()
-                bs = self.con.execute(f"SELECT source_id, {utm} FROM urban.element WHERE type = 'building'").fetchall()
+                us = self.con.execute(f"SELECT unit_id, level, {utm} FROM work.unit").fetchall()
+                bs = self.con.execute(f"SELECT source_id, {utm} FROM work.element WHERE type = 'building'").fetchall()
             units = {u: (lv, shapely.from_wkb(bytes(g))) for u, lv, g in us}
             ids, geoms = [b for b, _ in bs], [shapely.from_wkb(bytes(g)) for _, g in bs]
             streets = {lv: shapely.union_all([g for l2, g in units.values() if l2 == lv]) for lv in {l for l, _ in units.values()}}
@@ -294,13 +295,13 @@ class Area:
     def street_levels(self):
         """The levels that hold a street space (the 3D view's levels: a building's floors go with the ground)."""
         with self.lock:
-            return sorted(l for (l,) in self.con.execute("SELECT DISTINCT level FROM urban.unit").fetchall())
+            return sorted(l for (l,) in self.con.execute("SELECT DISTINCT level FROM work.unit").fetchall())
 
     def levels(self):
         """The levels that hold something: a street space, or a building's floor."""
         with self.lock:
-            ls = {l for (l,) in self.con.execute("SELECT DISTINCT level FROM urban.unit").fetchall()}
-            for lo, hi in self.con.execute("SELECT DISTINCT level_min, level_max FROM urban.element WHERE type = 'building'").fetchall():
+            ls = {l for (l,) in self.con.execute("SELECT DISTINCT level FROM work.unit").fetchall()}
+            for lo, hi in self.con.execute("SELECT DISTINCT level_min, level_max FROM work.element WHERE type = 'building'").fetchall():
                 ls |= set(range(lo, hi + 1))
         return sorted(ls)
 
@@ -395,14 +396,14 @@ class Area:
         lines = []
         with self.lock:
             tables = [t for (t,) in self.con.execute("SELECT table_name FROM information_schema.tables WHERE table_catalog = 'memory' "
-                                                     "AND table_schema = 'urban' ORDER BY 1").fetchall()]
+                                                     "AND table_schema = 'work' ORDER BY 1").fetchall()]
             for t in tables:
-                cols = self.con.execute(f'DESCRIBE urban."{t}"').fetchall()
-                n = self.con.execute(f'SELECT count(*) FROM urban."{t}"').fetchone()[0]
-                lines.append(f"urban.{t} ({n} rows): " + ", ".join(f"{c} {ty}" for c, ty, *_ in cols))
+                cols = self.con.execute(f'DESCRIBE work."{t}"').fetchall()
+                n = self.con.execute(f'SELECT count(*) FROM work."{t}"').fetchone()[0]
+                lines.append(f"work.{t} ({n} rows): " + ", ".join(f"{c} {ty}" for c, ty, *_ in cols))
                 for c, ty, *_ in cols:
                     if c in ("type", "class", "kind", "source", "method", "direction", "use", "level") and ty in ("VARCHAR", "INTEGER"):
-                        vals = self.con.execute(f'SELECT DISTINCT CAST("{c}" AS VARCHAR) FROM urban."{t}" WHERE "{c}" IS NOT NULL LIMIT 31').fetchall()
+                        vals = self.con.execute(f'SELECT DISTINCT CAST("{c}" AS VARCHAR) FROM work."{t}" WHERE "{c}" IS NOT NULL LIMIT 31').fetchall()
                         vs = [v for (v,) in vals]
                         lines.append(f"  {c}: " + ", ".join(vs[:30]) + (" ..." if len(vs) > 30 else ""))
         return "\n".join(lines)
@@ -433,10 +434,10 @@ Rules:
 - Answer in short, plain English: the answer first, then the numbers, then the source.
 
 Geometry is in lon / lat (EPSG:4326). For metres use ST_Transform(geometry, 'EPSG:4326', '{epsg}', always_xy := true), for example
-ST_Length(...) or ST_Area(...). level 0 is the ground, 1 a bridge above it. urban.part holds the street's parts (lanes, sidewalks,
-crossings, ...) with width_m; urban.street_object the street objects (signs, lights, trees, ...), one per real object from every
-source (use it to count them; urban.object holds OSM's alone); urban.element the buildings and roads;
-urban.bridge_part the parts of the bridge model.
+ST_Length(...) or ST_Area(...). level 0 is the ground, 1 a bridge above it. work.part holds the street's parts (lanes, sidewalks,
+crossings, ...) with width_m; work.street_object the street objects (signs, lights, trees, ...), one per real object from every
+source (use it to count them; work.object holds OSM's alone); work.element the buildings and roads;
+work.bridge_part the parts of the bridge model.
 
 Tables:
 {schema}"""

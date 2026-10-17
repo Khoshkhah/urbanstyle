@@ -5,7 +5,7 @@
 Mapillary detects objects in its photos and places each on the map from several of them (a "map feature", about 1-5 m off). For the
 area of a built database, the features urbanstyle uses (parking and no-parking signs, give-way and stop signs, traffic lights, street
 lights, bins, benches, painted lane arrows, zebras) and the photo positions are fetched once into `<db>.mapillary.json` next to it, then
-loaded as `urban.observed` and `urban.photo`; `build` loads that file again when it exists. With --osm the parts are rebuilt at once.
+loaded as `work.observed` and `work.photo`; `build` loads that file again when it exists. With --osm the parts are rebuilt at once.
 The token: $MAPILLARY_TOKEN, else ~/.config/mapillary/token (a free client token from mapillary.com/dashboard/developers).
 Mapillary data is CC BY-SA 4.0 (attribution: "© Mapillary contributors"); it stays in the local database, not in this repository.
 """
@@ -27,7 +27,7 @@ for _v in ("object--traffic-light--general-upright", "object--traffic-light--gen
     GROUPS[_v] = "traffic light"
 
 
-# our group -> our object class: the one table every reader of urban.observed uses (parts, the dossier, the dashboard)
+# our group -> our object class: the one table every reader of work.observed uses (parts, the dossier, the dashboard)
 CLASS_OF = {"street light": "furniture.lamp", "traffic light": "furniture.signal", "give way": "furniture.sign", "stop": "furniture.sign",
             "parking": "furniture.sign", "no parking": "furniture.sign", "parking meter": "furniture.parking_meter", "bin": "furniture.waste",
             "bench": "furniture.bench", "zebra": "marking.zebra", "lane arrow": "marking.arrow"}
@@ -95,7 +95,7 @@ def fetch(bbox, path):
 
 
 def load(con, path):
-    """`urban.observed` (feature_id, class, grp, first_seen, last_seen, geometry) and `urban.photo` (photo_id, captured, compass,
+    """`work.observed` (feature_id, class, grp, first_seen, last_seen, geometry) and `work.photo` (photo_id, captured, compass,
     is_pano, sequence, geometry) from the json file."""
     import pandas as pd
     d = json.load(open(path))
@@ -104,11 +104,11 @@ def load(con, path):
                        columns=["feature_id", "class", "grp", "first_seen", "last_seen", "lon", "lat"])
     ph = pd.DataFrame([(p["id"], p.get("captured_at"), p.get("compass_angle"), bool(p.get("is_pano")), p.get("sequence"), *p["geometry"]["coordinates"])
                        for p in d["photos"]], columns=["photo_id", "captured", "compass", "is_pano", "sequence", "lon", "lat"])
-    con.execute("CREATE SCHEMA IF NOT EXISTS urban")
-    con.execute("""CREATE OR REPLACE TABLE urban.observed AS SELECT feature_id::VARCHAR AS feature_id, class, grp, left(first_seen, 19)::TIMESTAMP AS first_seen,
+    con.execute("CREATE SCHEMA IF NOT EXISTS work")
+    con.execute("""CREATE OR REPLACE TABLE work.observed AS SELECT feature_id::VARCHAR AS feature_id, class, grp, left(first_seen, 19)::TIMESTAMP AS first_seen,
                    left(last_seen, 19)::TIMESTAMP AS last_seen, 'mapillary' AS source, ST_Point(lon, lat) AS geometry FROM obs
                    WHERE grp IS NOT NULL""")     # the classes we use (GROUPS)
-    con.execute("""CREATE OR REPLACE TABLE urban.photo AS SELECT photo_id::VARCHAR AS photo_id, make_timestamp(captured::BIGINT * 1000) AS captured,
+    con.execute("""CREATE OR REPLACE TABLE work.photo AS SELECT photo_id::VARCHAR AS photo_id, make_timestamp(captured::BIGINT * 1000) AS captured,
                    compass, is_pano, sequence, ST_Point(lon, lat) AS geometry FROM ph""")
     return int(obs.grp.notna().sum()), len(ph)
 
@@ -117,7 +117,7 @@ def main(db, osm=None):
     import duckdb
     con = duckdb.connect(db)
     con.execute("LOAD spatial")
-    w, s, e, n = con.execute("SELECT min(ST_XMin(geometry)), min(ST_YMin(geometry)), max(ST_XMax(geometry)), max(ST_YMax(geometry)) FROM urban.unit").fetchone()
+    w, s, e, n = con.execute("SELECT min(ST_XMin(geometry)), min(ST_YMin(geometry)), max(ST_XMax(geometry)), max(ST_YMax(geometry)) FROM work.unit").fetchone()
     path = db + ".mapillary.json"
     nf, nph = fetch((w, s, e, n), path)
     print(f"{db}: {nf} Mapillary features, {nph} photos -> {path}")

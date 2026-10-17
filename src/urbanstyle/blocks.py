@@ -8,18 +8,18 @@
     street side     each side of a chain within a face gets one distance from the road line, so the block's edge there runs parallel to
                     the road: OSM's sidewalks + SIDEWALK_BACK_M, else MIN_EDGE_M behind the carriageway; pulled in to the nearest
                     building; a building is drawn whole even where its OSM outline reaches over the line. A city's parcels
-                    (`urban.parcel`) set no edge, pull nothing in and replace no block (Kaveh, 2026-10-16: "don't use the parcels at all")
+                    (`work.parcel`) set no edge, pull nothing in and replace no block (Kaveh, 2026-10-16: "don't use the parcels at all")
     block           what is left of a face: its parts at least MIN_BLOCK_W_M wide, if at least MIN_BLOCK_M2; corners are sharp (each edge line runs on
                     past the junction)
 
-urban.block       block_id, level, area_m2, source, method, geometry. Id `b<level>-w<way><side>`: the smallest OSM way among its bounding
+work.block       block_id, level, area_m2, source, method, geometry. Id `b<level>-w<way><side>`: the smallest OSM way among its bounding
                   roads and the side of that way it lies on (l / r), `.2`, `.3` ... where one way bounds several blocks on that side
-urban.block_side  one row per street side of a block: the way, the distance and what set it (`basis`: sidewalks, carriageway, path
+work.block_side  one row per street side of a block: the way, the distance and what set it (`basis`: sidewalks, carriageway, path
                   width or building), the distance before a building pulled it in, that building
-urban.corridor    each pedestrian way's own ground between the blocks (paths.md rule 3, at rank 1: the way's width, up to the roads'
+work.corridor    each pedestrian way's own ground between the blocks (paths.md rule 3, at rank 1: the way's width, up to the roads'
                   carriageways), id `c0-w<way>`; the road's street never takes it (network.py), the ground's kind `path` is it
-urban.area        the edge of the area (the clip's box), for the checks
-urban.city_block  a city's own block outlines (Vancouver `block-outlines`), only to cross-check ours (check B6), never as input
+work.area        the edge of the area (the clip's box), for the checks
+work.city_block  a city's own block outlines (Vancouver `block-outlines`), only to cross-check ours (check B6), never as input
 """
 import json
 import os
@@ -29,7 +29,7 @@ STREET = ("motorway", "trunk", "primary", "secondary", "tertiary", "unclassified
 
 
 def street_sql(e="e"):
-    """SQL: the road `e` (a urban.element) is a street: a street class, with its links, or a service road that carries a street's name
+    """SQL: the road `e` (a work.element) is a street: a street class, with its links, or a service road that carries a street's name
     and no service=* kind (its subtype). Monaco tags whole quays and boulevard pieces as service, 39 ways, 3.5 km: Boulevard Albert
     1er, Quai Antoine 1er, Avenue des Ligures (Kaveh, 2026-10-16). An unnamed service road, an alley, a driveway, a parking aisle
     stays a service road: a driveway across the pedestrian side, no space of its own (docs/design/street-rules.md)."""
@@ -43,7 +43,7 @@ PATH_W = {"pedestrian": 4.0, "footway": 3.0, "steps": 3.0, "path": 3.0}
 
 
 def path_sql(e="e"):
-    """SQL: the walkway `e` (a urban.element at level 0) is a pedestrian way that cuts the blocks (PATH_W)."""
+    """SQL: the walkway `e` (a work.element at level 0) is a pedestrian way that cuts the blocks (PATH_W)."""
     return (f"({e}.type = 'walkway' AND {e}.level_min = 0 AND coalesce({e}.subtype, '') NOT IN ('crossing', 'sidewalk') AND NOT {street_sql(e)} "
             f"AND {e}.class IN ('pedestrian', 'footway', 'steps', 'path'))")
 
@@ -77,8 +77,8 @@ def _city(con):
 
 
 def city_blocks(con):
-    """urban.city_block: a city's own block outlines, kept only to cross-check ours (B6)."""
-    con.execute("CREATE OR REPLACE TABLE urban.city_block (city_block_id VARCHAR, geometry GEOMETRY)")
+    """work.city_block: a city's own block outlines, kept only to cross-check ours (B6)."""
+    con.execute("CREATE OR REPLACE TABLE work.city_block (city_block_id VARCHAR, geometry GEOMETRY)")
     fc = (_city(con).get("block-outlines") or {}).get("features", [])
     rows = []
     for f in fc:
@@ -86,7 +86,7 @@ def city_blocks(con):
         if f.get("geometry") and pt:        # the city gives its blocks no id: their centre point is one
             rows.append((f"cb{pt['lon']:.5f}{pt['lat']:+.5f}", json.dumps(f["geometry"])))
     if rows:
-        con.executemany("INSERT INTO urban.city_block VALUES (?, ST_MakeValid(ST_GeomFromGeoJSON(?)))", rows)
+        con.executemany("INSERT INTO work.city_block VALUES (?, ST_MakeValid(ST_GeomFromGeoJSON(?)))", rows)
     return len(rows)
 
 
@@ -110,30 +110,30 @@ def build(con, epsg):
         except duckdb.CatalogException:     # a database without that layer
             return []
 
-    con.execute("""CREATE OR REPLACE TABLE urban.block (block_id VARCHAR, level INT, area_m2 DOUBLE, source VARCHAR, method VARCHAR,
+    con.execute("""CREATE OR REPLACE TABLE work.block (block_id VARCHAR, level INT, area_m2 DOUBLE, source VARCHAR, method VARCHAR,
                    geometry GEOMETRY)""")
-    con.execute("""CREATE OR REPLACE TABLE urban.block_side (block_id VARCHAR, way_id BIGINT, name VARCHAR, class VARCHAR,
+    con.execute("""CREATE OR REPLACE TABLE work.block_side (block_id VARCHAR, way_id BIGINT, name VARCHAR, class VARCHAR,
                    distance_m DOUBLE, basis VARCHAR, method VARCHAR, unpulled_m DOUBLE, building VARCHAR)""")
-    con.execute("""CREATE OR REPLACE TABLE urban.corridor (corridor_id VARCHAR, way_id BIGINT, name VARCHAR, class VARCHAR, width_m DOUBLE,
+    con.execute("""CREATE OR REPLACE TABLE work.corridor (corridor_id VARCHAR, way_id BIGINT, name VARCHAR, class VARCHAR, width_m DOUBLE,
                    width_source VARCHAR, width_method VARCHAR, geometry GEOMETRY)""")
     city_blocks(con)
     area = [g(w) for (w,) in rows(f"SELECT {m()} FROM osm_boundary")]
     box = shapely.union_all(area) if area else shapely.box(*shapely.union_all(
-        [g(w) for (w,) in rows(f"SELECT {m()} FROM urban.element")]).bounds)
-    con.execute("CREATE OR REPLACE TABLE urban.area (geometry GEOMETRY)")
-    con.execute(f"INSERT INTO urban.area VALUES (ST_Transform(ST_GeomFromWKB(?), '{epsg}', 'EPSG:4326', always_xy := true))", [shapely.to_wkb(box)])
+        [g(w) for (w,) in rows(f"SELECT {m()} FROM work.element")]).bounds)
+    con.execute("CREATE OR REPLACE TABLE work.area (geometry GEOMETRY)")
+    con.execute(f"INSERT INTO work.area VALUES (ST_Transform(ST_GeomFromWKB(?), '{epsg}', 'EPSG:4326', always_xy := true))", [shapely.to_wkb(box)])
 
     # bounding roads; a deck at level 1 bounds blocks only where nothing at ground level passes under it (works, not a bridge)
-    cand = [(cl, n, oid, g(w), lv) for cl, n, oid, w, lv in rows(f"""SELECT class, name, osm_id, {m()}, level_min FROM urban.element e
+    cand = [(cl, n, oid, g(w), lv) for cl, n, oid, w, lv in rows(f"""SELECT class, name, osm_id, {m()}, level_min FROM work.element e
               WHERE type IN ('road', 'walkway') AND {street_sql('e')} AND level_min IN (0, 1)""")]
     ground_lines = [x for *_, x, lv in cand if lv == 0] + [g(w) for (w,) in rows(
-        f"SELECT {m()} FROM urban.element WHERE type = 'rail' AND level_min = 0")]
+        f"SELECT {m()} FROM work.element WHERE type = 'rail' AND level_min = 0")]
     gtree = shapely.STRtree(ground_lines)
     roads = [(cl, n, oid, x) for cl, n, oid, x, lv in cand if lv == 0 or not any(ground_lines[k].crosses(x) for k in gtree.query(x))]
     # a bounding road's carriageway is street: OSM's lanes (else one each way), each
     # LANE_LEAST_M wide at least, either side of its line
     tags = {o: (ln, ow) for o, ln, ow in rows("""SELECT osm_id, tags['lanes'], tags['oneway'] FROM osm.raw.ways
-                                                 WHERE osm_id IN (SELECT DISTINCT osm_id FROM urban.element WHERE type = 'road')""")}
+                                                 WHERE osm_id IN (SELECT DISTINCT osm_id FROM work.element WHERE type = 'road')""")}
     def lanes_of(oid):
         ln, ow = tags.get(oid, (None, None))
         try:
@@ -144,7 +144,7 @@ def build(con, epsg):
     # the pedestrian ways, one per OSM way, each with its width (paths.md rules 1-2); they cut the faces and the blocks as the
     # roads do. One that runs along a road inside its sidewalk zone (over half its length) is that road's sidewalk, not a path
     paths_ = [(cl, n, oid, g(w), wd) for cl, n, oid, w, wd in rows(f"""SELECT any_value(e.class), any_value(e.name), e.osm_id,
-              {m('ST_Union_Agg(e.geometry)')}, max(try_cast(w.tags['width'] AS DOUBLE)) FROM urban.element e LEFT JOIN osm.raw.ways w USING (osm_id)
+              {m('ST_Union_Agg(e.geometry)')}, max(try_cast(w.tags['width'] AS DOUBLE)) FROM work.element e LEFT JOIN osm.raw.ways w USING (osm_id)
               WHERE {path_sql('e')} AND coalesce(w.tags['area'], 'no') <> 'yes' GROUP BY e.osm_id""")]     # (a pedestrian area is a square, ground.py)
     # (the zone of the roads near each way, from a spatial index: the union's buffer recomputed for every way took Monaco's blocks step
     # from 2 minutes to over 25)
@@ -160,10 +160,10 @@ def build(con, epsg):
         return 0
     # (a road of a street class is never a footway line, whatever its type: a private road duckOSM puts in the walking network only
     # measured its own centre line as its sidewalk, and its street came out 2 m wide; Route de l'Hopital w257071677, Kaveh, 2026-10-14)
-    side = [g(w) for o, w in rows(f"""SELECT osm_id, {m()} FROM urban.element e WHERE type = 'walkway' AND level_min = 0
+    side = [g(w) for o, w in rows(f"""SELECT osm_id, {m()} FROM work.element e WHERE type = 'walkway' AND level_min = 0
                                      AND coalesce(subtype, '') <> 'crossing' AND NOT {street_sql('e')}""") if o not in pw]
     stree = shapely.STRtree(side)
-    bmeta = rows(f"""SELECT {m()}, source, coalesce(CAST(osm_id AS VARCHAR), source_id) FROM urban.element
+    bmeta = rows(f"""SELECT {m()}, source, coalesce(CAST(osm_id AS VARCHAR), source_id) FROM work.element
                      WHERE type = 'building' AND level_min <= 0 AND level_max >= 0""")
     blds = [g(r[0]) for r in bmeta]
     btree = shapely.STRtree(blds)
@@ -424,7 +424,7 @@ def build(con, epsg):
 
     if not out:
         return 0
-    con.executemany(f"""INSERT INTO urban.block VALUES (?, 0, ?, 'urbanstyle', 'derived',
+    con.executemany(f"""INSERT INTO work.block VALUES (?, 0, ?, 'urbanstyle', 'derived',
                         ST_Transform(ST_GeomFromWKB(?), '{epsg}', 'EPSG:4326', always_xy := true))""",
                     [(i, round(p.area, 1), shapely.to_wkb(p)) for i, (p, _, _) in zip(ids, out)])
     side_rows = []
@@ -437,7 +437,7 @@ def build(con, epsg):
                        if oid is not None and x.intersection(ch["geom"].buffer(0.5)).length > 1), default=None)
             side_rows.append((i, way, ch["name"], ch["cl"], d, basis, method, unpulled, bld))
     if side_rows:
-        con.executemany("INSERT INTO urban.block_side VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", side_rows)
+        con.executemany("INSERT INTO work.block_side VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", side_rows)
     # the corridors: each path chain's strip (pcor, the same shape the blocks were cut by), never over a road's carriageway. Id c0-w<way>
     # (the chain's way), `.2` where a way has several
     # (a corridor ends at the street's edge: the roads' street-side strips, the block edge the sidewalk lines set, are taken out, so the
@@ -460,6 +460,6 @@ def build(con, epsg):
         seen_c[cid] = seen_c.get(cid, 0) + 1
         corridors.append((cid + (f".{seen_c[cid]}" if seen_c[cid] > 1 else ""), ch["oid"], ch["name"], ch["cl"], *pw[ch["oid"]], shapely.to_wkb(q)))
     if corridors:
-        con.executemany(f"""INSERT INTO urban.corridor VALUES (?, ?, ?, ?, ?, ?, ?,
+        con.executemany(f"""INSERT INTO work.corridor VALUES (?, ?, ?, ?, ?, ?, ?,
                             ST_Transform(ST_GeomFromWKB(?), '{epsg}', 'EPSG:4326', always_xy := true))""", corridors)
     return len(out)

@@ -35,8 +35,8 @@ junction it reaches. The longest way names the section (`s0-w<way>`); a second c
 **A divided road is one section.** Two runs pair when all of these hold: both are one-way; both carry the same name; they lie side
 by side (the middle of each line projects onto the inside of the other, 2 m or more away from it; each end of each line is within
 30 m of the other line; the lines stay within 30 m over 80 % of their length); no block lies between their lines. The pair is one
-section and one space. Each carriageway keeps its own lanes and kerbs on its own line. The median between them is an island of the
-space. Two one-way streets of one name with buildings between them stay two sections. A boulevard whose carriageways are more than
+section and one unit. Each carriageway keeps its own lanes and kerbs on its own line. The median between them is an island of the
+unit. Two one-way streets of one name with buildings between them stay two sections. A boulevard whose carriageways are more than
 30 m apart stays two sections, and the land between them is green of rank 1.
 
 ## The subsections and the change classes

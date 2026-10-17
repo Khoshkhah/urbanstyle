@@ -68,7 +68,7 @@ A stretch of the street or of a path: a section, an intersection, a path section
 | `nodes` | the junction nodes: the two ends of a section, the cluster of an intersection |
 | `class`, `name`, `oneway`, `length_m` | from the ways |
 | `axis` | a section's line, its ways chained |
-| `geometry` | the stretch's face of the street, cut by the stop lines; its spaces partition it |
+| `geometry` | the stretch's face of the street, cut by the stop lines; its units partition it |
 
 ### `space.plot_piece`
 
@@ -111,7 +111,7 @@ The named street, a group of stretches, and the arms that link an intersection t
 
 ### `space.unit`
 
-One space per subsection, per intersection, per path section and per path intersection.
+One unit per subsection, per intersection, per path section and per path intersection.
 
 | Column | Meaning |
 |---|---|
@@ -121,7 +121,7 @@ One space per subsection, per intersection, per path section and per path inters
 | `parent_id` | its stretch |
 | `axis` | a subsection's line |
 | `width_m`, `oneway`, `length_m`, `left_extra` | the frame's width; one-way; the length; the merge shift |
-| `geometry` | the space, one polygon |
+| `geometry` | the unit, one polygon |
 
 ### `space.junction`
 
@@ -135,13 +135,13 @@ The junction nodes of each intersection.
 
 ### `space.side`
 
-The two sides of a space, and its islands.
+The two sides of a unit, and its islands.
 
 | Column | Meaning |
 |---|---|
 | `side_id` | `<unit>:d`, `<unit>:w`, `<unit>:i<n>` |
 | `kind` | driving, walking, island |
-| `parent_id` | its space |
+| `parent_id` | its unit |
 | `kerb` | the driving side: the line of its kerb, with `kerb_source` and `kerb_method` (OSM's sidewalk line, measured; the lanes' edge, derived) |
 | `geometry` | the side, one polygon |
 
@@ -156,7 +156,7 @@ A piece of a side, of one type.
 | `part_id` | `<unit>#<n>` |
 | `type` | lane, paved, parking, no parking, shoulder, bus lane, cycle lane, junction area, crosswalk, cycle crossing, bridge deck, island, sidewalk, furnishing, frontage, driveway, bus stop, bus zone, tree pit; a path's surface, steps, ramp, handrail, bollard |
 | `parent_id` | its side |
-| `unit_id`, `level` | its space and level |
+| `unit_id`, `level` | its unit and level |
 | `arm`, `direction`, `lane`, `lane_id` | a lane's road, direction (forward, backward, in, out), number from the middle, GMNS id |
 | `width_m`, `length_m`, `width_source`, `width_method` | its width and length, and where the width comes from |
 | `source`, `method`, `ref` | where the part comes from |
@@ -176,7 +176,7 @@ A painted line, an arrow, a zebra or the kerb line, on a part.
 | `mark_id` | `<unit>:<type>:<n>` |
 | `type` | kerb, lane line, centre line, edge line, parking line, stop line, give-way line, zebra, crossing line, arrow, guide line, barrier |
 | `parent_id` | its part |
-| `unit_id`, `level` | its space and level |
+| `unit_id`, `level` | its unit and level |
 | `width_m`, `width_source`, `width_method`, `length_m` | the mark's width and length |
 | `source`, `method`, `ref` | where it comes from |
 | `geometry` | its middle line, or its shape |
@@ -200,7 +200,7 @@ What stands in the street: one row per real thing.
 |---|---|
 | `object_id` | `n<node>`, `w<way>`, or the source's own id |
 | `class` | `group.class` ([Street objects](objects.md)) |
-| `level`, `unit_id`, `part_id` | where it stands; `near_m` when it stands outside every space |
+| `level`, `unit_id`, `part_id` | where it stands; `near_m` when it stands outside every unit |
 | `name`, `attrs` | the name; a short set of attributes |
 | `width_m`, `height_m`, with their sources and methods | its size |
 | `sources`, `refs` | every source that describes it and its id in each |
@@ -235,7 +235,7 @@ A bridge is not in the tables: it is a profile file, `<name>.bridge.json`, with 
 sections, the bands and the piers, each value with its source and method ([Levels, bridges and tunnels](levels.md)). The server adds
 `space.bridge_part` in memory from the model, so the panel can find the model's lanes and paths.
 
-## The unit dossier
+## The pilot dossier
 
-A unit's dossier is its own database with the tables `unit`, `source`, `inventory`, `surface`, `line`, `object`, `match`, `lane`,
+A pilot's dossier is its own database with the tables `unit`, `source`, `inventory`, `surface`, `line`, `object`, `match`, `lane`,
 `movement`, `rule`, `observation` and `check` ([Sources and provenance](sources.md)).

@@ -48,7 +48,7 @@ street's edge, so the walking side of the street runs on past the path's mouth. 
 ## The street
 
 The area less the blocks and the corridors is the street of the level: one polygon per connected piece. The street is cut into the
-spaces of rank 3; the ground item of each space is `g0-street-<space>`.
+units of rank 3; the ground item of each unit is `g0-street-<unit>`.
 
 ## The pieces of a plot (rank 2)
 
@@ -93,7 +93,7 @@ Each ground item is covered exactly by its surfaces (`space.surface`, id `<groun
 
 | Ground item | Surfaces |
 |---|---|
-| street | roadway, pedestrian realm, median (from the parts of its space); verge where OSM maps grass in the street |
+| street | roadway, pedestrian realm, median (from the parts of its unit); verge where OSM maps grass in the street |
 | path | path |
 | building, car park, construction site | its own kind |
 | yard | garden where OSM maps one; yard, the rest |

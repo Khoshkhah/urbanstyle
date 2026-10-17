@@ -8,7 +8,7 @@ gives is urbanstyle's own, with its method, never a default.</p>
 | Source | What | Licence | How it reaches urbanstyle | A `ref` |
 |---|---|---|---|---|
 | `osm` | OpenStreetMap, through duckOSM | ODbL 1.0 | duckOSM's database of the area | `w473723207`, `n12180788022` |
-| `vancouver` | City of Vancouver open data | Open Government Licence - Vancouver | `urbanstyle unit --vancouver`: every dataset within 400 m of a unit | `public-trees-86`, `vb6531793` |
+| `vancouver` | City of Vancouver open data | Open Government Licence - Vancouver | `urbanstyle unit --vancouver`: every dataset within 400 m of a pilot | `public-trees-86`, `vb6531793` |
 | `nvdb` | Trafikverket NVDB (Sweden) | CC0 1.0 | `unit --nvdb` | NVDB's link id |
 | `gtfs` | a transit timetable | the operator's terms | `unit --gtfs` | `gtfs<stop_id>` |
 | `mapillary` | Mapillary's detections in street photos | CC BY-SA 4.0, kept local | `urbanstyle mapillary` | `mly<feature id>` |
@@ -26,7 +26,7 @@ repeats the correction.
 | `mapped` | drawn by mappers, or kept in a register of mapped things | 0.7 | OSM roads, buildings, land use, car parks |
 | `recorded` | in a register whose accuracy the source does not state | 0.7 | a city's trees, hydrants |
 | `measured` | measured by urbanstyle from mapped lines | 0.6 | a kerb from OSM's sidewalk lines, a width kerb to kerb |
-| `derived` | computed by urbanstyle from other data by a rule | 0.5 | the spaces, SUMO's lanes, a yard |
+| `derived` | computed by urbanstyle from other data by a rule | 0.5 | the units, SUMO's lanes, a yard |
 | `observed` | seen in photos | 0.5 | Mapillary's detections |
 | `approximate` | the source itself says its positions are approximate | 0.4 | a city's traffic signals, parking meters |
 | `chosen` | urbanstyle's own value, one for a type | 0.3 | a lane 3.25 m, a crosswalk 3 m, a tree pit 1.5 m |
@@ -61,14 +61,14 @@ A city's own words decide its method: a dataset whose accuracy note says "survey
 
 ## The inventory
 
-For every source, the unit dossier counts what the source holds around the unit and how much of it reaches the tables: for each OSM
+For every source, the pilot dossier counts what the source holds around the pilot and how much of it reaches the tables: for each OSM
 key, Mapillary class or city dataset, the count in the neighbourhood, the count that reaches a table, and whether the code reads the
 value. A gap is a number, not an impression, and it shows up by itself in any new area.
 
-## The unit dossier
+## The pilot dossier
 
-A unit is one intersection or one street section. Its dossier is one self-contained database, in metres in the local UTM zone, with
-everything that can be known about the unit from every source, each row with its source, method and confidence:
+A pilot is one intersection or one street section studied in full. Its dossier is one self-contained database, in metres in the local UTM zone, with
+everything that can be known about the pilot from every source, each row with its source, method and confidence:
 
 | Table | Holds |
 |---|---|
@@ -81,4 +81,4 @@ everything that can be known about the unit from every source, each row with its
 | `observation` | timed data: traffic counts, photos |
 | `check` | each verification against reality |
 
-Each table maps to CityGML 3.0 Transportation, CityFurniture and Vegetation, so a unit can be exported to the format.
+Each table maps to CityGML 3.0 Transportation, CityFurniture and Vegetation, so a pilot can be exported to the format.

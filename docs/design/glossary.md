@@ -8,7 +8,7 @@ The words of the model, the code and the dashboard, in one place. When a word is
 | Term | Meaning |
 |---|---|
 | **level** | an integer floor of the area: 0 the ground, 1 one floor above, -1 one below; -2 to 2 are kept (`level`, `level_min`, `level_max`, `level_src`) |
-| **rank** | a position in the hierarchy: 0 the level, 1 the ground, 2 the stretches, 3 the spaces, 4 the sides, 5 the parts, 6 the marks |
+| **rank** | a position in the hierarchy: 0 the level, 1 the ground, 2 the stretches, 3 the units, 4 the sides, 5 the parts, 6 the marks |
 | **area** | the whole area of a level (`space.area`) |
 | **element** | one centre line or building in `space.element`: a road, walkway, cycleway, rail line or building, with its level, width and OSM id |
 | **ground** | rank 1: every piece of the area is street, plot or path (`space.ground`); a plot's pieces, rank 2, are building, yard, alley, car park, construction site, green, water, rail, square, structure |
@@ -31,25 +31,25 @@ The words of the model, the code and the dashboard, in one place. When a word is
 | **connector** | a road piece under 40 m, or a `_link`, between two junction nodes: it belongs to one intersection with both nodes |
 | **run** | one OSM way with one cross-section, split at the junction nodes |
 | **section** | the road from one junction to the next, its runs chained (`s<level>-w<way>`, a second chain `.2`) |
-| **divided road** | a street whose two one-way carriageways run side by side with a median between them: one section and one space |
+| **divided road** | a street whose two one-way carriageways run side by side with a median between them: one section and one unit |
 | **subsection** | a piece of a section with one cross-section (`<section>/<k>`); its line in `space.subsection`, its area in `space.unit` |
 | **joint** | where two subsections of a section meet |
 | **change** | one row of `space.change` per joint, with its class: turn pocket, merge, fork, parking, island, real, room, unknown, none |
-| **intersection** | the space where the arms of one or more junction nodes meet (`i<level>-<node>`); its own stretch and its own space |
+| **intersection** | the unit where the arms of one or more junction nodes meet (`i<level>-<node>`); its own stretch and its own unit |
 | **arm** | a run whose line ends at a junction node, within 1 m |
 | **core** | how far the other arms' lanes overlap an arm from its node |
 | **stop line** | the line across an arm where its lanes enter the junction: the far edge of OSM's crossing within 15 m of the core, else 3 m past the core |
-| **cut** | a stop line or a joint run square to its road across the street to the blocks' edges; the lines that cut the street into spaces |
-| **space** | the area of a subsection or of an intersection, block edge to block edge (`space.unit`); rank 3 |
-| **side** | the driving side or the walking side of a space (`space.side`, `<space>:d`, `<space>:w`); rank 4 |
+| **cut** | a stop line or a joint run square to its road across the street to the blocks' edges; the lines that cut the street into units |
+| **unit** | the area of a subsection or of an intersection, block edge to block edge (`space.unit`); rank 3 |
+| **side** | the driving side or the walking side of a unit (`space.side`, `<unit>:d`, `<unit>:w`); rank 4 |
 | **frame** | one width for a whole section: its lanes and strips at its widest place (`subsection.width_m`); the driving side's shape in a section |
 | **room** | the least distance from a run's line to the street's edge on one side; it caps the frame's kerb there |
 | **kerb** | the boundary between the roadway and the walking side: the near side of the sidewalk strip where OSM maps the line, else the lanes' outer edge |
 | **kerb evidence** | a city's catch basins, poles and sidewalk lines: they check the kerb and widen an outer lane for parking; they never move a lane |
 | **merge shift** | how far a section's lanes sit off the OSM line because it keeps the through arm's kerb at a merge or fork (`subsection.left_extra`) |
 | **roadway** | the lanes, the paved roadway and the strips; the driving side |
-| **walking side** | the space less the roadway, kerb to block edge |
-| **part** | one piece of one side, of one type (`space.part`, `<space>#<n>`); rank 5 |
+| **walking side** | the unit less the roadway, kerb to block edge |
+| **part** | one piece of one side, of one type (`space.part`, `<unit>#<n>`); rank 5 |
 | **lane** | one traffic lane, OSM's count, centred on the way's line, 3.25 m or OSM's width, narrowed to 2.75 m at least where the room is less |
 | **paved** | the paved rest of the frame where no lane or strip is; a strip under 8 m between two roadways with nothing on it |
 | **strip** | a band beside the lanes that a source gives: parking, no parking, shoulder, bus lane, cycle lane |
@@ -69,7 +69,7 @@ The words of the model, the code and the dashboard, in one place. When a word is
 | **link** | a ramp, stairs, an elevator, an entrance or a connection between two levels at a shared node (`space.link`) |
 | **station**, **entrance** | a rail, subway or tram station and its entrance (`space.station`) |
 | **lot** | an off-street car park (`space.lot`), a piece of its block |
-| **deck**, **tube**, **portal**, **landing** | a road above the ground; the space of a deck or a tunnel; where a tunnel meets the ground; where a deck meets the ground |
+| **deck**, **tube**, **portal**, **landing** | a road above the ground; the area of a deck or a tunnel; where a tunnel meets the ground; where a deck meets the ground |
 
 ## The bridge model
 
@@ -97,16 +97,16 @@ The words of the model, the code and the dashboard, in one place. When a word is
 | **duckOSM** | the project that turns an OSM extract into a DuckDB file: the raw nodes and ways, the driving, walking and cycling networks, the feature layers |
 | **edge** | one directed piece of a road network between two nodes |
 | **GMNS** | duckOSM's export of the network with its lanes, as SUMO makes them |
-| `space.*` | the tables urbanstyle writes: `area`, `element`, `block`, `block_side`, `corridor`, `ground`, `surface`, `junction`, `subsection`, `change`, `street`, `arm`, `unit`, `side`, `part`, `mark`, `turn`, `approach`, `object`, `link`, `station`, `lot` |
+| `unit.*` | the tables urbanstyle writes: `area`, `element`, `block`, `block_side`, `corridor`, `ground`, `surface`, `junction`, `subsection`, `change`, `street`, `arm`, `unit`, `side`, `part`, `mark`, `turn`, `approach`, `object`, `link`, `station`, `lot` |
 | **source**, **method**, **ref** | who gave a value, how they got it, which of their items it is ([Sources and provenance](sources.md)) |
-| **unit dossier** | everything known about one unit from every source, in one database, each row with its source, method and confidence |
-| **inventory** | what each source holds around a unit and how much reaches the tables |
+| **pilot dossier** | everything known about one pilot, an intersection or a street section studied in full, from every source, in one database, each row with its source, method and confidence |
+| **inventory** | what each source holds around a pilot and how much reaches the tables |
 
 ## Terms from the standards
 
 | Term | Where | Meaning |
 |---|---|---|
-| **TrafficSpace**, **AuxiliaryTrafficSpace** | CityGML 3.0 | the space used by traffic; the space beside it |
+| **TrafficSpace**, **AuxiliaryTrafficSpace** | CityGML 3.0 | the area used by traffic; the area beside it |
 | **Section**, **Intersection** | CityGML 3.0 | a stretch of road; the area where roads meet |
 | **CityFurniture** | CityGML 3.0 | immovable street objects |
 | **lane section** | OpenDRIVE | a stretch of road with a fixed set of lanes |

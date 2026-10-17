@@ -240,8 +240,8 @@ const LYTREE=[
     ['car park','Ground','',null,['car park']],['construction site','Ground','',null,['construction site']],
     ['green','Ground','',null,['green']],['water','Ground','',null,['water']],['rail','Ground','',null,['rail']],['square','Ground','',null,['square']],
     ['structure','Ground','the ground under a bridge',null,['structure']]]],
-  ['Rank 3: the spaces',null,'one per subsection (and per intersection, above)',[
-    ['spaces, top down','Spaces (rank 3, top down)','rank 1\'s street cut by the stop lines and the joints: each face one space, corners included (division.py, the new construction)'],
+  ['Rank 3: the units',null,'one per subsection and per intersection (an intersection is one unit)',[
+    ['units, top down','Spaces (rank 3, top down)','rank 1\'s street cut by the stop lines and the joints: each face one space, corners included (division.py, the new construction)'],
     ['Subsections','Subsections','a stretch with one cross-section'],['Subsection axes','Subsection axes','its line'],
     ['Subsection breaks','Subsection breaks','where it starts'],['Cuts','Cuts','where one space ends and the next begins']]],
   ['Rank 4: the sides',null,'the driving side and the walking side of each space: to be built',[]],

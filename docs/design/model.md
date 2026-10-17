@@ -96,17 +96,17 @@ The build makes each rank from the rank above it. The chapters of this design gi
 | rank 4 | rank 5 | the lanes, the strips and the junction area in the driving side; the sidewalk, the furnishing zone, the frontage, the islands and the driveways in the walking side |
 | rank 5 | rank 6 | the kerb line, the lane lines, the stop lines, the crosswalk bars, the arrows and the guide lines |
 
-![The sections and the intersections of a street at Sainte-Dévote, Monaco.](../img/steps/04-sections-intersections.png){ width=100% }
+![The stretches at Broadway and Granville.](../img/vancouver/03-stretches.png){ width=100% }
 
-*The sections (blue) and the intersections (red) of a street.*
+*Rank 2: the sections (blue) and the intersections (orange) of the street.*
 
-![The spaces with their parts.](../img/steps/07-parts.png){ width=100% }
+![The parts at West Broadway and Fir Street.](../img/vancouver/06-parts.png){ width=100% }
 
-*The spaces with their parts: the driving side in grey, the junction areas in orange, the walking side in greens.*
+*Rank 5: the parts of each space, the driving side in dark grey, the walking side in sand.*
 
-![The marks on the parts.](../img/steps/08-marks.png){ width=100% }
+![The marks at West Broadway and Fir Street.](../img/vancouver/07-marks.png){ width=100% }
 
-*The marks on the parts: lines, zebras, arrows, guide lines, the kerb.*
+*Rank 6: the marks on the parts: lines, arrows, guide lines.*
 
 ## The levels
 
@@ -125,9 +125,9 @@ outside the kept range is clamped to the nearest kept level. A building spans it
 - The blocks come from the street lines of level 0 and the level-1 roads on the ground. A tunnel never bounds a block. The ground is
   level 0 only.
 
-![The levels in 3D with level 0 faded.](../img/steps/12-levels.png){ width=100% }
+![The Granville Bridge in 3D.](../img/vancouver/08-levels.png){ width=100% }
 
-*The levels in 3D with level 0 faded: a tunnel's lanes under the ground, a deck above it, a bridge model at its profile's heights.*
+*The levels in 3D: the Granville Bridge and its ramps at level 1 above the street at level 0, each part at its height.*
 
 ## The words
 

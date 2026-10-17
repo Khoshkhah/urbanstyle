@@ -36,9 +36,9 @@ sidewalk zone is the carriageway, OSM's lanes of 3 m each, widened by 8 m on eac
 Each street side of a block keeps its distance from the road line and what set it: sidewalks, carriageway, path width or building
 (the plot's `sides`).
 
-![The blocks at Sainte-Dévote.](../img/steps/03-blocks.png){ width=100% }
+![Rank 1 at Broadway and Granville, Vancouver.](../img/vancouver/01-ground.png){ width=100% }
 
-*The blocks: the land between the streets. The street is the area less the blocks.*
+*Rank 1, the ground: the street (blue), the plots (brown) and the paths (tan) partition the area.*
 
 ## The corridors
 
@@ -71,9 +71,9 @@ All outlines are noded and polygonized as one planar partition. Each face goes t
 point. A face that no kind holds joins the neighbouring face it shares the most edge with. The faces of each item are merged. A
 square and a green are only what a source maps as one. Each piece names its block.
 
-![The ground at Sainte-Dévote.](../img/steps/10-ground.png){ width=100% }
+![The pieces of the plots at Broadway and Granville.](../img/vancouver/02-plot-pieces.png){ width=100% }
 
-*The ground: every piece of the area at level 0 is street, plot or path; inside a plot, its pieces.*
+*Rank 2 in the plots: the buildings (grey), the yards, the alleys, the car parks (blue), the construction sites (yellow) and the green.*
 
 ## What lies inside a block
 

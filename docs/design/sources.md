@@ -9,7 +9,6 @@ gives is urbanstyle's own, with its method, never a default.</p>
 |---|---|---|---|---|
 | `osm` | OpenStreetMap, through duckOSM | ODbL 1.0 | duckOSM's database of the area | `w473723207`, `n12180788022` |
 | `vancouver` | City of Vancouver open data | Open Government Licence - Vancouver | `urbanstyle unit --vancouver`: every dataset within 400 m of a pilot | `public-trees-86`, `vb6531793` |
-| `nvdb` | Trafikverket NVDB (Sweden) | CC0 1.0 | `unit --nvdb` | NVDB's link id |
 | `gtfs` | a transit timetable | the operator's terms | `unit --gtfs` | `gtfs<stop_id>` |
 | `mapillary` | Mapillary's detections in street photos | CC BY-SA 4.0, kept local | `urbanstyle mapillary` | `mly<feature id>` |
 | `sumo` | SUMO's netconvert, run on duckOSM's network | EPL 2.0 (the tool) | `sumo.py` | |
@@ -39,8 +38,7 @@ A city's own words decide its method: a dataset whose accuracy note says "survey
 
 ## Which source wins
 
-- **An object seen by several sources** takes its position and height from the best one: a city's survey, then the national road
-  register, then OSM, then Mapillary. Every source's id stays with the object.
+- **An object seen by several sources** takes its position and height from the best one: a city's survey, then OSM, then Mapillary. Every source's id stays with the object.
 - **The ground** takes its kinds in a fixed order of precedence ([Rank 1](ground.md)). The first to claim a piece keeps it.
 - **A part's width or an object's size:** a source's measurement where there is one, else urbanstyle's chosen value.
 - **A building's height:** OSM's `height`, else a city's LiDAR where its roof parts still cover the footprint, else OSM's floors times
@@ -79,7 +77,7 @@ everything that can be known about the pilot from every source, each row with it
 | `surface`, `line`, `object`, `match` | the ground by use, the kerbs and markings, the objects, the real objects behind them |
 | `lane`, `movement` | each lane and each move from lane to lane |
 | `rule` | regulations and where they apply: parking times and fees, loading zones, speed |
-| `observation` | timed data: traffic counts, photos |
+| `observation` | timed data: photos, condition ratings |
 | `check` | each verification against reality |
 
 Each table maps to CityGML 3.0 Transportation, CityFurniture and Vegetation, so a pilot can be exported to the format.

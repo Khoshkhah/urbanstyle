@@ -53,7 +53,7 @@ A node with no matching rule is counted in the inventory and not kept. A city's 
 Several sources describe the same thing: a city's surveyed pole, OSM's node and Mapillary's detections of one street light. Objects
 of one class within 10 m of each other join into one match, nearest first, at most one per source. Two Mapillary detections seen in
 periods that do not overlap are one object detected again. The match takes its position and height from the best source, in this
-order: a city's survey, the national road register, OSM, Mapillary. Every source's id stays in the match.
+order: a city's survey, OSM, Mapillary. Every source's id stays in the match.
 
 Mapillary validates and builds nothing: its positions are too rough to place a thing. A detection confirms an object of a source with
 a real position; what Mapillary alone sees is a check row, not an object. The page hides the detections until they are ticked.

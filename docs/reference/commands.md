@@ -148,7 +148,7 @@ urbanstyle mapillary data/monaco.duckdb --osm ../duckOSM/monaco.duckdb
 `unit` clips the area around one point, builds it and writes the dossier of the unit nearest that point.
 
 ```text
-urbanstyle unit name --at LON LAT --osm OSM [--nvdb NVDB] [--flows FLOWS] [--city CITY] [--no-mapillary] [--vancouver] [--gtfs GTFS]
+urbanstyle unit name --at LON LAT --osm OSM [--city CITY] [--no-mapillary] [--vancouver] [--gtfs GTFS]
 ```
 
 | Argument or option | Meaning | Default |
@@ -156,8 +156,6 @@ urbanstyle unit name --at LON LAT --osm OSM [--nvdb NVDB] [--flows FLOWS] [--cit
 | `name` | The unit name. All files go to `data/units/<name>.*`. | required |
 | `--at LON LAT` | A point of the junction or the street. | required |
 | `--osm` | The duckOSM `.duckdb`. If it has no `features` schema, `unit` makes a copy with features in `data/`. | required |
-| `--nvdb` | A `.duckdb` with NVDB's `nvdb.road_network` (from fetching-sweden-data). It adds NVDB's carriageway width and speed limit to each road. | none |
-| `--flows` | A glob of hourly flow Parquet files with the columns `edge_id`, `date`, `hour`, `flow`. | none |
 | `--city` | The city name, written to the `unit` table. | `""` |
 | `--no-mapillary` | Do not get Mapillary features and photos. | off |
 | `--vancouver` | Add the City of Vancouver open data (trees, lamps, meters and more). | off |

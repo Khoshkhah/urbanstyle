@@ -345,7 +345,7 @@ Key: `part_id`. Provenance: `source`, `method`, `ref`, `width_source`, `width_me
 | `position_ref` | VARCHAR | The items that set the edge, for example the OSM sidewalk way and the block. |
 | `road` | VARCHAR | The name of the road that the part belongs to. |
 | `road_class` | VARCHAR | That road's OSM `highway` class. |
-| `speed` | VARCHAR | That road's speed limit, with its source in parentheses. Level 1 only in this file. |
+| `speed` | VARCHAR | Always empty: the model's `urban.part.speed` comes from duckOSM's edges. |
 | `surface` | VARCHAR | That road's surface, with its source in parentheses. Level 1 only in this file. |
 | `lit` | VARCHAR | That road's OSM `lit` value, or `not in OSM`. Level 1 only in this file. |
 | `road_lanes` | VARCHAR | That road's lane count. |

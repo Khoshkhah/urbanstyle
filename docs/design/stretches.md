@@ -89,13 +89,13 @@ A named street (`k0-<way>`, `urban.street`) is a group of stretches: the section
 intersections they arrive at. An unnamed road is its own named street. It is not a rank: an intersection belongs to every named
 street that arrives at it.
 
-![The sections and the intersections at Sainte-Dévote.](../img/steps/04-sections-intersections.png){ width=100% }
+![The stretches at Broadway and Granville.](../img/vancouver/03-stretches.png){ width=100% }
 
-*The sections (blue) and the intersections (red).*
+*Rank 2 in the street: the sections (blue) and the intersections (orange), each cut by the stop lines; the path sections and path intersections in the paths.*
 
-![The subsections at Sainte-Dévote.](../img/steps/05-subsections.png){ width=100% }
+![The spaces with their axes.](../img/vancouver/04-spaces.png){ width=100% }
 
-*The subsections of the sections, with the breaks where the cross-section changes and the axis of each.*
+*Rank 3: the spaces, each subsection with its axis (red), along which `s` is measured.*
 
 ## Writes
 

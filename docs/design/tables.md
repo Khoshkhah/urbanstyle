@@ -415,7 +415,7 @@ One row is one piece of a side, of one kind: a lane, a sidewalk, a crosswalk and
 | `position_ref` | VARCHAR | which item |
 | `road` | VARCHAR | the name of the road a lane belongs to |
 | `road_class` | VARCHAR | its OSM class |
-| `speed` | VARCHAR | its speed limit |
+| `speed` | DOUBLE | its speed limit in km/h, from duckOSM's edges of the road |
 | `surface` | VARCHAR | its surface |
 | `lit` | VARCHAR | lit or not |
 | `road_lanes` | VARCHAR | its lanes as OSM maps them |

@@ -21,7 +21,7 @@ bikeways and survey. SUMO's lane-to-lane moves through each intersection.
 | `island` | a piece of the walking side between two roadways that touches no block; a roundabout's central island | the rule of rank 4 |
 | `bridge deck` | the band of a way that a bridge profile models | the bridge model draws its lanes |
 
-Each part of a road also carries what is known of its road from OSM: `road`, `road_class`, `speed`, `surface`, `lit`, `road_lanes`,
+Each part of a road also carries what is known of its road from OSM: `road`, `road_class`, `speed` (from duckOSM), `surface`, `lit`, `road_lanes`,
 `oneway`. A value OSM lacks is urbanstyle's chosen one and says so.
 
 ## The parts of the walking side
@@ -62,9 +62,9 @@ Every part has `width_m` and `length_m` with `width_source` and `width_method`: 
 chosen` or `narrowed`; a strip's `urbanstyle, derived`; a crosswalk's, a tree pit's or a driveway's `urbanstyle, chosen` unless OSM
 maps a width; any other part's `urbanstyle, derived` from its shape. Parts lose what is thinner than 4 cm.
 
-![The parts at Sainte-Dévote.](../img/steps/07-parts.png){ width=100% }
+![The parts at West Broadway and Fir Street.](../img/vancouver/06-parts.png){ width=100% }
 
-*The parts: the driving side in grey, the junction areas in orange, the walking side in greens.*
+*Rank 5: the lanes and the junction area (dark grey), the parking strips (blue grey), the islands (green), the sidewalk bands (sand) and the path parts (tan).*
 
 ## The marks
 
@@ -84,9 +84,9 @@ maps a width; any other part's `urbanstyle, derived` from its shape. Parts lose 
 A lane line carries the lane count's source. No source maps a painted line: a line is `derived` from the count where OSM maps the
 count, and urbanstyle's own, `chosen`, where the count is chosen.
 
-![The marks at Sainte-Dévote.](../img/steps/08-marks.png){ width=100% }
+![The marks at West Broadway and Fir Street.](../img/vancouver/07-marks.png){ width=100% }
 
-*The marks: lane, centre, stop and give-way lines, the zebras, the arrows and the guide lines through the junctions.*
+*Rank 6: the lane lines, the centre line (yellow), the stop lines, the crossing lines, the arrows and the guide lines through the junction.*
 
 ## The turns
 

@@ -26,10 +26,9 @@ section's start. Every position inside the space is `(s, t)` on this axis: `s` a
 neighbours in its section, or the intersection at the section's end. An intersection's predecessors and successors are the
 subsections at its arms: the arms that come in and the arms that go out. A two-way arm is both.
 
-![The cuts at Sainte-Dévote.](../img/steps/06-cuts.png){ width=100% }
+![The sides of the spaces.](../img/vancouver/05-sides.png){ width=100% }
 
-*The cuts, square across each arm at its stop line and at the joints: each piece of the street belongs to one section or one
-intersection.*
+*Rank 4: the driving side (grey) and the walking side (light) of each space, split at the kerb.*
 
 **The paths.** A corridor is cut at its path junctions into one space per path section and one per path intersection; a square is
 one space. A path's space has one side, the walking side, and no kerb.

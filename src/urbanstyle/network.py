@@ -543,6 +543,8 @@ def build(con, epsg, bridges=()):
                      or all(o in rb_ways for r_ in rs for o in r_["oids"])):
             for r_ in rs:
                 r_["connector"] = True
+                # (a short piece stays a connector only where its two stop lines meet: checked at step 5, once the cores are known)
+                r_["conn_by_length"] = not (all((x["cl"] or "").endswith("_link") for x in rs) or all(o in rb_ways for x in rs for o in x["oids"]))
     tick("the connectors (rank 2)")
     # ---- 6b. the change classes (docs/design/sections.md, section 3): every joint of a section, where OSM's tags change, is classified
     # before it touches the frame. The lanes here (the classes read the lane counts, `turn:lanes` and the junction nodes); the strips
@@ -903,6 +905,7 @@ def build(con, epsg, bridges=()):
                                             AND subtype = 'crossing'""")]
     rtree = shapely.STRtree([r["line"] for r in runs]) if runs else None
     jshapes = []
+    reach_at = {}       # (node index, id of the run) -> how far the node's junction reaches along that run: its core + JUNC_ARM_M
     arm_cuts = []       # (point, heading) where each arm's roadway is cut at its stop line: the sidewalk is cut on the same line
     for ni, n in enumerate(jn):
         # the arms: the runs that end at the node (a run that only passes near it shares no node with it: not an arm)
@@ -933,24 +936,57 @@ def build(con, epsg, bridges=()):
                 if lo <= core + 0.5:
                     core = max(core, hi)
             reach = core + JUNC_ARM_M
+            xdir = None         # the crosswalk that sets the stop line: its direction across the arm
             for x in crossings:
                 hit = x.intersection(r["cw"])
                 if hit.is_empty:
                     continue
                 ss = [st(shapely.Point(c)) for q in shapely.get_parts(hit) if q.geom_type == "LineString" for c in q.coords]
-                if ss and core - CROSS_HALF_M <= min(ss) <= core + CROSS_NEAR_M:
-                    reach = max(reach, max(ss) + CROSS_HALF_M)
+                if ss and core - CROSS_HALF_M <= min(ss) <= core + CROSS_NEAR_M and max(ss) + CROSS_HALF_M >= reach:
+                    reach = max(ss) + CROSS_HALF_M
+                    seg = max((q for q in shapely.get_parts(hit) if q.geom_type == "LineString"), key=lambda q: q.length, default=None)
+                    if seg is not None and seg.length > 0.5:
+                        xdir = unit_v((seg.coords[-1][0] - seg.coords[0][0], seg.coords[-1][1] - seg.coords[0][1]))
+            reach_at[(ni, id(r))] = reach      # (before the crosswalk's run-on: the core's own stop line, for the connector rule)
             reach = min(reach, ln.length)
             # (the arm's frame from the node to its stop line, cut square across the arm there: a circle round the node gave every
             # junction the wide road's radius, so a side street's lanes stopped half a road short of the kerb line, Kaveh 2026-10-15)
             a_, b_ = (s0, s0 + reach) if away > 0 else (s0 - reach, s0)
-            out.append(band(substring(ln, a_, b_), r["fkr"] + r["mshift_f"], r["fkl"] + r["mshift_f"]))
             pc = ln.interpolate(b_ if away > 0 else a_)
             qa, qb = ln.interpolate(max((b_ if away > 0 else a_) - 1, 0)), ln.interpolate(min((b_ if away > 0 else a_) + 1, ln.length))
-            arm_cuts.append(((pc.x, pc.y), unit_v((qb.x - qa.x, qb.y - qa.y))))
+            hd = unit_v((qb.x - qa.x, qb.y - qa.y))
+            # the stop line: along the crosswalk that sets it (its own angle, 1.5 m beyond its far edge), else square to the road
+            # (docs/design/stretches.md, "The geometry of a stretch"; Kaveh, 2026-10-17: "there are footways and crosswalk there!")
+            cut = xdir if xdir is not None and abs(xdir[0] * hd[0] + xdir[1] * hd[1]) > 0.09 and abs(xdir[0] * hd[0] + xdir[1] * hd[1]) < 0.87 else None
+            if cut is None:
+                out.append(band(substring(ln, a_, b_), r["fkr"] + r["mshift_f"], r["fkl"] + r["mshift_f"]))
+                arm_cuts.append(((pc.x, pc.y), hd, None))
+            else:
+                # the arm's roadway run on past the stop line, then cut along it on the node's side (a half-plane)
+                ext_ = (s0, min(s0 + reach + 25.0, ln.length)) if away > 0 else (max(s0 - reach - 25.0, 0.0), s0)
+                long_ = band(substring(ln, *ext_), r["fkr"] + r["mshift_f"], r["fkl"] + r["mshift_f"])
+                nx, ny = -cut[1], cut[0]
+                if (n.x - pc.x) * nx + (n.y - pc.y) * ny < 0:
+                    nx, ny = -nx, -ny
+                L = 200.0
+                half = shapely.Polygon([(pc.x - cut[0] * L, pc.y - cut[1] * L), (pc.x + cut[0] * L, pc.y + cut[1] * L),
+                                        (pc.x + cut[0] * L + nx * L, pc.y + cut[1] * L + ny * L), (pc.x - cut[0] * L + nx * L, pc.y - cut[1] * L + ny * L)])
+                out.append(poly(long_.intersection(half)))
+                arm_cuts.append(((pc.x, pc.y), hd, cut))
         out += fills.get(ni, [])        # (the merging arm's band beside the through arm's: step 6c')
         if out:
             jshapes.append((n, poly(shapely.union_all(out)), []))
+    # the tighter connector rule (docs/design/stretches.md, "The connectors"; Kaveh, 2026-10-16): a short piece between two junction
+    # nodes is a connector only where the two nodes' stop lines on it meet or cross (their cores overlap), so no section fits between
+    # them; else it stays a short section between two intersections (Granville at West 6th: five nodes chained by short pieces)
+    for r in runs:
+        if r.get("connector") and r.get("conn_by_length"):
+            ln = r["line"]
+            ends = [min(range(len(jn)), key=lambda k: jn[k].distance(shapely.Point(ln.coords[e]))) for e in (0, -1)] if jn else []
+            if len(ends) == 2 and all(jn[k].distance(shapely.Point(ln.coords[e])) < 1.0 for k, e in zip(ends, (0, -1))):
+                ra, rb_ = reach_at.get((ends[0], id(r)), 0.0), reach_at.get((ends[1], id(r)), 0.0)
+                if ra + rb_ < ln.length:
+                    r["connector"] = False
     # the connectors' whole carriageways are in the intersection too (sections.md rule 4); they are no sections
     jshapes += [(None, r["cw"], r["oids"]) for r in runs if r.get("connector")]
     runs = [r for r in runs if not r.get("connector")]
@@ -1102,6 +1138,9 @@ def build(con, epsg, bridges=()):
         o_tree = shapely.STRtree(objs) if objs else None
         objs += [bl for bl, _ in barriers]      # (a barrier along the strip: it is an island, the bridge's guardrail continued, Kaveh 2026-10-16)
         o_tree = shapely.STRtree(objs) if objs else None
+        def on_barrier(q):  # a barrier runs along q (over 2 m of it)
+            return any(bl.intersection(q.buffer(0.2)).length > 2.0 for bl, _ in barriers)
+
         def bare(q):        # nothing mapped on q: no kerb, object, path or barrier
             return o_tree is None or not any(objs[i].intersection(q.buffer(0.2)).length > 2.0 or (objs[i].geom_type == "Point" and q.buffer(0.2).contains(objs[i]))
                                              for i in o_tree.query(q.buffer(0.2)))
@@ -1116,9 +1155,12 @@ def build(con, epsg, bridges=()):
             # (the strip holds something: an island. It begins where the strip is JGAP_M wide: a thinner tail of it with nothing on it is
             # paved roadway. Two frames that diverge slowly left a wedge 20 m long inside the junction, i0-245673105#9; Kaveh 2026-10-16)
             # (mitre joins: the tail is cut off square; round joins left a 1 m arc on the island's edge at the cut)
+            # An island is at least JGAP_M wide: a thinner piece is paved whatever OSM maps on it (a sidewalk line or a kerb point in a 1 m
+            # strip between two roadways means the roadways' edges are a little off), unless a barrier runs along it (the bridge's median
+            # guardrail). The spurs on Granville north of West 6th, s0-w341691651/1#6 (1.1 m wide); Kaveh 2026-10-17: "you didn't fix it yet"
             core_ = q.buffer(-JGAP_M / 2, join_style="mitre").buffer(JGAP_M / 2, join_style="mitre")
             for sp in shapely.get_parts(poly(q.difference(core_))):
-                if sp.area > 0.5 and along_edge(sp) < ISLAND_TOUCH_M and bare(sp):
+                if sp.area > 0.5 and along_edge(sp) < ISLAND_TOUCH_M and not on_barrier(sp):
                     gaps.append(sp)
     # ---- a divided road: the two one-way carriageways of one street between the same two junctions are one section, one space
     # (docs/design/dual-carriageways.md; Kaveh, 2026-10-16: the median between two sections went left and right piece by piece, a zig-zag
@@ -1163,8 +1205,8 @@ def build(con, epsg, bridges=()):
     # across the street to the blocks; each piece goes to the space whose roadway it touches most (Voronoi cells of the kerbs' points
     # gave the spaces jagged edges, Kaveh 2026-10-15)
     cutlines = []
-    for pc, hd in arm_cuts + [(p_, n_) for r in runs for p_, n_, _, _ in r["cuts"]]:      # (hd: along the road; the cut is square to it)
-        t_ = (-hd[1], hd[0])
+    for pc, hd, along in arm_cuts + [(p_, n_, None) for r in runs for p_, n_, _, _ in r["cuts"]]:      # (hd: along the road; the cut is square to it, or along a crosswalk)
+        t_ = along if along is not None else (-hd[1], hd[0])
         cutlines.append(shapely.LineString([(pc[0] - t_[0] * CUT_M, pc[1] - t_[1] * CUT_M), (pc[0] + t_[0] * CUT_M, pc[1] + t_[1] * CUT_M)]))
     share = {}
     if owners and not realm.is_empty:

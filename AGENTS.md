@@ -33,8 +33,8 @@ starting work). The agreed model of sections, intersections and the frame, which
 - `src/urbanstyle/network.py` (after `blocks.build`): the street at level 0 from the road network, data first (`docs/notes/pipeline.md`
   steps 2-7, rules in `docs/notes/street-rules.md`, junctions in `docs/notes/junctions.md`): lanes from OSM centred on each road's OSM
   line; parking and bike lanes only from OSM or a city's meters and bikeways; the kerb is the lanes' outer edge (never guessed); junctions
-  only at nodes of 3+ road ends where a road ends, merges, forks or two streams cross, each arm cut square at its stop line; a road under 40 m or a
-  `_link` between two junction nodes is a connector inside the intersection (`docs/notes/sections.md` rules 1-4, 2026-10-16); sections along each road between junctions, the OSM ways chained
+  only at nodes of 3+ road ends where a road ends, merges, forks or two streams cross, each arm cut square at its stop line; a road between two
+  junction nodes whose stop lines meet on it, a `_link` there or a roundabout's ring is a connector inside the intersection (`docs/notes/sections.md` rules 1-4, 2026-10-16); sections along each road between junctions, the OSM ways chained
   (`s0-w<way>[.n]/<k>`: the longest way names it, `/k` its subsections where the cross-section changes), one frame per section (the widest
   cross-section, no line moved, no kerb taper; every tag change classified in `urban.change`: `docs/notes/sections.md` rules 5-8 and section 3, 2026-10-16; at a merge or fork the wider
   section keeps the through arm's kerb, `subsection.left_extra`; an island begins where the strip between two frames is 2 m wide: the rules

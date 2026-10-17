@@ -66,8 +66,7 @@ the line's curve where OSM maps it, and a 4 m fillet only where it does not.
 the roadways of the arms to their stop lines, with the connectors' carriageways, joined, with the corners at the kerb.
 
 **The walking side** is the rest of the space, with the corners. A piece of the walking side that touches no block is an island of
-that space. An island begins where the strip between two frames is 2 m wide; a thinner tail with nothing on it is paved roadway, cut
-off square. Inside an intersection a paved strip between roadways is junction area.
+that space. An island is at least 2 m wide: a piece of it thinner than 2 m is paved roadway, cut off square, whatever OSM maps on it (a sidewalk line or a kerb point there means the roadway's edges are a little off), unless a barrier runs along it. Inside an intersection a paved strip between roadways is junction area.
 
 Every space, with its parts and marks, is cut from the street of rank 1: the blocks and the corridors are taken out. So a space never
 reaches into a block.

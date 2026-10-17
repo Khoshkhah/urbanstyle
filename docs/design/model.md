@@ -161,7 +161,7 @@ SUMO or the street use for the same thing.
 | the area of a subsection or of a sub-intersection, block edge to block edge | **space** | street space, right-of-way |
 | a named road with its intersections | **named street** | street |
 | one OSM way with one cross-section, between two junction nodes | **run** | edge |
-| a road under 40 m or a `_link` between two junction nodes, inside an intersection | **connector** | internal edge |
+| a road between two junction nodes whose stop lines meet on it, a `_link` there, or a roundabout's ring: inside an intersection | **connector** | internal edge |
 | a run that ends at a junction node | **arm** | approach, leg |
 | how far the other arms' lanes overlap an arm from its node | **core** | |
 | the line across an arm where its roadway ends and the intersection begins | **stop line** | |

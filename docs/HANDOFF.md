@@ -49,6 +49,14 @@ first, then this note, then `docs/notes/street-rules.md` and `docs/notes/section
     sectors; its checks equal the same cut built with the code before the change (A3 21 in both). Rond-Point du Portier's south way
     w353889272 is not tagged roundabout in OSM: that piece is a section. The server's focus (3D) still finds spaces in work.unit, so a
     sub-intersection has a card but no focus.
+  - The tighter connector rule (2026-10-17, agreed 2026-10-16): a short road between two junction nodes is a connector only where
+    the two nodes' stop lines on it meet or cross (reach = core + JUNC_ARM_M at each end, network.reach_at); a `_link` and a
+    roundabout ring stay connectors. Test place: Granville at West 6th (i0-432423756, five nodes chained by short pieces).
+  - Islands at least 2 m wide (2026-10-17, Kaveh's 3D picture of a spur): a piece of a strip between roadways thinner than JGAP_M is
+    paved whatever OSM maps on it, unless a barrier runs along it (network.on_barrier). The spurs were 1.1 m strips on Granville
+    north of West 6th (s0-w341691651/1#6, #7, i0-432423756#12) kept as islands because a sidewalk line and kerb points lie on them.
+  - A build `--from division` starts from OUT.before-division, which only a full build or (since 2026-10-17) `--from blocks` writes;
+    Vancouver's copy was from 2026-10-15 and a `--from division` build lost the blocks and the paths: use `--from blocks`.
   - No traffic in urbanstyle (Kaveh): `unit --nvdb` and `--flows` removed, the city's traffic counts and the dossier's speed rule
     removed; NVDB is out of the sources. The part's `speed` comes from duckOSM's edges (`maxspeed_kmh`), never from raw tags and with
     no chosen default. Open (duckOSM work): the widths, `surface`, `lit` and the lane tags are still read from raw OSM tags

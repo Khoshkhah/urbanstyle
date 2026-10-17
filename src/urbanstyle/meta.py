@@ -59,7 +59,7 @@ STYLE = [
     ("urban.part", 5, "driveway", 53, "polygon", "#a8a29e", None),
     ("urban.part", 5, "bus stop", 54, "polygon", "#93c5fd", None),
     ("urban.part", 5, "tree pit", 54, "polygon", "#6b4f2a", None),
-    ("urban.part", 5, "steps", 54, "polygon", "#5b21b6", None),
+    ("urban.part", 5, "steps", 54, "polygon", "#b45309", None),
     ("urban.part", 5, "ramp", 54, "polygon", "#c4b5fd", None),
     ("urban.part", 5, "bridge deck", 55, "polygon", "#c9c4b8", None),
     ("urban.part", 5, "paved", 55, "polygon", "#4b5260", None),

@@ -44,7 +44,7 @@ KIND_COLORS = {
     "frontage": "#fde4cf",
 }
 BLOCK_COLOR = KIND_COLORS["block"]
-PATH_COLORS = {"sidewalk": "#c4b5fd", "footway": "#8b5cf6", "path": "#8b5cf6", "pedestrian": "#c4b5fd", "steps": "#5b21b6",
+PATH_COLORS = {"sidewalk": "#c4b5fd", "footway": "#8b5cf6", "path": "#8b5cf6", "pedestrian": "#c4b5fd", "steps": "#b45309",
                "cycleway": "#059669", "crossing": "#f8fafc"}     # paths lie on every layer: violets (and a cycleway green, a crossing white)
 
 

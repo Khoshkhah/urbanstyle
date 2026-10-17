@@ -23,8 +23,12 @@ is there. Two roads that share no OSM node stay apart, also where they touch.
 
 ## The connectors
 
-A road piece between two junction nodes that is shorter than 40 m, or any `_link` piece between them, is a connector. A connector
-belongs to one intersection together with both nodes. An intersection can hold several nodes and connectors.
+A road piece between two junction nodes is a connector where the two junctions' cores overlap on it: the stop line of each node on
+that piece lies at or beyond the other node's stop line, so no section fits between them. Each node's stop line on the piece lies
+at its core, how far the other arms' roadways overlap the piece from the node, plus 3 m. A `_link` piece between two junction nodes
+and every piece of a roundabout's ring are connectors too. A connector belongs to one intersection together with both nodes. An
+intersection can hold several nodes and connectors. A short piece whose stop lines do not meet is a short section between two
+intersections.
 
 ## The runs and the sections
 
@@ -72,8 +76,7 @@ is a connector, however long, so the whole ring with all its nodes is one inters
 ## The geometry of a stretch
 
 Rank 2 cuts the street of rank 1 by the stop lines alone. The stop line of each arm is where its lanes enter the junction: the far edge
-of OSM's crossing on that arm within 15 m of the core, else 3 m past the core. Each stop line is run square to its road across the
-whole street to the edges of the blocks on both sides, 60 m to each side. The street polygon noded with these cuts and polygonized
+of OSM's crossing on that arm within 15 m of the core, else 3 m past the core. Where a crosswalk lies on the arm, the stop line runs along the crosswalk, 1.5 m beyond its far edge, at the crosswalk's own angle, so the crosswalk lies whole inside the intersection and the intersection's edge follows it. Where no crosswalk lies on the arm, the stop line is square to the road. Each stop line runs across the whole street to the edges of the blocks on both sides, 60 m to each side, and the arm's roadway ends on the same line. The street polygon noded with these cuts and polygonized
 gives the faces of rank 2: the face between a junction's arm cuts is that intersection, with its corners; the face between two
 intersections along a road is that section. The roadway with the most area inside a face names its owner; a face with no roadway joins
 the neighbour it shares the most edge with. The stretches partition the street.

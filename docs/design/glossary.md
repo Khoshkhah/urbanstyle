@@ -28,7 +28,7 @@ The words of the model, the code and the dashboard, in one place. When a word is
 | **surface** | one row of `urban.surface`: the surfaces that cover a ground item exactly (`<ground>:<kind>`) |
 | **junction node** | an OSM node where three or more road ends meet and a road ends, two ends merge or fork, or two streams cross |
 | **stream** | a road end paired with the most opposite end within 45° at a node |
-| **connector** | a road piece under 40 m, or a `_link`, between two junction nodes: it belongs to one intersection with both nodes |
+| **connector** | a road piece between two junction nodes whose stop lines meet or cross on it, a `_link` there, or a piece of a roundabout's ring: it belongs to one intersection with both nodes |
 | **run** | one OSM way with one cross-section, split at the junction nodes |
 | **section** | the road from one junction to the next, its runs chained (`s<level>-w<way>`, a second chain `.2`) |
 | **divided road** | a street whose two one-way carriageways run side by side with a median between them: one section and one space |

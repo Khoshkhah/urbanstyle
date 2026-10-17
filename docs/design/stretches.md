@@ -28,7 +28,8 @@ that piece lies at or beyond the other node's stop line, so no section fits betw
 at its core, how far the other arms' roadways overlap the piece from the node, plus 3 m. A `_link` piece between two junction nodes
 and every piece of a roundabout's ring are connectors too. A connector belongs to one intersection together with both nodes. An
 intersection can hold several nodes and connectors. A short piece whose stop lines do not meet is a short section between two
-intersections.
+intersections. A section whose roadway outside the intersections is under 20 m² is no section: that roadway joins the
+intersection it touches, and only that roadway.
 
 ## The runs and the sections
 

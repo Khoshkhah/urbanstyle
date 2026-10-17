@@ -349,6 +349,11 @@ def rule_checks(c, epsg):
     cover_c = shapely.union_all([geo(w) for (w,) in c.execute(f"""SELECT {m('geometry')} FROM work.unit WHERE level = 0
                                  AND kind = 'intersection'""").fetchall()] + [g for u, t, ref, src, g in parts if t == "bridge deck"]
                                 or [shapely.Polygon()]).buffer(0.5)
+    # (a short road between two junction nodes is a connector only where its stop lines meet, else a section: it lies in an
+    # intersection or in a section; a `_link` there is always a connector: it lies in an intersection; docs/design/stretches.md)
+    cover_s = shapely.union_all([geo(w) for (w,) in c.execute(f"""SELECT {m('geometry')} FROM work.unit WHERE level = 0
+                                 AND kind <> 'intersection'""").fetchall()] or [shapely.Polygon()]).buffer(0.5)
+    cover_cs = cover_c.union(cover_s)
     cls_of = {o: cl for o, cl, _ in roads}
     conn_out = []
     for o, ln in raw_lines.items():
@@ -361,9 +366,11 @@ def rule_checks(c, epsg):
                 pc = shapely.ops.substring(q_, a_, b_)
                 if pc.length < 0.5 or not (at_n(shapely.Point(pc.coords[0])) and at_n(shapely.Point(pc.coords[-1]))):
                     continue
-                if (pc.length < CONNECTOR_M or str(cls_of.get(o) or "").endswith("_link")) and area.contains(pc) \
-                        and pc.difference(cover_c).length > 1.0:
-                    conn_out.append(at(pc.difference(cover_c)))
+                link_ = str(cls_of.get(o) or "").endswith("_link")
+                if (pc.length < CONNECTOR_M or link_) and area.contains(pc):
+                    rest_ = pc.difference(cover_c if link_ else cover_cs)
+                    if rest_.length > 1.0:
+                        conn_out.append(at(rest_))
     # J4: every tag change along a section, with its class (work.change, network.py step 6b): a report; the unknown ones first
     has_ch = c.execute("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'work' AND table_name = 'change'").fetchone()[0]
     chg = c.execute(f"""SELECT class, {m('geometry')} FROM work.change WHERE level = 0 ORDER BY (class = 'unknown') DESC, class""").fetchall() if has_ch else []
@@ -372,7 +379,8 @@ def rule_checks(c, epsg):
         by_cls[cl_] = by_cls.get(cl_, 0) + 1
     return [
         ("A1", f"carriageways whose lanes are off their OSM line (median of the middle > {A1_M} m)", len(off), True, off),
-        ("J3", f"connectors (a road under {CONNECTOR_M:.0f} m or a `_link` between two junction nodes) not inside an intersection", len(conn_out), True, conn_out),
+        ("J3", "roads between two junction nodes outside the spaces: a `_link` not inside an intersection, a road under "
+               f"{CONNECTOR_M:.0f} m inside neither an intersection nor a section", len(conn_out), True, conn_out),
         ("J4", "tag changes along a section, each with its class" + (" (" + ", ".join(f"{k} {v}" for k, v in sorted(by_cls.items())) + ")" if by_cls else ""),
          len(chg), False, [at(geo(w)) for _, w in chg]),
         ("K2", "loose kerb ends (not at another kerb, a crosswalk, an alley's mouth or the area's edge)", len(loose), False, loose),

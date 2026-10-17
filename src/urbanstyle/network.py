@@ -1048,8 +1048,10 @@ def build(con, epsg, bridges=()):
     small = [r for r in runs if r["road_g"].is_empty or r["road_g"].area < SLIVER_M2]
     for r in small:
         for j in junctions:
-            if not r["cw"].is_empty and j["geom"].distance(r["cw"]) < 0.1:
-                j["geom"] = poly(shapely.union_all([j["geom"], r["cw"]]))
+            if not r["road_g"].is_empty and j["geom"].distance(r["road_g"]) < 0.1:
+                # (its own roadway outside the junctions only: the whole frame ran over the other junction's arm, U1 34.5 m2 at the
+                # Granville ramp foot, i0-877917634 and i0-877917571)
+                j["geom"] = poly(shapely.union_all([j["geom"], r["road_g"]]))
                 break
     if small:
         J_all = shapely.union_all([j["geom"] for j in junctions] or [shapely.Polygon()])

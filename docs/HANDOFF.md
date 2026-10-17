@@ -57,6 +57,14 @@ first, then this note, then `docs/notes/street-rules.md` and `docs/notes/section
     north of West 6th (s0-w341691651/1#6, #7, i0-432423756#12) kept as islands because a sidewalk line and kerb points lie on them.
   - A build `--from division` starts from OUT.before-division, which only a full build or (since 2026-10-17) `--from blocks` writes;
     Vancouver's copy was from 2026-10-15 and a `--from division` build lost the blocks and the paths: use `--from blocks`.
+  - The stop line along a crosswalk (2026-10-17): where a crosswalk sets an arm's stop line, the line and the arm's roadway end run
+    along the crosswalk, 1.5 m beyond its far edge, at its own angle (network.py, arm_cuts with a direction). Corners still reach the
+    block edge; the footways set no edge of the intersection.
+  - Kerbs (2026-10-17, s0-w74226330/1:kerb:1): a walking-side sliver under 2 m2 that touches no block is paved roadway
+    (network.SLIVER_ROAD_M2), and no kerb runs along a cut between two spaces (crossing a cut it stays whole).
+  - Open, asked and waiting for Kaveh: whether a `_link` (a ramp) stays a connector or is cut like every arm (Kaveh: "intersection
+    building is in rank 2, there are no ramps there"; my change was undone, he had not decided); parking on w390721485 and w74226330
+    (Street View shows cars parked; OSM has no parking tag: proposed an override in duckOSM); the paved part (still not agreed).
   - No traffic in urbanstyle (Kaveh): `unit --nvdb` and `--flows` removed, the city's traffic counts and the dossier's speed rule
     removed; NVDB is out of the sources. The part's `speed` comes from duckOSM's edges (`maxspeed_kmh`), never from raw tags and with
     no chosen default. Open (duckOSM work): the widths, `surface`, `lit` and the lane tags are still read from raw OSM tags

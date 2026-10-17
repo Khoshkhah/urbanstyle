@@ -67,6 +67,7 @@ ISLAND_MIN_M2 = 4.0     # a pedestrian piece that touches no block and is smalle
 from .parts import ARROW_M  # noqa: E402
 from .blocks import street_sql  # noqa: E402
 
+SLIVER_ROAD_M2 = 2.0    # a piece of the walking side smaller than this that touches no block is roadway (chosen, as product.MIN_PART_M2)
 ROAD_T = ("lane", "paved", "junction area", "parking", "cycle lane", "bridge deck")     # the parts a crosswalk is cut from
 
 
@@ -1411,6 +1412,15 @@ def build(con, epsg, bridges=()):
         between roadways only: an island (a median of a divided road, a traffic island), not a sidewalk."""
         if R.is_empty:
             return
+        # a sliver of the walking side (under SLIVER_ROAD_M2) that touches no block lies in the roadway, where two roadways do not meet
+        # exactly at a cut: it is paved roadway, so no kerb is drawn round it (s0-w74226330/1:kerb:1; Kaveh, 2026-10-17)
+        crumbs = [q for q in shapely.get_parts(R) if q.area < SLIVER_ROAD_M2 and along_edge(q) < ISLAND_TOUCH_M and q.distance(isl_all) > 0.05]
+        if crumbs:
+            add(uid, "paved", shapely.union_all(crumbs), source="urbanstyle", method="derived",
+                ref="a sliver between two roadways at a cut: roadway")
+            R = poly(R.difference(shapely.union_all(crumbs)))
+            if R.is_empty:
+                return
         isl = [q for q in shapely.get_parts(R) if along_edge(q) < ISLAND_TOUCH_M and q.area >= ISLAND_MIN_M2 and not q.buffer(-0.5).is_empty]
         # (a small piece that touches no block and touches an island is that island's, also an island of the next space: the island's
         # tip cut off into the junction stood as a raised furnishing triangle in the roadway, Fir Street at Broadway; Kaveh 2026-10-16)
@@ -1841,6 +1851,21 @@ def build(con, epsg, bridges=()):
         mouths = [q_.centroid for ln_ in service for q_ in shapely.get_parts(ln_.intersection(kerb_all.buffer(0.3))) if not q_.is_empty]
         if mouths:
             kerb_all = kerb_all.difference(shapely.union_all([pt_.buffer(ALLEY_HALF_M) for pt_ in mouths]))
+    # no kerb along or across the line between two spaces: a kerb is the roadway's outer edge, never a cut (Kaveh, 2026-10-17)
+    if not kerb_all.is_empty:
+        geoms_ = [x for _, _, _, x in units if not x.is_empty]
+        utree_ = shapely.STRtree(geoms_) if geoms_ else None
+        shared = []
+        for i_, a_ in enumerate(geoms_):
+            for j_ in (utree_.query(a_.buffer(0.05)) if utree_ is not None else []):
+                if j_ > i_:
+                    l_ = a_.boundary.intersection(geoms_[j_].buffer(0.05))
+                    if not l_.is_empty and l_.length > 0.1:
+                        shared.append(l_)
+        if shared:      # (only what runs along a cut, over 0.5 m: a kerb that crosses a cut stays whole)
+            along_ = [q_ for q_ in shapely.get_parts(kerb_all.intersection(shapely.union_all(shared).buffer(0.1))) if q_.length >= 0.5]
+            if along_:
+                kerb_all = kerb_all.difference(shapely.union_all(along_).buffer(0.01))
     kerb_all = shapely.line_merge(kerb_all).simplify(0.03) if not kerb_all.is_empty else kerb_all     # (no arc crumbs: 4 vertices a metre read as a sawtooth in 3D)
     marks = [m_ for m_ in marks if m_[1] != "kerb"]
     for u, k, s_, x in units:

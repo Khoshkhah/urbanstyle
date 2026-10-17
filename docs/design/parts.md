@@ -86,8 +86,8 @@ it has none.
 
 ## Writes
 
-`space.part` (type, side, arm, direction, lane, width, source, method, ref, the road's values), `space.mark`, `space.turn`,
-`space.approach`.
+`space.part`: one row per part with its side, its type, its width and its sources. `space.mark`: one row per mark with its part.
+`space.turn` and `space.approach`: the moves and the lanes that come into each intersection ([The tables](tables.md)).
 
 ## Checks
 

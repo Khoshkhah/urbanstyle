@@ -65,6 +65,7 @@ nav:
   - Design:
       - design/index.md
       - The model: design/model.md
+      - The tables: design/tables.md
       - "Rank 1: the ground": design/ground.md
       - "Rank 2: the stretches": design/stretches.md
       - "Ranks 3 and 4: the spaces and their sides": design/spaces.md

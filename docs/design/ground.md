@@ -107,7 +107,8 @@ What no source names in a street or a green joins the surface it shares the most
 
 ## Writes
 
-`space.block`, `space.block_side`, `space.corridor`, `space.ground`, `space.surface`.
+`space.ground`: one row per item of rank 1, the street, each plot with its street sides, each path. `space.plot_piece`: the pieces of
+each plot. `space.surface`: the surfaces of each item ([The tables](tables.md)).
 
 ## Checks
 

@@ -91,8 +91,9 @@ street that arrives at it.
 
 ## Writes
 
-`space.junction` (node, intersection, cluster), `space.subsection` (axis, section, class, width, one-way, length), `space.change`
-(every tag change along a section with its class and the lanes on both sides), `space.street`, `space.arm`.
+`space.stretch`: one row per section, intersection, path section and path intersection, with its ways, its nodes and its axis.
+`space.junction`: the junction nodes of each intersection. `space.change`: every tag change along a section with its class and the
+lanes on both sides. `space.street` and `space.arm`: the named streets and their arms ([The tables](tables.md)).
 
 ## Checks
 

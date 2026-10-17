@@ -67,8 +67,8 @@ reaches into a block.
 
 ## Writes
 
-`space.unit` (one row per space with its kind and its section), `space.side` (`<space>:d`, `<space>:w`, the islands `<space>:i<n>`),
-`space.subsection.width_m` (the frame), `space.subsection.left_extra` (the merge shift).
+`space.unit`: one row per space with its kind, its stretch, its axis, the frame's width and the merge shift. `space.side`: the
+driving side, the walking side and the islands of each space, the driving side with its kerb ([The tables](tables.md)).
 
 ## Checks
 

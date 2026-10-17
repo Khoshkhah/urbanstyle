@@ -195,10 +195,13 @@ An id is stable: it comes from what a thing is, never from the build order. A re
 | a section | `s<level>-w<way>`, a second chain of the same way `.2` | `s0-w473754701.2` |
 | a subsection | `<section>/<k>` | `s0-w473754701.2/2` |
 | an intersection | `i<level>-<node>` | `i0-11102738098` |
+| a path section, a path intersection | `p<level>-w<way>`, `q<level>-<node>` | `p0-w159170500` |
+| a plot's piece | `g<level>-<kind>-<ref>` | `g0-building-w49209427` |
 | a side | `<space>:d`, `<space>:w` | `s0-w473754701.2/2:w` |
 | a part | `<space>#<n>` | `s0-w473754701.2/2#10` |
 | a named street | `k<level>-<way>` | `k0-473754701` |
 | a street object | `n<node>`, `w<way>` | `n13983466896` |
 | a link | `<node>` | |
 
-The [Ids](../reference/ids.md) reference lists every scheme with the code that makes it.
+[The tables](tables.md) gives each table with its columns; the [Ids](../reference/ids.md) reference lists every scheme with the code
+that makes it.

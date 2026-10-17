@@ -1,9 +1,39 @@
 # Handoff: the street at level 0, 2026-10-16
 
-Status: written at the end of the 2026-10-15/16 session, updated in the night of 2026-10-16 after the Monaco fails. Read `AGENTS.md`
+Status: written at the end of the 2026-10-15/16 session, updated in the night of 2026-10-16 after the Monaco fails and after the
+data-structure design. Read `AGENTS.md`
 first, then this note, then `docs/notes/street-rules.md` and `docs/notes/sections.md`.
 
 ## Where the work stands
+
+- **The data structure as design (2026-10-16 night, commit c04d878, main = network-first):** `docs/design/tables.md` gives the full
+  structure: the same columns in the same order in every rank table (`<thing>_id`, `kind`, `rank`, `parent_id`, `level`, `name`, the
+  thing's values, `source`, `method`, `ref`, `geometry`; `kind` everywhere, no `type`), the area with the id `a<level>`, the view
+  `urban.item` over every rank (`id`, `rank`, `kind`, `parent_id`, `level`, `geometry`), the manifest `urban.meta` (`key`, `kind`:
+  build / input / chosen, `value`, `note`), the check rows `urban.check` (`check_id`, `kind`, `status`, `count`, `what`, `items`,
+  `checked`), the registry `urban.registry` of R6 (`profile`, `uid`, `kind`, `first_seen`, `last_seen`; `uid` on each thing with a
+  profile), `predecessors` and `successors` on spaces and lanes, an `axis` with `s_from`, `s_to`, `t_from`, `t_to` on every linear
+  thing, and the table `urban.code` (our kinds in CityGML 3.0, OpenDRIVE, OpenSidewalks, IFC 4.3). The glossary and the model's id
+  table follow. The site builds with `mkdocs build --strict`. Kaveh stopped the session there: documentation only, no code.
+  **Nothing of it is in the code yet.** None of `urban.item`, `urban.meta`, `urban.check`, `urban.registry`, `urban.code`, `uid`,
+  the axes or the links exists in a build. The next steps, in order, each tested on Vancouver only: (1) `urban.meta`, `urban.check`
+  and the view `urban.item` on today's tables, with tests; `urbanstyle check` computes read-only, then opens the file for a moment
+  to write `urban.check` (the server holds no lock; a build does). The view on today's tables: rank 1 = `urban.ground` street and
+  path rows plus `urban.block` as the plots; rank 2 = the other `urban.ground` rows as plot pieces (parent: the block that contains
+  them), the sections as the union of their subsections' spaces (`urban.subsection.section_id`; today's `urban.container` sections
+  have other ids and are the old step), the intersections; rank 3 = `urban.unit` (parent: `section_id`, or itself for an
+  intersection); rank 4 does not exist in the data, so the parts hang on their space; rank 6 = `urban.mark` with no id of its own
+  (make `<space>:<kind>:<n>` in the view) and no part link. The chosen values: every module-level number constant of the build modules
+  with the comment on its line. (2) The registry: a build reads `urban.registry` from the file it replaces, keeps every known profile's
+  `uid` and gives a new profile a `uuid4`; street objects first (profile `osm:n<node>`), then buildings (`osm:w<way>`,
+  `vancouver:vb<id>`). (3) The check faults on the panel: `/api/meta` gives the rows of `urban.check` that are not `pass`, the panel
+  lists them with their places as links that fly the map there.
+- **A trap for the next build (found 2026-10-16 night, not fixed):** the code finds a pilot's city files by the output's name ending
+  `.urban.duckdb` (`buildings.py`, `ground.py`, `blocks.py`, `parts.py`, `dashboard.py`, since commit c024a08), but the Vancouver
+  file is `data/units/broadway-granville.space.duckdb`. A rebuild to that name gets no parcels, no kerb evidence, no bikeways and no
+  storefronts, and nothing fails. Before the next Vancouver build: rename the file and its sidecars (`.space.duckdb.mapillary.json`,
+  `.before-division`, `.before-ground`) to `.urban.duckdb`, or build to `broadway-granville.urban.duckdb`, and point
+  `scratch/serve.sh` there.
 
 - **Committed and pushed 9d225d3 (2026-10-16 evening), main = network-first:** the design as chapters by rank in `docs/design/`
   (the public site holds only the design as it is: no history, no names, no dates; the 31 old notes are in `docs/notes/`, off the

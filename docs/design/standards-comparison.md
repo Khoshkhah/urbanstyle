@@ -42,11 +42,11 @@ the text says so.
 | Topic | Ours | CityGML 3.0 | OpenDRIVE 1.9 | IFC 4.3 | OSM, Overture | OpenSidewalks |
 |---|---|---|---|---|---|---|
 | **The street along** | section → subsections; the street between two blocks | `Road` → `Section` | `road` with lane sections | `IfcRoad` → `IfcRoadPart` (longitudinal: `ROADSEGMENT`) | a line, split where a tag changes | edges of a graph |
-| **The junction** | intersection, its own space, shared by the streets that meet there (`space.arm`) | `Intersection`, "shared by several roads" | `junction`, roads end at it; `crossing` junctions | `INTERSECTION`, `ROUNDABOUT` road parts | a node | a node |
+| **The junction** | intersection, its own space, shared by the streets that meet there (`urban.arm`) | `Intersection`, "shared by several roads" | `junction`, roads end at it; `crossing` junctions | `INTERSECTION`, `ROUNDABOUT` road parts | a node | a node |
 | **Across the street** | parts: lanes, shoulders, medians, pedestrian zones, kerbs | `TrafficSpace` / `AuxiliaryTrafficSpace`, granularity `lane` or `way` | lanes with id, left + / right −, width polynomials | lateral road parts: `TRAFFICLANE`, `SIDEWALK`, `SHOULDER`, `CENTRALRESERVE`, … | tags on the line: `lanes`, `sidewalk`, `width`; Overture: widths only | sidewalk edges |
 | **The pedestrian realm** | sidewalk zones (NACTO), crossings, pedestrian corners | `TrafficArea` with a function code | `walking` lanes, `crossPath`, the junction boundary | `SIDEWALK`, `PEDESTRIAN_CROSSING` | `footway=sidewalk` lines, crossing nodes | the main subject: sidewalks, crossings, kerb ramps |
 | **Kerbs** | a part with its height | `AuxiliaryTrafficArea` | lane type `curb`, road mark `curb` | `IfcKerb` (physical) | `barrier=kerb` nodes | kerb nodes (raised, lowered, flush) |
-| **Markings** | `space.mark`: lines, stop lines, arrows, zebras | `Marking` surfaces | `roadMark` per lane | `IfcSurfaceFeature` (`LINEMARKING`, …) | few tags | no |
+| **Markings** | `urban.mark`: lines, stop lines, arrows, zebras | `Marking` surfaces | `roadMark` per lane | `IfcSurfaceFeature` (`LINEMARKING`, …) | few tags | no |
 | **Street objects** | one object per real thing, matched from all sources, with every source's id | `CityFurniture` | `object` (pole, tree, barrier, …) and `signal` with country codes | `IfcSign`, `IfcSignal`, others | nodes with tags; Overture: none | trees, benches, poles, hydrants, … |
 | **Land beside the street** | blocks, ground cover, surfaces, parcels, buildings | `LandUse`, `Building` | `building` object only | not in the road model | areas with tags | buildings |
 | **Bridges and levels** | numbered levels −2 … 2; the bridge profile: axes, heights from LiDAR, piers | a road on a bridge is also the bridge's roof (`CityObjectRelation`); no levels | elevation along s; `bridge`, `tunnel` objects; no levels | `IfcBridge` parts; vertical facility parts | `layer` (an order only), `bridge` flag | none |
@@ -86,7 +86,7 @@ This table is the core of an export: one lookup for each of our kinds.
 1. **CityGML 3.0's names and its two-level division.** `Section`, `Intersection`, `TrafficSpace`, `AuxiliaryTrafficSpace`,
    `Marking`. The SIG3D code lists for `function` and `usage` (the guideline points to them for 3.0).
 2. **Lane links for routing.** CityGML's `predecessor` / `successor` and OpenDRIVE's lane links. We have them in part
-   (`space.turn`, the joints of `division.join_lanes`); they should be one table.
+   (`urban.turn`, the joints of `division.join_lanes`); they should be one table.
 3. **OpenDRIVE's walking model.** `walking` lanes, `crossPath` from sidewalk to sidewalk, and the junction boundary. Our crosswalk
    already follows `crossPath`.
 4. **Signals with country codes** (OpenDRIVE: `country`, `type`, `subtype`). Our signs have only a class.

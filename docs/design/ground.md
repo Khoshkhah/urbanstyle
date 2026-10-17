@@ -5,8 +5,8 @@ what is left between them. Inside a plot, its pieces are rank 2.</p>
 
 ## Reads
 
-The edge of the area (`space.area`). OSM's roads, walkways, buildings, land use, water and rail, as duckOSM gives them
-(`space.element`, the feature layers).
+The edge of the area (`urban.area`). OSM's roads, walkways, buildings, land use, water and rail, as duckOSM gives them
+(`urban.element`, the feature layers).
 
 ## The blocks
 
@@ -33,7 +33,7 @@ A block is the land between the streets and the pedestrian ways. `blocks.py` bui
 A pedestrian way that runs along a road inside the road's sidewalk zone over half its length is that road's sidewalk, not a path. The
 sidewalk zone is the carriageway, OSM's lanes of 3 m each, widened by 8 m on each side.
 
-Each street side of a block keeps its distance from the road line and what set it (`space.block_side`: sidewalks, carriageway, path
+Each street side of a block keeps its distance from the road line and what set it (`urban.block_side`: sidewalks, carriageway, path
 width or building).
 
 ![The blocks at Sainte-Dévote.](../img/steps/03-blocks.png){ width=100% }
@@ -42,13 +42,13 @@ width or building).
 
 ## The corridors
 
-Each pedestrian way's strip, up to the edge of the street, is its corridor (`space.corridor`, `c0-w<way>`). The corridor ends at the
+Each pedestrian way's strip, up to the edge of the street, is its corridor (`urban.corridor`, `c0-w<way>`). The corridor ends at the
 street's edge, so the walking side of the street runs on past the path's mouth. A corridor is the ground kind `path`.
 
 ## The street
 
 The area less the blocks and the corridors is the street of the level: one polygon per connected piece. The street is cut into the
-units of rank 3; the ground item of each unit is `g0-street-<unit>`.
+spaces of rank 3; the ground item of each space is `g0-street-<space>`.
 
 ## The pieces of a plot (rank 2)
 
@@ -62,7 +62,7 @@ kind took.
 5. `structure`: the ground under a deck (OSM's `man_made=bridge` outline, or the ground under a street space of a higher level).
 6. `green`: parks, playgrounds, pitches, recreation grounds, woods.
 7. `alley`: a service road inside the block, the road's line widened to OSM's `width`, else 6 m.
-8. `car park`: an off-street car park (`space.lot`); `construction site`.
+8. `car park`: an off-street car park (`urban.lot`); `construction site`.
 9. `green`: grass, gardens and allotments.
 10. `yard`: the rest.
 
@@ -89,11 +89,11 @@ even where one can drive through it from one street to another.
 
 ## The surfaces
 
-Each ground item is covered exactly by its surfaces (`space.surface`, id `<ground>:<kind>`):
+Each ground item is covered exactly by its surfaces (`urban.surface`, id `<ground>:<kind>`):
 
 | Ground item | Surfaces |
 |---|---|
-| street | roadway, pedestrian realm, median (from the parts of its unit); verge where OSM maps grass in the street |
+| street | roadway, pedestrian realm, median (from the parts of its space); verge where OSM maps grass in the street |
 | path | path |
 | building, car park, construction site | its own kind |
 | yard | garden where OSM maps one; yard, the rest |
@@ -107,8 +107,8 @@ What no source names in a street or a green joins the surface it shares the most
 
 ## Writes
 
-`space.ground`: one row per item of rank 1, the street, each plot with its street sides, each path. `space.plot_piece`: the pieces of
-each plot. `space.surface`: the surfaces of each item ([The tables](tables.md)).
+`urban.ground`: one row per item of rank 1, the street, each plot with its street sides, each path. `urban.plot_piece`: the pieces of
+each plot. `urban.surface`: the surfaces of each item ([The tables](tables.md)).
 
 ## Checks
 

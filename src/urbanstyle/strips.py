@@ -1,4 +1,4 @@
-"""space.strip: how each street space is filled (docs/design/street-objects.md section 4.2, first version).
+"""urban.strip: how each street space is filled (docs/design/street-objects.md section 4.2, first version).
 
 Called at the end of urbanstyle.build(). Everything is cut from the container's own zones, so the strips of a container add up to its
 travelway and pedestrian realm: nothing is left unfilled and nothing overlaps.
@@ -31,14 +31,14 @@ def build(con, epsg):
 
     g = lambda w: shapely.make_valid(shapely.from_wkb(bytes(w)))
     tr = f"ST_Transform(geometry, 'EPSG:4326', '{epsg}', always_xy := true)"
-    kinds = {c: (k, lv) for c, k, lv in con.execute("SELECT container_id, kind, level FROM space.container").fetchall()}
+    kinds = {c: (k, lv) for c, k, lv in con.execute("SELECT container_id, kind, level FROM urban.container").fetchall()}
     zone = {}
-    for cid, z, w in con.execute(f"SELECT container_id, zone, ST_AsWKB({tr}) FROM space.zone").fetchall():
+    for cid, z, w in con.execute(f"SELECT container_id, zone, ST_AsWKB({tr}) FROM urban.zone").fetchall():
         zone.setdefault(cid, {})[z] = g(w)
-    full = {cid: g(w) for cid, w in con.execute(f"SELECT container_id, ST_AsWKB({tr}) FROM space.container").fetchall()}
+    full = {cid: g(w) for cid, w in con.execute(f"SELECT container_id, ST_AsWKB({tr}) FROM urban.container").fetchall()}
     els = {}
     for cid, typ, osm, wd, sub, cls, w in con.execute(
-            f"SELECT container_id, type, osm_id, coalesce(width_m, 3), subtype, class, ST_AsWKB({tr}) FROM space.element WHERE type <> 'building' AND container_id IS NOT NULL ORDER BY osm_id, source_id").fetchall():
+            f"SELECT container_id, type, osm_id, coalesce(width_m, 3), subtype, class, ST_AsWKB({tr}) FROM urban.element WHERE type <> 'building' AND container_id IS NOT NULL ORDER BY osm_id, source_id").fetchall():
         els.setdefault(cid, []).append((typ, osm, wd, sub, cls, g(w)))
     tags = {r[0]: (r[1], r[2]) for r in con.execute("SELECT osm_id, tags['lanes'], tags['width'] FROM osm.raw.ways WHERE tags['highway'] IS NOT NULL").fetchall()}
     brows = con.execute("SELECT level, ST_AsWKB(g) FROM bm").fetchall()
@@ -175,8 +175,8 @@ def build(con, epsg):
         take("sidewalk", P, "measured" if any(e[0] == "walkway" for e in lines) else "default")
 
     df = pd.DataFrame(rows, columns=["container_id", "kind", "strip_id", "type", "side", "width_m", "source", "wkb"])
-    con.execute(f"""CREATE OR REPLACE TABLE space.strip AS
-        SELECT container_id::VARCHAR AS container_id, (SELECT level FROM space.container c WHERE c.container_id = d.container_id) AS level, strip_id::VARCHAR AS strip_id,
+    con.execute(f"""CREATE OR REPLACE TABLE urban.strip AS
+        SELECT container_id::VARCHAR AS container_id, (SELECT level FROM urban.container c WHERE c.container_id = d.container_id) AS level, strip_id::VARCHAR AS strip_id,
                type::VARCHAR AS type, side::VARCHAR AS side, width_m::DOUBLE AS width_m, source::VARCHAR AS source,
                ST_Transform(ST_GeomFromWKB(wkb::BLOB), '{epsg}', 'EPSG:4326', always_xy := true) AS geometry
         FROM df d""")

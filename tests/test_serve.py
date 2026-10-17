@@ -14,8 +14,8 @@ def test_read_only_accepts_one_select_and_refuses_the_rest():
     assert read_only("SELECT 1;") == "SELECT 1"
     assert read_only("with a as (select 1) select * from a")
     assert read_only("SELECT 'drop table' AS note")        # (a word in a string is no statement)
-    for bad in ("DROP TABLE space.part", "SELECT 1; DROP TABLE x", "ATTACH 'x.db'", "SELECT * FROM read_csv('/etc/passwd')",
-                "COPY space.part TO 'x.csv'", "SELECT * FROM st_read('x.shp')", "INSTALL httpfs"):
+    for bad in ("DROP TABLE urban.part", "SELECT 1; DROP TABLE x", "ATTACH 'x.db'", "SELECT * FROM read_csv('/etc/passwd')",
+                "COPY urban.part TO 'x.csv'", "SELECT * FROM st_read('x.shp')", "INSTALL httpfs"):
         with pytest.raises(ValueError):
             read_only(bad)
 
@@ -25,12 +25,12 @@ def test_agent_runs_its_tools_and_answers(monkeypatch):
 
     class Area:
         name, epsg = "test", "EPSG:32610"
-        schema = lambda self: "space.part (2 rows): part_id VARCHAR, type VARCHAR, width_m DOUBLE"
+        schema = lambda self: "urban.part (2 rows): part_id VARCHAR, type VARCHAR, width_m DOUBLE"
         run_sql = lambda self, sql: json.dumps({"rows": [{"n": 2}], "more_rows": False})
         features = lambda self, sql: {"features": [{}, {}], "total": 2, "length_m": 0, "area_m2": 30.0, "kinds": [["sidewalk", 2]]}
 
-    replies = [NS(stop_reason="tool_use", content=[NS(type="tool_use", id="t1", name="run_sql", input={"sql": "SELECT count(*) n FROM space.part"}),
-                                                   NS(type="tool_use", id="t2", name="show_on_map", input={"sql": "SELECT * FROM space.part", "title": "sidewalks"})]),
+    replies = [NS(stop_reason="tool_use", content=[NS(type="tool_use", id="t1", name="run_sql", input={"sql": "SELECT count(*) n FROM urban.part"}),
+                                                   NS(type="tool_use", id="t2", name="show_on_map", input={"sql": "SELECT * FROM urban.part", "title": "sidewalks"})]),
                NS(stop_reason="end_turn", content=[NS(type="text", text="There are 2 sidewalks (OSM, mapped).")])]
 
     def create(**kw):
@@ -45,7 +45,7 @@ def test_agent_runs_its_tools_and_answers(monkeypatch):
     r = Agent(Area()).ask("s1", "How many sidewalks?")
     assert r["answer"] == "There are 2 sidewalks (OSM, mapped)."
     assert r["fresh"]          # (a new conversation; after `forget` the next one is new again)
-    assert [q["sql"] for q in r["queries"]] == ["SELECT count(*) n FROM space.part", "SELECT * FROM space.part"]
+    assert [q["sql"] for q in r["queries"]] == ["SELECT count(*) n FROM urban.part", "SELECT * FROM urban.part"]
     assert r["map"]["title"] == "sidewalks" and r["map"]["total"] == 2
     assert calls[0]["model"] == "claude-opus-5-5" and calls[0]["fallbacks"] == "default"
     # the second call carries both tool results in one user message, after the assistant's turn
@@ -79,7 +79,7 @@ def test_gemini_goes_on_to_the_next_model(monkeypatch):
 
     class Area:
         name, epsg = "test", "EPSG:32610"
-        schema = lambda self: "space.part"
+        schema = lambda self: "urban.part"
     ag = sv.Agent(Area())
     r = ag.ask("s", "Narrow sidewalks?")
     assert r["answer"] == "34 sidewalks."

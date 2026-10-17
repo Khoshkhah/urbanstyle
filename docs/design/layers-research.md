@@ -68,7 +68,7 @@ export:
 
 | layer | what | rule | standard |
 |---|---|---|---|
-| 0 space | road, section, intersection, square (car parks, plazas) | as now (`space.unit`, `space.lot`) | CityGML Road / Section / Intersection / Square |
+| 0 space | road, section, intersection, square (car parks, plazas) | as now (`urban.unit`, `urban.lot`) | CityGML Road / Section / Intersection / Square |
 | 1 surface | roadway and pedestrian realm, split at the kerb | tiles its space | CityGML TrafficSpace / AuxiliaryTrafficSpace (`way`) |
 | 2 bands | across a section: lanes (one per lane from the space's edge to the next change of count, type or rule, chained by predecessor / successor), shoulders and kerb strips, medians; the pedestrian realm's zones: frontage, clear path, furniture, buffer; in a junction: one junction area | tiles its surface, across only | OpenDRIVE lanes and types; NACTO / GDCI zones; CityGML Intersection |
 | 3 overlays | crosswalks and cycle crossings (with the lanes they cross), parking and bus zones (with the lane or strip they use), tree pits, driveway aprons | lie on bands, cut nothing, name what they lie on | OpenDRIVE objects with lane validity; Lanelet2 conflicting lanelets; IFC `Crosses` |

@@ -3,6 +3,9 @@ import argparse
 import sys
 
 
+from .schema import migrate  # noqa: E402
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="urbanstyle", description="Space containers from a duckOSM database.")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -70,6 +73,10 @@ def main(argv=None):
     pb.add_argument("out_dir", help="the folder to write: index.html, static.js, bridge3d.json, data/")
     pb.add_argument("--bridge", action="extend", nargs="+", default=[], help="a bridge profile, as for the dashboard")
     a = p.parse_args(argv)
+    for key in ('db', 'dbs', 'out'):     # (an old database: its schema renamed first)
+        for path in ([getattr(a, key)] if isinstance(getattr(a, key, None), str) else (getattr(a, key, None) or [])):
+            if path and str(path).endswith('.duckdb') and a.cmd not in ('build', 'unit') and __import__('os').path.exists(path):
+                migrate(path)
 
     if a.cmd == "build":
         from .container import build, counts, with_features
@@ -77,7 +84,7 @@ def main(argv=None):
         print("level  type       n")
         for l, t, n in counts(c):
             print(f"{l:>5}  {t:<9} {n}")
-        print("links:", c.execute("SELECT type, level_a, level_b, count(*) FROM space.link GROUP BY ALL ORDER BY ALL").fetchall())
+        print("links:", c.execute("SELECT type, level_a, level_b, count(*) FROM urban.link GROUP BY ALL ORDER BY ALL").fetchall())
         print("next: urbanstyle dashboard", a.out, "viz/<area>.html")
     elif a.cmd == "check":
         from .checks import bridge, run

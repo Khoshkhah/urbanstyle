@@ -6,7 +6,7 @@ bridge with the source of every value, and a 3D model drawn from the profile alo
 ## The levels
 
 A level is an integer floor of the area, -2 to 2, 0 the ground ([The model](model.md), "The levels"). Each level but 0 has its own
-units: a deck or a tube, the roadway and a narrow walkway, with no blocks. The links between levels (`space.link`) are the only
+spaces: a deck or a tube, the roadway and a narrow walkway, with no blocks. The links between levels (`urban.link`) are the only
 joins between levels: a ramp, stairs, an elevator, an entrance, or a connection where a road's level changes at a node.
 
 The page gives each level a button with three states: full, faded, hidden. In 3D a deck with no bridge model is drawn 6 m a level
@@ -82,7 +82,7 @@ a lane or a path opens its fields and the source and method of its count, its wi
 
 ## Tunnels
 
-A tunnel's lanes and the ground's lanes touch at the portal node, and a connection in `space.link` joins the levels there. In 3D the
+A tunnel's lanes and the ground's lanes touch at the portal node, and a connection in `urban.link` joins the levels there. In 3D the
 tube is drawn at its depth, 6 m a level below the ground, a chosen value; over the last 30 m before a portal the tube rises to the
 ground, so the tunnel lane meets the ground lane at the node in plan and in height. A ramp or stairs between two levels slope from the
 height of their upper end to the height of their lower end; an elevator is a vertical shaft.

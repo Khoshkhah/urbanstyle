@@ -1,5 +1,5 @@
 """Steps 2-7 of docs/design/pipeline.md: the street at level 0 from the road network, data first. It writes the same level-0 rows as
-division.py (space.unit, part, mark, subsection, junction) and replaces it when URBANSTYLE_DIVISION=network.
+division.py (urban.unit, part, mark, subsection, junction) and replaces it when URBANSTYLE_DIVISION=network.
 
     roads        OSM's street roads at level 0 (not paths, not pedestrian streets, not the ways of a bridge that has a profile)
     lanes        each road's lanes from OSM (`lanes`, per direction from duckOSM's driving network; a two-way road one lane each way at
@@ -13,7 +13,7 @@ division.py (space.unit, part, mark, subsection, junction) and replaces it when 
     sections     each road from junction to junction (id s0-w<way>[.n]), in subsections /k where the paint differs; one frame per
                  section (docs/design/sections.md rules 5-8): the lanes and the strips a source gives at the section's widest place, one
                  width for the whole section, no line moved sideways, no kerb taper; the lanes centred on their own way's line inside
-                 it, the rest paved roadway; every tag change along the section classified first (section 3; space.change, check J4)
+                 it, the rest paved roadway; every tag change along the section classified first (section 3; urban.change, check J4)
     pedestrian   the street (the area less the blocks) less the roadway, each piece to the nearest roadway (section or junction):
                  furnishing FURNISH_M, sidewalk CLEAR_M, the rest frontage (chosen widths)
     crosswalks   OSM's crossing ways over the roadway, and crossing nodes with no way, as parts cut from the lanes; their paint from
@@ -197,11 +197,11 @@ def build(con, epsg, bridges=()):
     # ---- 2. the road network
     bridge_ways = {int(w[1:]) for pf in bridges for a in json.load(open(pf)).get("axes", []) for w in a.get("ways", [])}
     cand = [(oid, nm, cl, bool(ow), s_, d_, g(w), lv) for oid, nm, cl, ow, s_, d_, w, lv in rows(f"""SELECT osm_id, name, class, coalesce(oneway, false),
-                 src, dst, {m()}, level_min FROM space.element e WHERE type IN ('road', 'walkway') AND level_min IN (0, 1)
+                 src, dst, {m()}, level_min FROM urban.element e WHERE type IN ('road', 'walkway') AND level_min IN (0, 1)
                  AND {street_sql('e')}""")]
     # (a level-1 deck is the street at ground level where nothing at level 0 passes under it, as for the blocks; the ways of a bridge that
     # has a profile are the bridge model's: one 'bridge deck' part on their band, no lanes)
-    ground_lines = [c[6] for c in cand if c[7] == 0] + [g(w) for (w,) in rows(f"SELECT {m()} FROM space.element WHERE type = 'rail' AND level_min = 0")]
+    ground_lines = [c[6] for c in cand if c[7] == 0] + [g(w) for (w,) in rows(f"SELECT {m()} FROM urban.element WHERE type = 'rail' AND level_min = 0")]
     gl_tree = shapely.STRtree(ground_lines) if ground_lines else None
     keep_ = [c for c in cand if c[7] == 0 or gl_tree is None or not any(ground_lines[k].crosses(c[6]) for k in gl_tree.query(c[6]))]
     edges = [c[:7] for c in keep_]
@@ -662,12 +662,12 @@ def build(con, epsg, bridges=()):
     # the sidewalk strips: every walkway at level 0 that is no crossing and has no corridor of its own (a path), at OSM's width or
     # 2 SW_HALF_M, centred on its line: the walking side there, its near side the kerb (the room ends at it), its far side the block's edge
     # (blocks.py sets the edge 1 m behind the line)
-    cor_ways = {w for (w,) in rows("SELECT way_id FROM space.corridor")}
+    cor_ways = {w for (w,) in rows("SELECT way_id FROM urban.corridor")}
     sw_strips = shapely.union_all([g(w).buffer((wd / 2) if wd else SW_HALF_M) for o, wd, w in rows(f"""SELECT e.osm_id, e.width_m, {m('e.geometry')}
-                                   FROM space.element e WHERE e.type = 'walkway' AND e.level_min = 0 AND coalesce(e.subtype, '') <> 'crossing'
+                                   FROM urban.element e WHERE e.type = 'walkway' AND e.level_min = 0 AND coalesce(e.subtype, '') <> 'crossing'
                                    AND e.class IN ('footway', 'path', 'steps', 'pedestrian')""") if o not in cor_ways] or [shapely.Polygon()])
-    edge_u = shapely.union_all([g(w) for (w,) in rows(f"SELECT {m()} FROM space.block WHERE level = 0")]
-                               + [g(w) for (w,) in rows(f"SELECT {m()} FROM space.corridor")] + [sw_strips] or [shapely.Polygon()])
+    edge_u = shapely.union_all([g(w) for (w,) in rows(f"SELECT {m()} FROM urban.block WHERE level = 0")]
+                               + [g(w) for (w,) in rows(f"SELECT {m()} FROM urban.corridor")] + [sw_strips] or [shapely.Polygon()])
     etree = shapely.STRtree(list(shapely.get_parts(edge_u))) if not edge_u.is_empty else None
 
     def room(ln, sg):
@@ -892,7 +892,7 @@ def build(con, epsg, bridges=()):
 
     tick("the merges and forks (rank 3)")
     # ---- 5. junctions
-    crossings = [g(w) for (w,) in rows(f"""SELECT {m()} FROM space.element WHERE type IN ('walkway', 'cycleway') AND level_min = 0
+    crossings = [g(w) for (w,) in rows(f"""SELECT {m()} FROM urban.element WHERE type IN ('walkway', 'cycleway') AND level_min = 0
                                             AND subtype = 'crossing'""")]
     rtree = shapely.STRtree([r["line"] for r in runs]) if runs else None
     jshapes = []
@@ -949,12 +949,12 @@ def build(con, epsg, bridges=()):
     runs = [r for r in runs if not r.get("connector")]
     for r in runs:
         r["trans"] = {w: q for w, q in r.get("trans", {}).items() if q in runs}
-    area = shapely.union_all([g(w) for (w,) in rows(f"SELECT {m()} FROM space.area")] or [shapely.Polygon()])
-    blocks = shapely.union_all([g(w) for (w,) in rows(f"SELECT {m()} FROM space.block WHERE level = 0")] or [shapely.Polygon()])
-    # (nor a path's corridor, a pedestrian way's own ground between the blocks, space.corridor: it ends at the street's sidewalk,
+    area = shapely.union_all([g(w) for (w,) in rows(f"SELECT {m()} FROM urban.area")] or [shapely.Polygon()])
+    blocks = shapely.union_all([g(w) for (w,) in rows(f"SELECT {m()} FROM urban.block WHERE level = 0")] or [shapely.Polygon()])
+    # (nor a path's corridor, a pedestrian way's own ground between the blocks, urban.corridor: it ends at the street's sidewalk,
     # FURNISH_M + CLEAR_M from the roadway, so the sidewalk runs on past the path's mouth and the two touch; paths.md rule 5)
     cw_all = shapely.union_all([r["cw"] for r in runs] + [J for _, J, _ in jshapes] or [shapely.Polygon()])
-    corridors = shapely.union_all([g(w) for (w,) in rows(f"SELECT {m()} FROM space.corridor")] or [shapely.Polygon()])
+    corridors = shapely.union_all([g(w) for (w,) in rows(f"SELECT {m()} FROM urban.corridor")] or [shapely.Polygon()])
     street = poly(area.difference(blocks).difference(corridors)) if not area.is_empty else shapely.Polygon()
     clusters = []       # [nodes, shape, connector ways]
     for n, J, oids_ in jshapes:
@@ -1088,9 +1088,9 @@ def build(con, epsg, bridges=()):
     gaps = []
     if not realm.is_empty:
         thin = poly(roadway.buffer(GAP_M / 2).buffer(-GAP_M / 2).intersection(realm))     # (the roadway closed over its narrow gaps)
-        objs = [g(w) for (w,) in rows(f"""SELECT {m()} FROM space.object WHERE level = 0 AND source = 'osm'
+        objs = [g(w) for (w,) in rows(f"""SELECT {m()} FROM urban.object WHERE level = 0 AND source = 'osm'
                                           AND class NOT LIKE 'crossing.%' AND class NOT LIKE 'access.%'""")]
-        objs += [g(w) for (w,) in rows(f"""SELECT {m()} FROM space.element WHERE type IN ('walkway', 'cycleway') AND level_min = 0
+        objs += [g(w) for (w,) in rows(f"""SELECT {m()} FROM urban.element WHERE type IN ('walkway', 'cycleway') AND level_min = 0
                                            AND coalesce(subtype, '') <> 'crossing'""")]
         o_tree = shapely.STRtree(objs) if objs else None
         objs += [bl for bl, _ in barriers]      # (a barrier along the strip: it is an island, the bridge's guardrail continued, Kaveh 2026-10-16)
@@ -1262,7 +1262,7 @@ def build(con, epsg, bridges=()):
     # ---- 8a. crosswalks: OSM's crossing ways over the roadway (CROSSWALK_M wide, or OSM `width`), and a crossing node on a road with no
     # crossing way at it: a band across that road's carriageway. Their paint from `crossing:markings` (see markings()); the lanes and the
     # junction area give way to them (a crosswalk is its own part).
-    xways = [(o, g(w)) for o, w in rows(f"""SELECT osm_id, {m()} FROM space.element WHERE type IN ('walkway', 'cycleway') AND level_min = 0
+    xways = [(o, g(w)) for o, w in rows(f"""SELECT osm_id, {m()} FROM urban.element WHERE type IN ('walkway', 'cycleway') AND level_min = 0
                                             AND subtype = 'crossing'""")]
     xtags = {o: dict(t or {}) for o, t in rows("SELECT osm_id, tags FROM osm.raw.ways WHERE osm_id IN (SELECT unnest(?::BIGINT[]))",
                                                 [[o for o, _ in xways]])} if xways else {}
@@ -1353,7 +1353,7 @@ def build(con, epsg, bridges=()):
         ps_ = [q for q in shapely.get_parts(x_) if q.geom_type == "LineString"]
         return max(ps_, key=lambda q: q.length) if ps_ else ln
 
-    service_in = [(g(w), num_f(dict(t or {}).get("width")) or ALLEY_W_M) for w, t in rows(f"""SELECT {m()}, tags FROM space.element e
+    service_in = [(g(w), num_f(dict(t or {}).get("width")) or ALLEY_W_M) for w, t in rows(f"""SELECT {m()}, tags FROM urban.element e
                      LEFT JOIN osm.raw.ways w ON w.osm_id = e.osm_id WHERE e.type IN ('road', 'walkway') AND e.level_min = 0 AND e.class = 'service'
                      AND NOT {street_sql('e')}""")]
 
@@ -1647,24 +1647,24 @@ def build(con, epsg, bridges=()):
     tick("the parts and marks (ranks 5-6)")
     # ---- write (the level-0 rows of division.py's tables, each table with division's columns and types)
     for t, cols in SCHEMA.items():
-        have = {c for (c,) in rows(f"SELECT column_name FROM information_schema.columns WHERE table_schema = 'space' AND table_name = '{t}'")}
+        have = {c for (c,) in rows(f"SELECT column_name FROM information_schema.columns WHERE table_schema = 'urban' AND table_name = '{t}'")}
         q_ = lambda c: f'"{c}"'
         if have:
-            con.execute(f"CREATE OR REPLACE TABLE space.{t} AS SELECT " + ", ".join(
-                (f"CAST({q_(c)} AS {ty}) AS {q_(c)}" if c in have else f"CAST(NULL AS {ty}) AS {q_(c)}") for c, ty in cols.items()) + f" FROM space.{t}")
+            con.execute(f"CREATE OR REPLACE TABLE urban.{t} AS SELECT " + ", ".join(
+                (f"CAST({q_(c)} AS {ty}) AS {q_(c)}" if c in have else f"CAST(NULL AS {ty}) AS {q_(c)}") for c, ty in cols.items()) + f" FROM urban.{t}")
         else:
-            con.execute(f"CREATE TABLE space.{t} (" + ", ".join(f"{q_(c)} {ty}" for c, ty in cols.items()) + ")")
+            con.execute(f"CREATE TABLE urban.{t} (" + ", ".join(f"{q_(c)} {ty}" for c, ty in cols.items()) + ")")
     for t in ("part", "mark", "width", "turn", "approach"):
         try:
-            con.execute(f"DELETE FROM space.{t} WHERE level = 0")
+            con.execute(f"DELETE FROM urban.{t} WHERE level = 0")
         except duckdb.Error:
             pass
     for t in ("cut", "junction", "subsection", "change"):
         try:
-            con.execute(f"DELETE FROM space.{t} WHERE level = 0")
+            con.execute(f"DELETE FROM urban.{t} WHERE level = 0")
         except duckdb.Error:
             pass
-    con.execute("DELETE FROM space.unit WHERE level = 0")
+    con.execute("DELETE FROM urban.unit WHERE level = 0")
     # a level-1 way this step puts on the ground (nothing passes under it) has no space at level 1 too (spaces.py made one: West
     # Broadway's deck drawn in the air over its own street, s0-w473723218/1; Kaveh 2026-10-15)
     eids = [str(e) for (e,) in rows("SELECT DISTINCT edge_id FROM osm.driving.edges WHERE osm_id IN (SELECT unnest(?::BIGINT[]))",
@@ -1672,11 +1672,11 @@ def build(con, epsg, bridges=()):
     if eids:
         for t in ("part", "mark", "width", "turn", "approach", "unit"):
             try:
-                con.execute(f"DELETE FROM space.{t} WHERE level >= 1 AND regexp_extract(unit_id, '^s1-(-?[0-9]+)/', 1) IN (SELECT unnest(?::VARCHAR[]))", [eids])
+                con.execute(f"DELETE FROM urban.{t} WHERE level >= 1 AND regexp_extract(unit_id, '^s1-(-?[0-9]+)/', 1) IN (SELECT unnest(?::VARCHAR[]))", [eids])
             except duckdb.Error:
                 pass
         try:
-            con.execute("DELETE FROM space.subsection WHERE level >= 1 AND regexp_extract(subsection_id, '^s1-(-?[0-9]+)/', 1) IN (SELECT unnest(?::VARCHAR[]))", [eids])
+            con.execute("DELETE FROM urban.subsection WHERE level >= 1 AND regexp_extract(subsection_id, '^s1-(-?[0-9]+)/', 1) IN (SELECT unnest(?::VARCHAR[]))", [eids])
         except duckdb.Error:
             pass
     from .parts import LINE
@@ -1786,7 +1786,7 @@ def build(con, epsg, bridges=()):
     kerb_all = rw_all.buffer(0.02).buffer(-0.02).boundary if not rw_all.is_empty else shapely.LineString()     # (hairline gaps closed)
     if not area.is_empty and not kerb_all.is_empty:
         kerb_all = kerb_all.difference(area.boundary.buffer(0.5))
-    service = [g(w) for (w,) in rows(f"""SELECT {m()} FROM space.element e WHERE type IN ('road', 'walkway') AND level_min = 0
+    service = [g(w) for (w,) in rows(f"""SELECT {m()} FROM urban.element e WHERE type IN ('road', 'walkway') AND level_min = 0
                                        AND class = 'service' AND NOT {street_sql('e')}""")]
     if service and not kerb_all.is_empty:
         mouths = [q_.centroid for ln_ in service for q_ in shapely.get_parts(ln_.intersection(kerb_all.buffer(0.3))) if not q_.is_empty]
@@ -1802,22 +1802,22 @@ def build(con, epsg, bridges=()):
                 marks.append((u, "kerb", q, "urbanstyle", "derived", "the roadway's outer edge"))
     urows = [(u, k, s, COLORS[k], shapely.to_wkb(x)) for u, k, s, x in units if not x.is_empty]
     if urows:       # (a map with no street at level 0: nothing to write)
-        con.executemany(f"INSERT INTO space.unit (unit_id, kind, section_id, level, color, geometry) VALUES (?, ?, ?, 0, ?, {to_ll})", urows)
+        con.executemany(f"INSERT INTO urban.unit (unit_id, kind, section_id, level, color, geometry) VALUES (?, ?, ?, 0, ?, {to_ll})", urows)
     if junction_rows:
-        con.executemany("INSERT INTO space.junction (intersection_id, node_id, level, cluster_id) VALUES (?, ?, ?, ?)", junction_rows)
+        con.executemany("INSERT INTO urban.junction (intersection_id, node_id, level, cluster_id) VALUES (?, ?, ?, ?)", junction_rows)
     if subrows:     # (width_m: the section's frame)
-        con.executemany(f"""INSERT INTO space.subsection (subsection_id, section_id, level, class, width_m, oneway, length_m, "left", "right",
+        con.executemany(f"""INSERT INTO urban.subsection (subsection_id, section_id, level, class, width_m, oneway, length_m, "left", "right",
                             starts_at, left_extra, color, geometry) VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, '#e6194b', {to_ll})""",
                         [(a, b, c, d, e, f, h, i, j, sh, shapely.to_wkb(x)) for a, b, c, d, e, f, h, i, j, sh, x in subrows])
     if changes:     # (J4: every tag change along a section, with its class; the lanes as forward + backward in the section's direction)
         in_sec = lambda r_: f"{r_['f']}+{r_['b']}" if not r_["flip"] else f"{r_['b']}+{r_['f']}"
-        con.executemany(f"""INSERT INTO space.change (section_id, level, subsection_a, subsection_b, way_a, way_b, lanes_a, lanes_b, width_a, width_b,
+        con.executemany(f"""INSERT INTO urban.change (section_id, level, subsection_a, subsection_b, way_a, way_b, lanes_a, lanes_b, width_a, width_b,
                             class, note, geometry) VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, {to_ll})""",
                         [(c_["sid"], c_["a"]["sub"], c_["b"]["sub"], f"w{c_['a']['oid']}", f"w{c_['b']['oid']}", in_sec(c_["a"]), in_sec(c_["b"]),
                           round(c_["a"]["kl"] - c_["a"]["kr"], 2), round(c_["b"]["kl"] - c_["b"]["kr"], 2), c_["cls"], c_["note"], shapely.to_wkb(c_["pt"]))
                          for c_ in changes])
     if parts:
-        con.executemany(f"""INSERT INTO space.part (unit_id, part_id, level, type, arm, direction, lane, lane_id, width_m, width_source, width_method,
+        con.executemany(f"""INSERT INTO urban.part (unit_id, part_id, level, type, arm, direction, lane, lane_id, width_m, width_source, width_method,
                             length_m, source, method, ref, position_source, position_method, position_ref, road, road_class, road_lanes, oneway, rule,
                             holds, geometry) VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, {to_ll})""",
                         [(p["unit_id"], p["part_id"], p["type"], p.get("arm"), p.get("direction"), p.get("lane"), p.get("lane_id"), p.get("width_m"),
@@ -1825,17 +1825,17 @@ def build(con, epsg, bridges=()):
                           p.get("method") or "derived", p.get("ref"), p.get("position_source"), p.get("position_method"), p.get("position_ref"),
                           p.get("road"), p.get("road_class"), p.get("road_lanes"), p.get("oneway"), p.get("rule"), p.get("holds"), shapely.to_wkb(p["geom"])) for p in parts])
     if marks:
-        con.executemany(f"""INSERT INTO space.mark (unit_id, level, type, length_m, width_m, width_source, width_method, source, method, ref, geometry)
+        con.executemany(f"""INSERT INTO urban.mark (unit_id, level, type, length_m, width_m, width_source, width_method, source, method, ref, geometry)
                             VALUES (?, 0, ?, ?, ?, 'urbanstyle', 'chosen', ?, ?, ?, {to_ll})""",
                         [(u, t, round(x.length, 1), LINE.get(t), s_, me, rf, shapely.to_wkb(x)) for u, t, x, s_, me, rf in marks])
     # a crossing is one object in one space: the loser's piece of it, cut for it before the spaces were decided (8b, each owner it
     # touched), goes where the winner's part covers it (Boulevard de Suisse: a subsection's parts outgrew its space by the crosswalk the
     # intersection holds, check U8; Monaco 2026-10-16)
-    con.execute("""DELETE FROM space.part WHERE level = 0 AND type IN ('crosswalk', 'cycle crossing') AND part_id IN (
-        SELECT p.part_id FROM space.part p JOIN space.unit u USING (unit_id)
+    con.execute("""DELETE FROM urban.part WHERE level = 0 AND type IN ('crosswalk', 'cycle crossing') AND part_id IN (
+        SELECT p.part_id FROM urban.part p JOIN urban.unit u USING (unit_id)
         WHERE p.level = 0 AND p.type IN ('crosswalk', 'cycle crossing')
           AND ST_Area(ST_Intersection(p.geometry, u.geometry)) < 0.5 * ST_Area(p.geometry)
-          AND EXISTS (SELECT 1 FROM space.part o WHERE o.level = 0 AND o.type = p.type AND o.unit_id <> p.unit_id
+          AND EXISTS (SELECT 1 FROM urban.part o WHERE o.level = 0 AND o.type = p.type AND o.unit_id <> p.unit_id
                       AND ST_Area(ST_Intersection(o.geometry, p.geometry)) > 0.9 * ST_Area(p.geometry)))""")
     tick("the kerb line and the end (rank 6)")
     return dict(sections=len(runs), intersections=len(junctions), parts=len(parts), marks=len(marks))

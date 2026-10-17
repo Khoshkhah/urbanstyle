@@ -40,11 +40,11 @@ An OSM node gets one class, `group.class`. The first rule that matches wins, in 
 
 A node with no matching rule is counted in the inventory and not kept. A city's objects get the class of their dataset.
 
-## Level, unit and part
+## Level, space and part
 
 - The level comes from a `level` tag, else a `layer` tag, else 0, clamped to the kept levels.
-- The object stands in the unit of that level that contains its point, and in the part that contains it. An object outside every
-  unit keeps the distance to the nearest unit within 60 m.
+- The object stands in the space of that level that contains its point, and in the part that contains it. An object outside every
+  space keeps the distance to the nearest space within 60 m.
 - Each object keeps a short set of attributes from its tags (height, material, direction, capacity, lit, surface, ref, tactile paving,
   kerb, crossing, colour, operator, and the tags of its class). Everything else stays in the source, reachable by the object's id.
 
@@ -72,9 +72,9 @@ front of it, 20 m behind the pole and 2 m past it, is a bus zone with no parking
 
 ## Writes
 
-`space.object` (id, class, level, unit, part, name, attributes, source, geometry); the dossier's `object` and `match`.
+`urban.object` (id, class, level, space, part, name, attributes, source, geometry); the dossier's `object` and `match`.
 
 ## On the page
 
-One layer per group, off at start. A unit in focus shows the objects that stand in it. A click on an object opens its fields and
+One layer per group, off at start. A space in focus shows the objects that stand in it. A click on an object opens its fields and
 every source's id. The 3D view draws one model per object at its size.

@@ -35,14 +35,14 @@ junction it reaches. The longest way names the section (`s0-w<way>`); a second c
 **A divided road is one section.** Two runs pair when all of these hold: both are one-way; both carry the same name; they lie side
 by side (the middle of each line projects onto the inside of the other, 2 m or more away from it; each end of each line is within
 30 m of the other line; the lines stay within 30 m over 80 % of their length); no block lies between their lines. The pair is one
-section and one unit. Each carriageway keeps its own lanes and kerbs on its own line. The median between them is an island of the
-unit. Two one-way streets of one name with buildings between them stay two sections. A boulevard whose carriageways are more than
+section and one space. Each carriageway keeps its own lanes and kerbs on its own line. The median between them is an island of the
+space. Two one-way streets of one name with buildings between them stay two sections. A boulevard whose carriageways are more than
 30 m apart stays two sections, and the land between them is green of rank 1.
 
 ## The subsections and the change classes
 
 A section is cut into subsections where the paint differs: a lane count, a turn pocket, a parking strip, an island. The id is
-`<section>/<k>`. Every place along a section where OSM's tags change is classified before it touches anything (`space.change`, check
+`<section>/<k>`. Every place along a section where OSM's tags change is classified before it touches anything (`urban.change`, check
 J4):
 
 | Change in the data | Class | The frame | Inside the frame |
@@ -65,7 +65,7 @@ meters on its kerb side; parking OSM maps on the way stays.
 ## The intersections
 
 One intersection per junction node, or per cluster of nodes that connectors join: `i0-<node>`, the smallest node id. Its nodes are
-in `space.junction`.
+in `urban.junction`.
 
 ## The geometry of a stretch
 
@@ -86,7 +86,7 @@ road is the street's crosswalk.
 
 ## The named street
 
-A named street (`k0-<way>`, `space.street`) is a group of stretches: the sections that share a name and a node, with the
+A named street (`k0-<way>`, `urban.street`) is a group of stretches: the sections that share a name and a node, with the
 intersections they arrive at. An unnamed road is its own named street. It is not a rank: an intersection belongs to every named
 street that arrives at it.
 
@@ -100,9 +100,9 @@ street that arrives at it.
 
 ## Writes
 
-`space.stretch`: one row per section, intersection, path section and path intersection, with its ways, its nodes and its axis.
-`space.junction`: the junction nodes of each intersection. `space.change`: every tag change along a section with its class and the
-lanes on both sides. `space.street` and `space.arm`: the named streets and their arms ([The tables](tables.md)).
+`urban.stretch`: one row per section, intersection, path section and path intersection, with its ways, its nodes and its axis.
+`urban.junction`: the junction nodes of each intersection. `urban.change`: every tag change along a section with its class and the
+lanes on both sides. `urban.street` and `urban.arm`: the named streets and their arms ([The tables](tables.md)).
 
 ## Checks
 

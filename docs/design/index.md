@@ -9,7 +9,7 @@ Every value in the model names its source and its method. The chapters:
 2. [The tables](tables.md): one table per rank, with its columns.
 3. [Rank 1, the ground](ground.md): the blocks, the corridors, the street and the other kinds of ground.
 4. [Rank 2, the stretches](stretches.md): the junctions, the sections, the subsections and the intersections.
-5. [Ranks 3 and 4, the units and their sides](units.md): the partition of the street into units, the kerb, the driving side and
+5. [Ranks 3 and 4, the spaces and their sides](spaces.md): the partition of the street into spaces, the kerb, the driving side and
    the walking side.
 6. [Ranks 5 and 6, the parts and the marks](parts.md): the lanes, the strips, the crosswalks, the sidewalk zones, the painted lines
    and the turns.

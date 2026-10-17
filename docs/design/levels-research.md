@@ -35,6 +35,6 @@ dimension? Sources are linked; claims not found in a source are not made.
    - OSM `level` (floors inside a structure) and `layer` (crossing order) are different things; for an **object** we read `level`
      first and `layer` second as our level, which is right for a station platform and may be wrong for an odd tag.
 4. **The one idea we do not have: the crossing record.** HERE keeps a table of where links cross at different levels without
-   connecting. We store connections (`space.link`) but not these **grade separations**: that a bridge at level 1 passes over a
-   street at level 0 between two points. A `space.stack(level_a, level_b, geometry)` of such overlaps would let the dashboard
+   connecting. We store connections (`urban.link`) but not these **grade separations**: that a bridge at level 1 passes over a
+   street at level 0 between two points. A `urban.stack(level_a, level_b, geometry)` of such overlaps would let the dashboard
    say what is above a street space at level 0, and it is what OpenDRIVE's "top-most road" ambiguity is about.

@@ -22,7 +22,7 @@ def write(profile, out, db=None):
         con.execute("LOAD spatial")
         ol = shapely.Polygon(P["deck"]["outline"]["value"])
         to_crs = f"ST_Transform(geometry, 'EPSG:4326', '{P['crs']}', always_xy := true)"
-        ground = [g for (w,) in con.execute(f"SELECT ST_AsWKB({to_crs}) FROM space.part WHERE level = 0 AND type = 'lane'").fetchall()
+        ground = [g for (w,) in con.execute(f"SELECT ST_AsWKB({to_crs}) FROM urban.part WHERE level = 0 AND type = 'lane'").fetchall()
                   for g in [shapely.from_wkb(bytes(w))] if g.distance(ol) < 50]
     m = model(P, None, None, ground, flat_only=True)
     feats = []

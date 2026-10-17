@@ -15,7 +15,7 @@ fails, so it can stop a script or a CI job.
 ## Check a bridge too
 
 ```bash
-urbanstyle check data/units/broadway-granville.space.duckdb --bridge data/bridges-measured/granville-bridge.bridge.json
+urbanstyle check data/units/broadway-granville.urban.duckdb --bridge data/bridges-measured/granville-bridge.bridge.json
 ```
 
 This adds the checks BR1 to BR11 of the bridge model: guards on lanes, holes, gaps in the guards, paths on paths, thin paths, lanes

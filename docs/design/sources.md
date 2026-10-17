@@ -26,7 +26,7 @@ repeats the correction.
 | `mapped` | drawn by mappers, or kept in a register of mapped things | 0.7 | OSM roads, buildings, land use, car parks |
 | `recorded` | in a register whose accuracy the source does not state | 0.7 | a city's trees, hydrants |
 | `measured` | measured by urbanstyle from mapped lines | 0.6 | a kerb from OSM's sidewalk lines, a width kerb to kerb |
-| `derived` | computed by urbanstyle from other data by a rule | 0.5 | the units, SUMO's lanes, a yard |
+| `derived` | computed by urbanstyle from other data by a rule | 0.5 | the spaces, SUMO's lanes, a yard |
 | `observed` | seen in photos | 0.5 | Mapillary's detections |
 | `approximate` | the source itself says its positions are approximate | 0.4 | a city's traffic signals, parking meters |
 | `chosen` | urbanstyle's own value, one for a type | 0.3 | a lane 3.25 m, a crosswalk 3 m, a tree pit 1.5 m |
@@ -52,10 +52,10 @@ A city's own words decide its method: a dataset whose accuracy note says "survey
 
 | Table | Columns |
 |---|---|
-| `space.ground`, `space.surface` | `source`, `method`, `ref` |
-| `space.part`, `space.mark` | `source`, `method`, `ref`; `width_source`, `width_method`; a part's `position_source`, `position_method`, `position_ref` |
-| `space.element` (buildings) | `source`, `level_src`, `use_source`, `use_method`, `ground_source`, `ground_method` |
-| `space.object` | `source`, `method`, `ref` |
+| `urban.ground`, `urban.surface` | `source`, `method`, `ref` |
+| `urban.part`, `urban.mark` | `source`, `method`, `ref`; `width_source`, `width_method`; a part's `position_source`, `position_method`, `position_ref` |
+| `urban.element` (buildings) | `source`, `level_src`, `use_source`, `use_method`, `ground_source`, `ground_method` |
+| `urban.object` | `source`, `method`, `ref` |
 | the dossier's `object` | `source`, `method`, `observed`, `confidence`; `width_source`, `width_method`, `height_source`, `height_method` |
 | the dossier's `source` | one row per source used: name, origin, licence, method, date fetched |
 

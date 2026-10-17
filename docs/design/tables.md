@@ -3,13 +3,13 @@
 <p class="lead">One table per rank, and the tables that lie on the tree. Every row names its parent in the rank above, and the rows
 of one parent partition it. Every row that holds a value names the value's source and method.</p>
 
-All tables are in the `space` schema of an area's DuckDB file. Geometry is stored in lon/lat (EPSG:4326); the build measures in the
+All tables are in the `urban` schema of an area's DuckDB file. Geometry is stored in lon/lat (EPSG:4326); the build measures in the
 area's UTM zone. `level` is the integer level, -2 to 2. The columns `source`, `method` and `ref` say who gave a row, how they got it
 and which of their items it is ([Sources and provenance](sources.md)).
 
 ## Rank 0
 
-### `space.area`
+### `urban.area`
 
 The whole area of a level: one row per level.
 
@@ -18,7 +18,7 @@ The whole area of a level: one row per level.
 | `level` | the level |
 | `geometry` | the area: the clip's box, or OSM's boundary |
 
-### `space.element`
+### `urban.element`
 
 The elements duckOSM gives: one row per road, walkway, cycleway or rail piece, and per building or car park.
 
@@ -35,7 +35,7 @@ The elements duckOSM gives: one row per road, walkway, cycleway or rail piece, a
 
 ## Rank 1
 
-### `space.ground`
+### `urban.ground`
 
 Every piece of the area of a level is one row: the street, a plot or a path. The three partition the area (checks G1 to G3).
 
@@ -53,7 +53,7 @@ Every piece of the area of a level is one row: the street, a plot or a path. The
 
 ## Rank 2
 
-### `space.stretch`
+### `urban.stretch`
 
 A stretch of the street or of a path: a section, an intersection, a path section, a path intersection.
 
@@ -68,9 +68,9 @@ A stretch of the street or of a path: a section, an intersection, a path section
 | `nodes` | the junction nodes: the two ends of a section, the cluster of an intersection |
 | `class`, `name`, `oneway`, `length_m` | from the ways |
 | `axis` | a section's line, its ways chained |
-| `geometry` | the stretch's face of the street, cut by the stop lines; its units partition it |
+| `geometry` | the stretch's face of the street, cut by the stop lines; its spaces partition it |
 
-### `space.plot_piece`
+### `urban.plot_piece`
 
 A piece of a plot, inside its block. The pieces of one block partition it.
 
@@ -83,10 +83,10 @@ A piece of a plot, inside its block. The pieces of one block partition it.
 | `name` | from the source |
 | `source`, `method`, `ref` | OSM, mapped, the way; urbanstyle, derived, for a yard or an alley |
 | `width_m`, `width_source`, `width_method` | an alley's width |
-| `surfaces` | the surfaces that cover it (`space.surface`) |
+| `surfaces` | the surfaces that cover it (`urban.surface`) |
 | `geometry` | the piece, one polygon |
 
-### `space.change`
+### `urban.change`
 
 One row per joint of a section where OSM's tags change, with its class.
 
@@ -98,32 +98,33 @@ One row per joint of a section where OSM's tags change, with its class.
 | `note` | the evidence |
 | `geometry` | the joint |
 
-### `space.street` and `space.arm`
+### `urban.street` and `urban.arm`
 
 The named street, a group of stretches, and the arms that link an intersection to its named streets.
 
 | Table | Columns |
 |---|---|
-| `space.street` | `street_id` (`k<level>-<way>`), `name`, `level`, `sections`, `intersections`, `geometry` |
-| `space.arm` | `intersection_id`, `street_id`, `section_id`, `way` |
+| `urban.street` | `street_id` (`k<level>-<way>`), `name`, `level`, `sections`, `intersections`, `geometry` |
+| `urban.arm` | `intersection_id`, `street_id`, `section_id`, `way` |
 
 ## Rank 3
 
-### `space.unit`
+### `urban.space`
 
-One unit per subsection, per intersection, per path section and per path intersection.
+One space per subsection, per intersection, per path section and per path intersection. (Today's table is `urban.unit`; it takes
+this name with the top-down build.)
 
 | Column | Meaning |
 |---|---|
-| `unit_id` | `s<level>-w<way>/<k>`, `i<level>-<node>`, `p<level>-w<way>/<k>`, `q<level>-<node>` |
+| `space_id` | `s<level>-w<way>/<k>`, `i<level>-<node>`, `p<level>-w<way>/<k>`, `q<level>-<node>` |
 | `kind` | subsection, intersection, path section, path intersection |
 | `level` | the level |
 | `parent_id` | its stretch |
 | `axis` | a subsection's line |
 | `width_m`, `oneway`, `length_m`, `left_extra` | the frame's width; one-way; the length; the merge shift |
-| `geometry` | the unit, one polygon |
+| `geometry` | the space, one polygon |
 
-### `space.junction`
+### `urban.junction`
 
 The junction nodes of each intersection.
 
@@ -133,30 +134,30 @@ The junction nodes of each intersection.
 
 ## Rank 4
 
-### `space.side`
+### `urban.side`
 
-The two sides of a unit, and its islands.
+The two sides of a space, and its islands.
 
 | Column | Meaning |
 |---|---|
-| `side_id` | `<unit>:d`, `<unit>:w`, `<unit>:i<n>` |
+| `side_id` | `<space>:d`, `<space>:w`, `<space>:i<n>` |
 | `kind` | driving, walking, island |
-| `parent_id` | its unit |
+| `parent_id` | its space |
 | `kerb` | the driving side: the line of its kerb, with `kerb_source` and `kerb_method` (OSM's sidewalk line, measured; the lanes' edge, derived) |
 | `geometry` | the side, one polygon |
 
 ## Rank 5
 
-### `space.part`
+### `urban.part`
 
 A piece of a side, of one type.
 
 | Column | Meaning |
 |---|---|
-| `part_id` | `<unit>#<n>` |
+| `part_id` | `<space>#<n>` |
 | `type` | lane, paved, parking, no parking, shoulder, bus lane, cycle lane, junction area, crosswalk, cycle crossing, bridge deck, island, sidewalk, furnishing, frontage, driveway, bus stop, bus zone, tree pit; a path's surface, steps, ramp, handrail, bollard |
 | `parent_id` | its side |
-| `unit_id`, `level` | its unit and level |
+| `unit_id`, `level` | its space and level |
 | `arm`, `direction`, `lane`, `lane_id` | a lane's road, direction (forward, backward, in, out), number from the middle, GMNS id |
 | `width_m`, `length_m`, `width_source`, `width_method` | its width and length, and where the width comes from |
 | `source`, `method`, `ref` | where the part comes from |
@@ -167,32 +168,32 @@ A piece of a side, of one type.
 
 ## Rank 6
 
-### `space.mark`
+### `urban.mark`
 
 A painted line, an arrow, a zebra or the kerb line, on a part.
 
 | Column | Meaning |
 |---|---|
-| `mark_id` | `<unit>:<type>:<n>` |
+| `mark_id` | `<space>:<type>:<n>` |
 | `type` | kerb, lane line, centre line, edge line, parking line, stop line, give-way line, zebra, crossing line, arrow, guide line, barrier |
 | `parent_id` | its part |
-| `unit_id`, `level` | its unit and level |
+| `unit_id`, `level` | its space and level |
 | `width_m`, `width_source`, `width_method`, `length_m` | the mark's width and length |
 | `source`, `method`, `ref` | where it comes from |
 | `geometry` | its middle line, or its shape |
 
-### `space.turn` and `space.approach`
+### `urban.turn` and `urban.approach`
 
 The lane-to-lane moves through each intersection and the lanes that come into it.
 
 | Table | Columns |
 |---|---|
-| `space.turn` | `unit_id`, `from_edge`, `from_lane`, `to_edge`, `to_lane`, `turn` (left, straight, right), `vehicles`, `condition`, `source`, `geometry` |
-| `space.approach` | `unit_id`, `level`, `from_edge`, `lane`, `moves`, `ways`, `arrow`, `no_arrow_because` |
+| `urban.turn` | `unit_id`, `from_edge`, `from_lane`, `to_edge`, `to_lane`, `turn` (left, straight, right), `vehicles`, `condition`, `source`, `geometry` |
+| `urban.approach` | `unit_id`, `level`, `from_edge`, `lane`, `moves`, `ways`, `arrow`, `no_arrow_because` |
 
 ## On the tree
 
-### `space.object`
+### `urban.object`
 
 What stands in the street: one row per real thing.
 
@@ -200,14 +201,14 @@ What stands in the street: one row per real thing.
 |---|---|
 | `object_id` | `n<node>`, `w<way>`, or the source's own id |
 | `class` | `group.class` ([Street objects](objects.md)) |
-| `level`, `unit_id`, `part_id` | where it stands; `near_m` when it stands outside every unit |
+| `level`, `unit_id`, `part_id` | where it stands; `near_m` when it stands outside every space |
 | `name`, `attrs` | the name; a short set of attributes |
 | `width_m`, `height_m`, with their sources and methods | its size |
 | `sources`, `refs` | every source that describes it and its id in each |
 | `source`, `method` | the best source and its method |
 | `geometry` | the point |
 
-### `space.link`
+### `urban.link`
 
 A join between two levels at a node.
 
@@ -215,17 +216,17 @@ A join between two levels at a node.
 |---|---|
 | `link_id`, `type` (ramp, stairs, elevator, entrance, connection), `level_from`, `level_to`, `node`, `geometry` | |
 
-### `space.station`
+### `urban.station`
 
 A rail, subway or tram station with its level and its entrances.
 
-### `space.surface`
+### `urban.surface`
 
 The surfaces that cover a ground item or a plot piece exactly: `surface_id` (`<item>:<kind>`), `ground_id`, `type` (roadway,
 pedestrian realm, median, verge, building, car park, construction site, garden, yard, lawn, play, path, track bed, under bridge,
 paved, water), `source`, `method`, `ref`, `geometry` (checks L1, L2).
 
-### `space.observed` and `space.photo`
+### `urban.observed` and `urban.photo`
 
 Mapillary's detections and photo positions, kept local, for validation only.
 
@@ -233,7 +234,7 @@ Mapillary's detections and photo positions, kept local, for validation only.
 
 A bridge is not in the tables: it is a profile file, `<name>.bridge.json`, with the deck outline, the axes, the vertical profiles, the
 sections, the bands and the piers, each value with its source and method ([Levels, bridges and tunnels](levels.md)). The server adds
-`space.bridge_part` in memory from the model, so the panel can find the model's lanes and paths.
+`urban.bridge_part` in memory from the model, so the panel can find the model's lanes and paths.
 
 ## The pilot dossier
 

@@ -6,7 +6,7 @@ import os
 import pytest
 
 PROFILE = "data/bridges-measured/granville-bridge.bridge.json"
-DB = "data/units/broadway-granville.space.duckdb"
+DB = "data/units/broadway-granville.urban.duckdb"
 # faults the checks find that are not fixed yet (2026-10-12): they are reported, but do not fail the run
 KNOWN = {}
 
@@ -24,7 +24,7 @@ def checks():
     c.execute("LOAD spatial")
     ol = shapely.Polygon(P["deck"]["outline"]["value"])
     to_crs = f"ST_Transform(geometry, 'EPSG:4326', '{P['crs']}', always_xy := true)"
-    ground = [g for (w,) in c.execute(f"SELECT ST_AsWKB({to_crs}) FROM space.part WHERE level = 0 AND type = 'lane'").fetchall()
+    ground = [g for (w,) in c.execute(f"SELECT ST_AsWKB({to_crs}) FROM urban.part WHERE level = 0 AND type = 'lane'").fetchall()
               for g in [shapely.from_wkb(bytes(w))] if g.distance(ol) < 50]
     return {cid: (what, n, hard, at) for cid, what, n, hard, at in model(P, None, None, ground)["checks"]}
 

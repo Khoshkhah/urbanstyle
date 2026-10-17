@@ -15,10 +15,10 @@ import shapely
 def run(path):
     c = duckdb.connect(path, read_only=True)
     c.execute("LOAD spatial")
-    lon = c.execute("SELECT avg(ST_X(ST_Centroid(geometry))) FROM space.container").fetchone()[0]
+    lon = c.execute("SELECT avg(ST_X(ST_Centroid(geometry))) FROM urban.container").fetchone()[0]
     t = f"ST_AsWKB(ST_Transform(geometry, 'EPSG:4326', 'EPSG:{32600 + int((lon + 180) // 6) + 1}', always_xy := true))"
-    secs = c.execute(f"SELECT container_id, {t} FROM space.container WHERE kind = 'section' AND n_buildings >= 2 AND level = 0").fetchall()
-    bl = shapely.from_wkb([r[0] for r in c.execute(f"SELECT {t} FROM space.element WHERE type = 'building'").fetchall()])
+    secs = c.execute(f"SELECT container_id, {t} FROM urban.container WHERE kind = 'section' AND n_buildings >= 2 AND level = 0").fetchall()
+    bl = shapely.from_wkb([r[0] for r in c.execute(f"SELECT {t} FROM urban.element WHERE type = 'building'").fetchall()])
     tree = shapely.STRtree(bl)
     fac, rect = [], []
     for cid, w in secs:

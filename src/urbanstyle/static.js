@@ -21,11 +21,11 @@ async function start() {
   const db = new duckdb.AsyncDuckDB(new duckdb.ConsoleLogger(duckdb.LogLevel.WARNING), worker);
   await db.instantiate(b.mainModule, b.pthreadWorker);
   conn = await db.connect();
-  await conn.query('CREATE SCHEMA space');
+  await conn.query('CREATE SCHEMA urban');
   const base = new URL(D, location.href).href;
   for (const [t, f] of Object.entries(meta.files)) {
     await db.registerFileURL(f, base + f, duckdb.DuckDBDataProtocol.HTTP, false);
-    await conn.query(`CREATE TABLE space."${t}" AS SELECT * FROM read_parquet('${f}')`);
+    await conn.query(`CREATE TABLE urban."${t}" AS SELECT * FROM read_parquet('${f}')`);
   }
 }
 

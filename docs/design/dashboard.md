@@ -29,7 +29,7 @@ every layer and lifts the veil, so nothing changes in front of the user while th
    on its fields. Ask: a question in plain words to the AI agent. The results are orange on the map. The list shows the count, the
    total length and area, and the count of each type; it can be saved as CSV or GeoJSON.
 2. **Select one thing** with a click on a result, on a tree item, or on the map, in 2D or 3D. It is deep purple, and its card opens
-   at the top of the results: its fields, and buttons to the things it leads to (a part's unit, a unit's parts or section, a bridge
+   at the top of the results: its fields, and buttons to the things it leads to (a part's space, a space's parts or section, a bridge
    part's axis, all objects of one class). The thing under the mouse is light purple.
 3. **Add layers** in Layers. All are off at start: the map shows the base map, the buildings in grey and the bridge.
 
@@ -37,7 +37,7 @@ every layer and lifts the veil, so nothing changes in front of the user while th
 the street objects by group and class; the blocks; the buildings by level; the ground by kind. Tick boxes put a list together from
 parts of the tree. An exact id in Find selects that thing at once.
 
-**A unit in focus.** When a section, subsection or intersection is selected, the map zooms to it. In 3D its parts, kerbs and painted
+**A space in focus.** When a section, subsection or intersection is selected, the map zooms to it. In 3D its parts, kerbs and painted
 lines, the objects that stand in it and the buildings that frame it keep their colours, and everything else is faint.
 
 **Levels.** Each level that has streets has one button with three states: full, faded, hidden. Level 0 is the base map, the
@@ -54,9 +54,9 @@ the rank; a click on it turns them all off when any is on, all on when none is.
 | Rank | Layers |
 |---|---|
 | 0 | the area, the road lines, the buildings, the rail, the stations |
-| 1 | the street (whole, from the area, the blocks and the corridors), the street as the units cut it, the plots (the blocks), the paths (the corridors); the footways, every footpath whole at its width, lying on the ground |
+| 1 | the street (whole, from the area, the blocks and the corridors), the street as the spaces cut it, the plots (the blocks), the paths (the corridors); the footways, every footpath whole at its width, lying on the ground |
 | 2 | the sections and the intersections; the plot's pieces: building, yard, alley, car park, construction site, green, water, rail, square, structure |
-| 3 | the units, the subsections, their axes and breaks, the cuts |
+| 3 | the spaces, the subsections, their axes and breaks, the cuts |
 | 4 | the driving side and the walking side |
 | 5 | one box per part type, the driving side first, then the walking side |
 | 6 | one box per mark type |
@@ -83,7 +83,7 @@ the page by the site's workflow from a repository secret and restricted to the s
 in the browser only. Street View uses a second map key restricted to the site's address. The base map's key comes from a secret too;
 without it, a keyless base map is used.
 
-Published: the tables of the `space` schema, the buildings, the street objects and the bridge model, with their licences named on the page. Not
+Published: the tables of the `urban` schema, the buildings, the street objects and the bridge model, with their licences named on the page. Not
 published: Mapillary's detections and photos (CC BY-SA, kept local) and the local map key. The page and the Parquet files go up as
 the assets of a release, not into the repository.
 

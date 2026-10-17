@@ -1,12 +1,12 @@
 # Ranks 5 and 6: the parts and the marks
 
-<p class="lead">Each side of a unit is covered exactly by its parts: lanes, strips, the paved rest, the junction area, the crosswalks
+<p class="lead">Each side of a space is covered exactly by its parts: lanes, strips, the paved rest, the junction area, the crosswalks
 and the islands on the driving side; the furnishing zone, the sidewalk, the frontage and the driveways on the walking side. The marks
 lie on the parts: the kerb line, the painted lines, the zebras, the arrows and the guide lines.</p>
 
 ## Reads
 
-The two sides of each unit. OSM's lanes, turn lanes, parking lanes, cycle lanes, crossings and crossing markings. A city's meters,
+The two sides of each space. OSM's lanes, turn lanes, parking lanes, cycle lanes, crossings and crossing markings. A city's meters,
 bikeways and survey. SUMO's lane-to-lane moves through each intersection.
 
 ## The parts of the driving side
@@ -17,7 +17,7 @@ bikeways and survey. SUMO's lane-to-lane moves through each intersection.
 | `paved` | the paved rest of the frame where no lane or strip is; also a strip narrower than 8 m between two roadways with nothing mapped on it | the frame less the lanes and the strips |
 | `parking`, `no parking`, `shoulder`, `bus lane`, `cycle lane` | a strip beside the lanes | only where OSM or a city maps it: `parking:*`, the city's meters where they stand, `cycleway*`, a bus lane tag; a strip of unknown use is a shoulder |
 | `junction area` | the roadway of an intersection where the arms' roadways meet, with the turning corners and the connectors | the arms' roadways joined |
-| `crosswalk`, `cycle crossing` | the roadway under a crossing way, 3 m wide or OSM's width; a crossing node with no crossing way gets a band across its road | OSM's crossings that run across the road (30° or more to the road's line, or at most 40 m over a junction area); the lanes and the junction area give way to them; a crossing is one object in one unit |
+| `crosswalk`, `cycle crossing` | the roadway under a crossing way, 3 m wide or OSM's width; a crossing node with no crossing way gets a band across its road | OSM's crossings that run across the road (30° or more to the road's line, or at most 40 m over a junction area); the lanes and the junction area give way to them; a crossing is one object in one space |
 | `island` | a piece of the walking side between two roadways that touches no block; a roundabout's central island | the rule of rank 4 |
 | `bridge deck` | the band of a way that a bridge profile models | the bridge model draws its lanes |
 
@@ -32,7 +32,7 @@ Each part of a road also carries what is known of its road from OSM: `road`, `ro
 | `furnishing` | the zone between the kerb and the sidewalk, where trees, poles and furniture stand | measured where OSM maps the line; 1 m (chosen) where not |
 | `frontage` | the rest, from the sidewalk to the block's edge | the walking side less the other parts |
 | `driveway` | the apron where a service road crosses the walking side to the roadway, kerb lowered | the service road's line at OSM's width, else 5 m |
-| `island` | see the driving side; a piece of the walking side that touches no block and touches an island is that island's, across units | |
+| `island` | see the driving side; a piece of the walking side that touches no block and touches an island is that island's, across spaces | |
 | `bus stop`, `bus zone` | a stop's waiting area on the sidewalk and the kerb strip where its bus stops | OSM's stops tied to the timetable (GTFS) by stop number |
 | `tree pit` | a street tree's pit, 1.5 m square, inside the furnishing zone | the tree of a city's survey or OSM |
 
@@ -41,7 +41,7 @@ a junction begins; its strip is an island.
 
 ## The parts of a path
 
-A path's unit has the walking side only. Its parts are the path's surface and what OSM maps on it: `steps`, `ramp`, `handrail`,
+A path's space has the walking side only. Its parts are the path's surface and what OSM maps on it: `steps`, `ramp`, `handrail`,
 `bollard`. A path has no marks.
 
 ## Widths and sizes
@@ -58,7 +58,7 @@ maps a width; any other part's `urbanstyle, derived` from its shape. Parts lose 
 
 | Mark | Where | Width |
 |---|---|---|
-| `kerb` | the border of the driving side: one line per level, cut to each unit, dropped over 2.5 m on each side of a driveway's mouth | 0.25 m, 0.2 m high in 3D |
+| `kerb` | the border of the driving side: one line per level, cut to each space, dropped over 2.5 m on each side of a driveway's mouth | 0.25 m, 0.2 m high in 3D |
 | `lane line` | between two lanes of one direction, only between lanes OSM counts | 0.12 m |
 | `centre line` | between the two directions, also where the count is chosen | 0.12 m |
 | `edge line` | at the outer edge of a run of lanes beside a parking or cycle strip | 0.12 m |
@@ -79,22 +79,22 @@ count, and urbanstyle's own, `chosen`, where the count is chosen.
 ## The turns
 
 SUMO's netconvert runs on duckOSM's driving network with the subsections' lanes. Each lane-to-lane move through an intersection is
-a row of `space.turn`: the from-edge and lane, the to-edge and lane, the turn (left, straight, right), the vehicles it is open to and
+a row of `urban.turn`: the from-edge and lane, the to-edge and lane, the turn (left, straight, right), the vehicles it is open to and
 the time rule that binds it, from duckOSM's turn permissions and restrictions. U-turns are left out. The turn arrows show the moves
-open to all traffic. Each lane that comes into a junction is a row of `space.approach`: its moves, the ways it may go, its arrow or why
+open to all traffic. Each lane that comes into a junction is a row of `urban.approach`: its moves, the ways it may go, its arrow or why
 it has none.
 
 ## Writes
 
-`space.part`: one row per part with its side, its type, its width and its sources. `space.mark`: one row per mark with its part.
-`space.turn` and `space.approach`: the moves and the lanes that come into each intersection ([The tables](tables.md)).
+`urban.part`: one row per part with its side, its type, its width and its sources. `urban.mark`: one row per mark with its part.
+`urban.turn` and `urban.approach`: the moves and the lanes that come into each intersection ([The tables](tables.md)).
 
 ## Checks
 
 | Check | Tests |
 |---|---|
-| U8 | the parts of a unit cover it |
-| U9 | the parts of a unit do not overlap by more than 0.05 m² |
+| U8 | the parts of a space cover it |
+| U9 | the parts of a space do not overlap by more than 0.05 m² |
 | A2 | no parking lane or cycle lane without a real source |
 | A3 | every road line at level 0 lies on a roadway (a stretch over 2 m with none fails) |
 | X1 | a crossing way over the roadway has crosswalk parts on at least 80 % of its stretch |

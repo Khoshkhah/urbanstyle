@@ -47,12 +47,12 @@ PATH_COLORS = {"sidewalk": "#c4b5fd", "footway": "#8b5cf6", "path": "#8b5cf6", "
 
 
 def blocks_frame(con):
-    """The blocks (space.block, docs/design/blocks.md) with their street sides in one line each: the road, its distance and what set it."""
+    """The blocks (urban.block, docs/design/blocks.md) with their street sides in one line each: the road, its distance and what set it."""
     try:
         return frame(con, """SELECT ST_AsWKB(b.geometry) AS geometry, b.block_id, b.level, round(b.area_m2) AS area_m2, b.source, b.method,
-            s.sides FROM space.block b LEFT JOIN (SELECT block_id, string_agg(coalesce(name, class) || ': ' || distance_m || ' m from ' || basis
+            s.sides FROM urban.block b LEFT JOIN (SELECT block_id, string_agg(coalesce(name, class) || ': ' || distance_m || ' m from ' || basis
               || CASE WHEN unpulled_m IS NOT NULL THEN ' (was ' || unpulled_m || ' m, ' || building || ')' ELSE '' END, '; ' ORDER BY name)
-              AS sides FROM space.block_side GROUP BY 1) s USING (block_id)""")
+              AS sides FROM urban.block_side GROUP BY 1) s USING (block_id)""")
     except duckdb.CatalogException:     # built before the blocks
         return None
 
@@ -77,49 +77,49 @@ def block_colors(blocks):
 
 def tree_data(con, epsg):
     q = lambda sql: con.execute(sql).fetchall()
-    by_level = dict(q("""SELECT l, count(*) FROM space.element, generate_series(level_min, level_max) t(l)
+    by_level = dict(q("""SELECT l, count(*) FROM urban.element, generate_series(level_min, level_max) t(l)
                          WHERE type = 'building' GROUP BY l ORDER BY l"""))
-    tree = {"buildings": {"total": sum(1 for _ in q("SELECT 1 FROM space.element WHERE type = 'building'")), "byLevel": by_level},
+    tree = {"buildings": {"total": sum(1 for _ in q("SELECT 1 FROM urban.element WHERE type = 'building'")), "byLevel": by_level},
             "containers": {}}
     for l, c, n, r, w, cy, m, k, rl, sid, *bb in q("""SELECT level, container_id, name, n_road, n_walkway, n_cycleway, mean_width_m, kind, n_rail, street_id,
             ST_XMin(geometry), ST_YMin(geometry), ST_XMax(geometry), ST_YMax(geometry)
-            FROM space.container ORDER BY level, name NULLS LAST"""):
+            FROM urban.container ORDER BY level, name NULLS LAST"""):
         tree["containers"].setdefault(l, []).append({"id": c, "n": n, "r": r, "w": w, "c": cy, "m": m, "k": k, "t": rl, "s": sid, "b": bb})
     tree["stations"] = [{"id": i, "n": n, "k": k, "l": l, "b": [x - 0.0012, y - 0.0007, x + 0.0012, y + 0.0007]}
-                        for i, n, k, l, x, y in q("SELECT id, name, kind, level, ST_X(geometry), ST_Y(geometry) FROM space.station ORDER BY level, name")]
+                        for i, n, k, l, x, y in q("SELECT id, name, kind, level, ST_X(geometry), ST_Y(geometry) FROM urban.station ORDER BY level, name")]
     area = lambda col="geometry": f"ST_Area(ST_Transform({col}, 'EPSG:4326', '{epsg}', always_xy := true))"
     tree["info"] = {}   # container id -> area, zone areas, mean widths, quality, objects by class: what the focus panel shows
-    for cid, a, m, o, ks, nh, wh in q(f"""SELECT container_id, {area()}, mean_width_m, open_share, kerb_share, narrow_half_m, wide_half_m FROM space.container"""):
+    for cid, a, m, o, ks, nh, wh in q(f"""SELECT container_id, {area()}, mean_width_m, open_share, kerb_share, narrow_half_m, wide_half_m FROM urban.container"""):
         tree["info"][cid] = {"a": round(a), "m": m, "o": o, "ks": ks, "nh": nh, "wh": wh, "z": {}, "ob": {}}
-    for cid, z, a in q(f"SELECT container_id, zone, {area()} FROM space.zone"):
+    for cid, z, a in q(f"SELECT container_id, zone, {area()} FROM urban.zone"):
         if cid in tree["info"]:
             tree["info"][cid]["z"][z] = round(a)
     try:
-        for cid, ty, a in q(f"SELECT container_id, type, sum({area()}) FROM space.strip GROUP BY ALL"):
+        for cid, ty, a in q(f"SELECT container_id, type, sum({area()}) FROM urban.strip GROUP BY ALL"):
             if cid in tree["info"]:
                 tree["info"][cid].setdefault("st", {})[ty] = round(a)
     except duckdb.CatalogException:
         pass
-    for cid, cls, n in q("SELECT container_id, class, count(*) FROM space.object WHERE container_id IS NOT NULL GROUP BY ALL"):
+    for cid, cls, n in q("SELECT container_id, class, count(*) FROM urban.object WHERE container_id IS NOT NULL GROUP BY ALL"):
         if cid in tree["info"]:
             tree["info"][cid]["ob"][cls] = n
     tree["secarms"] = {}                  # section id -> the intersections it meets (their crossings and signals belong to its view)
-    for sid, iid in q("SELECT DISTINCT section_id, intersection_id FROM space.arm WHERE section_id IS NOT NULL"):
+    for sid, iid in q("SELECT DISTINCT section_id, intersection_id FROM urban.arm WHERE section_id IS NOT NULL"):
         tree["secarms"].setdefault(sid, []).append(iid)
     tree["arms"] = {}                     # intersection id -> the street groups that meet there (an intersection is in several)
-    for iid, sid in q("SELECT DISTINCT intersection_id, street_id FROM space.arm WHERE street_id IS NOT NULL"):
+    for iid, sid in q("SELECT DISTINCT intersection_id, street_id FROM urban.arm WHERE street_id IS NOT NULL"):
         tree["arms"].setdefault(iid, []).append(sid)
     tree["streets"] = {sid: {"n": n, "l": l, "ns": ns, "ni": ni} for sid, l, n, ns, ni in
-                       q("SELECT street_id, level, name, n_section, n_intersection FROM space.street")}
-    for cid, ids, n, m in q("SELECT container_id, list(building_id ORDER BY length_m DESC), count(*), sum(length_m) FROM space.boundary GROUP BY 1"):
+                       q("SELECT street_id, level, name, n_section, n_intersection FROM urban.street")}
+    for cid, ids, n, m in q("SELECT container_id, list(building_id ORDER BY length_m DESC), count(*), sum(length_m) FROM urban.boundary GROUP BY 1"):
         if cid in tree["info"]:
             tree["info"][cid]["bb"] = ids
             tree["info"][cid]["bn"] = [n, round(m)]
     tree["objects"] = {}
-    for cls, n in q("SELECT class, count(*) FROM space.object GROUP BY 1 ORDER BY 1"):
+    for cls, n in q("SELECT class, count(*) FROM urban.object GROUP BY 1 ORDER BY 1"):
         tree["objects"].setdefault(cls.split(".")[0], {})[cls] = n
     tree["links"] = {}
-    for ty, a, b, n in q("SELECT type, level_a, level_b, count(*) FROM space.link GROUP BY ALL ORDER BY ALL"):
+    for ty, a, b, n in q("SELECT type, level_a, level_b, count(*) FROM urban.link GROUP BY ALL ORDER BY ALL"):
         tree["links"].setdefault(ty, {})[f"{a},{b}"] = n
     return tree
 
@@ -135,7 +135,7 @@ SEEN_COLORS = {"parking": "#2563eb", "no parking": "#9333ea", "give way": "#f973
                "street light": "#facc15", "bin": "#65a30d", "bench": "#84cc16", "lane arrow": "#06b6d4", "zebra": "#ffffff"}
 PHOTOS_PER_SPACE = 6
 # painted and built lines, at real size: type, colour, width in metres, dash
-# painted and built lines: type, colour, dash; drawn at the width stored on the mark (parts.LINE, space.mark.width_m)
+# painted and built lines: type, colour, dash; drawn at the width stored on the mark (parts.LINE, urban.mark.width_m)
 # (a dash is in line widths: a lane line 0.12 m wide, 3 m painted and 6 m gap, as TAC's manual for Canada (MUTCDC) paints it, is [25, 50];
 # the line between the two directions is yellow and solid. A guide line is no paint: SUMO's move through a junction, thin amber dots)
 MARKS = [(t, c, LINE[t], d) for t, c, d in (("guide line", "#f59e0b", [1, 4]), ("arrow", "#ffffff", None), ("kerb", "#9ca3af", None),
@@ -180,7 +180,7 @@ const GROUPS=[
   ['Objects (shown in focus)',OB.map(o=>['o:'+o.g,o.g,o.c,'ci',({furniture:'lamps, signs, benches, bins, bollards, bike parking, vending, post boxes',vegetation:'trees',transit:'bus stops and platforms',crossing:'zebra, signalised and other crossings',kerb:'kerb points',access:'building and car-park entrances',barrier:'other barrier points'})[o.g]||''])],
   ['Network',[['r:road','Road centerline','#555','ln','click one for Street View'],['r:walkway','Walkway centerline','#a16207','ln','footway, steps, crossing'],['r:cycleway','Cycleway centerline','#16a34a','ln',''],
     ['rail','Rail line','#c026d3','ln',''],['stations','Station','#0d9488','ci','']].concat(LK.map(k=>['k:'+k.t,'Link: '+k.lab,k.c,'ci',k.d]))]];
-const show={}; GROUPS.forEach(g=>g[1].forEach(r=>show[r[0]]=(r[0].startsWith('c:')&&!HAS.includes('Spaces'))||r[0]==='buildings'||r[0].startsWith('r:')));   // roads start drawn (2D is a map); with the new spaces (space.unit) the old containers start hidden
+const show={}; GROUPS.forEach(g=>g[1].forEach(r=>show[r[0]]=(r[0].startsWith('c:')&&!HAS.includes('Spaces'))||r[0]==='buildings'||r[0].startsWith('r:')));   // roads start drawn (2D is a map); with the new spaces (urban.unit) the old containers start hidden
 const row=r=>`<label><input type=checkbox data-k="${r[0]}" ${show[r[0]]?'checked':''}><span class="sw ${r[3]}" style="background:${r[2]}"></span>${r[1]}${r[4]?` <i>${r[4]}</i>`:''}</label>`;
 document.getElementById('chips').innerHTML=GROUPS[0][1].concat(GROUPS[2][1]).map(r=>`<label title="${r[4]}"><input type=checkbox data-k="${r[0]}" ${show[r[0]]?'checked':''}><span class="sw" style="background:${r[2]}"></span>${r[1]}</label>`).join('');   // (each its real state: all were drawn ticked)
 document.getElementById('lg').innerHTML=GROUPS.slice(1).map((g,i)=>`<div class=gh><label><input type=checkbox data-g="${i+1}"><b>${g[0]}</b></label></div>`+g[1].map(row).join('')).join('')+
@@ -384,7 +384,7 @@ document.getElementById('usfold').onclick=()=>fold(!document.body.classList.cont
 try{if(localStorage.getItem('us-panel-off'))fold(true)}catch(e){}
 document.getElementById('terrain3d').onchange=()=>draw3d();
 document.getElementById('focus').onclick=e=>{const g=e.target.dataset.gid; if(g)focusGroup(g)};
-// the new spaces (space.unit): an intersection's area and how each arm was cut; a section's subsections, one row each
+// the new spaces (urban.unit): an intersection's area and how each arm was cut; a section's subsections, one row each
 const CUTCOL={'block corners':'#16a34a','one corner':'#f59e0b','crosswalk':'#2563eb'}, PCOL=__PCOL__;
 function newBlock(cid){const it=NEWU.inter[cid], ss=NEWU.sec[cid];
   if(it){const bl=it.bb||[], bm=Math.round(bl.reduce((a,b)=>a+b[1],0));
@@ -589,7 +589,7 @@ document.addEventListener('rs:select',e=>{const d=e.detail||{}, p=d.properties||
   if([...KD.map(k=>k.lab),'Travelway','Pedestrian realm','Track'].includes(d.overlay)&&p.cid&&!(sel.cids&&sel.cids.has(p.cid)))focusOn(p.cid);
   else if(!d.overlay&&p.container_id&&!(sel.cids&&sel.cids.has(p.container_id)))focusOn(p.container_id)   // a centerline click (Street View) focuses its street space too
   else if(['Spaces','Sections','Intersections','Subsections','Subsection axes','Subsection breaks'].includes(d.overlay))focusUnit(p)});
-// a new space (space.unit) or a subsection line: focus its section (or its intersection); a section only the new division has: zoom to the space
+// a new space (urban.unit) or a subsection line: focus its section (or its intersection); a section only the new division has: zoom to the space
 function focusUnit(p){const id=[p.section_id,p.unit_id].find(x=>x&&byId[x]);
   if(id){if(!(sel.cids&&sel.cids.has(id)))focusOn(id);return}
   const ids=rsQuery(q=>q.unit_id===(p.unit_id||p.subsection_id),'Spaces'); if(ids.length)rsFocus(ids,{maxZoom:19},'Spaces')}
@@ -646,7 +646,7 @@ POP = ["cid", "name", "kind", "shape", "level", "n_buildings", "width_m", "narro
 
 
 def epsg_of(con):
-    lon = con.execute("SELECT avg(ST_X(ST_Centroid(geometry))) FROM space.container").fetchone()[0]
+    lon = con.execute("SELECT avg(ST_X(ST_Centroid(geometry))) FROM urban.container").fetchone()[0]
     return f"EPSG:{32600 + int((lon + 180) // 6) + 1}"
 
 
@@ -676,13 +676,13 @@ FACADE_SNAP_M = 3.0   # a point this far inside a building is at its facade (map
 
 # an object's popup and tooltip, the same in 2D and in 3D: the tooltip names its type, the popup says what it is and who knows it
 DOT_COLORS = {"furniture": "#4f46e5", "vegetation": "#16a34a", "utility": "#6b7280", "transit": "#0891b2", "access": "#db2777", "barrier": "#78350f"}
-# layer 0, the ground (space.ground): its kinds' colours; unknown in red, to be found
+# layer 0, the ground (urban.ground): its kinds' colours; unknown in red, to be found
 GROUND_COLORS = {k: KIND_COLORS[k] for k in ("street", "alley", "building", "yard", "car park", "construction site", "square", "rail", "plot", "green", "water", "path", "structure", "unknown")}
 GROUND_POPUP = ["ground_id", "type", "name", "width_m", "width_method", "source", "method", "ref", "area_m2"]
 # an alley's width: twice its area over its perimeter (a long strip's mean width; no source measures it)
 ALLEY_W = ("CASE WHEN {t} = 'alley' THEN round(2 * ST_Area({g}) / ST_Perimeter({g}), 1) END AS width_m, "
            "CASE WHEN {t} = 'alley' THEN 'urbanstyle, derived: twice its area over its perimeter' END AS width_method")
-LOT_POPUP = ["type", "name", "operator", "parking", "access", "fee", "id"]     # an off-street car park (space.lot), 2D and 3D
+LOT_POPUP = ["type", "name", "operator", "parking", "access", "fee", "id"]     # an off-street car park (urban.lot), 2D and 3D
 BLD_POPUP = ["type", "name", "use", "ground_floor", "evidence", "class", "floors", "height_m", "level_src", "source", "id"]     # a building's popup, the same in 2D and 3D
 DOOR_WALL_M = 3.0   # an entrance this near a building's wall is a door in that wall (turned along it)
 BR_POPUP = ["id", "type", "direction", "lane", "lane_id", "edge_id", "osm", "name", "use", "turn", "width_m", "width_source", "width_method",
@@ -723,17 +723,17 @@ def placer(con, epsg):
     to_m = f"ST_AsWKB(ST_Transform(geometry, 'EPSG:4326', '{epsg}', always_xy := true))"
     road, walk, bld, pit = {}, {}, {}, {}
     try:
-        for lv, t, w, ref in con.execute(f"SELECT level, type, {to_m}, ref FROM space.part").fetchall():
+        for lv, t, w, ref in con.execute(f"SELECT level, type, {to_m}, ref FROM urban.part").fetchall():
             (walk if t in RAISED else road).setdefault(lv, []).append(shapely.from_wkb(bytes(w)))
             if t == "tree pit":     # a street tree stands in the middle of its pit (parts.py placed both)
                 pit.update({i: shapely.from_wkb(bytes(w)).centroid for i in (ref or "").split(", ") if i})
     except duckdb.CatalogException:
         pass
-    for lv, w in con.execute(f"SELECT l, {to_m} FROM space.element, generate_series(level_min, level_max) t(l) WHERE type = 'building'").fetchall():
+    for lv, w in con.execute(f"SELECT l, {to_m} FROM urban.element, generate_series(level_min, level_max) t(l) WHERE type = 'building'").fetchall():
         bld.setdefault(lv, []).append(shapely.from_wkb(bytes(w)))
-    alley = {}          # the alleys (space.ground): a pole mapped in one stands just beside it (city lamps stood in their middle)
+    alley = {}          # the alleys (urban.ground): a pole mapped in one stands just beside it (city lamps stood in their middle)
     try:
-        for lv, w in con.execute(f"SELECT level, {to_m} FROM space.ground WHERE type = 'alley'").fetchall():
+        for lv, w in con.execute(f"SELECT level, {to_m} FROM urban.ground WHERE type = 'alley'").fetchall():
             alley.setdefault(lv, []).append(shapely.from_wkb(bytes(w)))
     except duckdb.CatalogException:
         pass
@@ -794,20 +794,20 @@ def matched_objects(con, epsg, db):
     to_m = lambda col="geometry", crs="EPSG:4326": f"ST_AsWKB(ST_Transform({col}, '{crs}', '{epsg}', always_xy := true))"
     info = {}                                       # id -> what its source says of it (tags, a city's fields, when photos saw it)
     items = []
-    for oid, cls, lv, w, attrs in con.execute(f"SELECT object_id, class, level, {to_m()}, attrs::VARCHAR FROM space.object").fetchall():
+    for oid, cls, lv, w, attrs in con.execute(f"SELECT object_id, class, level, {to_m()}, attrs::VARCHAR FROM urban.object").fetchall():
         if not cls.startswith(NOT_OBJECTS):
             items.append((oid, cls, lv, None, "osm", shapely.from_wkb(bytes(w)), None, "mapped", None))
             info[str(oid)] = _fields(attrs)
     seen = {}
     try:
-        for fid, val, grp, a, b, w in con.execute(f"SELECT feature_id, class, grp, first_seen, last_seen, {to_m()} FROM space.observed").fetchall():
+        for fid, val, grp, a, b, w in con.execute(f"SELECT feature_id, class, grp, first_seen, last_seen, {to_m()} FROM urban.observed").fetchall():
             if grp in SEEN_CLASS:
                 items.append((fid, SEEN_CLASS[grp], 0, grp, "mapillary", shapely.from_wkb(bytes(w)), None, "observed", None))
                 seen[fid] = (a, b)
                 info[str(fid)] = f"{val}; " * bool(val) + (f"seen {a:%Y-%m-%d} .. {b:%Y-%m-%d}" if a and b else "")
     except duckdb.CatalogException:
         pass
-    dos, city = db.replace(".space.duckdb", ".duckdb"), db.replace(".space.duckdb", ".vancouver.json")
+    dos, city = db.replace(".urban.duckdb", ".duckdb"), db.replace(".urban.duckdb", ".vancouver.json")
     if city != db and os.path.exists(city):         # a city's surveyed objects around the unit, all of them (the dossier holds the unit's)
         import pyproj
         from urbanstyle.unit import VAN_OBJECT, van_method
@@ -885,16 +885,16 @@ def furniture_3d(con, epsg, place, objs, decks=()):
     from shapely.ops import transform
     import pyproj
     to_m = lambda col="geometry": f"ST_AsWKB(ST_Transform({col}, 'EPSG:4326', '{epsg}', always_xy := true))"
-    roads = con.execute(f"SELECT level_min, {to_m()}, class FROM space.element WHERE type = 'road'").fetchall()
+    roads = con.execute(f"SELECT level_min, {to_m()}, class FROM urban.element WHERE type = 'road'").fetchall()
     rg = [shapely.from_wkb(bytes(r[1])) for r in roads]
     rtree = shapely.STRtree(rg)
     # the buildings' footprints: an entrance's door lies along the wall it is on (OSM maps it on the building's outline)
     # (only the area of a repaired outline: make_valid can give an area with lines, which has no wall; Monaco's r11384697)
     area_of = lambda g: shapely.union_all([q for q in shapely.get_parts(g) if q.geom_type in ("Polygon", "MultiPolygon")])
     bg = [area_of(shapely.make_valid(shapely.from_wkb(bytes(w)))) for (w,) in con.execute(
-        f"SELECT {to_m()} FROM space.element WHERE type = 'building' AND level_min <= 0 AND level_max >= 0").fetchall()]
+        f"SELECT {to_m()} FROM urban.element WHERE type = 'building' AND level_min <= 0 AND level_max >= 0").fetchall()]
     btree = shapely.STRtree(bg) if bg else None
-    units = con.execute(f"SELECT unit_id, level, {to_m()} FROM space.unit").fetchall()
+    units = con.execute(f"SELECT unit_id, level, {to_m()} FROM urban.unit").fetchall()
     ug = [shapely.from_wkb(bytes(u[2])) for u in units]
     utree = shapely.STRtree(ug)
     out = []
@@ -1035,11 +1035,11 @@ def object_shapes(con, epsg, place=None):
     import shapely
     from shapely import STRtree
     tr = f"ST_Transform(geometry, 'EPSG:4326', '{epsg}', always_xy := true)"
-    roads = con.execute(f"SELECT level_min, coalesce(width_m, 6.5), ST_AsWKB({tr}) FROM space.element WHERE type = 'road'").fetchall()
+    roads = con.execute(f"SELECT level_min, coalesce(width_m, 6.5), ST_AsWKB({tr}) FROM urban.element WHERE type = 'road'").fetchall()
     geoms = shapely.from_wkb([bytes(r[2]) for r in roads])
     tree = STRtree(geoms)
     rows = []
-    for oid, cls, level, cid, w in con.execute(f"SELECT object_id, class, level, container_id, ST_AsWKB({tr}) FROM space.object").fetchall():
+    for oid, cls, level, cid, w in con.execute(f"SELECT object_id, class, level, container_id, ST_AsWKB({tr}) FROM urban.object").fetchall():
         shape, size, _ = OBJ_SHAPES.get(cls, ("circle", 0.25, "#888888"))
         p = shapely.from_wkb(bytes(w))
         if place is not None:
@@ -1082,10 +1082,10 @@ DOSSIER_COLORS = {"osm": "#2563eb", "mapillary": "#f59e0b", "vancouver": "#16a34
 
 
 def dossier_layers(con, db):
-    """A unit's dossier (unit.py) next to its built neighbourhood (`<unit>.space.duckdb` -> `<unit>.duckdb`): its objects
+    """A unit's dossier (unit.py) next to its built neighbourhood (`<unit>.urban.duckdb` -> `<unit>.duckdb`): its objects
     from every source, each with all it knows (`info`: the source's own attributes), and the real objects they were matched into
     (`match`: one per object, with every source's id), to click on. Empty frames without a dossier."""
-    path = db.replace(".space.duckdb", ".duckdb")
+    path = db.replace(".urban.duckdb", ".duckdb")
     empty = gpd.GeoDataFrame({"source": []}, geometry=[], crs=4326)
     if path == db or not os.path.exists(path):
         return empty, empty
@@ -1230,21 +1230,21 @@ def bridge_models(con, bridges, db=None):
         # Those on the deck's outline, and those of the axes' own ways: a ramp runs on beyond OSM's deck outline, and its level-1
         # space was drawn as a flat deck over the model (Avenue de France, axis a8 and the ramps; Kaveh, 2026-10-16)
         ways = sorted({int(w[1:]) for a in P_.get("axes", []) for w in a.get("ways", [])})
-        cids = [c_ for (c_,) in con.execute("SELECT DISTINCT container_id FROM space.element WHERE type = 'road' AND level_min > 0 "
+        cids = [c_ for (c_,) in con.execute("SELECT DISTINCT container_id FROM urban.element WHERE type = 'road' AND level_min > 0 "
                                             "AND osm_id IN (SELECT unnest(?::BIGINT[]))", [ways]).fetchall() if c_]
-        us = [u for u, sec, w in con.execute(f"SELECT unit_id, section_id, ST_AsWKB({to_crs}) FROM space.unit WHERE level > 0").fetchall()
+        us = [u for u, sec, w in con.execute(f"SELECT unit_id, section_id, ST_AsWKB({to_crs}) FROM urban.unit WHERE level > 0").fetchall()
               if shapely.from_wkb(bytes(w)).intersects(ol) or sec in cids or any(u.startswith(c_ + "/") for c_ in cids)]
         under |= set(us)
         pf = ["part_id", "unit_id", "level", "type", "direction", "lane", "lane_id", "width_m", "road", "source", "method", "ref", "rule"]
-        have = {r[0] for r in con.execute("SELECT column_name FROM information_schema.columns WHERE table_schema = 'space' AND table_name = 'part'").fetchall()}
+        have = {r[0] for r in con.execute("SELECT column_name FROM information_schema.columns WHERE table_schema = 'urban' AND table_name = 'part'").fetchall()}
         sel = ", ".join(c if c in have else f"NULL AS {c}" for c in pf)
         parts_ = [(dict(zip(pf, r[:-1])), shapely.from_wkb(bytes(r[-1]))) for r in con.execute(
-            f"SELECT {sel}, ST_AsWKB({to_crs}) FROM space.part WHERE unit_id IN (SELECT unnest(?::VARCHAR[]))", [us]).fetchall()]
+            f"SELECT {sel}, ST_AsWKB({to_crs}) FROM urban.part WHERE unit_id IN (SELECT unnest(?::VARCHAR[]))", [us]).fetchall()]
         marks_ = [(t, shapely.from_wkb(bytes(w))) for t, w in con.execute(
-            f"SELECT type, ST_AsWKB({to_crs}) FROM space.mark WHERE unit_id IN (SELECT unnest(?::VARCHAR[]))", [us]).fetchall()]
+            f"SELECT type, ST_AsWKB({to_crs}) FROM urban.mark WHERE unit_id IN (SELECT unnest(?::VARCHAR[]))", [us]).fetchall()]
         # the street's lanes at level 0 near the bridge: a bridge lane that lands on one meets it exactly
         ground_ = [shapely.from_wkb(bytes(w)) for (w,) in con.execute(
-            f"SELECT ST_AsWKB({to_crs}) FROM space.part WHERE level = 0 AND type = 'lane'").fetchall()]
+            f"SELECT ST_AsWKB({to_crs}) FROM urban.part WHERE level = 0 AND type = 'lane'").fetchall()]
         ground_ = [g for g in ground_ if g.distance(ol) < 50]
         # (the level-1 parts are not laid on the deck: parts.py makes them from rules OSM does not support there, e.g. a "no parking"
         # strip from parking:both=no, a sidewalk OSM says is not there; the model's lanes and paths follow GMNS and OSM)
@@ -1315,39 +1315,39 @@ def main(db, out, bridges=None):
     edges = frame(con, """SELECT ST_AsWKB(geometry) AS geometry, class AS highway, name, level_min AS level, type, container_id,
         CASE WHEN level_src = 'bridge' THEN 'yes' END AS bridge, CASE WHEN level_src = 'tunnel' THEN 'yes' END AS tunnel,
         level_min AS layer, try_cast(source_id AS BIGINT) AS edge_id, coalesce(oneway, false) AS oneway, round(width_m, 2) AS width_m, width_src
-        FROM space.element WHERE type <> 'building'""")
+        FROM urban.element WHERE type <> 'building'""")
     edges["edge_id"] = edges["edge_id"].astype("Int64")
     buildings = frame(con, """SELECT ST_AsWKB(geometry) AS geometry, source_id AS id, source, name, class, level_min, level_max, level_src,
         CASE WHEN coalesce(class, 'yes') = 'yes' THEN 'building' ELSE 'building (' || class || ')' END AS type,
-        -- its real size (space.element floors, height_m: before levels are clamped to LEVELS), else one floor
+        -- its real size (urban.element floors, height_m: before levels are clamped to LEVELS), else one floor
         coalesce(floors, greatest(level_max, 0) + 1) AS floors, coalesce(height_m, round((greatest(level_max, 0) + 1) * 3.2, 1)) AS height_m,
         -- what it is used for, its ground floor, each with its source and method (buildings.py), and the evidence
         "use" || ' (' || use_source || ', ' || use_method || ')' AS "use", ground_use || ' (' || ground_source || ', ' || ground_method || ')' AS ground_floor,
-        uses AS evidence FROM space.element WHERE type = 'building'""")
+        uses AS evidence FROM urban.element WHERE type = 'building'""")
     try:    # layer 0: every piece of the area, by kind
         gm_ = f"ST_Transform(geometry, 'EPSG:4326', '{epsg_of(con)}', always_xy := true)"
         ground = frame(con, f"""SELECT ST_AsWKB(geometry) AS geometry, ground_id, type, name, source, method, ref, level,
-            round(ST_Area({gm_}), 1) AS area_m2, {ALLEY_W.format(t='type', g=gm_)} FROM space.ground""")
+            round(ST_Area({gm_}), 1) AS area_m2, {ALLEY_W.format(t='type', g=gm_)} FROM urban.ground""")
         ground["color"] = ground["type"].map(GROUND_COLORS).fillna("#9ca3af")
     except duckdb.CatalogException:     # built before the ground layer
         ground = None
     blocks = blocks_frame(con)     # the land between the streets
     try:    # off-street car parks: beside the street, not in it
-        lots = frame(con, """SELECT ST_AsWKB(geometry) AS geometry, lot_id AS id, type, name, operator, parking, access, fee, level FROM space.lot""")
+        lots = frame(con, """SELECT ST_AsWKB(geometry) AS geometry, lot_id AS id, type, name, operator, parking, access, fee, level FROM urban.lot""")
     except duckdb.CatalogException:     # built before car parks were lots
         lots = buildings.iloc[:0]
     zones = frame(con, """SELECT ST_AsWKB(z.geometry) AS geometry, z.level, z.zone, z.container_id AS cid, c.name
-        FROM space.zone z JOIN space.container c USING (container_id)""")
+        FROM urban.zone z JOIN urban.container c USING (container_id)""")
     streets = frame(con, """SELECT ST_AsWKB(geometry) AS geometry, container_id AS cid, name, level, round(mean_width_m, 1) AS width_m,
         round(open_share, 2) AS open_share, round(narrow_half_m, 1) AS narrow_half_m, round(wide_half_m, 1) AS wide_half_m,
-        round(one_side_open_share, 2) AS one_side_open, round(kerb_share, 2) AS kerb_share, n_road, n_walkway, n_cycleway, kind, shape, n_buildings FROM space.container""")
+        round(one_side_open_share, 2) AS one_side_open, round(kerb_share, 2) AS kerb_share, n_road, n_walkway, n_cycleway, kind, shape, n_buildings FROM urban.container""")
     kinds = [(k, lab, c) for k, lab, c, _ in KINDS if (streets.kind == k).any()]   # the kinds present in this area
-    rails = frame(con, "SELECT ST_AsWKB(geometry) AS geometry, source_id AS id, name, class, level_min AS level FROM space.element WHERE type = 'rail'")
-    stations = frame(con, "SELECT ST_AsWKB(geometry) AS geometry, id, name, kind, level FROM space.station")
+    rails = frame(con, "SELECT ST_AsWKB(geometry) AS geometry, source_id AS id, name, class, level_min AS level FROM urban.element WHERE type = 'rail'")
+    stations = frame(con, "SELECT ST_AsWKB(geometry) AS geometry, id, name, kind, level FROM urban.station")
     objects = frame(con, """SELECT ST_AsWKB(geometry) AS geometry, object_id, class, split_part(class, '.', 1) AS grp, level, container_id AS cid, zone,
-        name, attrs::VARCHAR AS attrs, near_m FROM space.object""")
+        name, attrs::VARCHAR AS attrs, near_m FROM urban.object""")
     try:
-        strips = frame(con, """SELECT ST_AsWKB(geometry) AS geometry, container_id AS cid, level, type, coalesce(side, '') AS side, round(width_m, 1) AS width_m, source FROM space.strip""")
+        strips = frame(con, """SELECT ST_AsWKB(geometry) AS geometry, container_id AS cid, level, type, coalesce(side, '') AS side, round(width_m, 1) AS width_m, source FROM urban.strip""")
     except duckdb.CatalogException:
         strips = pd.DataFrame({"type": []})
     # type, name shown, fill, outline: asphalt, green cycle lane, tan sidewalk bands
@@ -1380,48 +1380,48 @@ def main(db, out, bridges=None):
     provenance(shapes, "object_id", "osm", map(type_of, shapes["class"]))
 
     ogroups = []        # objects are one layer now ("Street objects", every source matched), not a layer per OSM group
-    lon = con.execute("SELECT avg(ST_X(ST_Centroid(geometry))) FROM space.container").fetchone()[0]
+    lon = con.execute("SELECT avg(ST_X(ST_Centroid(geometry))) FROM urban.container").fetchone()[0]
     epsg = f"EPSG:{32600 + int((lon + 180) // 6) + 1}"   # the metric zone, as in urbanstyle.build
     track = zones[zones.zone == "track"]
     try:
         subs = frame(con, """SELECT ST_AsWKB(geometry) AS geometry, subsection_id, section_id, level, class, width_m, oneway, length_m, "left", "right",
-            starts_at, color FROM space.subsection""")
-        brk = frame(con, """SELECT ST_AsWKB(ST_StartPoint(geometry)) AS geometry, subsection_id, section_id, level, starts_at FROM space.subsection
+            starts_at, color FROM urban.subsection""")
+        brk = frame(con, """SELECT ST_AsWKB(ST_StartPoint(geometry)) AS geometry, subsection_id, section_id, level, starts_at FROM urban.subsection
             WHERE starts_at <> 'section end'""")
         units = frame(con, f"""SELECT ST_AsWKB(geometry) AS geometry, unit_id, kind, section_id, level, color,
-            round(ST_Area(ST_Transform(geometry, 'EPSG:4326', '{epsg_of(con)}', always_xy := true)))::INT AS area_m2 FROM space.unit""")
+            round(ST_Area(ST_Transform(geometry, 'EPSG:4326', '{epsg_of(con)}', always_xy := true)))::INT AS area_m2 FROM urban.unit""")
         cuts = frame(con, """SELECT ST_AsWKB(geometry) AS geometry, intersection_id, edge_id, level, how, length_m,
-            CASE how WHEN 'block corners' THEN '#16a34a' WHEN 'one corner' THEN '#f59e0b' WHEN 'crosswalk' THEN '#2563eb' ELSE '#6b7280' END AS color FROM space.cut""")
+            CASE how WHEN 'block corners' THEN '#16a34a' WHEN 'one corner' THEN '#f59e0b' WHEN 'crosswalk' THEN '#2563eb' ELSE '#6b7280' END AS color FROM urban.cut""")
         ep = epsg_of(con)
         jroads = frame(con, """SELECT ST_AsWKB(ST_CollectionExtract(ST_Intersection(e.geometry, u.geometry), 2)) AS geometry, u.unit_id, e.level_min AS level,
-            e.name, e.class FROM space.element e JOIN space.unit u ON u.kind IN ('intersection', 'roundabout') AND u.level = e.level_min AND ST_Intersects(e.geometry, u.geometry)
+            e.name, e.class FROM urban.element e JOIN urban.unit u ON u.kind IN ('intersection', 'roundabout') AND u.level = e.level_min AND ST_Intersects(e.geometry, u.geometry)
             WHERE e.type = 'road'""")
         jroads = jroads[~jroads.geometry.is_empty]
         try:    # the inside of each space (parts.py): parts, marks, widths
-            pcols = {r[0] for r in con.execute("SELECT column_name FROM information_schema.columns WHERE table_schema = 'space' AND table_name = 'part'").fetchall()}
+            pcols = {r[0] for r in con.execute("SELECT column_name FROM information_schema.columns WHERE table_schema = 'urban' AND table_name = 'part'").fetchall()}
             holds = ", ".join(c if c in pcols else f"NULL AS {c}" for c in ("holds", "rule", "width_source", "width_method", "position_source",
                                                                             "position_method", "position_ref", "lane_id"))     # (newer columns)
             length = "length_m" if "length_m" in pcols else "NULL AS length_m"
             pts_ = frame(con, f"""SELECT ST_AsWKB(geometry) AS geometry, unit_id, part_id, level, type, coalesce(arm, '') AS arm,
                 coalesce(direction, '') AS direction, lane, width_m, {length}, source, method, ref, road, road_class, speed, surface, lit, road_lanes, oneway,
-                {holds}, round(ST_Area(ST_Transform(geometry, 'EPSG:4326', '{ep}', always_xy := true)), 1) AS area_m2 FROM space.part ORDER BY level""")   # upper levels drawn last
+                {holds}, round(ST_Area(ST_Transform(geometry, 'EPSG:4326', '{ep}', always_xy := true)), 1) AS area_m2 FROM urban.part ORDER BY level""")   # upper levels drawn last
             pts_["color"] = [PART_COLORS.get(f"{t} {d}".strip(), PART_COLORS.get(t, "#999999")) for t, d in zip(pts_["type"], pts_["direction"])]
-            marks = frame(con, "SELECT ST_AsWKB(geometry) AS geometry, unit_id, level, type, coalesce(arm, '') AS arm, length_m, width_m, width_source, width_method, source, method, ref FROM space.mark ORDER BY level")
+            marks = frame(con, "SELECT ST_AsWKB(geometry) AS geometry, unit_id, level, type, coalesce(arm, '') AS arm, length_m, width_m, width_source, width_method, source, method, ref FROM urban.mark ORDER BY level")
             kerbs3d = marks[marks["type"] == "kerb"].copy()     # 3D's kerbstones: each kerb line as a strip 0.25 m wide
             kerbs3d = kerbs3d.set_geometry(kerbs3d.to_crs(ep).buffer(LINE["kerb"] / 2, cap_style="flat").to_crs(4326))
             kerbs3d["kerb_id"] = [f"kerb-{k}" for k in range(len(kerbs3d))]
-            uwidths = con.execute("SELECT unit_id, edge, arm, total_m, carriageway_m, left_m, right_m, lanes_in, lanes_out, source FROM space.width").fetchall()
+            uwidths = con.execute("SELECT unit_id, edge, arm, total_m, carriageway_m, left_m, right_m, lanes_in, lanes_out, source FROM urban.width").fetchall()
         except duckdb.CatalogException:
             pts_, marks, uwidths = pd.DataFrame({"type": []}), pd.DataFrame({"type": []}), []
             kerbs3d = gpd.GeoDataFrame({"type": []}, geometry=[], crs=4326)
-        unit_of = dict(con.execute("""SELECT o.object_id, min(u.unit_id) FROM space.object o JOIN space.unit u ON u.level = o.level
+        unit_of = dict(con.execute("""SELECT o.object_id, min(u.unit_id) FROM urban.object o JOIN urban.unit u ON u.level = o.level
             AND ST_Intersects(u.geometry, o.geometry) GROUP BY 1""").fetchall())
         ubld = con.execute(f"""SELECT u.unit_id, b.source_id, round(ST_Length(ST_Intersection(ST_Boundary(ST_Transform(u.geometry, 'EPSG:4326', '{ep}', always_xy := true)),
               ST_Buffer(ST_Transform(b.geometry, 'EPSG:4326', '{ep}', always_xy := true), 1.0))), 1) AS m
-            FROM space.unit u JOIN space.element b ON b.type = 'building' AND b.level_min <= u.level AND b.level_max >= u.level
+            FROM urban.unit u JOIN urban.element b ON b.type = 'building' AND b.level_min <= u.level AND b.level_max >= u.level
               AND ST_Intersects(ST_Buffer(u.geometry, 0.00002), b.geometry) WHERE u.kind IN ('intersection', 'roundabout')""").fetchall()
         ubounds = {r[0]: [round(x, 7) for x in r[1:]] for r in con.execute(
-            "SELECT unit_id, ST_XMin(geometry), ST_YMin(geometry), ST_XMax(geometry), ST_YMax(geometry) FROM space.unit WHERE kind IN ('intersection', 'roundabout')").fetchall()}
+            "SELECT unit_id, ST_XMin(geometry), ST_YMin(geometry), ST_XMax(geometry), ST_YMax(geometry) FROM urban.unit WHERE kind IN ('intersection', 'roundabout')").fetchall()}
     except duckdb.CatalogException:
         subs = brk = units = cuts = jroads = pd.DataFrame()
         pts_, marks, uwidths = pd.DataFrame({"type": []}), pd.DataFrame({"type": []}), []
@@ -1430,8 +1430,8 @@ def main(db, out, bridges=None):
     try:        # Mapillary (mapillary.py): what its photos saw, and the photos nearest each space (CC BY-SA, © Mapillary contributors)
         seen = frame(con, """SELECT ST_AsWKB(any_value(o.geometry)) AS geometry, o.feature_id, any_value(o.class) AS class, any_value(o.grp) AS grp,
             any_value(o.last_seen)::DATE::VARCHAR AS last_seen, coalesce(min(u.unit_id), '') AS unit,
-            coalesce(min(u.level) FILTER (WHERE u.level = 0), min(u.level), 0) AS level FROM space.observed o
-            LEFT JOIN space.unit u ON ST_Intersects(u.geometry, ST_Buffer(o.geometry, 0.00003)) GROUP BY o.feature_id""")
+            coalesce(min(u.level) FILTER (WHERE u.level = 0), min(u.level), 0) AS level FROM urban.observed o
+            LEFT JOIN urban.unit u ON ST_Intersects(u.geometry, ST_Buffer(o.geometry, 0.00003)) GROUP BY o.feature_id""")
         # every detection, for validation (hidden until "Mapillary detections" is ticked): Mapillary makes no object (unit.CONFIRM_ONLY);
         # a detection confirms the object of a surveyed or mapped source it matched, else nothing confirms it
         from urbanstyle.unit import MATCH_M
@@ -1446,8 +1446,8 @@ def main(db, out, bridges=None):
         from shapely.ops import transform as _tf
         seen["geometry"] = [_tf(back, place(_tf(fwd, g), lv, SEEN_CLASS.get(grp, ""))) for g, lv, grp in zip(seen.geometry, seen["level"], seen["grp"])]   # where it stands
         photos = {}
-        for uid, pid, when, pano in con.execute("""SELECT u.unit_id, p.photo_id, p.captured::DATE::VARCHAR, p.is_pano FROM space.unit u
-                JOIN space.photo p ON ST_Intersects(u.geometry, p.geometry) ORDER BY u.unit_id, p.captured DESC""").fetchall():
+        for uid, pid, when, pano in con.execute("""SELECT u.unit_id, p.photo_id, p.captured::DATE::VARCHAR, p.is_pano FROM urban.unit u
+                JOIN urban.photo p ON ST_Intersects(u.geometry, p.geometry) ORDER BY u.unit_id, p.captured DESC""").fetchall():
             if len(photos.setdefault(uid, [])) < PHOTOS_PER_SPACE:
                 photos[uid].append([pid, when, bool(pano)])
     except duckdb.CatalogException:
@@ -1457,7 +1457,7 @@ def main(db, out, bridges=None):
     objects["unit"] = objects["object_id"].map(unit_of)
     has = [lab for lab, df in (("Track", track), ("Rail", rails), ("Station", stations), ("Spaces", units), ("Parts", pts_), ("Cuts", cuts), ("Junction roads", jroads), ("Subsection axes", subs),
                                ("Subsection breaks", brk), ("Street objects", dots), ("Mapillary", seen)) if len(df)]   # overlays present in this area
-    links = frame(con, "SELECT ST_AsWKB(geometry) AS geometry, node_id, level_a, level_b, type, assumed, station_id, match, round(dist_m) AS dist_m FROM space.link")
+    links = frame(con, "SELECT ST_AsWKB(geometry) AS geometry, node_id, level_a, level_b, type, assumed, station_id, match, round(dist_m) AS dist_m FROM urban.link")
     # type, name shown, colour, what it is. Colours differ from every other layer's on purpose.
     defs = [("ramp", "Ramp", "#f59e0b", "a bridge or tunnel is involved"), ("stairs", "Stairs", "#0f172a", "steps join two levels"),
             ("elevator", "Elevator", "#06b6d4", "a lift"), ("entrance", "Station entrance", "#ef4444", "tied to its station (by name, else the nearest); level -1 is assumed only when no station is found"),
@@ -1564,13 +1564,13 @@ def main(db, out, bridges=None):
         for iid, b in ubounds.items():
             if iid in newu["inter"]:
                 newu["inter"][iid]["b"] = b
-        for iid, sid in con.execute("""SELECT DISTINCT c.intersection_id, s.unit_id FROM space.cut c JOIN space.unit s ON s.kind = 'subsection' AND s.level = c.level
+        for iid, sid in con.execute("""SELECT DISTINCT c.intersection_id, s.unit_id FROM urban.cut c JOIN urban.unit s ON s.kind = 'subsection' AND s.level = c.level
                 AND ST_Intersects(ST_Buffer(c.geometry, 0.00001), s.geometry)""").fetchall():
             if iid in newu["inter"]:          # the roads arriving at it: the subsections beyond its cuts (not every space that touches it)
                 newu["inter"][iid].setdefault("adj", []).append(sid)
-        ways = {}           # (intersection, arm edge) -> its in lanes, rightmost first, and the ways each may go (SUMO's turns, space.turn)
+        ways = {}           # (intersection, arm edge) -> its in lanes, rightmost first, and the ways each may go (SUMO's turns, urban.turn)
         try:
-            for uid, edge, lane, turn in con.execute("SELECT DISTINCT unit_id, from_edge, from_lane, turn FROM space.turn WHERE vehicles IS NULL ORDER BY 1, 2, 3").fetchall():
+            for uid, edge, lane, turn in con.execute("SELECT DISTINCT unit_id, from_edge, from_lane, turn FROM urban.turn WHERE vehicles IS NULL ORDER BY 1, 2, 3").fetchall():
                 ways.setdefault((uid, edge), {}).setdefault(lane, set()).add(turn)
         except duckdb.CatalogException:
             pass
@@ -1754,11 +1754,11 @@ def layers(db, out):
     ep = epsg_of(con)
     a = lambda col="geometry": f"round(ST_Area(ST_Transform({col}, 'EPSG:4326', '{ep}', always_xy := true)), 1)"
     edges = frame(con, """SELECT ST_AsWKB(geometry) AS geometry, class AS highway, name, level_min AS level, type,
-        try_cast(source_id AS BIGINT) AS edge_id FROM space.element WHERE type = 'road' AND level_min = 0""")
+        try_cast(source_id AS BIGINT) AS edge_id FROM urban.element WHERE type = 'road' AND level_min = 0""")
     edges["edge_id"] = edges["edge_id"].astype("Int64")
     # layer 0's street: each connected piece of the street spaces is one item, with an id and what it holds
     import shapely
-    us = frame(con, f"""SELECT ST_AsWKB(geometry) AS geometry, unit_id, kind, section_id, {a()} AS area_m2 FROM space.unit WHERE level = 0""")
+    us = frame(con, f"""SELECT ST_AsWKB(geometry) AS geometry, unit_id, kind, section_id, {a()} AS area_m2 FROM urban.unit WHERE level = 0""")
     # joined within a few centimetres (the spaces meet edge to edge only to the grid of their geometry)
     net = shapely.union_all([shapely.make_valid(g_).buffer(0.000001, join_style="mitre") for g_ in us.geometry]).buffer(-0.000001, join_style="mitre") \
         if len(us) else shapely.Polygon()
@@ -1776,18 +1776,18 @@ def layers(db, out):
     spaces = frame(con, f"""SELECT ST_AsWKB(u.geometry) AS geometry, u.unit_id, u.kind, u.kind AS node, 'street' AS p0, u.section_id, {a('u.geometry')} AS area_m2,
         s."left" AS block_left, s."right" AS block_right, s.width_m AS kerb_to_kerb_m, s.starts_at AS cut_because,
         w.total_m AS block_to_block_m, w.lanes_out AS lanes_along, w.lanes_in AS lanes_against
-        FROM space.unit u LEFT JOIN space.subsection s ON s.subsection_id = u.unit_id LEFT JOIN space.width w ON w.unit_id = u.unit_id
+        FROM urban.unit u LEFT JOIN urban.subsection s ON s.subsection_id = u.unit_id LEFT JOIN urban.width w ON w.unit_id = u.unit_id
         WHERE u.level = 0""")
     spaces["color"] = [KIND_COLORS[k] for k in spaces["kind"]]
-    try:    # every footpath whole, lying on the layers (space.path)
+    try:    # every footpath whole, lying on the layers (urban.path)
         paths_ = frame(con, f"""SELECT ST_AsWKB(geometry) AS geometry, path_id, kind, kind AS node, name, width_m, width_source, width_method,
-            "on", {a()} AS area_m2 FROM space.path""")
+            "on", {a()} AS area_m2 FROM urban.path""")
         paths_["color"] = [PATH_COLORS.get(k, "#8b5cf6") for k in paths_["kind"]]
     except duckdb.CatalogException:
         paths_ = None
     try:    # a city's parcels, as lines only: shown on request, they never cut or hide a building
         parcels = frame(con, f"""SELECT ST_AsWKB(p.geometry) AS geometry, p.parcel_id, p.name AS address, 'plot' AS node, {a('p.geometry')} AS area_m2
-            FROM space.parcel p, space.area ar WHERE ST_Intersects(p.geometry, ar.geometry)""")
+            FROM urban.parcel p, urban.area ar WHERE ST_Intersects(p.geometry, ar.geometry)""")
     except duckdb.CatalogException:
         parcels = None
     # a building is drawn whole: its own outline, even where it reaches over the block's edge (the ground item stops at the edge)
@@ -1795,7 +1795,7 @@ def layers(db, out):
     land = frame(con, f"""SELECT ST_AsWKB({whole.format(col='g.geometry')}) AS geometry, g.ground_id, g.type, g.type AS node, 'block' AS p0,
         g.name, g.source, g.method, g.ref, {a('g.geometry')} AS area_m2,
         {ALLEY_W.format(t='g.type', g=f"ST_Transform(g.geometry, 'EPSG:4326', '{ep}', always_xy := true)")}
-        FROM space.ground g LEFT JOIN space.element e ON e.type = 'building' AND e.source_id = g.ref WHERE g.type <> 'street'""")
+        FROM urban.ground g LEFT JOIN urban.element e ON e.type = 'building' AND e.source_id = g.ref WHERE g.type <> 'street'""")
     land["color"] = land["type"].map(LAYER_COLORS[0]).fillna("#9ca3af")
     surf = frame(con, f"""SELECT ST_AsWKB(CASE WHEN s.type = 'building' AND g.type = 'building' AND e.geometry IS NOT NULL THEN e.geometry
         ELSE s.geometry END) AS geometry, s.surface_id, s.type, g.type AS ground_type,
@@ -1803,15 +1803,15 @@ def layers(db, out):
         CASE WHEN g.type = 'street' THEN 'street' ELSE 'block' END AS p0,
         CASE WHEN g.type <> 'street' THEN g.type WHEN g.ground_id LIKE 'g0-street-i%' THEN 'intersection' ELSE 'subsection' END AS p1,
         s.ground_id, s.source, s.method, s.ref,
-        {a('s.geometry')} AS area_m2 FROM space.surface s JOIN space.ground g USING (ground_id)
-        LEFT JOIN space.element e ON e.type = 'building' AND e.source_id = g.ref""")
+        {a('s.geometry')} AS area_m2 FROM urban.surface s JOIN urban.ground g USING (ground_id)
+        LEFT JOIN urban.element e ON e.type = 'building' AND e.source_id = g.ref""")
     surf["color"] = surf["type"].map(LAYER_COLORS[1]).fillna("#9ca3af")
-    lid = "p.lane_id" if con.execute("SELECT count(*) FROM information_schema.columns WHERE table_schema = 'space' AND table_name = 'part' "
+    lid = "p.lane_id" if con.execute("SELECT count(*) FROM information_schema.columns WHERE table_schema = 'urban' AND table_name = 'part' "
                                      "AND column_name = 'lane_id'").fetchone()[0] else "NULL AS lane_id"
     parts_ = frame(con, f"""SELECT ST_AsWKB(p.geometry) AS geometry, p.part_id, p.type, p.type AS node, 'street' AS p0, u.kind AS p1,
         p.unit_id, p.direction, p.lane, p.road, p.road_class, p.source, p.method, p.ref, p.width_m, p.width_source, p.width_method,
         p.position_source, p.position_method, p.position_ref, p.rule, {lid}, {a('p.geometry')} AS area_m2
-        FROM space.part p JOIN space.unit u USING (unit_id) WHERE p.level = 0""")
+        FROM urban.part p JOIN urban.unit u USING (unit_id) WHERE p.level = 0""")
     from .ground import STREET_SURFACE
     parts_["p2"] = ["street:" + STREET_SURFACE.get(t, "roadway") for t in parts_["type"]]
     parts_["color"] = [KIND_COLORS.get(t, "#999999") for t in parts_["type"]]

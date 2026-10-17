@@ -1,6 +1,6 @@
 # Build an area
 
-This guide makes the street space of an area: a DuckDB file with the `space` schema. There are two ways. `urbanstyle build` makes
+This guide makes the street space of an area: a DuckDB file with the `urban` schema. There are two ways. `urbanstyle build` makes
 a whole area from OpenStreetMap only. `urbanstyle unit` makes one junction or street in full, with a city's open data and a
 timetable as well.
 
@@ -26,7 +26,7 @@ no `features` schema, `urbanstyle build` makes a copy beside the output and buil
 urbanstyle build monaco.duckdb data/monaco.duckdb
 ```
 
-The output holds the `space` schema: the blocks, the street spaces and their parts, the ground, the objects and the levels. The
+The output holds the `urban` schema: the blocks, the street spaces and their parts, the ground, the objects and the levels. The
 tables are in [Tables](../reference/tables.md).
 
 ## Build one unit in full
@@ -44,7 +44,7 @@ urbanstyle unit broadway-granville --at -123.138546 49.263611 --osm vancouver_ci
 - Mapillary's detections are added when a token is set (`$MAPILLARY_TOKEN` or `~/.config/mapillary/token`). They only confirm
   objects; they never make one. To skip them, add `--no-mapillary`.
 
-The unit's files go to `data/units/`: `<name>.osm.duckdb` (the clipped OSM data), `<name>.space.duckdb` (the street space) and
+The unit's files go to `data/units/`: `<name>.osm.duckdb` (the clipped OSM data), `<name>.urban.duckdb` (the street space) and
 `<name>.duckdb` (the unit's summary, with its objects from every source).
 
 ## Next steps

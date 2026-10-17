@@ -3,7 +3,7 @@
     python -m urbanstyle.streetmix data/monaco.duckdb 's0-908826265278346607/7' [--post]
 
 A subsection is uniform along its length by construction (it is split where the cross-section or the frontage changes), so one
-Streetmix profile describes it. The line across its middle is read part by part (space.part) and each part becomes a Streetmix segment
+Streetmix profile describes it. The line across its middle is read part by part (urban.part) and each part becomes a Streetmix segment
 with its width; neighbours of the same kind are merged. Streetmix looks along the street: `outbound` lanes run away from the viewer, so with
 right-hand traffic a subsection's forward lanes are outbound and on the right. The buildings either side become its boundaries.
 --post creates the street on streetmix.net (anonymous, public by its link) and prints the link.
@@ -44,19 +44,19 @@ def export(con, sid, epsg):
     import shapely
     m = lambda col="geometry": f"ST_AsWKB(ST_Transform({col}, 'EPSG:4326', '{epsg}', always_xy := true))"
     g = lambda w: shapely.make_valid(shapely.from_wkb(bytes(w)))
-    sec, line_w, left_m, right_m, level = con.execute(f"""SELECT section_id, {m()}, left_m, right_m, level FROM space.subsection
+    sec, line_w, left_m, right_m, level = con.execute(f"""SELECT section_id, {m()}, left_m, right_m, level FROM urban.subsection
                                                           WHERE subsection_id = ?""", [sid]).fetchone()
     line = g(line_w)
-    unit = g(con.execute(f"SELECT {m()} FROM space.unit WHERE unit_id = ?", [sid]).fetchone()[0])
+    unit = g(con.execute(f"SELECT {m()} FROM urban.unit WHERE unit_id = ?", [sid]).fetchone()[0])
     t = line.length / 2
     mid, q0, q1 = line.interpolate(t), line.interpolate(max(t - 1, 0)), line.interpolate(min(t + 1, line.length))
     h = math.hypot(q1.x - q0.x, q1.y - q0.y) or 1.0
     tx, ty = (q1.x - q0.x) / h, (q1.y - q0.y) / h
     nx, ny = -ty, tx                                                     # the left normal
     cross = shapely.LineString([(mid.x + nx * 60, mid.y + ny * 60), (mid.x - nx * 60, mid.y - ny * 60)])   # left to right
-    trees = [g(w) for (w,) in con.execute(f"SELECT {m()} FROM space.object WHERE class = 'vegetation.tree' AND level = ?", [level]).fetchall()]
+    trees = [g(w) for (w,) in con.execute(f"SELECT {m()} FROM urban.object WHERE class = 'vegetation.tree' AND level = ?", [level]).fetchall()]
     pieces = []      # (offset of the middle, left positive; width; part type; direction; what stands on it)
-    for typ, d, w in con.execute(f"SELECT type, coalesce(direction, ''), {m()} FROM space.part WHERE unit_id = ?", [sid]).fetchall():
+    for typ, d, w in con.execute(f"SELECT type, coalesce(direction, ''), {m()} FROM urban.part WHERE unit_id = ?", [sid]).fetchall():
         poly = g(w)
         for seg in shapely.get_parts(cross.intersection(poly)):
             if seg.geom_type != "LineString" or seg.length < 0.05:
@@ -78,14 +78,14 @@ def export(con, sid, epsg):
     def boundary(bounded, end):
         if not bounded:
             return {"id": uuid.uuid4().hex[:21], "variant": "grass", "floors": 1, "elevation": KERB_M}
-        floors, known = con.execute(f"""SELECT max(level_max) + 1, bool_or(level_src <> 'chosen') FROM space.element WHERE type = 'building'
+        floors, known = con.execute(f"""SELECT max(level_max) + 1, bool_or(level_src <> 'chosen') FROM urban.element WHERE type = 'building'
                                  AND level_min <= 0 AND ST_DWithin({m().replace('ST_AsWKB(', '(')}, ST_GeomFromText(?), 3)""", [end.wkt]).fetchone()
         return {"id": uuid.uuid4().hex[:21], "variant": "narrow", "floors": int(floors) if known else 4, "elevation": KERB_M}   # height unknown: 4
     inside = cross.intersection(unit)
     ends = shapely.get_parts(inside)
     left_end = shapely.Point(ends[0].coords[0]) if len(ends) else mid
     right_end = shapely.Point(ends[-1].coords[-1]) if len(ends) else mid
-    name = con.execute("SELECT any_value(name) FROM space.container WHERE container_id = ?", [sec]).fetchone()[0] or sid
+    name = con.execute("SELECT any_value(name) FROM urban.container WHERE container_id = ?", [sec]).fetchone()[0] or sid
     lon, lat = con.execute(f"SELECT ST_X(p), ST_Y(p) FROM (SELECT ST_Transform(ST_GeomFromText(?), '{epsg}', 'EPSG:4326', always_xy := true) AS p)",
                            [mid.wkt]).fetchone()
     bl, br = boundary(left_m is not None, left_end), boundary(right_m is not None, right_end)
@@ -117,7 +117,7 @@ if __name__ == "__main__":
     db, sid = sys.argv[1], sys.argv[2]
     con = duckdb.connect(db, read_only=True)
     con.execute("LOAD spatial")
-    lon = con.execute("SELECT avg(ST_X(ST_Centroid(geometry))) FROM space.unit").fetchone()[0]
+    lon = con.execute("SELECT avg(ST_X(ST_Centroid(geometry))) FROM urban.unit").fetchone()[0]
     street = export(con, sid, f"EPSG:{32600 + int((lon + 180) // 6) + 1}")
     print(json.dumps(street, indent=1))
     if "--post" in sys.argv:

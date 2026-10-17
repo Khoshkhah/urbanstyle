@@ -1,4 +1,4 @@
-"""space.subsection: each section's roads divided into subsections, as lines (step 1 of the network-first partition: divide the
+"""urban.subsection: each section's roads divided into subsections, as lines (step 1 of the network-first partition: divide the
 roads, then make a space for each piece).
 
 A section (the stretch of one street between two junctions) is split where
@@ -161,8 +161,8 @@ def building_line(blds, roads, parcels=()):
 
 
 def junctions(con, epsg):
-    """space.junction (intersection_id, node_id, level, cluster_id): which junction each node belongs to in the network-first spaces.
-    The container step groups close nodes into one intersection (space.arm, cluster_id). Two changes:
+    """urban.junction (intersection_id, node_id, level, cluster_id): which junction each node belongs to in the network-first spaces.
+    The container step groups close nodes into one intersection (urban.arm, cluster_id). Two changes:
     - a group holding a roundabout's ring is cut back to the ring and what lies within SPLIT_M of it (an entry's splitter island):
       farther nodes are junctions of their own (each connected group of them, id i<level>-<its smallest node>), and the roads between
       them and the ring are roads again;
@@ -171,7 +171,7 @@ def junctions(con, epsg):
     import math
     import shapely
     to_m = lambda col: f"ST_AsWKB(ST_Transform({col}, 'EPSG:4326', '{epsg}', always_xy := true))"
-    members = con.execute("SELECT DISTINCT intersection_id, node_id, level FROM space.arm").fetchall()
+    members = con.execute("SELECT DISTINCT intersection_id, node_id, level FROM urban.arm").fetchall()
     out = {(iid, n, lv): iid for iid, n, lv in members}
     try:
         ring_osm = {r[0] for r in con.execute("SELECT osm_id FROM osm.raw.ways WHERE tags['junction'] IN ('roundabout', 'circular')").fetchall()}
@@ -179,7 +179,7 @@ def junctions(con, epsg):
         ring_osm = set()
     edges = [(sid, s_, d, osm, bool(ow), lv, shapely.from_wkb(bytes(g)), shapely.from_wkb(bytes(ps)), shapely.from_wkb(bytes(pd_)))
              for sid, s_, d, osm, ow, lv, g, ps, pd_ in con.execute(f"""SELECT source_id, src, dst, osm_id, coalesce(oneway, false), level_min, {to_m('geometry')},
-                 {to_m('ST_StartPoint(geometry)')}, {to_m('ST_EndPoint(geometry)')} FROM space.element WHERE type = 'road' AND src IS NOT NULL AND dst IS NOT NULL""").fetchall()]
+                 {to_m('ST_StartPoint(geometry)')}, {to_m('ST_EndPoint(geometry)')} FROM urban.element WHERE type = 'road' AND src IS NOT NULL AND dst IS NOT NULL""").fetchall()]
     xy, degree, ring_g, at = {}, {}, {}, {}
     for e in edges:
         _, s_, d, osm, _, _, g, ps, pd_ = e
@@ -236,7 +236,7 @@ def junctions(con, epsg):
     out = {k: find(v) for k, v in out.items()}
     import pandas as pd
     df = pd.DataFrame([(new, n, lv, iid) for (iid, n, lv), new in out.items()], columns=["intersection_id", "node_id", "level", "cluster_id"])
-    con.execute("""CREATE OR REPLACE TABLE space.junction AS SELECT intersection_id::VARCHAR AS intersection_id, node_id::BIGINT AS node_id,
+    con.execute("""CREATE OR REPLACE TABLE urban.junction AS SELECT intersection_id::VARCHAR AS intersection_id, node_id::BIGINT AS node_id,
                    level::INT AS level, cluster_id::VARCHAR AS cluster_id FROM df""")
 
 
@@ -249,19 +249,19 @@ def build(con, epsg):
     # a road keeps its own section even where the container step handed a short one to its intersection (the arm still names the section)
     roads = con.execute(f"""SELECT coalesce(CASE WHEN e.container_id LIKE 's%' THEN e.container_id END, a.section_id) AS sid, e.level_min AS level,
                                    e.class, e.width_m, e.oneway, {to_m.replace('geometry', 'e.geometry')} AS g, e.osm_id
-                            FROM space.element e LEFT JOIN (SELECT edge_id, min(section_id) AS section_id FROM space.arm GROUP BY 1) a ON a.edge_id = e.source_id
+                            FROM urban.element e LEFT JOIN (SELECT edge_id, min(section_id) AS section_id FROM urban.arm GROUP BY 1) a ON a.edge_id = e.source_id
                             WHERE e.type = 'road' AND ST_Length(e.geometry) > 0
                               -- a road between two nodes of one junction (a roundabout ring, a short link) is part of the intersection
-                              AND NOT EXISTS (SELECT 1 FROM space.junction x JOIN space.junction y USING (intersection_id) WHERE x.node_id = e.src AND y.node_id = e.dst)""").fetchall()
+                              AND NOT EXISTS (SELECT 1 FROM urban.junction x JOIN urban.junction y USING (intersection_id) WHERE x.node_id = e.src AND y.node_id = e.dst)""").fetchall()
     roads = [r for r in roads if r[0] is not None]
     try:    # a roundabout's ring belongs to the roundabout, never to a subsection
         ring_osm = {r[0] for r in con.execute("SELECT osm_id FROM osm.raw.ways WHERE tags['junction'] IN ('roundabout', 'circular')").fetchall()}
         roads = [r for r in roads if r[6] not in ring_osm]
     except Exception:
         pass
-    blds = con.execute(f"""SELECT l, {to_m} FROM space.element, generate_series(level_min, level_max) t(l) WHERE type = 'building'
-                           UNION ALL SELECT level, {to_m} FROM space.lot""").fetchall()     # a car park is a plot, as a building is
-    parcel_rows = con.execute(f"SELECT {to_m} FROM space.parcel").fetchall()           # a city's property lines, where it has them
+    blds = con.execute(f"""SELECT l, {to_m} FROM urban.element, generate_series(level_min, level_max) t(l) WHERE type = 'building'
+                           UNION ALL SELECT level, {to_m} FROM urban.lot""").fetchall()     # a car park is a plot, as a building is
+    parcel_rows = con.execute(f"SELECT {to_m} FROM urban.parcel").fetchall()           # a city's property lines, where it has them
     blines = {}
     for lv in {r[1] for r in roads}:
         parts = building_line([shapely.from_wkb(bytes(b[1])) for b in blds if b[0] == lv], [shapely.from_wkb(bytes(r[5])) for r in roads if r[1] == lv],
@@ -316,7 +316,7 @@ def build(con, epsg):
                              COLORS[(k - 1) % len(COLORS)], shapely.to_wkb(substring(ln, a, b))))
     df = pd.DataFrame(rows, columns=["subsection_id", "section_id", "level", "class", "width_m", "oneway", "length_m", "left", "right",
                                      "left_m", "right_m", "left_extra", "right_extra", "with_sections", "starts_at", "color", "wkb"])
-    con.execute(f"""CREATE OR REPLACE TABLE space.subsection AS
+    con.execute(f"""CREATE OR REPLACE TABLE urban.subsection AS
         SELECT subsection_id, section_id, level::INT AS level, class, width_m, oneway, length_m, "left", "right", left_m::DOUBLE AS left_m,
                right_m::DOUBLE AS right_m, left_extra::DOUBLE AS left_extra, right_extra::DOUBLE AS right_extra, with_sections, starts_at, color,
                ST_Transform(ST_GeomFromWKB(wkb::BLOB), '{epsg}', 'EPSG:4326', always_xy := true) AS geometry FROM df""")

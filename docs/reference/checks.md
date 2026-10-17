@@ -19,17 +19,17 @@ The database checks measure in meters, in the UTM zone of the mean longitude. Be
 |---|---|---|---|
 | [Containers](#containers) | `urbanstyle check DB` | `checks.run` | always |
 | [Strips](#strips) | `urbanstyle check DB` | `checks.run` | always |
-| [Spaces](#spaces) | `urbanstyle check DB` | `checks.unit_checks`, `checks.part_checks` | `space.unit` exists (U8, U9: `space.part` also exists) |
-| [Roadway](#roadway) | `urbanstyle check DB` | `checks.part_checks`, `checks.roadway_mismatch`, `checks.roadway_joints`, `checks.lane_joints` | `space.unit` and `space.part` exist |
-| [Approaches](#approaches) | `urbanstyle check DB` | `checks.approach_checks` | `space.unit`, `space.part` and `space.approach` exist |
-| [Ground](#ground) | `urbanstyle check DB` | `checks.ground_checks` | the roadway checks run and `space.ground` exists |
-| [Surfaces](#surfaces) | `urbanstyle check DB` | `checks.surface_checks` | the ground checks run and `space.surface` exists |
-| [Blocks](#blocks) | `urbanstyle check DB` | `checks.block_checks` | the ground checks run and `space.block` exists |
+| [Spaces](#spaces) | `urbanstyle check DB` | `checks.unit_checks`, `checks.part_checks` | `urban.unit` exists (U8, U9: `urban.part` also exists) |
+| [Roadway](#roadway) | `urbanstyle check DB` | `checks.part_checks`, `checks.roadway_mismatch`, `checks.roadway_joints`, `checks.lane_joints` | `urban.unit` and `urban.part` exist |
+| [Approaches](#approaches) | `urbanstyle check DB` | `checks.approach_checks` | `urban.unit`, `urban.part` and `urban.approach` exist |
+| [Ground](#ground) | `urbanstyle check DB` | `checks.ground_checks` | the roadway checks run and `urban.ground` exists |
+| [Surfaces](#surfaces) | `urbanstyle check DB` | `checks.surface_checks` | the ground checks run and `urban.surface` exists |
+| [Blocks](#blocks) | `urbanstyle check DB` | `checks.block_checks` | the ground checks run and `urban.block` exists |
 | [Bridge](#bridge) | `urbanstyle check DB --bridge PROFILE` | `bridge3d.model_checks`, called by `checks.bridge` | a profile is given with `--bridge` |
 
 ## Containers
 
-These checks test the containers in `space.container` and their arms in `space.arm`.
+These checks test the containers in `urban.container` and their arms in `urban.arm`.
 
 | Id | What it counts | Type |
 |---|---|---|
@@ -48,7 +48,7 @@ These checks test the containers in `space.container` and their arms in `space.a
 
 ## Strips
 
-This check tests the strips in `space.strip`.
+This check tests the strips in `urban.strip`.
 
 | Id | What it counts | Type |
 |---|---|---|
@@ -56,27 +56,27 @@ This check tests the strips in `space.strip`.
 
 ## Spaces
 
-These checks test the network-first spaces in `space.unit` and their parts in `space.part`.
+These checks test the network-first spaces in `urban.unit` and their parts in `urban.part`.
 
 | Id | What it counts | Type |
 |---|---|---|
 | U1 | Pairs of spaces on one level that overlap by more than 0.5 m2. | Fault |
 | U2 | Spaces that are invalid, empty or in more than one part. | Fault |
-| U3 | Junctions in `space.junction` whose intersection has no space. | Fault |
+| U3 | Junctions in `urban.junction` whose intersection has no space. | Fault |
 | U4 | Junction nodes more than 0.5 m outside their own intersection space. | Fault |
 | U5 | Junction nodes inside a subsection space on the same level. | Fault |
 | U6 | Subsection lines that go more than 1 m into an intersection or roundabout space. | Fault |
-| U7 | Subsections in `space.subsection` with no space. | Fault |
+| U7 | Subsections in `urban.subsection` with no space. | Fault |
 | U8 | Spaces whose parts do not add up to the space area, within 3% or 1.5 m2. | Fault |
 | U9 | Pairs of parts of one space that overlap by more than 0.5 m2. | Fault |
 
 ## Roadway
 
-These checks test the roadway parts in `space.part` and the marks in `space.mark`, mostly at level 0.
+These checks test the roadway parts in `urban.part` and the marks in `urban.mark`, mostly at level 0.
 
 | Id | What it counts | Type |
 |---|---|---|
-| U10 | Cuts in `space.cut` where the roadway width on the intersection side and on the subsection side differ by more than 0.5 m. | Informative |
+| U10 | Cuts in `urban.cut` where the roadway width on the intersection side and on the subsection side differ by more than 0.5 m. | Informative |
 | R1 | Joints between two subsections of one section where the roadway edges differ by more than 0.1 m. | Informative |
 | R2 | Guide lines (SUMO moves) at level 0 that go more than 0.5 m out of the roadway. | Informative |
 | R3 | Subsections with an OSM lane at level 0 narrower than 2.75 m. The OSM lane count does not fit between the kerbs. | Informative |
@@ -86,7 +86,7 @@ R4 samples each joint every 0.1 m, 0.3 m into each side. An edge matches when th
 
 ## Approaches
 
-These checks test the lanes that enter each junction, in `space.approach`. A missing move can be correct, for example a turn restriction or a T junction.
+These checks test the lanes that enter each junction, in `urban.approach`. A missing move can be correct, for example a turn restriction or a T junction.
 
 | Id | What it counts | Type |
 |---|---|---|
@@ -96,7 +96,7 @@ These checks test the lanes that enter each junction, in `space.approach`. A mis
 
 ## Ground
 
-These checks test layer 0, the ground items in `space.ground`.
+These checks test layer 0, the ground items in `urban.ground`.
 
 | Id | What it counts | Type |
 |---|---|---|
@@ -105,7 +105,7 @@ These checks test layer 0, the ground items in `space.ground`.
 
 ## Surfaces
 
-These checks test layer 1, the surfaces in `space.surface`.
+These checks test layer 1, the surfaces in `urban.surface`.
 
 | Id | What it counts | Type |
 |---|---|---|
@@ -114,14 +114,14 @@ These checks test layer 1, the surfaces in `space.surface`.
 
 ## Blocks
 
-These checks test the blocks in `space.block`, inside the area edge in `space.area`.
+These checks test the blocks in `urban.block`, inside the area edge in `urban.area`.
 
 | Id | What it counts | Type |
 |---|---|---|
 | B1 | Buildings at level 0 that go more than 1 m2 over the edge of a block. The line also gives the total area outside. | Informative |
-| B6 | City blocks in `space.city_block` that one of our blocks matches, with an overlap (intersection over union) of 0.8 or more. | Informative |
+| B6 | City blocks in `urban.city_block` that one of our blocks matches, with an overlap (intersection over union) of 0.8 or more. | Informative |
 
-B6 runs only when `space.city_block` has rows. It uses only the city blocks with more than 50 m2 inside the area. The line also gives the number of city blocks and the median overlap. B6 counts matches, not faults.
+B6 runs only when `urban.city_block` has rows. It uses only the city blocks with more than 50 m2 inside the area. The line also gives the number of city blocks and the median overlap. B6 counts matches, not faults.
 
 ## Bridge
 

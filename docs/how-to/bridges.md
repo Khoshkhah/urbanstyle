@@ -38,9 +38,9 @@ A new profile has heights from a rule: up from each end on the ground at 5 %, to
 ## Draw it
 
 ```bash
-urbanstyle dashboard data/units/broadway-granville.space.duckdb viz/broadway-granville.html \
+urbanstyle dashboard data/units/broadway-granville.urban.duckdb viz/broadway-granville.html \
     --bridge data/bridges-measured/granville-bridge.bridge.json
-urbanstyle serve data/units/broadway-granville.space.duckdb viz/broadway-granville.html \
+urbanstyle serve data/units/broadway-granville.urban.duckdb viz/broadway-granville.html \
     --bridge data/bridges-measured/granville-bridge.bridge.json
 ```
 
@@ -52,7 +52,7 @@ The bridge shows in 3D at its measured heights. In 2D it is a flat layer, with e
 After a change to the profile or to the bridge's corrections, write only the model. The page reads it when it opens:
 
 ```bash
-urbanstyle bridge3d data/units/broadway-granville.space.duckdb viz/bridge3d.json \
+urbanstyle bridge3d data/units/broadway-granville.urban.duckdb viz/bridge3d.json \
     --bridge data/bridges-measured/granville-bridge.bridge.json
 ```
 
@@ -61,7 +61,7 @@ Then reload the page.
 ## Check it
 
 ```bash
-urbanstyle check data/units/broadway-granville.space.duckdb --bridge data/bridges-measured/granville-bridge.bridge.json
+urbanstyle check data/units/broadway-granville.urban.duckdb --bridge data/bridges-measured/granville-bridge.bridge.json
 ```
 
 See [Check the data](check-the-data.md).

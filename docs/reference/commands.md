@@ -18,7 +18,7 @@ All commands use positional arguments for the input and output paths. The exampl
 
 ## build
 
-`build` makes the `space` schema in a new DuckDB database from a duckOSM database.
+`build` makes the `urban` schema in a new DuckDB database from a duckOSM database.
 
 ```text
 urbanstyle build osm out [--from division]
@@ -30,7 +30,7 @@ urbanstyle build osm out [--from division]
 | `out` | The output `.duckdb`. | required |
 | `--from division` | Run only the street division and the steps after it (the ground, the surfaces, the paths), from the copy that the last full build kept, `<out>.before-division`. Use it after a change to `division.py` or `ground.py`. | none: all steps |
 
-Output: the database `out` with the `space` schema. `build` prints the number of elements for each level and type, the links by type and level pair, and the next command (`urbanstyle dashboard`). If `<out>.mapillary.json` exists, `build` loads it. `build` prints the time of each step, and a full build keeps `<out>.before-division`.
+Output: the database `out` with the `urban` schema. `build` prints the number of elements for each level and type, the links by type and level pair, and the next command (`urbanstyle dashboard`). If `<out>.mapillary.json` exists, `build` loads it. `build` prints the time of each step, and a full build keeps `<out>.before-division`.
 
 Code: `container.build`, `container.with_features`, `container.counts`.
 
@@ -56,7 +56,7 @@ Output: for each database and each profile, one line for each check: id, status 
 Code: `checks.run`, `checks.bridge`.
 
 ```bash
-urbanstyle check data/units/broadway-granville.space.duckdb --bridge data/bridges-measured/granville-bridge.bridge.json
+urbanstyle check data/units/broadway-granville.urban.duckdb --bridge data/bridges-measured/granville-bridge.bridge.json
 ```
 
 ## quality
@@ -98,7 +98,7 @@ Output: the HTML page `out`. With `--bridge`, `dashboard` also writes `bridge3d.
 Code: `dashboard.main`.
 
 ```bash
-urbanstyle dashboard data/units/broadway-granville.space.duckdb viz/broadway-granville.html --bridge data/bridges-measured/granville-bridge.bridge.json
+urbanstyle dashboard data/units/broadway-granville.urban.duckdb viz/broadway-granville.html --bridge data/bridges-measured/granville-bridge.bridge.json
 ```
 
 ## layers
@@ -119,7 +119,7 @@ Output: the HTML page `out` with the blocks, the street spaces, layer 0 (ground)
 Code: `dashboard.layers`.
 
 ```bash
-urbanstyle layers data/units/broadway-granville.space.duckdb viz/broadway-granville-layers.html
+urbanstyle layers data/units/broadway-granville.urban.duckdb viz/broadway-granville-layers.html
 ```
 
 ## mapillary
@@ -132,10 +132,10 @@ urbanstyle mapillary db [--osm OSM]
 
 | Argument or option | Meaning | Default |
 |---|---|---|
-| `db` | A built `.duckdb`. Its area is the extent of `space.unit`. | required |
+| `db` | A built `.duckdb`. Its area is the extent of `urban.unit`. | required |
 | `--osm` | The duckOSM `.duckdb` that `db` came from. With it, `mapillary` builds the parts again at once. | none |
 
-Output: `<db>.mapillary.json` next to `db`, and the tables `space.observed` and `space.photo` in `db`. `mapillary` prints the number of features and photos. The token comes from `$MAPILLARY_TOKEN`, else from `~/.config/mapillary/token`. If there is no token, the command stops.
+Output: `<db>.mapillary.json` next to `db`, and the tables `urban.observed` and `urban.photo` in `db`. `mapillary` prints the number of features and photos. The token comes from `$MAPILLARY_TOKEN`, else from `~/.config/mapillary/token`. If there is no token, the command stops.
 
 Code: `mapillary.main`.
 
@@ -166,9 +166,9 @@ urbanstyle unit name --at LON LAT --osm OSM [--nvdb NVDB] [--flows FLOWS] [--cit
 Output, in `data/units/`:
 
 - `<name>.osm.duckdb`: the clipped duckOSM area, 400 m around the point (`CLIP_M`).
-- `<name>.space.duckdb`: the built `space` schema.
+- `<name>.urban.duckdb`: the built `urban` schema.
 - `<name>.duckdb`: the dossier, with the tables `unit`, `source`, `road`, `surface`, `line`, `object`, `match`, `lane`, `movement`, `rule`, `observation` and `check`.
-- `<name>.space.duckdb.mapillary.json`, unless `--no-mapillary` is set.
+- `<name>.urban.duckdb.mapillary.json`, unless `--no-mapillary` is set.
 - `<name>.vancouver.json` with `--vancouver`, and `<name>.gtfs.json` with `--gtfs`. The GTFS feed itself goes to `data/gtfs/<host>.zip`.
 
 `unit` prints the unit id, the dossier path and the row count of each dossier table.
@@ -268,7 +268,7 @@ Output: a GeoJSON `FeatureCollection`, one feature for each part, with the prope
 Code: `bridge2d.write`.
 
 ```bash
-urbanstyle bridge2d data/bridges-measured/granville-bridge.bridge.json viz/bridge2d.geojson --db data/units/broadway-granville.space.duckdb
+urbanstyle bridge2d data/bridges-measured/granville-bridge.bridge.json viz/bridge2d.geojson --db data/units/broadway-granville.urban.duckdb
 ```
 
 ## bridge3d
@@ -290,7 +290,7 @@ Output: the JSON file `out`. The dashboard page reads it when it opens, so a pag
 Code: `dashboard.bridge_models`, `dashboard.write_bridge3d`.
 
 ```bash
-urbanstyle bridge3d data/units/broadway-granville.space.duckdb viz/bridge3d.json --bridge data/bridges-measured/granville-bridge.bridge.json
+urbanstyle bridge3d data/units/broadway-granville.urban.duckdb viz/bridge3d.json --bridge data/bridges-measured/granville-bridge.bridge.json
 ```
 
 ## serve
@@ -313,7 +313,7 @@ Output: `serve` prints the page URL, `http://localhost:<port>/<page>`, and runs 
 Code: `serve.serve`.
 
 ```bash
-urbanstyle serve data/units/broadway-granville.space.duckdb viz/broadway-granville.html --bridge data/bridges-measured/granville-bridge.bridge.json
+urbanstyle serve data/units/broadway-granville.urban.duckdb viz/broadway-granville.html --bridge data/bridges-measured/granville-bridge.bridge.json
 ```
 
 ## publish
@@ -339,6 +339,6 @@ Output: `out_dir/index.html` (the page with the panel), `static.js`, `bridge3d.j
 Code: `publish.publish`. Design: [The dashboard online](../design/dashboard.md#the-dashboard-online).
 
 ```bash
-urbanstyle publish data/units/broadway-granville.space.duckdb demo --bridge data/bridges-measured/granville-bridge.bridge.json
+urbanstyle publish data/units/broadway-granville.urban.duckdb demo --bridge data/bridges-measured/granville-bridge.bridge.json
 tar -czf demo.tar.gz -C demo . && gh release upload demo-data demo.tar.gz --clobber
 ```

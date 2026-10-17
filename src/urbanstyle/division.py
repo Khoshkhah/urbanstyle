@@ -1,8 +1,8 @@
 """The division built top down, rank by rank (docs/design/division-top-down.md, 2026-10-16). Rank 3 first: one partition of rank 1's
 street into the spaces.
 
-    rank 1   the street of the level: the area less the blocks and the corridors (space.area, space.block, space.corridor), one polygon
-    cuts     every arm's stop line (space.mark, type `stop line`: where a section's lanes enter the junction) and every joint between two
+    rank 1   the street of the level: the area less the blocks and the corridors (urban.area, urban.block, urban.corridor), one polygon
+    cuts     every arm's stop line (urban.mark, type `stop line`: where a section's lanes enter the junction) and every joint between two
              subsections of a section (the end of one subsection's axis where the next begins), each run square to its road across the
              street to the blocks' edges (CUT_M each way)
     rank 3   the street noded with the cuts and polygonized: each face is one space, whole, corners included. A face between a junction's
@@ -10,8 +10,8 @@ street into the spaces.
              lane, paved, junction area, crosswalk) with the most area inside the face owns it; a face with no roadway in it joins the
              neighbour it shares the most edge with
 
-space.space3   space_id (the owner's unit id of rank 2/3, `#n` where an owner's faces lie apart), kind (subsection / intersection),
-               section_id, level, faces, area_m2, geometry. The old `space.unit` stays beside it until the new division replaces it.
+urban.space3   space_id (the owner's unit id of rank 2/3, `#n` where an owner's faces lie apart), kind (subsection / intersection),
+               section_id, level, faces, area_m2, geometry. The old `urban.unit` stays beside it until the new division replaces it.
 Check U14: the spaces of rank 3 add up to the street (gap under 1 m2) and overlap by under 0.05 m2 (the same test as G2, G3 for rank 1).
 """
 CUT_M = 60.0        # a cut runs this far to each side of its road, across the street to the blocks (as network.CUT_M)
@@ -32,16 +32,16 @@ def build(con, epsg, level=0):
             return []
 
     # ---- rank 1: the street
-    area = shapely.union_all([g(w) for (w,) in rows(f"SELECT {m()} FROM space.area")] or [shapely.Polygon()])
-    blocks = shapely.union_all([g(w) for (w,) in rows(f"SELECT {m()} FROM space.block WHERE level = ?", [level])] or [shapely.Polygon()])
-    corridors = shapely.union_all([g(w) for (w,) in rows(f"SELECT {m()} FROM space.corridor")] or [shapely.Polygon()])
+    area = shapely.union_all([g(w) for (w,) in rows(f"SELECT {m()} FROM urban.area")] or [shapely.Polygon()])
+    blocks = shapely.union_all([g(w) for (w,) in rows(f"SELECT {m()} FROM urban.block WHERE level = ?", [level])] or [shapely.Polygon()])
+    corridors = shapely.union_all([g(w) for (w,) in rows(f"SELECT {m()} FROM urban.corridor")] or [shapely.Polygon()])
     street = poly(area.difference(blocks).difference(corridors))
     if street.is_empty:
         return 0
 
     # ---- the cuts: the stop lines and the joints, each square to its road, CUT_M each way
     cuts = []
-    for (w,) in rows(f"SELECT {m()} FROM space.mark WHERE level = ? AND type = 'stop line'", [level]):
+    for (w,) in rows(f"SELECT {m()} FROM urban.mark WHERE level = ? AND type = 'stop line'", [level]):
         ln = g(w)
         if ln.geom_type != "LineString" or ln.length < 0.5:
             continue
@@ -53,7 +53,7 @@ def build(con, epsg, level=0):
         cuts.append(shapely.LineString([(cx - dx / h * CUT_M, cy - dy / h * CUT_M), (cx + dx / h * CUT_M, cy + dy / h * CUT_M)]))
     # the joints: where one subsection's axis ends and the next of the same section begins
     axes = {}
-    for sid, uid, w in rows(f"SELECT section_id, subsection_id, {m()} FROM space.subsection WHERE level = ?", [level]):
+    for sid, uid, w in rows(f"SELECT section_id, subsection_id, {m()} FROM urban.subsection WHERE level = ?", [level]):
         axes.setdefault(sid, []).append((uid, g(w)))
     for sid, lst in axes.items():
         if len(lst) < 2:
@@ -81,10 +81,10 @@ def build(con, epsg, level=0):
     # the roadways of rank 2/3's spaces, from the old parts: who owns a face
     road = {}
     for uid, w in rows(f"""SELECT unit_id, ST_AsWKB(ST_Union_Agg(ST_Transform(geometry, 'EPSG:4326', '{epsg}', always_xy := true)))
-                            FROM space.part WHERE level = ? AND type IN ('lane', 'paved', 'junction area', 'crosswalk', 'cycle crossing', 'bridge deck') GROUP BY unit_id""", [level]):
+                            FROM urban.part WHERE level = ? AND type IN ('lane', 'paved', 'junction area', 'crosswalk', 'cycle crossing', 'bridge deck') GROUP BY unit_id""", [level]):
         road[uid] = g(w)
-    kind = dict(rows(f"SELECT unit_id, kind FROM space.unit WHERE level = ?", [level]))
-    sect = dict(rows(f"SELECT unit_id, section_id FROM space.unit WHERE level = ?", [level]))
+    kind = dict(rows(f"SELECT unit_id, kind FROM urban.unit WHERE level = ?", [level]))
+    sect = dict(rows(f"SELECT unit_id, section_id FROM urban.unit WHERE level = ?", [level]))
     rids = list(road)
     rtree = shapely.STRtree([road[u] for u in rids]) if rids else None
     owner = []
@@ -111,7 +111,7 @@ def build(con, epsg, level=0):
     spaces = {}
     for f, o in zip(faces, owner):
         spaces.setdefault(o, []).append(f)
-    con.execute("""CREATE OR REPLACE TABLE space.space3 (space_id VARCHAR, kind VARCHAR, section_id VARCHAR, level INT, faces INT, area_m2 DOUBLE,
+    con.execute("""CREATE OR REPLACE TABLE urban.space3 (space_id VARCHAR, kind VARCHAR, section_id VARCHAR, level INT, faces INT, area_m2 DOUBLE,
                    geometry GEOMETRY)""")
     out = []
     for o, fs in spaces.items():
@@ -124,7 +124,7 @@ def build(con, epsg, level=0):
             # halves; each half is its own space here, `#n`; rank 2 should end every section at every junction)
             out.append((o if len(parts) == 1 else f"{o}#{n}", kind.get(o, "subsection"), sect.get(o), level, len(fs), round(p.area, 1), shapely.to_wkb(p)))
     if out:
-        con.executemany(f"""INSERT INTO space.space3 VALUES (?, ?, ?, ?, ?, ?, ST_Transform(ST_GeomFromWKB(?), '{epsg}', 'EPSG:4326', always_xy := true))""", out)
+        con.executemany(f"""INSERT INTO urban.space3 VALUES (?, ?, ?, ?, ?, ?, ST_Transform(ST_GeomFromWKB(?), '{epsg}', 'EPSG:4326', always_xy := true))""", out)
     orphan = sum(f.area for f, o in zip(faces, owner) if o is None)
     print(f"  division (top down): rank 3: {len(faces)} faces, {len(cuts)} cuts, {len(out)} spaces, {orphan:.1f} m2 with no owner", flush=True)
     return len(out)

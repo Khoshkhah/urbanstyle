@@ -212,15 +212,15 @@ def dossier(space_db, osm_db, unit_id, out, name, city, nvdb=None, flows=None, m
     con.execute(f"ATTACH '{osm_db}' AS o (READ_ONLY)")
     if nvdb:
         con.execute(f"ATTACH '{nvdb}' AS nv (READ_ONLY)")
-    lon = con.execute("SELECT ST_X(ST_Centroid(geometry)) FROM sp.space.unit WHERE unit_id = ?", [unit_id]).fetchone()[0]
+    lon = con.execute("SELECT ST_X(ST_Centroid(geometry)) FROM sp.urban.unit WHERE unit_id = ?", [unit_id]).fetchone()[0]
     crs = f"EPSG:{32600 + int((lon + 180) // 6) + 1}"
     m = lambda g: f"ST_Transform({g}, 'EPSG:4326', '{crs}', always_xy := true)"
     today = datetime.date.today().isoformat()
-    U = f"(SELECT geometry FROM sp.space.unit WHERE unit_id = '{unit_id}')"
+    U = f"(SELECT geometry FROM sp.urban.unit WHERE unit_id = '{unit_id}')"
     near = lambda g, d=0.5: f"ST_DWithin({m(g)}, {m(U)}, {d})"
 
     con.execute(f"""CREATE TABLE unit AS SELECT unit_id, kind, '{name}' AS name, '{city}' AS city, level, '{crs}' AS crs, '{today}' AS built,
-                    {m('geometry')} AS geometry FROM sp.space.unit WHERE unit_id = '{unit_id}'""")
+                    {m('geometry')} AS geometry FROM sp.urban.unit WHERE unit_id = '{unit_id}'""")
     sources = [("osm", "OpenStreetMap (duckOSM)", "https://www.openstreetmap.org", "ODbL 1.0", "mapped"),
                ("sumo", "SUMO netconvert on duckOSM, lanes and widths from urbanstyle", "https://eclipse.dev/sumo/", "EPL 2.0 (tool)", "derived"),
                ("urbanstyle", "urbanstyle partition, kerbs and parts", "https://github.com/Khoshkhah/urbanstyle", "MIT", "measured")]
@@ -260,22 +260,22 @@ def dossier(space_db, osm_db, unit_id, out, name, city, nvdb=None, flows=None, m
                     {"CASE type " + " ".join(f"WHEN '{t}' THEN {h}" for t, h in RAISED.items()) + " ELSE 0.0 END"} AS top_m,
                     road, road_class, speed, surface, lit, holds, rule,
                     coalesce(source, 'urbanstyle') AS source, coalesce(method, 'chosen') AS method, ref, {ccase} AS confidence,
-                    {m('geometry')} AS geometry FROM sp.space.part WHERE unit_id = '{unit_id}'""")
+                    {m('geometry')} AS geometry FROM sp.urban.part WHERE unit_id = '{unit_id}'""")
     con.execute(f"""CREATE TABLE line AS SELECT row_number() OVER () AS line_id, type, arm, length_m, width_m, width_source, width_method,
                     CASE WHEN type = 'kerb' THEN 'kerb' WHEN type = 'guide line' THEN 'virtual' ELSE 'paint' END AS kind,
-                    source, method, ref, {ccase} AS confidence, {m('geometry')} AS geometry FROM sp.space.mark WHERE unit_id = '{unit_id}'""")
+                    source, method, ref, {ccase} AS confidence, {m('geometry')} AS geometry FROM sp.urban.mark WHERE unit_id = '{unit_id}'""")
 
     # objects: what OSM maps and what Mapillary's photos see, in or by the unit, with a height
     hcase = "CASE class " + " ".join(f"WHEN '{k}' THEN {v}::DOUBLE" for k, v in HEIGHT.items()) + " END"    # none for what is no object (a kerb point)
     con.execute(f"""CREATE TABLE object AS SELECT object_id, class, NULL::VARCHAR AS sign, {hcase} AS height_m, attrs::VARCHAR AS attrs,
-                    {prov('osm', 'mapped')}, {m('geometry')} AS geometry FROM sp.space.object WHERE {near('geometry', 3)}""")
+                    {prov('osm', 'mapped')}, {m('geometry')} AS geometry FROM sp.urban.object WHERE {near('geometry', 3)}""")
     from urbanstyle.mapillary import CLASS_OF
     ccase = "CASE grp " + " ".join(f"WHEN '{g}' THEN '{c}'" for g, c in CLASS_OF.items()) + " ELSE grp END"
     try:
         con.execute(f"""INSERT INTO object SELECT 'mly' || feature_id, {ccase},
                         CASE WHEN grp IN ('give way', 'stop', 'parking', 'no parking') THEN grp END,
                         {hcase.replace("CASE class", f"CASE {ccase}")}, class, {prov('mapillary', 'observed', 'last_seen::DATE::VARCHAR')}, {m('geometry')}
-                        FROM sp.space.observed WHERE {near('geometry', 3)}""")
+                        FROM sp.urban.observed WHERE {near('geometry', 3)}""")
     except duckdb.CatalogException:     # Mapillary not fetched for this area
         pass
     if vancouver_json:  # the city's surveyed objects: a tree's own height and species, a meter's rates
@@ -314,10 +314,10 @@ def dossier(space_db, osm_db, unit_id, out, name, city, nvdb=None, flows=None, m
     # lanes and moves: SUMO's (through urbanstyle's parts and turns)
     con.execute(f"""CREATE TABLE lane AS SELECT part_id AS lane_id, arm AS road_name, direction, lane AS lane_from_right, width_m, width_source,
                     width_method, type AS kind,
-                    {prov('sumo', 'derived')}, {m('geometry')} AS geometry FROM sp.space.part
+                    {prov('sumo', 'derived')}, {m('geometry')} AS geometry FROM sp.urban.part
                     WHERE unit_id = '{unit_id}' AND type IN ('lane', 'bus lane', 'cycle lane')""")
     con.execute(f"""CREATE TABLE movement AS SELECT from_edge, from_lane, to_edge, to_lane, turn, vehicles, condition, {prov('sumo', 'derived')}, {m('geometry')} AS geometry
-                    FROM sp.space.turn WHERE unit_id = '{unit_id}'""")
+                    FROM sp.urban.turn WHERE unit_id = '{unit_id}'""")
 
     # rules: speed, parking and turn lanes from OSM's tags on the unit's roads; NVDB's prohibited turns
     con.execute(f"""CREATE TABLE rule AS
@@ -357,7 +357,7 @@ def dossier(space_db, osm_db, unit_id, out, name, city, nvdb=None, flows=None, m
                         WHERE f.edge_id IN (SELECT edge_id FROM o.driving.edges WHERE {near('geometry', FLOW_M)})""")
     try:
         con.execute(f"""INSERT INTO observation SELECT 'photo', photo_id, captured::VARCHAR, compass, 'degrees (view)', 'mapillary', 'observed',
-                        captured::DATE::VARCHAR, {CONFIDENCE['observed']}, {m('geometry')} FROM sp.space.photo WHERE {near('geometry', 3)}""")
+                        captured::DATE::VARCHAR, {CONFIDENCE['observed']}, {m('geometry')} FROM sp.urban.photo WHERE {near('geometry', 3)}""")
     except duckdb.CatalogException:
         pass
     if vancouver_json:  # condition ratings (the rating in `subject`), the city's traffic counts (where; the data behind a link)
@@ -370,7 +370,7 @@ def dossier(space_db, osm_db, unit_id, out, name, city, nvdb=None, flows=None, m
                    coalesce(p->>'url', p->>'location'), NULL, NULL, NULL, 'vancouver', meth, NULL, {mconf}, {m('geometry')}
                 FROM van WHERE ds LIKE '%traffic-%count%' AND {near('geometry', FLOW_M)}""")
     try:
-        seen = {k: (a, b) for k, a, b in con.execute("SELECT 'mly' || feature_id, first_seen, last_seen FROM sp.space.observed").fetchall()}
+        seen = {k: (a, b) for k, a, b in con.execute("SELECT 'mly' || feature_id, first_seen, last_seen FROM sp.urban.observed").fetchall()}
     except duckdb.CatalogException:
         seen = {}
     alone = match(con, seen)
@@ -402,14 +402,14 @@ def main(name, lon, lat, osm, nvdb=None, flows=None, city="", mapillary=True, va
     if mapillary:
         from urbanstyle import mapillary as mly
         r = CLIP_M / 111320
-        mly.fetch((lon - r * 2, lat - r, lon + r * 2, lat + r), base + ".space.duckdb.mapillary.json")
-    con = build(base + ".osm.duckdb", base + ".space.duckdb")
+        mly.fetch((lon - r * 2, lat - r, lon + r * 2, lat + r), base + ".urban.duckdb.mapillary.json")
+    con = build(base + ".osm.duckdb", base + ".urban.duckdb")
     # the unit: the intersection or subsection holding the point
-    unit_id = con.execute("""SELECT unit_id FROM space.unit WHERE level = 0 ORDER BY ST_Distance(geometry, ST_Point(?, ?)), kind <> 'intersection' LIMIT 1""",
+    unit_id = con.execute("""SELECT unit_id FROM urban.unit WHERE level = 0 ORDER BY ST_Distance(geometry, ST_Point(?, ?)), kind <> 'intersection' LIMIT 1""",
                           [lon, lat]).fetchone()[0]
     con.close()
-    d = dossier(base + ".space.duckdb", base + ".osm.duckdb", unit_id, base + ".duckdb", name, city, nvdb, flows,
-                base + ".space.duckdb.mapillary.json" if mapillary else None, base + ".vancouver.json" if vancouver else None, gtfs)
+    d = dossier(base + ".urban.duckdb", base + ".osm.duckdb", unit_id, base + ".duckdb", name, city, nvdb, flows,
+                base + ".urban.duckdb.mapillary.json" if mapillary else None, base + ".vancouver.json" if vancouver else None, gtfs)
     counts = {t: d.execute(f'SELECT count(*) FROM "{t}"').fetchone()[0] for t in
               ("unit", "source", "road", "surface", "line", "object", "match", "lane", "movement", "rule", "observation", "check")}
     print(f"{name}: unit {unit_id} -> {base}.duckdb")

@@ -29,9 +29,9 @@ Rules:
 
 There is no spatial extension: no ST_ functions. A table with shapes has these columns instead: __g (the shape as GeoJSON text, lon /
 lat), __len (its length in metres), __area (its area in m2), __x and __y (its centre, lon and lat), __w, __s, __e, __n (its bounds).
-show_on_map needs __g in its query. level 0 is the ground, 1 a bridge above it. space.part holds the street's parts (lanes, sidewalks,
-crossings, ...) with width_m; space.street_object the street objects (signs, lights, trees, ...), one per real object from every
-source (use it to count them; space.object holds OSM's alone); space.element the buildings and roads; space.bridge_part the parts of
+show_on_map needs __g in its query. level 0 is the ground, 1 a bridge above it. urban.part holds the street's parts (lanes, sidewalks,
+crossings, ...) with width_m; urban.street_object the street objects (signs, lights, trees, ...), one per real object from every
+source (use it to count them; urban.object holds OSM's alone); urban.element the buildings and roads; urban.bridge_part the parts of
 the bridge model.
 
 Tables:
@@ -41,7 +41,7 @@ Tables:
 def _clean_copy(db, tmp):
     """The space db and the files beside it that the page reads, in tmp, without Mapillary's tables."""
     import duckdb
-    base = os.path.basename(db).replace(".space.duckdb", "").replace(".duckdb", "")
+    base = os.path.basename(db).replace(".urban.duckdb", "").replace(".duckdb", "")
     for f in glob.glob(os.path.join(os.path.dirname(os.path.abspath(db)), base + ".*")):
         name = os.path.basename(f)
         if f == os.path.abspath(db) or ".bak" in name or ".rebuilt" in name or name.endswith(".mapillary.json"):
@@ -51,7 +51,7 @@ def _clean_copy(db, tmp):
     shutil.copy(db, out)
     con = duckdb.connect(out)
     for t in LOCAL_ONLY:
-        con.execute(f"DROP TABLE IF EXISTS space.{t}")
+        con.execute(f"DROP TABLE IF EXISTS urban.{t}")
     con.close()
     return out
 
@@ -70,8 +70,8 @@ def _tree(area):
 def _focus(area):
     """What each street space and each block holds in focus (the server's /api/focus, made once)."""
     with area.lock:
-        units = [u for (u,) in area.con.execute("SELECT unit_id FROM space.unit").fetchall()]
-        blocks = [b for (b,) in area.con.execute("SELECT block_id FROM space.block").fetchall()]
+        units = [u for (u,) in area.con.execute("SELECT unit_id FROM urban.unit").fetchall()]
+        blocks = [b for (b,) in area.con.execute("SELECT block_id FROM urban.block").fetchall()]
     return {"Street spaces": {u: area.focus("Street spaces", u) for u in units}, "Blocks": {b: area.focus("Blocks", b) for b in blocks}}
 
 
@@ -80,9 +80,9 @@ def _tables(area, data):
     c, lines, files = area.con, [], {}
     utm = f"ST_Transform(geometry, 'EPSG:4326', '{area.epsg}', always_xy := true)"
     tables = [t for (t,) in c.execute("SELECT table_name FROM information_schema.tables WHERE table_catalog = 'memory' "
-                                     "AND table_schema = 'space' ORDER BY 1").fetchall()]
+                                     "AND table_schema = 'urban' ORDER BY 1").fetchall()]
     for t in tables:
-        cols = c.execute(f'DESCRIBE space."{t}"').fetchall()
+        cols = c.execute(f'DESCRIBE urban."{t}"').fetchall()
         sel, geo = [], False
         for n, ty, *_ in cols:
             if ty.startswith("GEOMETRY"):
@@ -98,11 +98,11 @@ def _tables(area, data):
             continue
         path = os.path.join(data, t + ".parquet")
         with area.lock:
-            c.execute(f'COPY (SELECT {", ".join(sel)} FROM space."{t}") TO \'{path}\' (FORMAT PARQUET)')
-            n = c.execute(f'SELECT count(*) FROM space."{t}"').fetchone()[0]
+            c.execute(f'COPY (SELECT {", ".join(sel)} FROM urban."{t}") TO \'{path}\' (FORMAT PARQUET)')
+            n = c.execute(f'SELECT count(*) FROM urban."{t}"').fetchone()[0]
             desc = c.execute(f"DESCRIBE SELECT * FROM '{path}'").fetchall()
         files[t] = t + ".parquet"
-        lines.append(f"space.{t} ({n} rows): " + ", ".join(f"{a} {b}" for a, b, *_ in desc))
+        lines.append(f"urban.{t} ({n} rows): " + ", ".join(f"{a} {b}" for a, b, *_ in desc))
         for a, b, *_ in desc:
             if a in ("type", "class", "kind", "source", "method", "direction", "use", "level") and b in ("VARCHAR", "INTEGER"):
                 vs = [v for (v,) in c.execute(f"SELECT DISTINCT CAST(\"{a}\" AS VARCHAR) FROM '{path}' WHERE \"{a}\" IS NOT NULL LIMIT 31").fetchall()]

@@ -50,7 +50,7 @@ Keep the intersection a separate container, and change how it is found and how i
    standards describe and as osm2streets' perpendicular cuts do, instead of a disc.
 2. **Consolidate.** Merge junction nodes closer than about 15 m (dog-legs, the nodes of a roundabout, the two ends of a short
    link) into one intersection; keep the dual carriageways of one street as one street, as now.
-3. **Relate.** Add `space.arm(intersection_id, street_id, arm_s)`: which streets meet at which intersection, and where the street
+3. **Relate.** Add `urban.arm(intersection_id, street_id, arm_s)`: which streets meet at which intersection, and where the street
    enters it. A street's extent for display is its sections plus the intersections on its arms, which answers "the intersection
    is part of what?" without making it a subsection of one street.
 4. **Plazas later.** A large open piece of the street space with no road through it becomes its own kind (`plaza`), found by
@@ -67,6 +67,6 @@ Not proposed: a functional (upstream) area, and a hand-drawn junction geometry a
 ## 6. Decisions
 
 Agreed: do the standard approach. Built: the intersection stays a separate container, shared by the streets that meet there, with
-`space.arm`; its shape is the hull of the arms' corner points (not a disc) with junction nodes under 15 m merged; and a street is
+`urban.arm`; its shape is the hull of the arms' corner points (not a disc) with junction nodes under 15 m merged; and a street is
 divided at every intersection into sections, with the street kept as a group of its sections and the intersections it arrives at.
 Not built: a `plaza` kind for open squares.

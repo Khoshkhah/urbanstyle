@@ -1,10 +1,10 @@
 # Tables
 
-This page lists every table that `urbanstyle build` writes in the `space` schema of an area's DuckDB file. It also lists the two tables
+This page lists every table that `urbanstyle build` writes in the `urban` schema of an area's DuckDB file. It also lists the two tables
 that `urbanstyle serve` adds in memory.
 
-The columns, the types and the row counts come from `data/units/broadway-granville.space.duckdb` (built 2026-10-12). To get them again,
-open the file read-only, then run `DESCRIBE space.<table>` and `SELECT count(*) FROM space.<table>`. For the id formats, see [Ids](ids.md).
+The columns, the types and the row counts come from `data/units/broadway-granville.urban.duckdb` (built 2026-10-12). To get them again,
+open the file read-only, then run `DESCRIBE urban.<table>` and `SELECT count(*) FROM urban.<table>`. For the id formats, see [Ids](ids.md).
 
 ## Common columns
 
@@ -31,8 +31,8 @@ gives the rules that select a source.
 | `derived` | urbanstyle calculated it from other data by a rule. |
 | `chosen` | urbanstyle's own value for a type, where no source gives one. |
 
-This file also holds two other `method` values. `approximate` (in `space.element.ground_method`) means that the source says its
-positions are approximate. `corrected` (in `space.part` and `space.mark`) means a value from `corrections/lanes.json`.
+This file also holds two other `method` values. `approximate` (in `urban.element.ground_method`) means that the source says its
+positions are approximate. `corrected` (in `urban.part` and `urban.mark`) means a value from `corrections/lanes.json`.
 
 Some columns give the provenance of one field only:
 
@@ -46,8 +46,8 @@ Some columns give the provenance of one field only:
 | `width_src` | `element` | the width of a road, a walkway or a cycleway, in words |
 | `basis`, `method` | `block_side` | the distance from the road to the block's edge |
 
-Three tables use their own words in `source`. `space.strip` uses `tag`, `measured` and `default`. `space.width` uses `urbanstyle` and
-`measured one side`. `space.turn` uses `sumo`.
+Three tables use their own words in `source`. `urban.strip` uses `tag`, `measured` and `default`. `urban.width` uses `urbanstyle` and
+`measured one side`. `urban.turn` uses `sumo`.
 
 ## All tables
 
@@ -88,7 +88,7 @@ Three tables use their own words in `source`. `space.strip` uses `tag`, `measure
 
 `blocks.py` writes these tables. [Rank 1: the ground](../design/ground.md) gives the design.
 
-### space.area
+### urban.area
 
 One row: the edge of the area. It comes from the `boundary` table of the duckOSM database, else from the box around all elements. The
 checks read it.
@@ -99,7 +99,7 @@ Key: none (one row).
 |---|---|---|
 | `geometry` | GEOMETRY | The edge of the area (polygon). |
 
-### space.block
+### urban.block
 
 One row is one block: the land between the streets at level 0. A block is a face that the public streets enclose, less each street's half width.
 
@@ -114,7 +114,7 @@ Key: `block_id`. Provenance: `source`, `method` (see [Provenance columns](#prove
 | `method` | VARCHAR | `derived` in this file. |
 | `geometry` | GEOMETRY | The block's outline (polygon). |
 
-### space.block_side
+### urban.block_side
 
 One row is one street side of one block. Each side gets one distance from the road line, so the block's edge runs parallel to the road.
 
@@ -122,7 +122,7 @@ Key: none. A block can have two sides on one way. Provenance: `basis`, `method` 
 
 | column | type | meaning |
 |---|---|---|
-| `block_id` | VARCHAR | The block (`space.block`). |
+| `block_id` | VARCHAR | The block (`urban.block`). |
 | `way_id` | BIGINT | The smallest OSM way id along this street side. |
 | `name` | VARCHAR | The street's name. |
 | `class` | VARCHAR | The street's OSM `highway` class. |
@@ -132,9 +132,9 @@ Key: none. A block can have two sides on one way. Provenance: `basis`, `method` 
 | `unpulled_m` | DOUBLE | The distance before a building or a parcel pulled the edge in. NULL where nothing pulled it. |
 | `building` | VARCHAR | The building or the parcel that pulled the edge in, for example `vancouver:pl015234321`. |
 
-### space.city_block
+### urban.city_block
 
-One row is one block outline from the city's open data (Vancouver `block-outlines`). Check B6 compares these with `space.block`. The
+One row is one block outline from the city's open data (Vancouver `block-outlines`). Check B6 compares these with `urban.block`. The
 build does not use them as input.
 
 Key: `city_block_id`.
@@ -150,7 +150,7 @@ Key: `city_block_id`.
 tables of this group. At level 0, `division.py` then replaces the rows of `unit`, `subsection`, `cut`, `junction`, `part`, `mark`,
 `width`, `turn` and `approach`. In this file, `unit`, `subsection`, `part`, `mark` and `width` hold rows at levels 0 and 1 only.
 
-### space.container
+### urban.container
 
 One row is one container: a piece of the street space at one level that no other container overlaps. Its `kind` is `section`,
 `intersection`, `path`, `plaza` or `rail`. This file has 217 sections, 104 intersections, 64 path spaces and 20 plazas, at levels -1,
@@ -163,10 +163,10 @@ Key: `container_id`.
 | `container_id` | VARCHAR | The container's id. |
 | `level` | INTEGER | The level. |
 | `kind` | VARCHAR | `section`, `intersection`, `path`, `plaza` or `rail`. |
-| `street_id` | VARCHAR | The street group of a section (`space.street`). NULL for other kinds. |
+| `street_id` | VARCHAR | The street group of a section (`urban.street`). NULL for other kinds. |
 | `shape` | VARCHAR | The shape of an intersection: `cross`, `T`, `Y`, `dogleg` or `multi`. NULL for other kinds. |
 | `n_arms` | INTEGER | The number of arms of an intersection. |
-| `n_buildings` | BIGINT | The number of buildings that bound the container (`space.boundary`). |
+| `n_buildings` | BIGINT | The number of buildings that bound the container (`urban.boundary`). |
 | `boundary_m` | DOUBLE | The total length of those building faces. |
 | `n_dead_ends` | BIGINT | Section only: the nodes where only one road edge ends. |
 | `n_intersections` | BIGINT | Section only: the intersections that the section arrives at. |
@@ -183,7 +183,7 @@ Key: `container_id`.
 | `kerb_share` | DOUBLE | The share of road cross-sections where a sidewalk was found. |
 | `geometry` | GEOMETRY | The container's outline (polygon or multipolygon). |
 
-### space.zone
+### urban.zone
 
 One row is one zone of one container: what that part of the container is for.
 
@@ -191,12 +191,12 @@ Key: `container_id`, `zone`.
 
 | column | type | meaning |
 |---|---|---|
-| `container_id` | VARCHAR | The container (`space.container`). |
+| `container_id` | VARCHAR | The container (`urban.container`). |
 | `level` | INTEGER | The level. |
 | `zone` | VARCHAR | `travelway`, `pedestrian_realm` or `track`. |
 | `geometry` | GEOMETRY | The zone's area (polygon or multipolygon). |
 
-### space.boundary
+### urban.boundary
 
 One row is one building that bounds one container. The building's face lies along the container's edge for at least 2 m.
 
@@ -204,13 +204,13 @@ Key: `container_id`, `building_id`.
 
 | column | type | meaning |
 |---|---|---|
-| `container_id` | VARCHAR | The container (`space.container`). |
+| `container_id` | VARCHAR | The container (`urban.container`). |
 | `level` | INTEGER | The level. |
 | `kind` | VARCHAR | What bounds the container. `building` for all rows. |
-| `building_id` | VARCHAR | The building's `source_id` in `space.element`. |
+| `building_id` | VARCHAR | The building's `source_id` in `urban.element`. |
 | `length_m` | DOUBLE | The length of the building's face along the container's edge. |
 
-### space.street
+### urban.street
 
 One row is one street group: the connected roads of one level that share a name. A street holds its sections and the intersections that
 it arrives at.
@@ -225,7 +225,7 @@ Key: `street_id`.
 | `n_section` | BIGINT | The number of its sections. |
 | `n_intersection` | BIGINT | The number of intersections that it arrives at. |
 
-### space.arm
+### urban.arm
 
 One row is one road edge that arrives at an intersection. An arm links an intersection to a section and to a street group.
 
@@ -241,7 +241,7 @@ Key: none. One row per intersection, section, road edge and node.
 | `node_id` | BIGINT | The junction node where the edge arrives. |
 | `level` | INTEGER | The level. |
 
-### space.junction
+### urban.junction
 
 One row is one node of one intersection. `subsections.py` writes it from the container step's node groups. At level 0, `division.py`
 writes the OSM junction nodes inside each new intersection.
@@ -255,7 +255,7 @@ Key: `intersection_id`, `node_id`.
 | `level` | INTEGER | The level. |
 | `cluster_id` | VARCHAR | The container step's node group. At level 0 it is the same as `intersection_id`. |
 
-### space.unit
+### urban.unit
 
 One row is one space: a subsection or an intersection. The units of one level cover the street space with no overlap. This file has 136
 subsections and 41 intersections at level 0, and 9 subsections at level 1.
@@ -266,12 +266,12 @@ Key: `unit_id`.
 |---|---|---|
 | `unit_id` | VARCHAR | The unit's id: a subsection id or an intersection id. |
 | `kind` | VARCHAR | `subsection` or `intersection`. |
-| `section_id` | VARCHAR | The section of a subsection. NULL for an intersection. At level 0 the section comes from the blocks and is not a row of `space.container`. |
+| `section_id` | VARCHAR | The section of a subsection. NULL for an intersection. At level 0 the section comes from the blocks and is not a row of `urban.container`. |
 | `level` | INTEGER | The level. |
 | `color` | VARCHAR | The color that the dashboard uses for the unit. |
 | `geometry` | GEOMETRY | The unit's area (polygon). |
 
-### space.subsection
+### urban.subsection
 
 One row is one subsection: a piece of a section between two cuts, where the lanes, the width or the frontage change.
 
@@ -297,7 +297,7 @@ Key: `subsection_id`.
 | `color` | VARCHAR | The color that the dashboard uses. |
 | `geometry` | GEOMETRY | Level 0: the subsection's axis. Other levels: its piece of road (linestring). |
 
-### space.cut
+### urban.cut
 
 One row is one cut: a straight line across a street that ends a section and bounds an intersection. All rows in this file are at level 0.
 There, a cut runs from block to block, 3 m past the block corner.
@@ -313,7 +313,7 @@ Key: none. One row per cut.
 | `length_m` | DOUBLE | The cut's length. |
 | `geometry` | GEOMETRY | The cut (linestring). |
 
-### space.part
+### urban.part
 
 One row is one part of a unit: a lane, a shoulder, a sidewalk, a junction area and so on. The parts of a unit cover it with no
 overlap. This file has 1800 parts at level 0 and 34 at level 1.
@@ -323,7 +323,7 @@ Key: `part_id`. Provenance: `source`, `method`, `ref`, `width_source`, `width_me
 
 | column | type | meaning |
 |---|---|---|
-| `unit_id` | VARCHAR | The unit (`space.unit`). |
+| `unit_id` | VARCHAR | The unit (`urban.unit`). |
 | `part_id` | VARCHAR | The part's id, `<unit id>#<n>`. |
 | `level` | INTEGER | The level. |
 | `type` | VARCHAR | In this file: `lane`, `sidewalk`, `shoulder`, `frontage`, `parking`, `driveway`, `furnishing`, `junction area`, `island`, `cycle lane`, `bus zone`, `verge`, `barrier`. |
@@ -352,7 +352,7 @@ Key: `part_id`. Provenance: `source`, `method`, `ref`, `width_source`, `width_me
 | `rule` | VARCHAR | The rules that apply to the part, in words: the lane fit, a taper, a bus stop's timetable, parking rates. |
 | `geometry` | GEOMETRY | The part's area (polygon or multipolygon). |
 
-### space.mark
+### urban.mark
 
 One row is one line in a unit: a painted line, an arrow, a kerb or a guide line through a junction.
 
@@ -361,7 +361,7 @@ Key: none. `unit_id` links each mark to its unit. Provenance: `source`, `method`
 
 | column | type | meaning |
 |---|---|---|
-| `unit_id` | VARCHAR | The unit (`space.unit`). |
+| `unit_id` | VARCHAR | The unit (`urban.unit`). |
 | `level` | INTEGER | The level. |
 | `type` | VARCHAR | In this file: `guide line`, `arrow`, `kerb`, `lane line`, `stop line`, `edge line`, `centre line`, `zebra`. |
 | `arm` | VARCHAR | The intersection arm of the mark. NULL for all rows in this file. |
@@ -374,7 +374,7 @@ Key: none. `unit_id` links each mark to its unit. Provenance: `source`, `method`
 | `ref` | VARCHAR | The source item, or the rule that made the line. |
 | `geometry` | GEOMETRY | The line (linestring or multilinestring). |
 
-### space.width
+### urban.width
 
 One row gives the widths of one unit. At level 0 there is one row per unit. At level 1 the widths are measured across the middle of a
 subsection.
@@ -383,7 +383,7 @@ Key: `unit_id`, `edge`. Provenance: `source` (see [Provenance columns](#provenan
 
 | column | type | meaning |
 |---|---|---|
-| `unit_id` | VARCHAR | The unit (`space.unit`). |
+| `unit_id` | VARCHAR | The unit (`urban.unit`). |
 | `level` | BIGINT | The level. |
 | `edge` | VARCHAR | Where the widths are measured: `middle` (across a subsection), or the edge id of an intersection arm. NULL at level 0. |
 | `arm` | VARCHAR | The road name of an intersection arm. NULL for all rows in this file. |
@@ -399,7 +399,7 @@ Key: `unit_id`, `edge`. Provenance: `source` (see [Provenance columns](#provenan
 
 The 41 intersection rows at level 0 have NULL in all width columns.
 
-### space.turn
+### urban.turn
 
 One row is one lane-to-lane move through an intersection. SUMO's `netconvert` makes the moves from duckOSM's network.
 
@@ -407,7 +407,7 @@ Key: `unit_id`, `from_edge`, `from_lane`, `to_edge`, `to_lane`.
 
 | column | type | meaning |
 |---|---|---|
-| `unit_id` | VARCHAR | The intersection (`space.unit`). |
+| `unit_id` | VARCHAR | The intersection (`urban.unit`). |
 | `level` | INTEGER | The level. |
 | `from_edge` | VARCHAR | The duckOSM edge id of the road that the move comes from. |
 | `from_lane` | INTEGER | The lane that the move comes from, counted from the right (1 = the rightmost). |
@@ -419,7 +419,7 @@ Key: `unit_id`, `from_edge`, `from_lane`, `to_edge`, `to_lane`.
 | `condition` | VARCHAR | The time when a rule applies, for example `Mo-Su 07:00-19:00`. NULL for all rows in this file. |
 | `geometry` | GEOMETRY | The move's guide line (linestring). |
 
-### space.approach
+### urban.approach
 
 One row is one lane that comes into a junction: its moves and its turn arrow. Checks U11 to U13 read it.
 
@@ -427,20 +427,20 @@ Key: none. One row per intersection, incoming edge and lane.
 
 | column | type | meaning |
 |---|---|---|
-| `unit_id` | VARCHAR | The intersection (`space.unit`). |
+| `unit_id` | VARCHAR | The intersection (`urban.unit`). |
 | `level` | INTEGER | The level. |
 | `from_edge` | VARCHAR | The duckOSM edge id of the incoming road. NULL for 7 rows. |
 | `lane` | INTEGER | The lane, counted from the right. |
-| `moves` | INTEGER | The number of moves from this lane (`space.turn`). |
+| `moves` | INTEGER | The number of moves from this lane (`urban.turn`). |
 | `ways` | VARCHAR | The ways that all traffic can go, joined by commas: `left`, `straight`, `right`. |
 | `arrow` | BOOLEAN | True if the lane has a painted turn arrow. |
 | `no_arrow_because` | VARCHAR | Why the lane has no arrow: `no move` or `another arrow in the way`. |
 
 ## The ground
 
-`ground.py` writes these tables, except `space.lot`, which `container.py` writes. [Rank 1: the ground](../design/ground.md) gives the design.
+`ground.py` writes these tables, except `urban.lot`, which `container.py` writes. [Rank 1: the ground](../design/ground.md) gives the design.
 
-### space.ground
+### urban.ground
 
 One row is one ground item: layer 0. Every piece of the area at level 0 is in exactly one ground item.
 
@@ -457,7 +457,7 @@ Key: `ground_id`. Provenance: `source`, `method`, `ref` (see [Provenance columns
 | `ref` | VARCHAR | The source item. For a street item, the unit id. |
 | `geometry` | GEOMETRY | The item's area (polygon or multipolygon). |
 
-### space.surface
+### urban.surface
 
 One row is one surface that covers part of a ground item: layer 1. The surfaces of a ground item cover it exactly.
 
@@ -466,7 +466,7 @@ Key: `surface_id`. Provenance: `source`, `method`, `ref` (see [Provenance column
 | column | type | meaning |
 |---|---|---|
 | `surface_id` | VARCHAR | The surface's id, `<ground id>:<type>`, with `/<n>` where the surface has more than one piece. |
-| `ground_id` | VARCHAR | The ground item (`space.ground`). |
+| `ground_id` | VARCHAR | The ground item (`urban.ground`). |
 | `level` | INTEGER | Always 0. |
 | `type` | VARCHAR | In this file: `building`, `pedestrian realm`, `roadway`, `yard`, `lawn`, `median`, `car park`, `path`, `construction site`, `play`, `under bridge`, `track bed`. |
 | `source` | VARCHAR | The source. |
@@ -474,7 +474,7 @@ Key: `surface_id`. Provenance: `source`, `method`, `ref` (see [Provenance column
 | `ref` | VARCHAR | The source items, or `the parts of <unit id>`. |
 | `geometry` | GEOMETRY | The surface's area (polygon). |
 
-### space.path
+### urban.path
 
 One row is one footpath or cycleway at level 0, whole, as one OSM way at its width. A path lies on the ground and is not a ground item.
 
@@ -491,7 +491,7 @@ Key: `path_id`. Provenance: `width_source`, `width_method` (see [Provenance colu
 | `on` | VARCHAR | The ground items that the path lies on, joined by commas. |
 | `geometry` | GEOMETRY | The path's area: its line, widened to its width (polygon or multipolygon). |
 
-### space.parcel
+### urban.parcel
 
 One row is one land parcel from the city's open data (Vancouver `property-parcel-polygons`). A parcel is the property line that the street
 reaches. The table is empty where the area has no city file `<unit>.vancouver.json`.
@@ -504,7 +504,7 @@ Key: `parcel_id`.
 | `name` | VARCHAR | The civic number and the street name. |
 | `geometry` | GEOMETRY | The parcel's outline (polygon). |
 
-### space.lot
+### urban.lot
 
 One row is one off-street car park from OSM (`amenity=parking` on the ground). A lot is private ground beside the street, as a building's
 plot is.
@@ -525,7 +525,7 @@ Key: `lot_id`.
 
 ## Buildings and elements
 
-### space.element
+### urban.element
 
 One row is one element: a building, or a piece of a road, walkway, cycleway or rail line. `container.py` writes it. `buildings.py` adds a
 city's building outlines that OSM does not have, and sets the use columns. This file has 961 walkways, 561 roads, 432 buildings and 23
@@ -566,7 +566,7 @@ Key: `source_id`. Provenance: `source`, `level_src`, `width_src`, `use_source`, 
 
 ## Objects
 
-### space.object
+### urban.object
 
 One row is one point object from an OSM node: a bench, a tree, a crossing, a sign and so on. `container.py` writes it.
 
@@ -585,7 +585,7 @@ Key: `object_id`.
 | `source` | VARCHAR | `osm` for all rows. |
 | `geometry` | GEOMETRY | The object's position (point). |
 
-### space.observed
+### urban.observed
 
 One row is one map feature that Mapillary detects in street photos. The build loads it from `<db>.mapillary.json` when that file exists.
 `urbanstyle mapillary` also writes it. Mapillary data confirms objects. It makes no object, part or line.
@@ -602,9 +602,9 @@ Key: `feature_id`.
 | `source` | VARCHAR | `mapillary` for all rows. |
 | `geometry` | GEOMETRY | The feature's position (point). |
 
-### space.photo
+### urban.photo
 
-One row is one Mapillary photo position. It comes from the same file as `space.observed`.
+One row is one Mapillary photo position. It comes from the same file as `urban.observed`.
 
 Key: `photo_id`.
 
@@ -617,7 +617,7 @@ Key: `photo_id`.
 | `sequence` | VARCHAR | Mapillary's sequence id. |
 | `geometry` | GEOMETRY | The camera's position (point). |
 
-### space.strip
+### urban.strip
 
 One row is one band of a container: a travel lane, a sidewalk, a frontage and so on. `strips.py` writes it. The strips of a container
 add up to its travelway and pedestrian realm.
@@ -626,7 +626,7 @@ Key: `strip_id`. Provenance: `source`, with its own words (see [Provenance colum
 
 | column | type | meaning |
 |---|---|---|
-| `container_id` | VARCHAR | The container (`space.container`). |
+| `container_id` | VARCHAR | The container (`urban.container`). |
 | `level` | INTEGER | The container's level. |
 | `strip_id` | VARCHAR | The strip's id, `<container id>.<n>`. |
 | `type` | VARCHAR | In this file: `travel`, `sidewalk`, `frontage`, `furnishing`, `open`, `plaza`, `cycle`. A rail space has `track`. |
@@ -639,7 +639,7 @@ Key: `strip_id`. Provenance: `source`, with its own words (see [Provenance colum
 
 `container.py` writes these tables.
 
-### space.link
+### urban.link
 
 One row is one place where a person or a vehicle changes level: a node where elements of two levels meet, or a station entrance.
 
@@ -653,13 +653,13 @@ Key: `node_id`, `level_a`, `level_b`.
 | `type` | VARCHAR | `ramp`, `stairs`, `elevator`, `entrance` or `connection`. This file has 13 `connection` rows and 2 `ramp` rows. |
 | `assumed` | BOOLEAN | True for an entrance with no station found. Its level below is assumed to be -1. |
 | `geometry` | GEOMETRY | The node's position (point). |
-| `station_id` | VARCHAR | The station of an entrance (`space.station`). |
+| `station_id` | VARCHAR | The station of an entrance (`urban.station`). |
 | `match` | VARCHAR | How the entrance was tied to its station: `name` or `nearest`. |
 | `dist_m` | DOUBLE | The distance from the entrance to its station. |
 
 `station_id`, `match` and `dist_m` are NULL for all rows in this file.
 
-### space.station
+### urban.station
 
 One row is one rail, subway or tram station from OSM. Its level comes from its own tag, else from the rail line beside it.
 
@@ -675,11 +675,11 @@ Key: `id`. This table is empty in this file.
 
 ## Tables that urbanstyle serve adds
 
-`urbanstyle serve DB PAGE [--bridge PROFILE]` opens the area's file read-only. It adds two tables in memory, in a `space` schema of its
+`urbanstyle serve DB PAGE [--bridge PROFILE]` opens the area's file read-only. It adds two tables in memory, in a `urban` schema of its
 own (`serve.Area`). It does not write them to the file. The counts below come from Broadway × Granville with
 `data/bridges-measured/granville-bridge.bridge.json`.
 
-### space.bridge_part
+### urban.bridge_part
 
 One row is one part of a bridge's model, as the flat outlines that `bridge2d` draws. The table is empty with no `--bridge` profile.
 This file gives 266 rows with 214 different ids: the rows of one crosswalk share its path's id.
@@ -701,7 +701,7 @@ Key: none. Provenance: `source`, `method` (see [Provenance columns](#provenance-
 | `fields` | JSON | All fields of the part in the model. |
 | `geometry` | GEOMETRY | The part's outline. |
 
-### space.street_object
+### urban.street_object
 
 One row is one real street object, matched from every source: OSM, the city's survey and Mapillary. The 3D page draws the same objects
 (`dashboard.matched_objects`). The Broadway × Granville file gives 2616 rows.

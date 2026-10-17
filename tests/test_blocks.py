@@ -19,15 +19,15 @@ def test_a_block_is_parallel_to_its_streets_and_holds_its_buildings(tmp_path):
     bld = f"ST_GeomFromText('POLYGON((18.0008 {south}, 18.0012 {south}, 18.0012 59.3003, 18.0008 59.3003, 18.0008 {south}))')"
     osm = make_osm(tmp_path / "osm.duckdb", [(1, {"building": "yes"}, bld)], edges={"driving": edges})
     con = urbanstyle.build(osm, str(tmp_path / "out.duckdb"))
-    blocks = dict(con.execute("SELECT block_id, area_m2 FROM space.block").fetchall())
+    blocks = dict(con.execute("SELECT block_id, area_m2 FROM urban.block").fetchall())
     assert "b0-w100l" in blocks                              # the smallest way bounding it, and its side
     e = 2 * 3.25 / 2 + 1.5
     w = 0.002 * 111320 * 0.5105 - 2 * e                     # between the west and east streets, less 4.75 m each side
     h = 0.001 * 111320 - 2 * e                              # between the south and north streets
     assert abs(blocks["b0-w100l"] - w * h) < 0.03 * w * h
-    assert con.execute("""SELECT bool_and(ST_Within(ST_Buffer(e.geometry, -0.0000001), b.geometry)) FROM space.element e, space.block b
+    assert con.execute("""SELECT bool_and(ST_Within(ST_Buffer(e.geometry, -0.0000001), b.geometry)) FROM urban.element e, urban.block b
                           WHERE e.type = 'building' AND b.block_id = 'b0-w100l'""").fetchone()[0]
-    sides = dict(con.execute("SELECT way_id, basis FROM space.block_side WHERE block_id = 'b0-w100l'").fetchall())
+    sides = dict(con.execute("SELECT way_id, basis FROM urban.block_side WHERE block_id = 'b0-w100l'").fetchall())
     assert sides == {100: "carriageway", 200: "carriageway", 300: "carriageway", 400: "carriageway"}
 
 
@@ -48,16 +48,16 @@ def test_a_named_footway_cuts_the_block_and_has_a_corridor(tmp_path):
     walk = [f"(13, 500, 21, 22, 'footway', 'Passage Test', NULL, NULL, NULL, NULL, {line(21, 22)})"]
     osm = make_osm(tmp_path / "osm.duckdb", edges={"driving": edges, "walking": walk})
     con = urbanstyle.build(osm, str(tmp_path / "out.duckdb"))
-    halves = con.execute("SELECT block_id, area_m2 FROM space.block WHERE area_m2 > 1000 ORDER BY 1").fetchall()      # (the strips
+    halves = con.execute("SELECT block_id, area_m2 FROM urban.block WHERE area_m2 > 1000 ORDER BY 1").fetchall()      # (the strips
     assert [b for b, _ in halves] == ["b0-w100l", "b0-w100l.2"]                                                      # beyond the ring not)
     assert abs(halves[0][1] - halves[1][1]) < 0.02 * halves[0][1]
     cors = con.execute("""SELECT corridor_id, width_m, width_source, ST_Area(ST_Transform(geometry, 'EPSG:4326', 'EPSG:32634', always_xy := true))
-                          FROM space.corridor""").fetchall()
+                          FROM urban.corridor""").fetchall()
     assert len(cors) == 1 and cors[0][:3] == ("c0-w500", blocks.PATH_W["footway"], "urbanstyle")
     h = 0.001 * 111320 - 2 * 3.25                           # between the two carriageways' edges (two lanes of 3.25 m each street)
     assert abs(cors[0][3] - 3.0 * h) < 0.05 * 3.0 * h
     path = con.execute("""SELECT sum(ST_Area(ST_Transform(geometry, 'EPSG:4326', 'EPSG:32634', always_xy := true)))
-                          FROM space.ground WHERE type = 'path'""").fetchone()[0]
+                          FROM urban.ground WHERE type = 'path'""").fetchone()[0]
     mouth = network.FURNISH_M + network.CLEAR_M
     assert abs(path - 3.0 * (h - 2 * mouth)) < 0.05 * path
-    assert con.execute("SELECT count(*) FROM space.unit WHERE level = 0 AND ST_GeometryType(geometry) <> 'POLYGON'").fetchone()[0] == 0
+    assert con.execute("SELECT count(*) FROM urban.unit WHERE level = 0 AND ST_GeometryType(geometry) <> 'POLYGON'").fetchone()[0] == 0

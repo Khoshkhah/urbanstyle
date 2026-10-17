@@ -1011,6 +1011,9 @@ def _from_division(con, epsg, done, bridges=(), out=None, start="division"):
             shutil.copy(out, out + ".before-division")
     if start in ("blocks", "division"):
         network.build(con, epsg, bridges)      # the street at level 0 from the road network (docs/design/pipeline.md, steps 2-7)
+        # ... and on every deck level by the same rules (docs/notes/bridges-street-model.md): the deck's edge is the street's edge
+        for (lv,) in con.execute("SELECT DISTINCT level_min FROM work.element WHERE type = 'road' AND level_min >= 1 ORDER BY 1").fetchall():
+            network.build(con, epsg, bridges, level=lv)
         turns.build(con, epsg)                 # SUMO's moves through each junction: turns, guide lines, turn arrows (step 8)
         done("division")
         if out:

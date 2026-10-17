@@ -10,8 +10,9 @@ import re
 
 FORMAT = "urbanstyle.bridge/1"
 # urbanstyle's own values (chosen): no source gives them yet (LiDAR and the aerial photo will measure them)
-GRADE = 0.05        # the deck rises 5 m in 100 m from where its roads meet a ground road
-MAX_GRADE = 0.12    # ... and never more than 12 m in 100 m from there: no ramp end steeper (a clearance it cannot reach is not met)
+# (GRADE, MAX_GRADE and LEVEL_M are set from IGN LiDAR HD tile 1057_6305, Monaco's Avenue de France: docs/design/levels.md)
+GRADE = 0.06        # the deck rises 6 m in 100 m from where its roads meet a ground road (LiDAR: 5.9 % at the median)
+MAX_GRADE = 0.10    # ... and never more than 10 m in 100 m from there (LiDAR: 9.5 % at the 75th percentile; a clearance it cannot reach is not met)
 HOLE_MIN_M2 = 10.0  # a hole in a deck made from its sections: at least this big (a smaller one is a gap between two strips)
 TOP_M = 27.0        # the deck at most this high above the ground at its ends
 DECK_M = 1.8        # deck and girders, thick
@@ -25,7 +26,7 @@ PATH_W = {"cycleway": 3.0, "footway": 2.0, "path": 2.0, "pedestrian": 3.0}
 STEP_M = 10.0       # the vertical profile is sampled this often (then collinear points are dropped)
 ON_DECK = 0.6       # a road way is on the deck when this share of it lies within 5 m of the outline
 PATHS = ("cycleway", "footway", "path", "pedestrian")
-LEVEL_M = 6.0       # a bridge way at least this high above a way one OSM layer lower that it crosses (the page's 6 m a level)
+LEVEL_M = 5.5       # a bridge way at least this high above a way one OSM layer lower that it crosses (LiDAR: 5.1, 5.5 and 5.9 m)
 PAD_M = 5.0         # a crossing's clearance holds this far along the upper way on each side of the crossing (the lower road's width)
 FLOOR_H_M = 3.2     # a building's level, as the page draws it, where OSM gives no height
 

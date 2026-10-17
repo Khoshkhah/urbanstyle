@@ -66,19 +66,24 @@ Without LiDAR and without a file, each deck height comes from one rule over all 
 on the ground where a road that is not on a bridge also uses it. For each point, D is the shortest distance along the network to a node
 on the ground. The rule has three parts:
 
-1. **The grade.** The height is 5 % of D.
+1. **The grade.** The height is 6 % of D.
 2. **Clearance at a crossing.** Where a bridge way crosses a way of a lower OSM layer, and the two share no node, the upper way is at
-   least 6 m for each layer between them above the lower way: a deck at its own height, a road on the ground at 0. A path under a deck
+   least 5.5 m for each layer between them above the lower way: a deck at its own height, a road on the ground at 0. A path under a deck
    is not a crossing. The grade limit below holds first, so a short bridge goes only as high as its ramps allow.
 3. **Clearance over a building.** Where a bridge way passes over a building, the deck's underside is above the building's top: the deck
    is at least the building's height and the deck's thickness (1.8 m). The building's height is OSM's `height`; else its
    `building:levels` at 3.2 m each; else one level, 3.2 m, as the page draws it.
 
 A clearance holds at its point and goes down in a straight line to 0 at the nearest node on the ground, along the network. The height
-is the largest of the three, and at most 27 m. It is also at most 12 % of D, so no ramp is steeper than 12 % at its end on the ground. A
+is the largest of the three, and at most 27 m. It is also at most 10 % of D, so no ramp is steeper than 10 % at its end on the ground. A
 clearance that this limit does not let the deck reach is not met: the profile lists it with `met` false. At a node where branches meet in the air, every branch gets the same height. A short
 ramp that must climb a clearance is steep: the rule does not know the slope of the ground, and only LiDAR or a ground model gives the
 true heights there.
+
+The rule's values (the grade, the steepest grade and the gap at a crossing) are set from IGN LiDAR HD tile 1057_6305 at Monaco's
+Avenue de France and the bridges near it: the grade up from a ground end is 5.9 % at the median and 9.5 % at the 75th percentile, and
+the three crossings of the interchange are 5.1 m, 5.5 m and 5.9 m apart. They stay chosen values: a bridge with no LiDAR of its own
+gets them.
 
 ## The 3D model
 

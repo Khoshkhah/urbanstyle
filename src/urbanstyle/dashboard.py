@@ -1143,7 +1143,12 @@ brGo()}).catch(e=>console.error('bridge 3D: viz/bridge3d.json',e));</script>"""
 
 
 def bridge_models(con, bridges, db=None):
-    """Each bridge profile's 3D model (bridge3d.model) with the street around it: (models, the level > 0 units they replace)."""
+    """Each bridge profile's 3D model with the street around it: (models, the level > 0 units they replace). The model is deck3d's: the
+    street of the deck levels, made by network.py, at the profile's heights (docs/notes/bridges-street-model.md). URBANSTYLE_BRIDGE3D=old
+    gives the old separate model (bridge3d.model) until deck3d passes on both test cuts."""
+    if os.environ.get("URBANSTYLE_BRIDGE3D") != "old":
+        from .deck3d import models
+        return models(con, bridges)
     import shapely
     from .bridge3d import model
     ms, under = [], set()

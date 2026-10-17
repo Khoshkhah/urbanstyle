@@ -46,10 +46,19 @@ y0 = min(y - r / k for _, y, r in box); y1 = max(y + r / k for _, y, r in box)
 lon, lat = (x0 + x1) / 2, (y0 + y1) / 2
 radius = max((x1 - x0) / 2 * k * c, (y1 - y0) / 2 * k, radius)
 print(f"cut: {2 * radius:.0f} m square round {lon:.5f}, {lat:.5f}", flush=True)
-unit.clip(src, base + ".osm.duckdb", lon, lat, radius)
-if area == "vancouver":        # the unit's own edge, and its city data, found by the output's file name
+# Vancouver's roads from the whole city's database, so a bridge that leaves the unit is whole (as Monaco's wide database)
+CITY = "../duckOSM/data/db/vancouver_city.duckdb"
+unit.clip(CITY if area == "vancouver" and os.path.exists(CITY) else src, base + ".osm.duckdb", lon, lat, radius)
+if area == "vancouver":        # the unit's own edge and every bridge's deck, and the unit's city data, found by the output's file name
+    import shapely, shapely.ops
+    from urbanstyle.bridge_profile import deck_polygon
+    decks = []
+    for pf in near:
+        P = json.load(open(pf)); tr_ = pyproj.Transformer.from_crs(P["crs"], "EPSG:4326", always_xy=True).transform
+        decks.append(shapely.ops.transform(tr_, deck_polygon(P).buffer(30.0)))
     con = duckdb.connect(base + ".osm.duckdb"); con.execute("LOAD spatial"); con.execute(f"ATTACH '{src}' AS s (READ_ONLY)")
-    con.execute("UPDATE main.boundary SET geometry = ST_Intersection(geometry, (SELECT geometry FROM s.main.boundary))"); con.close()
+    con.execute("UPDATE main.boundary SET geometry = ST_Intersection(geometry, ST_Union((SELECT geometry FROM s.main.boundary), "
+                "ST_GeomFromText(?)))", [shapely.union_all(decks).wkt if decks else "POLYGON EMPTY"]); con.close()
     for f in ("vancouver.json", "urban.duckdb.mapillary.json"):
         s_, d = src.replace(".osm.duckdb", "." + f), f"{base}.{f}"
         if os.path.exists(s_) and not os.path.lexists(d):

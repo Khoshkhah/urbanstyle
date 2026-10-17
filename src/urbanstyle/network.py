@@ -1020,6 +1020,8 @@ def build(con, epsg, bridges=()):
             near_ = [etree.geometries[k] for k in etree.query(J)]
             if near_:
                 J = poly(J.difference(shapely.make_valid(shapely.union_all(near_))))
+        if J.is_empty:      # (all of it outside the street's edge: no junction there)
+            continue
         ids = sorted(node_id.get((round(p.x, 1), round(p.y, 1))) or 0 for p in ns)
         nid = next((i for i in ids if i), None)
         jid = f"i0-{nid}" if nid else f"i0-x{round(J.centroid.x)}y{round(J.centroid.y)}"

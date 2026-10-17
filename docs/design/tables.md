@@ -1,19 +1,120 @@
 # The tables
 
-<p class="lead">One table per rank, and the tables that lie on the tree. Every row names its parent in the rank above, and the rows
-of one parent partition it. Every row that holds a value names the value's source and method.</p>
+<p class="lead">The model is the schema `urban`: one table per rank, and some tables that lie beside the ranks. Every row of a rank
+table names its parent in the rank above, and the rows of one parent partition it. Every value from a source names the source and
+the method.</p>
+
+## How to read this chapter
 
 The model is the `urban` schema of an area's DuckDB file. A reader uses this schema only. The build makes its intermediate results in
 a second schema, `work`, and its last step writes `urban` from them ([The working schema](#the-working-schema-work)).
 
-Geometry is stored in lon/lat (EPSG:4326); the build measures in the area's UTM zone. `level` is the integer level, -2 to 2. The
-columns `source`, `method` and `ref` say who gave a row, how they got it and which of their items it is ([Sources and
-provenance](sources.md)). A column that ends in `_m` is in metres, `_m2` in square metres. A column with no value for a row is empty
-(NULL): a value that no source gives and no rule makes is not filled in.
+The model is a tree of seven ranks, from the area (rank 0) down to the marks (rank 6). [The model](model.md) names the ranks. Each
+rank has a table. Each row has a `parent_id`: the id of the row in the rank above that holds it. The rows of one parent have no gap
+and no overlap between them.
+
+The diagram shows the tables. An arrow goes from a table to the table that its column names. The rank tables run down the middle. The
+tables on the right are not ranks and have no `rank` column. Each of them points to a row of a rank table.
+
+```mermaid
+flowchart BT
+    area["urban.area<br/>rank 0"]
+    ground["urban.ground<br/>rank 1: street, plot, path"]
+    stretch["urban.stretch<br/>rank 2: section, intersection,<br/>path section, path intersection"]
+    piece["urban.plot_piece<br/>rank 2: a piece of a plot"]
+    space["urban.space<br/>rank 3"]
+    side["urban.side<br/>rank 4: driving, walking"]
+    part["urban.part<br/>rank 5"]
+    mark["urban.mark<br/>rank 6"]
+    ground -->|parent_id| area
+    stretch -->|parent_id| ground
+    piece -->|parent_id| ground
+    space -->|parent_id| stretch
+    side -->|parent_id| space
+    part -->|parent_id| side
+    mark -->|parent_id| part
+
+    street["urban.street<br/>the named street"]
+    joint["urban.joint"]
+    arm["urban.arm"]
+    junction["urban.junction"]
+    turn["urban.turn"]
+    approach["urban.approach"]
+    object["urban.object"]
+    surface["urban.surface"]
+    link["urban.link"]
+    station["urban.station"]
+    stretch -.->|street_id| street
+    joint -.->|section_id| stretch
+    arm -.->|section_id| stretch
+    junction -.->|intersection_id| stretch
+    turn -.->|space_id| space
+    approach -.->|space_id| space
+    object -.->|space_id| space
+    object -.->|part_id| part
+    surface -.->|ground_id| ground
+    surface -.->|ground_id| piece
+    link -.->|station_id| station
+```
+
+Six more tables describe the model and the build, not the street: `urban.item`, `urban.meta`, `urban.check`, `urban.registry`,
+`urban.style` and `urban.code` ([The data about the data](#the-data-about-the-data)). The table `urban.element` is the input of the
+build. The ranks are made from it.
+
+### Follow one lane up the tree
+
+Take the lane `s0-w473754701.2/2#3`. Each `parent_id` gives the next row up:
+
+| Rank | Table | Id | What it is |
+|---|---|---|---|
+| 5 | `urban.part` | `s0-w473754701.2/2#3` | the lane (kind lane) |
+| 4 | `urban.side` | `s0-w473754701.2/2:d` | the driving side that holds the lane |
+| 3 | `urban.space` | `s0-w473754701.2/2` | the second subsection of the section |
+| 2 | `urban.stretch` | `s0-w473754701.2` | the section, the second chain of way 473754701 |
+| 1 | `urban.ground` | `g0-street-1` | the street of level 0 |
+| 0 | `urban.area` | `a0` | the area of level 0 |
+
+The ids of the part and the side start with the id of the space, and the id of the space starts with the id of the section ([The
+ids](model.md#the-ids)). The `space_id` of the lane is `s0-w473754701.2/2` as well. A query can use it to skip the rows between.
+
+The section belongs to the named street `k0-473754701` (`street_id` of `urban.stretch`). The named street is a group, not a parent.
+
+### Query the tree
+
+The view `urban.item` holds every rank in one list. Join it to itself on `parent_id` to go up. The key of the view is `id` with
+`rank`, because an intersection is both a stretch and a space with one id. Join on `rank` too.
+
+```sql
+-- every lane of level 0 with the space that holds it, through its side
+SELECT lane.id AS lane, space.id AS space
+FROM urban.item AS lane
+JOIN urban.item AS side  ON side.id  = lane.parent_id AND side.rank  = 4
+JOIN urban.item AS space ON space.id = side.parent_id AND space.rank = 3
+WHERE lane.rank = 5 AND lane.kind = 'lane' AND lane.level = 0;
+```
+
+A rank table has more columns than the view. Use `kind` to pick the parts of one type:
+
+```sql
+-- the parts of level 0 by kind, and the lanes of one subsection from the right
+SELECT kind, count(*) AS parts FROM urban.part WHERE level = 0 GROUP BY kind ORDER BY parts DESC;
+SELECT part_id, direction, lane, width_m FROM urban.part
+WHERE space_id = 's0-w473754701.2/2' AND kind = 'lane' ORDER BY t_from;
+```
+
+### The conventions
+
+- Geometry is stored in lon/lat (EPSG:4326). The build measures in the area's UTM zone.
+- `level` is the integer level, -2 to 2.
+- The columns `source`, `method` and `ref` say who gave a row, how they got it and which of their items it is ([Sources and
+  provenance](sources.md)).
+- A column that ends in `_m` is in metres. A column that ends in `_m2` is in square metres.
+- A column with no value for a row is empty (NULL). A value that no source gives and no rule makes is not filled in.
 
 ## The common columns
 
-Every rank table has the same columns in the same order. The thing's own values stand between `name` and `source`.
+The rank tables are `urban.area`, `urban.ground`, `urban.stretch`, `urban.plot_piece`, `urban.space`, `urban.side`, `urban.part` and
+`urban.mark`. Each has the same columns in the same order. The thing's own values stand between `name` and `source`.
 
 | Column | Type | Meaning |
 |---|---|---|
@@ -32,11 +133,14 @@ Every rank table has the same columns in the same order. The thing's own values 
 Each `<thing>_id` is unique in its table. An intersection is both a stretch and a space, so the key of `urban.item` is the id with
 the rank. A thing with a profile in the registry has one more column, `uid`, its stable id ([The registry](#the-registry-urbanregistry)).
 
+The other tables (`urban.element`, `urban.joint`, `urban.street`, `urban.arm`, `urban.junction`, `urban.turn`, `urban.approach` and
+the tables on the tree) have only the columns that their sections list.
+
 ## Rank 0
 
 ### `urban.area`
 
-The whole area of a level: one row per level.
+The whole area of a level: one row per level. It is the root of the tree, so its `parent_id` is empty.
 
 | Column | Type | Meaning |
 |---|---|---|
@@ -54,7 +158,7 @@ The whole area of a level: one row per level.
 ### `urban.element`
 
 The input of the build, as duckOSM gives it: one row per piece of a road, walkway, cycleway or rail line, per building and per
-off-street car park. The elements are not a rank; the ranks are made from them.
+off-street car park. An element is not a rank. The build makes the ranks from the elements.
 
 | Column | Type | Meaning |
 |---|---|---|
@@ -89,7 +193,8 @@ off-street car park. The elements are not a rank; the ranks are made from them.
 
 ### `urban.ground`
 
-Every piece of the area of a level is one row: the street, a plot or a path. The three partition the area (checks G1 to G3).
+One row is one piece of the area of a level: the street, a plot (a block) or a path (a corridor). The three kinds partition the area
+(checks G1 to G3).
 
 | Column | Type | Meaning |
 |---|---|---|
@@ -106,7 +211,7 @@ Every piece of the area of a level is one row: the street, a plot or a path. The
 | `source` | VARCHAR | `urbanstyle` |
 | `method` | VARCHAR | `derived`: the street is the area less the blocks and the corridors |
 | `ref` | VARCHAR | the block or the corridor |
-| `geometry` | GEOMETRY | the item, one polygon |
+| `geometry` | GEOMETRY | the ground item, one polygon |
 
 At a level other than 0, which has no blocks, the street is the union of the level's spaces.
 
@@ -114,7 +219,8 @@ At a level other than 0, which has no blocks, the street is the union of the lev
 
 ### `urban.stretch`
 
-A stretch of the street or of a path: a section, an intersection, a path section, a path intersection.
+One row is one stretch of the street or of a path: a section, an intersection, a path section or a path intersection. Its spaces
+partition it.
 
 | Column | Type | Meaning |
 |---|---|---|
@@ -138,7 +244,7 @@ A stretch of the street or of a path: a section, an intersection, a path section
 
 ### `urban.plot_piece`
 
-A piece of a plot, inside its block. The pieces of one block partition it.
+One row is one piece of a plot, inside its block. Rank 2 is the last rank of a plot. The pieces of one plot partition it.
 
 | Column | Type | Meaning |
 |---|---|---|
@@ -159,7 +265,7 @@ A piece of a plot, inside its block. The pieces of one block partition it.
 
 ### `urban.joint`
 
-One row per joint of a section: a place where OSM's tags change, with its class.
+Not a rank table. One row per joint of a section: a place where OSM's tags change, with its class of change.
 
 | Column | Type | Meaning |
 |---|---|---|
@@ -179,7 +285,7 @@ One row per joint of a section: a place where OSM's tags change, with its class.
 
 ### `urban.street`
 
-The named street: a group of stretches.
+Not a rank table. A row is one named street: a group of stretches. No stretch has it as its parent.
 
 | Column | Type | Meaning |
 |---|---|---|
@@ -192,7 +298,7 @@ The named street: a group of stretches.
 
 ### `urban.arm`
 
-One row per section that arrives at an intersection.
+Not a rank table. One row per section that arrives at an intersection.
 
 | Column | Type | Meaning |
 |---|---|---|
@@ -206,7 +312,8 @@ One row per section that arrives at an intersection.
 
 ### `urban.space`
 
-One space per subsection, per intersection, per path section and per path intersection.
+One row is one space: one per subsection, per intersection, per path section and per path intersection. The spaces of one stretch
+partition it. A space never spans two levels.
 
 | Column | Type | Meaning |
 |---|---|---|
@@ -232,7 +339,7 @@ One space per subsection, per intersection, per path section and per path inters
 
 ### `urban.junction`
 
-The junction nodes of each intersection.
+Not a rank table. One row per junction node of an intersection.
 
 | Column | Type | Meaning |
 |---|---|---|
@@ -245,7 +352,8 @@ The junction nodes of each intersection.
 
 ### `urban.side`
 
-The two sides of a space. They partition the space (check S1). An island is a part of the walking side, not a side.
+One row is one side of a space: the driving side or the walking side. The two sides partition the space (check S1). An island is a
+part of the walking side, not a side.
 
 | Column | Type | Meaning |
 |---|---|---|
@@ -267,7 +375,7 @@ The two sides of a space. They partition the space (check S1). An island is a pa
 
 ### `urban.part`
 
-A piece of a side, of one kind.
+One row is one piece of a side, of one kind: a lane, a sidewalk, a crosswalk and so on. The parts of one side partition it.
 
 | Column | Type | Meaning |
 |---|---|---|
@@ -314,7 +422,7 @@ A piece of a side, of one kind.
 
 ### `urban.mark`
 
-A painted line, an arrow, a zebra or the kerb line, on a part.
+One row is one painted line, arrow, zebra or kerb line, on a part. Rank 6 is the last rank. A path has no marks.
 
 | Column | Type | Meaning |
 |---|---|---|
@@ -322,9 +430,9 @@ A painted line, an arrow, a zebra or the kerb line, on a part.
 | `kind` | VARCHAR | kerb, lane line, centre line, edge line, parking line, stop line, give-way line, zebra, crossing line, arrow, guide line, barrier |
 | `rank` | INTEGER | 6 |
 | `parent_id` | VARCHAR | the part it lies on; for the kerb line, the driving side whose border it is |
-| `parent_rank` | INTEGER | 5, or 4 for the kerb line |
 | `level` | INTEGER | the level |
 | `name` | VARCHAR | none |
+| `parent_rank` | INTEGER | 5, or 4 for the kerb line |
 | `space_id` | VARCHAR | its space |
 | `s_from` | DOUBLE | a mark of a subsection: where it starts along the space's axis |
 | `s_to` | DOUBLE | where it ends |
@@ -341,7 +449,7 @@ A painted line, an arrow, a zebra or the kerb line, on a part.
 
 ### `urban.turn`
 
-The lane-to-lane moves through each intersection, from SUMO.
+Not a rank table. One row per lane-to-lane move through an intersection, from SUMO.
 
 | Column | Type | Meaning |
 |---|---|---|
@@ -359,7 +467,7 @@ The lane-to-lane moves through each intersection, from SUMO.
 
 ### `urban.approach`
 
-The lanes that come into each intersection.
+Not a rank table. One row per lane that comes into an intersection.
 
 | Column | Type | Meaning |
 |---|---|---|
@@ -399,7 +507,9 @@ OpenDRIVE's links do.
 
 Each link has its reverse: a lane is the predecessor of each of its successors.
 
-## On the tree
+## Tables on the tree
+
+These tables are not ranks and have no `rank` column. Each one points to a row of a rank table, or joins two levels.
 
 ### `urban.object`
 
@@ -431,7 +541,7 @@ a thing that only Mapillary sees is not a row.
 
 ### `urban.link`
 
-A join between two levels at a node.
+One row is one join between two levels at a node. The links are the only joins between levels.
 
 | Column | Type | Meaning |
 |---|---|---|
@@ -457,7 +567,7 @@ A rail, subway or tram station.
 
 ### `urban.surface`
 
-The surfaces that cover a ground item or a plot piece exactly (checks L1, L2).
+One row is one surface that covers a ground item or a plot piece. The surfaces of one item cover it exactly (checks L1, L2).
 
 | Column | Type | Meaning |
 |---|---|---|
@@ -497,10 +607,15 @@ The positions of Mapillary's photos, kept local.
 | `sequence` | VARCHAR | its sequence |
 | `geometry` | GEOMETRY | where it was taken |
 
-## The view over the tree: `urban.item`
+## The data about the data
 
-One view over every rank. A query over the tree joins the view to itself on `parent_id`. The things on the tree (objects, links,
-stations) are not in it.
+These tables describe the model and the build. The view `urban.item` is a list of the tree. The others say what made the database,
+how to draw it and how its kinds map to the standards.
+
+### `urban.item`
+
+A view, not a table. It holds every rank in one list. A query over the tree joins the view to itself on `parent_id` (see [Query the
+tree](#query-the-tree)). The objects, the links and the stations are not in it.
 
 | Column | Type | Meaning |
 |---|---|---|
@@ -511,9 +626,9 @@ stations) are not in it.
 | `level` | INTEGER | its level |
 | `geometry` | GEOMETRY | its geometry |
 
-## The manifest: `urban.meta`
+### `urban.meta`
 
-One row per fact about the build, so a database says what made it and from what.
+The manifest of a build. One row per fact about the build, so a database says what made it and from what.
 
 | Column | Type | Meaning |
 |---|---|---|
@@ -525,7 +640,7 @@ One row per fact about the build, so a database says what made it and from what.
 The chosen values are every value that no source gives, with the name that the code uses, so a reader finds each one in the code
 ([Sources and provenance](sources.md), method `chosen`).
 
-## The checks: `urban.check`
+### `urban.check`
 
 One row per check of the last check run ([Checks](../reference/checks.md)).
 
@@ -539,11 +654,13 @@ One row per check of the last check run ([Checks](../reference/checks.md)).
 | `items` | VARCHAR[] | where the faulty things are, `lon,lat` |
 | `checked` | TIMESTAMP | when the check ran |
 
-## The registry: `urban.registry`
+<a id="the-registry-urbanregistry"></a>
 
-The stable ids of the format's requirement R6 ([The format](format.md)). Every thing with a profile, made only of facts that do not
-change, has one id for as long as the profile lasts. The registry is kept from build to build: a build reads the registry of the
-database it replaces, gives every profile it knows its id again, and gives a new profile a new id.
+### `urban.registry`
+
+The stable ids of the format's requirement R6 ([The format](format.md)). A thing with a profile is made only of facts that do not
+change. It has one id for as long as the profile lasts. The registry is kept from build to build. A build reads the registry of the
+database it replaces. It gives every profile it knows its id again, and it gives a new profile a new id.
 
 | Column | Type | Meaning |
 |---|---|---|
@@ -561,9 +678,9 @@ database it replaces, gives every profile it knows its id again, and gives a new
 The thing's own row carries the id in `uid`. The readable id (`s0-…`, `i0-…`, `n…`) stays as the label. The registry keeps the
 street objects and the buildings; [The format](format.md) gives the profiles of the other kinds.
 
-## The style: `urban.style`
+### `urban.style`
 
-One row per table and kind: how a viewer draws it. The levels are drawn from the lowest up; inside a level, the things are drawn in
+How a viewer draws the model. One row per table and kind. The levels are drawn from the lowest up; inside a level, the things are drawn in
 `draw_order`, lowest first ([Drawing the tables](drawing.md)).
 
 | Column | Type | Meaning |
@@ -577,9 +694,10 @@ One row per table and kind: how a viewer draws it. The levels are drawn from the
 | `dash` | DOUBLE[] | a dashed line: the metres drawn and the metres left out |
 | `raise_m` | DOUBLE | in 3D, the height of the kind's top above the ground of its level |
 
-## The codes of the standards: `urban.code`
+### `urban.code`
 
-One row per kind of ours, with its code in each standard. An export reads this table; a reader of a standard finds our kind in it.
+The codes of the standards. One row per kind of ours, with its code in each standard. An export reads this table. A reader of a
+standard finds our kind in it.
 
 | Column | Type | Meaning |
 |---|---|---|

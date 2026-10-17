@@ -1,22 +1,25 @@
 # The model
 
-<p class="lead">The street space of a level as a hierarchy of six ranks, from the whole area down to the painted lines.</p>
+<p class="lead">The street space of a level as a hierarchy of seven ranks, from the whole area down to the painted lines.</p>
+
+This chapter gives the ranks, the levels, the words and the ids. [The tables](tables.md) gives the columns of each table. Read this
+chapter first.
 
 ## The ranks
 
-Everything of the street at one level is inside one tree. Each rank is a kind of object with its own id and its own geometry. Each
-rank partitions the rank above it: a thing of a lower rank is always inside one thing of the rank above, never in two and never in
-none. The checks test the partition at every rank.
+Everything of the street at one level is inside one tree. Each rank is a kind of object with its own id, its own table and its own
+geometry. Each rank partitions the rank above it: a thing of the next rank is always inside one thing of the rank above, never in two
+and never in none. The checks test the partition at every rank.
 
 | Rank | Thing | Id | Table |
 |---|---|---|---|
-| 0 | the level: its whole area | | `urban.area`, `urban.element` |
+| 0 | the level: its whole area | `a0` | `urban.area`, `urban.element` |
 | 1 | the ground: the street, a plot (a block) or a path (a corridor) | `g0-<kind>-<ref>` | `urban.ground` |
 | 2 | a stretch of the street: a section or an intersection; a stretch of a path: a path section or a path intersection; a piece of a plot: building, yard, alley, car park, construction site, green, water, rail, square, structure | `s0-w<way>`, `i0-<node>`, `p0-w<way>`, `q0-<node>`, `g0-<kind>-<ref>` | `urban.stretch`, `urban.plot_piece` |
 | 3 | a space: a subsection, an intersection, a path section or a path intersection | `s0-w<way>/<k>`, `i0-<node>`, `p0-w<way>`, `q0-<node>` | `urban.space` |
 | 4 | a side of a space: the driving side or the walking side | `<space>:d`, `<space>:w` | `urban.side` |
 | 5 | a part of a side | `<space>#<n>` | `urban.part` |
-| 6 | a mark on a part | | `urban.mark`, `urban.turn` |
+| 6 | a mark on a part | `<space>:<kind>:<n>` | `urban.mark`, `urban.turn` |
 
 The ground, rank 0 to rank 2: the whole area cut into three kinds, each divided further at rank 2.
 
@@ -66,18 +69,8 @@ path intersections at rank 2, one space each at rank 3, one side at rank 4 (the 
 
 ## The tables by rank
 
-One table per rank. Every row names its parent in the rank above (`parent_id`), and the rows of one parent partition it.
-
-| Rank | The thing | The table |
-|---|---|---|
-| 0 | the area; the elements (roads, walkways, buildings, rail) | `urban.area`, `urban.element` |
-| 1 | the street, the plots, the paths | `urban.ground`: one row per item, three kinds |
-| 2 | a section, an intersection; a path section, a path intersection | `urban.stretch` |
-| 2 | a plot's piece: building, yard, alley, car park, construction site, green, water, rail, square, structure | `urban.plot_piece` |
-| 3 | a space: a subsection, an intersection, a path section, a path intersection | `urban.space` |
-| 4 | a side: the driving side, the walking side | `urban.side` |
-| 5 | a part | `urban.part` |
-| 6 | a mark; a turn | `urban.mark`, `urban.turn` |
+Each rank has its own table (the last column above). Every row names its parent in the rank above (`parent_id`), and the rows of one
+parent partition it. A plot's pieces have their own table, `urban.plot_piece`, at rank 2.
 
 Every rank table has the same columns in the same order, and the view `urban.item` holds every rank in one table: `id`, `rank`,
 `kind`, `parent_id`, `level`, `geometry`. [The tables](tables.md) gives the columns of each table, the manifest of a build, the
@@ -205,6 +198,10 @@ An id is stable: it comes from what a thing is, never from the build order. A re
 | a street object | `n<node>`, `w<way>` | `n13983466896` |
 | a link | `<node>` | |
 | any thing with a profile | `uid`, a UUID from the registry ([The tables](tables.md#the-registry-urbanregistry)) | |
+
+The id of a subsection, of a side and of a part starts with the id of its parent, so these ids show the way up the tree. The part `s0-w473754701.2/2#10` is part 10
+(`#10`) of the space `s0-w473754701.2/2`. That space is subsection 2 (`/2`) of the section `s0-w473754701.2`. That section is the
+second chain (`.2`) of way 473754701, at level 0 (`s0`).
 
 [The tables](tables.md) gives each table with its columns; the [Ids](../reference/ids.md) reference lists every scheme with the code
 that makes it.

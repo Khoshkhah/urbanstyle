@@ -3,10 +3,28 @@
 <p class="lead">How a viewer draws the model: which table and which kind lies above which, the colour and the form of each kind, the
 levels, and what is shown as a list and not on the map. The rules hold for any viewer: the dashboard, QGIS, or a page of its own.</p>
 
+## How a viewer draws the model
+
+A viewer draws the model in four steps:
+
+1. Read `urban.style` from the database.
+2. Take the levels in view, from the lowest up.
+3. In one level, take the kinds in `draw_order`, lowest first. Draw the rows of each kind: the rows of the style's `table` with the
+   style's `kind`.
+4. Draw each row in its `form`, its `colour` and its `dash`. In 3D, raise it by `raise_m`.
+
+```sql
+-- the kinds in drawing order
+SELECT "table", kind, form, colour, dash, draw_order FROM urban.style ORDER BY draw_order;
+```
+
+The rest of this chapter gives the style, the draw order, the levels and the tables that a viewer does not draw.
+
 ## The style is in the data
 
 A build writes `urban.style`: one row per table and kind, with its draw order, its form, its colour and its dash. A viewer reads the
-style from the database and needs no rule of its own. The dashboard reads the same table.
+style from the database and needs no rule of its own. The dashboard reads the same table. [The tables](tables.md#urbanstyle) gives
+its columns with their types.
 
 | Column | Meaning |
 |---|---|
@@ -24,19 +42,20 @@ style from the database and needs no rule of its own. The dashboard reads the sa
 The order of drawing has two keys. The first key is the level: the levels are drawn from the lowest up, so a deck lies over the
 ground and the ground lies over a tunnel. The second key is `draw_order`, inside one level.
 
-The draw order follows the ranks. Each rank has its own band of numbers, and a lower rank always lies above a higher one:
+The draw order follows the ranks. Each rank has its own band of numbers. A rank with a bigger number is drawn later, so it lies on
+top of the ranks with smaller numbers:
 
-| Band | Rank | What lies there |
-|---|---|---|
-| 0 | 0 | the area |
-| 10 to 19 | 1 | the plots, the paths, the street |
-| 20 to 29 | 2 | the plot pieces (the building on top), the sections and the intersections |
-| 30 to 39 | 3 | the spaces |
-| 40 to 49 | 4 | the walking side, the driving side |
-| 50 to 59 | 5 | the parts: the walking side's bands first, then the paved roadway, the strips, the lanes, the islands and the crosswalks on top |
-| 60 to 69 | 6 | the marks: the kerb, the lines, the stop lines, the zebras, the arrows, the guide lines, the barriers |
-| 70 | on the tree | the street objects |
-| 80 | on the tree | the links between the levels |
+| Band | Rank | Table | What lies there |
+|---|---|---|---|
+| 0 | 0 | `urban.area` | the area |
+| 10 to 19 | 1 | `urban.ground` | the plots, the paths, the street |
+| 20 to 29 | 2 | `urban.plot_piece`, `urban.stretch` | the plot pieces (the building on top), the sections and the intersections |
+| 30 to 39 | 3 | `urban.space` | the spaces |
+| 40 to 49 | 4 | `urban.side` | the walking side, the driving side |
+| 50 to 59 | 5 | `urban.part` | the parts: the walking side's bands first, then the paved roadway, the strips, the lanes, the islands and the crosswalks on top |
+| 60 to 69 | 6 | `urban.mark` | the marks: the kerb, the lines, the stop lines, the zebras, the arrows, the guide lines, the barriers |
+| 70 | on the tree | `urban.object` | the street objects |
+| 80 | on the tree | `urban.link` | the links between the levels |
 
 Inside a band, two kinds that never overlap share a number. A crosswalk lies over the lanes it crosses, and a zebra lies over the
 crosswalk.

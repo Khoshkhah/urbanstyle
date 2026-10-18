@@ -72,6 +72,8 @@ nav:
       - "Ranks 5 and 6: the parts and the marks": design/parts.md
       - Street objects: design/objects.md
       - Levels, bridges and tunnels: design/levels.md
+      - "Bridges by rank (proposal)": notes/bridges-ranks.md
+      - "Bridge profile: the inputs": notes/bridge-profile-input.md
       - Sources and provenance: design/sources.md
       - The format: design/format.md
       - Drawing the tables: design/drawing.md
@@ -141,6 +143,8 @@ markdown_extensions:
 # the builders are scripts, not pages
 exclude_docs: |
   notes/
+  !notes/bridges-ranks.md
+  !notes/bridge-profile-input.md
   build_*.py
   plan.md
   HANDOFF.md

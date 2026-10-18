@@ -4,6 +4,133 @@ Status: written at the end of the 2026-10-15/16 session, updated in the night of
 data-structure design. Read `AGENTS.md`
 first, then this note, then `docs/notes/street-rules.md` and `docs/notes/sections.md`.
 
+## Bridges: the state on 2026-10-17 (read this first)
+
+**Granville rank 0 accepted by Kaveh (2026-10-18):** the LiDAR model as built by `urbanstyle structure ... --plan viz/plan-granville.html`.
+Branches from the network; two one-way lines side by side from a shared node are one road over the stretch they run together
+(`_merge_carriageways`, `PAIR_M` 14 m, at least `PAIR_MIN_M` 40 m), and a road that goes straight on with about the same width joins the
+branch it continues; a carriageway split keeps the wider road's edges; heights one continuous blend. D1-D8 all 0. Known and left as
+they are at his word: the 4th Ave / Fir ramps merged over their shared start (13.1 m), the leftover pieces' labels, one dashed transition
+at the Connector junction. The 2D plan (`plan_html`) is the review tool: centre lines, one band per branch, transitions, the edge.
+
+**Rank 0 from the network (Kaveh: "one line geometry and a width for each branch, not piece by piece"):** `_branches` chains the axes
+at each node (the two ends that go straight on, |cos| over 0.7, with widths within 3 m or 25 %) into branches: Granville has 11 (the main
+span a1+a8 738 m at 32.6 m, each ramp one line). Each branch = its line widened by its one width (`_strip`, square ends); `_transitions`
+blends a narrower branch from the wider branch's edge line onto its own edge where it leaves the wider one's end (smoothstep over 30 m);
+the union, gaps under 12 m closed where no steeper than 45 degrees, smoothing, walls, holes filled. Heights: one continuous blend over
+the axes' bands (1 / (distance + 0.5 m)^2). LiDAR Granville: D1-D8 all 0. Viewer: `viz/rank0.html?v=25&m=cut-granville.bridge3d.json`.
+
+**After that (Opus 5.5 session):** axes joined end to end with nothing else at the joint and going straight on are one road with one shared
+width and offset (no step, shift or narrowing at such a joint); at a real branch the narrower axis starts at the wider deck's width and
+eases to its own along a cosine S-curve over 30 m (`BRANCH_TAPER_M`). Gap closing and edge smoothing were missing from the file and are
+back. LiDAR Granville: every check D1-D8 at 0, no notch, one slab. Rules-only: 84 steep faces at the a3/a9/a10 junction, 9 jogs.
+
+**Final state, 2026-10-17 night.** The structure of each level = the union of its axis bands (one fixed width per axis, square ends; at a
+node where a wider band ends, one straight-sided piece over 20 m to the narrower band); every gap under 12 m closed where the deck across it is
+no steeper than 45 degrees; no notch or bump under 3 m; walls (slits) where two bands differ by more than 1 m; holes filled. LiDAR Granville:
+D1, D3-D8 at 0, D2 2 (two 0.3 m slivers at a11). Rules-only Granville: 86 steep faces at the a3/a9/a10 junction (the rules give two decks
+of one level 10 m apart in height there; LiDAR separates them) and 4 jogs. Pictures `viz/review/lidar-*.png`.
+
+**Last, 2026-10-17 night: the single rule.** Kaveh: "every axis must have a fixed width, clean and smooth, without steps or breaks";
+"the width of a bridge changes only at its branches"; "no bumps, no steps"; "no hole". `bridge_surface.py` now: each axis one band of one
+width (`_axis_width`: the widest of its lanes plus 0.5 m and the paths beside it, a feature under 20 m not counted), square ends; the
+structure is the union of the bands; a wall (slit) where two bands of different heights touch; every hole filled; nothing else (the outline
+widening, the gore fill, the edge smoothing and the branch taper were written and removed again at his word). Checks D1-D8 (D8: edge
+jogs, a branch zone of 10 m round a node excepted). LiDAR Granville: D1-D7 at 0, D8 12 (the width steps at two junctions). Rules-only
+Granville: D2 9 and D3 1 at the Seymour end, D8 12. Open with Kaveh: steps at branches as they are or tapered; the thin gap between
+the Hemlock loop's two carriageways; Granville has no clearance input over the water (the 27 m top stands in for it). The viewer's
+address needs a new `v=` after every change.
+
+**Later, 2026-10-17 night: rank 0 after Kaveh's review of Granville.** His rules, now in `bridge_surface.py`: the start and end of a
+bridge come from OSM (`_trim_to_osm`: the LiDAR landings in the profile give heights only, no length); no hole in a structure; no special
+piece at the ends (one slab to the landing, bottom at max(h − 1.8, 0)); no step in the edge (`_axis_strip`: the width every 2 m from the
+lanes and the paths beside them, tapered over 20 m, square caps to the last segment); a wye between two strips that meet is deck where their
+heights agree and the gap is under 12 m (`GORE_M`), open where they differ; OSM's outline adds width only beside the strips; the parapet
+runs to the landing (only the 0 m cap is open); piers only under 3 m or more; a plain drag in the viewer moves the map. `--no-lidar`
+writes the rules-only model (`viz/cut-granville-nolidar.bridge3d.json`: within 0.3 m of the LiDAR one). Checks D1-D7 all 0 on Granville
+(D7: parapet pieces under 3 m). Kaveh has not reviewed Monaco yet; the Monaco model is rebuilt with the same rules.
+
+**Night, 2026-10-17: rank 0 of the bridge is built and under Kaveh's review.** The note `docs/notes/bridges-ranks.md` is agreed
+(also on the site). The new module `src/urbanstyle/bridge_surface.py` makes the structure (rank 0): one height solve for all nodes of a
+profile (`_solve`, SLSQP: 0 on the ground, at most 18 % along a road, 6 % where it can, the clearances as strong wishes, the clearance
+between two decks that cross as a pair, LiDAR heights held), the structures per level with the ramp cut of rule 4 as a slit, the OSM
+outline as the edge where OSM maps one, one height surface per structure (`_Surface`: the strip a point lies in, blended; all axes
+outside every strip), the slab with its bottom at max(h − 1.8, 0) to the landing in ONE piece (a separate fill piece showed every
+seam and was removed), the sides, the parapet along the edge except at landings and joints, the piers (3 m or higher) and the truss from
+`bridge_structure`, and the checks D1, D2, D3, D4 (info), D6. `urbanstyle structure DB OUT.json --bridge P` writes it in the page's
+model format (`--rank0`: the bare surface, not what Kaveh means by rank 0). `URBANSTYLE_BRIDGE3D=structure` makes `dashboard`/`serve`
+use it. **The viewer** `viz/rank0.html?v=5&m=cut-granville.bridge3d.json[&b=NAME]` shows the model alone over a ground grid (plain
+drag moves, right-drag turns): Kaveh reviews rank 0 there, not on the dashboard. State of the review: Granville clean at the fork, the
+north junction, the main span and the ramp ends; Avenue de France has 19 unmet clearances (Saint-Roman, terrain). Rules added during
+the review and their reasons are in the comments of `bridge_surface.py`. Next: Kaveh's remaining findings on rank 0, then the cover
+(ranks 1 to 6) reading the surface.
+
+**Evening, 2026-10-17: the direction changed.** Kaveh: the bridge must be built like the street, top down by rank. The note for
+agreement is `docs/notes/bridges-ranks.md`: the deck is rank 1 of its level, one piece with one height surface; ranks 2 to 6 read
+their heights from it and choose nothing. The three-step deck3d plan of this evening is withdrawn. Nothing of it is coded.
+
+The work in progress is the bridges on two test cuts. The plan that Kaveh agreed is `docs/notes/bridges-street-model.md`: one
+street model on every level. `network.py` runs once for each road level (the deck edge is the street edge). The new `deck3d.py`
+lifts the parts and marks to the profile heights. The old `bridge3d.py` stays until both cuts pass. Nothing of this is committed
+after 89042a0. The changed files are in `git status` (`bridge_structure.py` is new).
+
+### The test loop (never a full build)
+
+- `scripts/cut.sh AREA NAME LON LAT [RADIUS]` with `PORT=...`: a small square plus each near bridge deck buffered 60 m. Monaco's
+  profiles come from `../duckOSM/data/monaco-wide/monaco-wide.duckdb`, so a bridge is whole even when it leaves the square.
+- `data/cuts/redo.sh NAME PORT`: the division and the steps after it, the checks and the page (~2 min).
+- `data/cuts/page.sh NAME` with `PORT=...`: the page only, and a restart of its server.
+- A deck3d change on Granville only: `urbanstyle bridge3d data/cuts/granville.urban.duckdb viz/cut-granville.bridge3d.json --bridge
+  data/bridges-measured/granville-bridge.bridge.json` (`data/cuts/NAME.bridges` lists the profiles of each cut), then reload the page (seconds, not minutes). Kaveh asked for this path for every
+  Granville bridge fix.
+- The cuts: Monaco Avenue de France `http://localhost:8784/cut-france.html`, Granville Bridge `http://localhost:8786/cut-granville.html`.
+- Before you send a link, look at the page in the headless browser: `scripts/views.py URL TAG lon:lat:zoom:pitch:bearing ...` writes
+  `viz/review/TAG-k.png`. Kaveh rejected links twice that showed faults at once.
+- Google 3D: roadstyle v0.22.1 with `google_3d=True`. It needs `GOOGLE_MAPS_KEY` when the page is built. The key accepts ports
+  8784 and 8786.
+
+### State at the session's end (2026-10-17, evening)
+
+- Granville: the cut build finished (34 min). `urban.check`: BR1 and BR4 to BR11 pass. BR2 fails with 2 holes in the deck at the
+  north end (`-123.128561,49.275521` and `-123.128963,49.275421`: the Howe and Seymour forks). BR3 fails with one guard gap at
+  `-123.138412,49.267759` (the Hemlock loop, a11 and a12). BR12 fails with one street object inside a lane at `-123.135954,49.266514`
+  (the south start of a3, the Granville Connector). The junction `i1-2625030369` is gone. The 3D model has no steep face
+  (`scripts/steep.py PAGE.bridge3d.json`: a face that is not a guard, over 1 m high and steeper than 45 degrees). Pictures:
+  `viz/review/granville-0..6.png` (`scripts/views.py URL TAG lon:lat:zoom:pitch:bearing ...`).
+- The server restart at the end of `scripts/cut.sh` did not survive the end of the session: the page was built, but port 8786 had no
+  server and `granville.serve.log` was empty. A server started from a tool shell with `setsid nohup ... &` died too. `setsid -f`
+  keeps it alive.
+- Monaco, Avenue de France: the rule that put axis a2 on the ground in its middle is the ground set of `bridge_profile.py` (`ground`,
+  before `_to_ground`): every node of a highway that is not a bridge counted, paths included. Two nodes grounded a2: the crossing
+  w939530781 at 57.6 m (a footway with no `layer` tag, mapped across the deck) and the hairpin node n21929088 at 36.6 m, where the
+  ground road Avenue de France w4246253 joins. Fixed: a path (`PATHS`) makes no ground node (one line in `bridge_profile.py`; the
+  note `docs/notes/bridge-profile.md`). Steep faces on the France cut: 132 before, 61 after. The 13 Monaco profiles rebuilt from the
+  wide db differ only in a2, a4 and a5 of avenue-de-france, and in the end of the 2 m steps bridge w785311713 (0 to 0.14 m: its end
+  touches a footway only; a known limit). Only avenue-de-france's profile is installed in `data/bridges-monaco/`; the old 13 are in
+  `data/cuts/bridges-monaco-2026-10-17-before-path-rule/`.
+- The hairpin node is not a rule fault. It is the upper street of Saint-Roman. Beside the one-lane bridge way w4230082 (layer 2) OSM
+  maps a bus platform 2.4 m away, two crossings, steps, the Chapelle Saint-Roman 6 m away and apartments 4 m away: there the layer-2
+  deck is the ground of the upper town, and Avenue Princesse Grace (layer 1, a1) and the lower roads lie 5 to 10 m below it. The
+  model has no terrain, so one flat 0 m cannot hold both. The 61 steep faces left are of two kinds: the step between two decks side by
+  side with different heights (a2 climbing from the hairpin beside a4: 25 faces near `7.43841,43.75192`), and the short ramps between
+  a deck and the ground (a7, a9: 14 m long, 2.5 m high, 18 %, walls to their neighbours a1 and a10). This needs Kaveh's decision
+  (terrain: a ground height per node; or the hairpin deck kept in the air and the ground road w4246253 treated as a ramp).
+- Tried and reverted: every loose end of the bridge network as a ground node (Kaveh's rule, every bridge end on the ground). It put
+  the dead end of the emergency-access spur w156780352 on Pont Sainte-Dévote on the ground (2.4 m to 0 m). A loose end of a service
+  spur on a deck is in the air, so the loose ends count only in a group with no ground node, as before.
+- Monaco, also open and unchanged: the box with walls near the crosswalk (`viz/review/sweep-hairpin-0.png`, centre), the guard at the
+  end of axis a8 (BR13).
+- Pictures of the hairpin after the fix: `viz/review/sweep-hairpin-0..9.png` (8 bearings at zoom 18.8, two closer).
+
+### Kaveh's rules for this work
+
+- Answer every message at once. Run every build in the background.
+- Every bridge end is open, and every end is at level 0 on the ground.
+- Decks have the same style as the ground (paved and shoulder colours too).
+- LiDAR only sets the parameters of the height rule. The profile is filled as if there were no LiDAR.
+- An OSM fault goes to duckOSM's `osm_overrides.yaml` (building w138590891 is removed there, duckOSM commit 8fb38bb, not pushed).
+- Code a new rule only after Kaveh agrees with it.
+
 ## Where the work stands
 
 - **The data structure (2026-10-16 night).** Kaveh: the data structure is the product; the dashboard only shows it. Order he set:

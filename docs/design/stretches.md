@@ -17,6 +17,9 @@ paired into streams: an end continues into the most opposite end within 45°. Th
 - two ends continue into one (a merge or a fork: a Y, a ramp that joins a road, a slip lane that leaves a road);
 - two streams cross (their ends alternate round the node).
 
+A two-way road that splits into its two one-way carriageways, one arriving and one leaving, is no merge or fork: each direction
+keeps its own carriageway. The node is a joint.
+
 Two streams that only touch, as two one-way lines of one street drawn into one node, make no junction. A node that only the ways of
 a bridge and the ramps from it reach is the bridge's node, not the ground's. A landing keeps its junction, because a road of level 0
 is there. Two roads that share no OSM node stay apart, also where they touch.

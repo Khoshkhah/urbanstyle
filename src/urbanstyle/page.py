@@ -105,7 +105,7 @@ def _frames(con, db, bridges):
     out["bridge2d"] = gpd.GeoDataFrame([{**{k: (v if isinstance(v, (str, int, float)) or v is None else str(v)) for k, v in pr.items()},
                                          "color": d.PART_COLORS.get(key) or d.PART_COLORS.get(key.split(" ")[0]) or
                                          {"barrier median": "#cfc8bd", "median": "#6b7280", "buffer": "#c4b5a0"}.get(key, "#9ca3af"), "geometry": g}
-                                        for mm in ms for pr, key, g in mm["flat"]], geometry="geometry", crs=4326) if ms else None
+                                        for mm in ms for pr, key, g in mm["flat"]], geometry="geometry", crs=4326) if any(mm["flat"] for mm in ms) else None
     # a bridge deck at ground level (division: a way OSM tags bridge=yes) is the bridge model's: the page draws of it only what the model
     # does not cover (between the model's wall and the street beside it), so nothing lies twice and nothing is left open. A part above
     # the ground that touches the model is the model's road: not drawn (its flat copy at 6 m a level, wider than the model's lanes,
@@ -276,6 +276,7 @@ def build(db, out, bridges=None):
     m = rs.render_edges(
         F["edges"], palette="mono", basemap="voyager", name="urbanstyle", filter_control=False,
         street_view_key=os.environ.get("GOOGLE_MAPS_KEY"),        # Street View's panorama (the key is in the page: restrict it in Google Cloud)
+        google_3d=bool(os.environ.get("GOOGLE_MAPS_KEY")),         # roadstyle's Google 3D window, its camera linked with the map's (the same key)
         settings={"config": {"fill_opacity": 0.35, "casing_opacity": 0.2}},
         road_popup=["edge_id", "container_id", "name", "type", "highway", "level", "width_m", "width_src"],
         color_options={"Roads": {"color_by": "type", "colors": {"road": "#555", "walkway": "#a16207", "cycleway": "#16a34a"}}},
@@ -285,7 +286,7 @@ def build(db, out, bridges=None):
     tail = f'<script>window.US_CFG={json.dumps(cfg)};</script><script src="{ENGINE}"></script>'
     if F["models"]:      # the bridges' 3D models: written beside the page, which reads them when it opens
         col = {"deck": "#a8a29e", "girder": "#8f8b86", "rail": "#cfc8bd",
-               "parts": {**d.PART_COLORS, **{f"mark {t}": c for t, c, *_ in d.MARKS}, "mark kerb": "#8f8b86", "barrier": "#cfc8bd", "railing": "#6b7280"}}
+               "parts": {**d.PART_COLORS, **{f"mark {t}": c for t, c, *_ in d.MARKS}, "mark kerb": "#8f8b86", "barrier": "#cfc8bd", "railing": "#6b7280", "approach": "#c8b89a"}}
         # (one file per page, <page>.bridge3d.json: two areas' pages in one folder shared one file, and Monaco's models replaced
         # Vancouver's, so its bridge was gone; 2026-10-16)
         br_name = os.path.splitext(os.path.basename(out))[0] + ".bridge3d.json"

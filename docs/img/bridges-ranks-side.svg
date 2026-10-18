@@ -1,0 +1,53 @@
+<svg viewBox="0 0 900 520" width="900" height="520" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="16">
+  <defs><marker id="arr" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#2563eb"/></marker></defs>
+  <!-- ground -->
+  <rect x="30" y="320" width="840" height="6" fill="#8a7f6a"/>
+  <text x="860" y="378" fill="#8a7f6a" text-anchor="end">the ground, level 0</text>
+  <!-- the road the bridge crosses -->
+  <rect x="400" y="312" width="80" height="8" fill="#555"/>
+  <line x1="440" y1="318" x2="440" y2="356" stroke="#555" stroke-width="1"/>
+  <text x="440" y="376" fill="#555" text-anchor="middle">a road the bridge crosses</text>
+  <!-- approaches (fill), ground of level 0 -->
+  <path d="M80,320 L120,274.7 L120,320 Z" fill="#c8b89a" stroke="#8a7f6a"/>
+  <path d="M790,320 L750,274.7 L750,320 Z" fill="#c8b89a" stroke="#8a7f6a"/>
+  <!-- abutments -->
+  <rect x="120" y="296.7" width="14" height="23.3" fill="#8f8b86"/>
+  <rect x="736" y="296.7" width="14" height="23.3" fill="#8f8b86"/>
+  <!-- slab -->
+  <path d="M120,274.7 L230,150 L640,150 L750,274.7 L750,296.7 L640,172 L230,172 L120,296.7 Z" fill="#a8a29e" stroke="#6b6560"/>
+  <!-- piers -->
+  <rect x="250" y="172" width="16" height="148" fill="#8f8b86"/>
+  <rect x="604" y="172" width="16" height="148" fill="#8f8b86"/>
+  <!-- cover: lanes (dark) and sidewalk (light), from landing to landing -->
+  <path d="M80,320 L230,150 L640,150 L790,320 L790,313 L643,143 L227,143 L80,313 Z" fill="#4b5563"/>
+  <path d="M80,313 L227,143 L643,143 L790,313 L790,308 L645,138 L225,138 L80,308 Z" fill="#d6d3d1"/>
+  <!-- parapet -->
+  <path d="M82,306 L225,136 L645,136 L788,306" fill="none" stroke="#374151" stroke-width="2.5" stroke-dasharray="5 3"/>
+  <!-- height surface -->
+  <path d="M80,320 L230,150 L640,150 L790,320" fill="none" stroke="#dc2626" stroke-width="2"/>
+  <!-- clearance -->
+  <line x1="440" y1="176" x2="440" y2="308" stroke="#2563eb" stroke-width="1.5" marker-start="url(#arr)" marker-end="url(#arr)"/>
+  <text x="452" y="248" fill="#2563eb">clearance</text>
+  <!-- labels above -->
+  <text x="40" y="42" fill="#374151" font-weight="bold">The cover: the street, ranks 1 to 6</text>
+  <text x="40" y="70" fill="#374151">sidewalk</text>  <line x1="115" y1="66" x2="300" y2="140" stroke="#374151" stroke-width="1"/>
+  <text x="40" y="96" fill="#374151">lanes</text>     <line x1="90" y1="92" x2="340" y2="147" stroke="#374151" stroke-width="1"/>
+  <text x="860" y="42" fill="#6b6560" font-weight="bold" text-anchor="end">The structure</text>
+  <text x="860" y="70" fill="#6b6560" text-anchor="end">parapet (guard)</text>  <line x1="690" y1="66" x2="630" y2="134" stroke="#6b6560" stroke-width="1"/>
+  <text x="860" y="96" fill="#dc2626" text-anchor="end">height surface h(x, y): the top of the structure</text>  <line x1="740" y1="100" x2="662" y2="172" stroke="#dc2626" stroke-width="1"/>
+  <text x="435" y="166" fill="#1f2937" text-anchor="middle">slab</text>
+  <text x="274" y="256" fill="#1f2937">pier</text>
+  <text x="596" y="256" fill="#1f2937" text-anchor="end">pier</text>
+  <!-- labels at the ends -->
+  <text x="40" y="350" fill="#8a7f6a">landing: h = 0, open</text>  <line x1="100" y1="336" x2="82" y2="322" stroke="#8a7f6a" stroke-width="1"/>
+  <text x="860" y="350" fill="#8a7f6a" text-anchor="end">landing: h = 0, open</text>  <line x1="780" y1="336" x2="788" y2="322" stroke="#8a7f6a" stroke-width="1"/>
+  <text x="40" y="376" fill="#6b6560">abutment</text>  <line x1="90" y1="362" x2="127" y2="320" stroke="#6b6560" stroke-width="1"/>
+  <text x="40" y="404" fill="#8a7f6a">approach: fill, ground of level 0</text>  <line x1="150" y1="390" x2="108" y2="310" stroke="#8a7f6a" stroke-width="1"/>
+  <!-- key -->
+  <rect x="470" y="396" width="14" height="14" fill="#a8a29e"/> <text x="492" y="409" fill="#1f2937">structure: slab, piers, abutments, parapet</text>
+  <rect x="470" y="424" width="14" height="14" fill="#4b5563"/> <rect x="470" y="438" width="14" height="4" fill="#d6d3d1"/> <text x="492" y="437" fill="#1f2937">cover: lanes, sidewalk</text>
+  <rect x="470" y="452" width="14" height="14" fill="#c8b89a"/> <text x="492" y="465" fill="#1f2937">ground of level 0: the approach fill</text>
+  <!-- the deck bracket -->
+  <path d="M80,486 L80,480 L790,480 L790,486" fill="none" stroke="#1f2937" stroke-width="1"/>
+  <text x="435" y="510" fill="#1f2937" font-weight="bold" text-anchor="middle">the bridge = the structure + the cover, at one level</text>
+</svg>

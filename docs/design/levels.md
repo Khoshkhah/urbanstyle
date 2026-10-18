@@ -75,13 +75,15 @@ on the ground. The rule has three parts:
    `building:levels` at 3.2 m each; else one level, 3.2 m, as the page draws it.
 
 A clearance holds at its point and goes down in a straight line to 0 at the nearest node on the ground, along the network. The height
-is the largest of the three, and at most 27 m. It is also at most 10 % of D, so no ramp is steeper than 10 % at its end on the ground. A
-clearance that this limit does not let the deck reach is not met: the profile lists it with `met` false. At a node where branches meet in the air, every branch gets the same height. A short
+is the largest of the three, and at most 27 m. It is also at most 10 % of D, so no ramp is steeper than 10 % at its end on the ground, except where a
+ramp climbs to a clearance: there it may be as steep as 18 % (decks never cut through each other). Where a deck cannot reach its clearance
+over a lower deck even at 18 %, the lower deck dips under the crossing until the gap is reached: down at most 18 % on each side, and
+never below the ground. A clearance neither can reach is not met: the profile lists it with `met` false. At a node where branches meet in the air, every branch gets the same height. A short
 ramp that must climb a clearance is steep: the rule does not know the slope of the ground, and only LiDAR or a ground model gives the
 true heights there.
 
 The rule's values (the grade, the steepest grade and the gap at a crossing) are set from IGN LiDAR HD tile 1057_6305 at Monaco's
-Avenue de France and the bridges near it: the grade up from a ground end is 5.9 % at the median and 9.5 % at the 75th percentile, and
+Avenue de France and the bridges near it: the grade up from a ground end is 5.9 % at the median, 9.5 % at the 75th percentile and 18 % at the 90th, and
 the three crossings of the interchange are 5.1 m, 5.5 m and 5.9 m apart. They stay chosen values: a bridge with no LiDAR of its own
 gets them.
 

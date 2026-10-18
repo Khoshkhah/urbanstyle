@@ -12,6 +12,7 @@ FORMAT = "urbanstyle.bridge/1"
 # urbanstyle's own values (chosen): no source gives them yet (LiDAR and the aerial photo will measure them)
 # (GRADE, MAX_GRADE and LEVEL_M are set from IGN LiDAR HD tile 1057_6305, Monaco's Avenue de France: docs/design/levels.md)
 GRADE = 0.06        # the deck rises 6 m in 100 m from where its roads meet a ground road (LiDAR: 5.9 % at the median)
+CLEAR_MAX_GRADE = 0.18  # ... except where it climbs to a clearance: decks never cut through each other (LiDAR: 18 % at the 90th percentile)
 MAX_GRADE = 0.10    # ... and never more than 10 m in 100 m from there (LiDAR: 9.5 % at the 75th percentile; a clearance it cannot reach is not met)
 HOLE_MIN_M2 = 10.0  # a hole in a deck made from its sections: at least this big (a smaller one is a gap between two strips)
 TOP_M = 27.0        # the deck at most this high above the ground at its ends
@@ -61,8 +62,11 @@ def profiles(osm_db, gmns_db, name=None):
     refs = {r for _, rs, _ in ways + outl for r in rs}
     pts = {i: tr(x, y) for i, y, x in o.execute(f"SELECT osm_id, lat, lon FROM raw.nodes WHERE osm_id IN "
                                                  f"(SELECT unnest(?::BIGINT[]))", [sorted(refs)]).fetchall()}
+    # the nodes on the ground: the nodes of the roads that are not bridges. A path is not one: a crossing or a sidewalk mapped on a
+    # deck with no layer tag lies on the deck (Avenue de France, w939530781: it put axis a2 on the ground at 57.6 m)
     ground = {r for (r,) in o.execute("""SELECT DISTINCT unnest(refs) FROM raw.ways WHERE tags['highway'] IS NOT NULL
-                                         AND coalesce(tags['bridge'], 'no') = 'no'""").fetchall()}
+                                         AND coalesce(tags['bridge'], 'no') = 'no'
+                                         AND tags['highway'] NOT IN (SELECT unnest(?::VARCHAR[]))""", [list(PATHS)]).fetchall()}
     lines = {oid: (shapely.LineString([pts[r] for r in rs]), rs, dict(t)) for oid, rs, t in ways
              if len(rs) >= 2 and all(r in pts for r in rs)}
     to_ground = _to_ground(lines, pts, ground)
@@ -101,12 +105,12 @@ def profiles(osm_db, gmns_db, name=None):
             if any(lines[w][2]["highway"] not in PATHS for w in ws):
                 nm = next((lines[w][2].get("name") for w in ws if lines[w][2].get("name")), None)
                 found.append((nm or f"bridge w{min(ws)}", None, None, ws))
-    def build(lifts_):
+    def build(lifts_, dips_=()):
         names, out_ = {}, []
         for nm, deck, outline, on in found:
             n = names[nm] = names.get(nm, 0) + 1
             out_.append(_profile(g, tr, nm if n == 1 else f"{nm} {n}", epsg, deck, outline, on, lines, pts, ground, osm_db, gmns_db,
-                                 to_ground, lifts_))
+                                 to_ground, lifts_, dips_))
         return out_
     out = build(lifts)
     # again, each clearance over a lower deck at that deck's final height (its dips filled after its clearances: 5.1 m, not 6 m, between
@@ -120,7 +124,18 @@ def profiles(osm_db, gmns_db, name=None):
     def lower_z(w, q):
         zs_ = [height({"points": vp}, ln.project(q)) for ln, vp in axes_of.get(w, []) if ln.distance(q) < 1.0]
         return max(zs_) if zs_ else None
-    return build(_clearances(o, tr, lines, pts, to_ground, lower_z))
+    # where an upper deck misses its gap over a lower deck even at CLEAR_MAX_GRADE, the lower deck dips under the crossing to the upper
+    # deck's height less the gap (docs/design/levels.md; Avenue de France a2 and a3 over a1 missed 5.5 m by 2 m)
+    dips = []
+    for lf in lifts:
+        if lf.get("gap") is None:
+            continue
+        q = shapely.Point(lf["at"])
+        low_w = int(lf["over"].split("w")[-1])
+        z_up, z_lo = lower_z(lf["way"], q), lower_z(low_w, q)
+        if z_up is not None and z_lo is not None and z_up - z_lo < lf["gap"] - 0.05:
+            dips.append({"way": low_w, "at": lf["at"], "zmax": max(0.0, z_up - lf["gap"])})
+    return build(_clearances(o, tr, lines, pts, to_ground, lower_z), dips)
 
 
 def _clearances(o, tr, lines, pts, to_ground, lower_z=None):
@@ -215,6 +230,7 @@ def _clearances(o, tr, lines, pts, to_ground, lower_z=None):
         new = []
         for w, q, z, what, low in out:
             ln, rs, _ = roads[w]
+            gap = z if low is not None and low[0] is not None else None      # (the gap over a lower deck this clearance needs)
             if low is not None:
                 lw_, q0 = low
                 zl = 0.0 if lw_ is None else lower_z(lw_, q0) if lower_z and lower_z(lw_, q0) is not None else \
@@ -236,7 +252,8 @@ def _clearances(o, tr, lines, pts, to_ground, lower_z=None):
                     if d + wt < dist.get(m, math.inf):
                         dist[m] = d + wt
                         heapq.heappush(heap, (d + wt, m))
-            new.append({"at": (q.x, q.y), "way": w, "z": z, "reach": reach, "dist": {r: d for r, d in dist.items() if d < reach}, "over": what})
+            new.append({"at": (q.x, q.y), "way": w, "z": z, "reach": reach, "dist": {r: d for r, d in dist.items() if d < reach}, "over": what,
+                        "gap": gap})
         res = new
     return res
 
@@ -293,7 +310,7 @@ def _strip(line, lo, hi):
     return side(hi).union(side(lo))
 
 
-def _profile(g, tr, name, epsg, deck, outline, on, lines, pts, ground, osm_db, gmns_db, to_ground, lifts=()):
+def _profile(g, tr, name, epsg, deck, outline, on, lines, pts, ground, osm_db, gmns_db, to_ground, lifts=(), dips=()):
     import datetime
 
     import shapely
@@ -363,7 +380,15 @@ def _profile(g, tr, name, epsg, deck, outline, on, lines, pts, ground, osm_db, g
             left = max(z_ for s_, z_ in zs[:i + 1] if s_ >= lo_)
             right = max(z_ for s_, z_ in zs[i:] if s_ <= hi_)
             filled.append((s, max(z, min(left, right)) if not (s in gs and s not in (0.0, L) and far_(s) == 0.0) else z))
-        zs = [(s, min(z, MAX_GRADE * far_(s))) for s, z in filled]       # (the grade limit: ramp ends 40 % steep looked like blocks)
+        # (the grade limit: ramp ends 40 % steep looked like blocks; but a ramp that climbs to a clearance may be as steep as
+        # CLEAR_MAX_GRADE: at 10 % the decks at Avenue de France's crossings were 0.5 to 2.1 m apart and cut through each other)
+        zs = [(s, min(z, (CLEAR_MAX_GRADE if lift_(s) > GRADE * far_(s) + 0.01 else MAX_GRADE) * far_(s))) for s, z in filled]
+        # (the dips: under a crossing whose upper deck could not climb to its gap, this deck dips, rising at CLEAR_MAX_GRADE from it)
+        my_dips = [(ax.project(shapely.Point(d_["at"])), d_["zmax"]) for d_ in dips if d_["way"] in ways and ax.distance(shapely.Point(d_["at"])) < 1.0]
+        if my_dips:
+            base_ = [[s, z] for s, z in zs]
+            ss2 = sorted({*[s for s, _ in zs], *[s_d for s_d, _ in my_dips]})
+            zs = [(s, max(0.0, min(_z(base_, s), *[zm + CLEAR_MAX_GRADE * abs(s - s_d) for s_d, zm in my_dips]))) for s in ss2]
         axes.append({"id": f"a{k + 1}", "ways": [f"w{w}" for w in ways],
                      "line": _val([[round(x, 2), round(y, 2)] for x, y in ax.coords], "osm: " + ", ".join(f"w{w}" for w in ways), "mapped"),
                      "length_m": round(L, 2),
@@ -376,7 +401,7 @@ def _profile(g, tr, name, epsg, deck, outline, on, lines, pts, ground, osm_db, g
                                                               f"at least {LEVEL_M:.0f} m a layer over a lower way it crosses, and over a building its height and "
                                                               f"the deck's {DECK_M} m, each down in a straight line to the ground; at most {TOP_M} m",
                                   "clearances": [{"at": [round(lf["at"][0], 2), round(lf["at"][1], 2)], "z": round(lf["z"], 2), "over": lf["over"],
-                                                  "met": s_at is None or MAX_GRADE * far_(s_at) >= lf["z"] - 0.01}
+                                                  "met": s_at is None or CLEAR_MAX_GRADE * far_(s_at) >= lf["z"] - 0.01}
                                                  for lf, _, s_at in tents]},
                      "sections": _sections(ax, ways, tr_link, lanes, lines)})
     piers = place_piers(axes)

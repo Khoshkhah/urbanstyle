@@ -110,7 +110,8 @@ class Area:
                  str(p["osm"]) if p.get("osm") else None, str(p["edge_id"]) if p.get("edge_id") else None, p.get("lane_id"), p.get("source"),
                  p.get("method"), json.dumps(p, default=str), shapely.to_wkb(g))
                 for m in ms for p, key, g in m["flat"]]
-        c.executemany("INSERT INTO work.bridge_part VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ST_GeomFromWKB(?))", rows)
+        if rows:        # (a structure-only model has no flat parts yet: bridges-ranks.md)
+            c.executemany("INSERT INTO work.bridge_part VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ST_GeomFromWKB(?))", rows)
 
     def _street_objects(self, db):
         """work.street_object: the area's street objects, one per real object, matched from every source (OSM, the city's survey,

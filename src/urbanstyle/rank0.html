@@ -1,0 +1,72 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>rank 0: the bridge's structure</title>
+<style>html,body{margin:0;height:100%;background:#f3efe6;font-family:sans-serif}#c{width:100%;height:100%;display:block}
+#i{position:absolute;left:12px;top:10px;background:#fff;padding:8px 12px;border-radius:6px;font-size:13px;box-shadow:0 1px 4px #0003;max-width:420px}
+#i b{display:block;margin-bottom:4px}#i .k span{display:inline-block;width:12px;height:12px;margin-right:6px;vertical-align:middle;border:1px solid #0002}
+#i small{color:#666}#i summary{cursor:pointer;color:#444;margin:4px 0}</style></head><body>
+<canvas id="c"></canvas>
+<div id="i"><b id="t">rank 0: the bridge's structure</b><details><summary>the checks D1 to D6</summary><div id="ck"></div></details>
+<div class="k"><span style="background:#a8a29e"></span>slab (top and sides) &nbsp; <span style="background:#e5e1d8"></span>parapet &nbsp; <span style="background:#8f8b86"></span>pier, abutment</div>
+<small>viewer v5 · drag: move the map · right-drag or Ctrl-drag: turn · wheel: zoom · arrow keys: move · the grid is the ground (z = 0), 10 m squares</small></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const q = new URLSearchParams(location.search), file = q.get('m') || 'cut-france.bridge3d.json', only = q.get('b');   // b: one bridge by name
+const COL = {deck: 0xa8a29e, side: 0x8f8b86, barrier: 0xe5e1d8, approach: 0xc8b89a, pier: 0x8f8b86, truss: 0x6b7280};
+const canvas = document.getElementById('c'), renderer = new THREE.WebGLRenderer({canvas, antialias: true});
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0xf3efe6);
+const camera = new THREE.PerspectiveCamera(45, 1, 0.5, 5000); camera.up.set(0, 0, 1);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x8a7f6a, 0.9));
+const sun = new THREE.DirectionalLight(0xffffff, 0.6); sun.position.set(100, -150, 200); scene.add(sun);
+const mesh = (verts, faces, color, flat) => { if (!faces.length) return; const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(flat ? verts : verts.flat()), 3)); g.setIndex(faces.flat()); g.computeVertexNormals();
+  const m = new THREE.Mesh(g, new THREE.MeshLambertMaterial({color, side: THREE.DoubleSide})); scene.add(m); return m };
+let box = new THREE.Box3();
+fetch(file, {cache: 'no-store'}).then(r => r.json()).then(models => {
+  if (only) models = models.filter(M => M.name === only);
+  document.getElementById('t').textContent = 'rank 0: the structure of ' + models.map(M => M.name).join(', ');
+  const info = [];
+  models.forEach(M => {
+    const V = M.verts;
+    mesh(V, M.deck, COL.deck); mesh(V, M.sides, COL.side);
+    M.surf.forEach(s => mesh(s.v, s.f, COL[s.key.split(' ')[0]] || 0x999999));
+    M.piers.forEach(p => { const [ax, ay] = p.a, [bx, by] = p.b, m = new THREE.Mesh(new THREE.BoxGeometry(Math.hypot(bx - ax, by - ay), p.t, p.h), new THREE.MeshLambertMaterial({color: COL.pier}));
+      m.position.set((ax + bx) / 2, (ay + by) / 2, p.h / 2); m.rotation.z = Math.atan2(by - ay, bx - ax); scene.add(m) });
+    if (M.truss && M.truss.length) { const pts = []; M.truss.forEach(t => pts.push(...t.a, ...t.b));
+      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pts), 3));
+      scene.add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({color: COL.truss}))) }
+    V.forEach(v => box.expandByPoint(new THREE.Vector3(...v)));
+    info.push(`<b>${M.name}</b>` + (M.checks || []).map(c => `${c[0]} ${c[2] ? (c[3] ? 'fail' : 'info') : 'pass'} ${c[2]}: ${c[1]}`).join('<br>'));
+  });
+  document.getElementById('ck').innerHTML = info.join('<hr>');
+  // the ground: a plane at z = 0 with 10 m squares
+  const pad = 40, w = box.max.x - box.min.x + 2 * pad, h = box.max.y - box.min.y + 2 * pad, cx = (box.min.x + box.max.x) / 2, cy = (box.min.y + box.max.y) / 2;
+  const gnd = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshLambertMaterial({color: 0xefe9dc})); gnd.position.set(cx, cy, -0.05); scene.add(gnd);
+  const grid = new THREE.GridHelper(Math.max(w, h), Math.round(Math.max(w, h) / 10), 0xc9c4b8, 0xddd8cc); grid.rotation.x = Math.PI / 2; grid.position.set(cx, cy, 0); scene.add(grid);
+  const r = Math.max(w, h); cam.d = r * 0.9; cam.tx = cx; cam.ty = cy; cam.tz = 0; place();
+});
+// a small orbit: azimuth, elevation, distance about a target
+const cam = {az: -0.6, el: 0.55, d: 300, tx: 0, ty: 0, tz: 0};
+function place() { const c = Math.cos(cam.el); camera.position.set(cam.tx + cam.d * c * Math.sin(cam.az), cam.ty - cam.d * c * Math.cos(cam.az), cam.tz + cam.d * Math.sin(cam.el));
+  camera.lookAt(cam.tx, cam.ty, cam.tz) }
+let drag = null;
+canvas.style.touchAction = 'none';
+const start = (x, y, pan) => drag = {x, y, pan}, move = (x, y) => { if (!drag) return; const dx = x - drag.x, dy = y - drag.y; drag.x = x; drag.y = y;
+  if (drag.pan) { const s = cam.d / 600; cam.tx += (-dx * Math.cos(cam.az) - dy * Math.sin(cam.az)) * s; cam.ty += (-dx * Math.sin(cam.az) + dy * Math.cos(cam.az)) * s }   // the map follows the mouse
+  else { cam.az += dx * 0.005; cam.el = Math.min(1.5, Math.max(0.05, cam.el + dy * 0.005)) } place() };
+canvas.addEventListener('mousedown', e => { e.preventDefault(); start(e.clientX, e.clientY, !(e.ctrlKey || e.shiftKey || e.button !== 0)) });   // a plain drag moves, as on a map; right or Ctrl turns
+window.addEventListener('mousemove', e => move(e.clientX, e.clientY));
+window.addEventListener('mouseup', () => drag = null);
+canvas.addEventListener('touchstart', e => { e.preventDefault(); const t = e.touches[0]; start(t.clientX, t.clientY, e.touches.length === 1) }, {passive: false});
+canvas.addEventListener('touchmove', e => { e.preventDefault(); const t = e.touches[0]; move(t.clientX, t.clientY) }, {passive: false});
+canvas.addEventListener('touchend', () => drag = null);
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+canvas.addEventListener('dragstart', e => e.preventDefault());
+canvas.addEventListener('wheel', e => { e.preventDefault(); cam.d *= Math.exp(e.deltaY * 0.001); cam.d = Math.max(5, cam.d); place() }, {passive: false});
+window.addEventListener('keydown', e => { const s = cam.d / 40, k = e.key; let dx = 0, dy = 0;
+  if (k === 'ArrowLeft') dx = -s; else if (k === 'ArrowRight') dx = s; else if (k === 'ArrowUp') dy = s; else if (k === 'ArrowDown') dy = -s; else return;
+  cam.tx += dx * Math.cos(cam.az) - dy * Math.sin(cam.az); cam.ty += dx * Math.sin(cam.az) + dy * Math.cos(cam.az); place() });   // arrows: the view moves that way
+window.setView = (az, el, d, tx, ty) => { Object.assign(cam, {az, el, d, tx, ty}); place() };
+function size() { const w = canvas.clientWidth, h = canvas.clientHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix() }
+window.onresize = size; size(); place();
+(function loop() { renderer.render(scene, camera); requestAnimationFrame(loop) })();
+</script></body></html>

@@ -61,6 +61,13 @@ def main(argv=None):
     b3.add_argument("db", help="the unit's space db (its street's lanes for the landings)")
     b3.add_argument("out", help="the JSON file beside the page, e.g. viz/bridge3d.json")
     b3.add_argument("--bridge", action="extend", nargs="+", required=True, help="a bridge profile, as for the dashboard")
+    st = sub.add_parser("structure", help="the bridges' structure only (rank 0 of docs/notes/bridges-ranks.md: one height surface, slab, approach, parapet, piers), to the page's bridge3d.json")
+    st.add_argument("db", help="the unit's space db (the roads' levels)")
+    st.add_argument("out", help="the JSON file beside the page, e.g. viz/cut-france.bridge3d.json")
+    st.add_argument("--bridge", action="extend", nargs="+", required=True, help="a bridge profile, as for the dashboard")
+    st.add_argument("--rank0", action="store_true", help="the surface only, nothing on it")
+    st.add_argument("--no-lidar", action="store_true", help="ignore the profile's measured heights: the rules alone")
+    st.add_argument("--plan", help="also write a 2D plan of each bridge (centre lines, widths, edges) to this HTML file")
     sv = sub.add_parser("serve", help="the dashboard page with the Explore panel (search, filters, AI questions) on a local server")
     sv.add_argument("db", help="the unit's space db")
     sv.add_argument("page", help="a page `urbanstyle dashboard` built, e.g. viz/broadway-granville-v92.html (its folder is served)")
@@ -122,6 +129,27 @@ def main(argv=None):
         from .publish import publish
         fs = publish(a.db, a.out_dir, a.bridge)
         print(f"{len(fs)} files -> {a.out_dir}")
+    elif a.cmd == "structure":
+        import duckdb
+        con = duckdb.connect(a.db, read_only=True)
+        con.execute("LOAD spatial")
+        from .bridge_surface import models
+        from .dashboard import write_bridge3d
+        ms, _ = models(con, a.bridge, rank0=a.rank0, lidar=not a.no_lidar)
+        for m in ms:
+            print(m["name"], m["solve"], "structures:", m["structures"])
+            for c in m["checks"]:
+                print(f"  {c[0]} {'fail' if c[2] and c[3] else 'pass' if not c[2] else 'info'} {c[2]}  {c[1]}")
+        print(write_bridge3d(ms, a.out))
+        import os as _os
+        import shutil as _sh
+        _sh.copy(_os.path.join(_os.path.dirname(__file__), "rank0.html"), _os.path.join(_os.path.dirname(_os.path.abspath(a.out)), "rank0.html"))
+        print("viewer:", "rank0.html?m=" + _os.path.basename(a.out))
+        if a.plan:
+            import json as _json
+            from .bridge_surface import plan_html
+            for pf in a.bridge:
+                print(plan_html(con, _json.load(open(pf)), a.plan))
     elif a.cmd == "bridge3d":
         import duckdb
         from .dashboard import bridge_models, write_bridge3d

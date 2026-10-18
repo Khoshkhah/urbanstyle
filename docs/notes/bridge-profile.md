@@ -284,7 +284,9 @@ uses only the bridges themselves. It does not use what passes under them.
 
 All the road ways that OSM tags `bridge=*` in the area are one network. Two ways that share a node are joined there, also when they
 belong to different bridges (different `man_made=bridge` outlines). A node is **on the ground** when a road that is not on a bridge
-also uses that node.
+also uses that node. A path (`footway`, `cycleway`, `path`, `pedestrian`) is not such a road: a crossing or a sidewalk mapped on a
+deck with no `layer` tag lies on the deck (Avenue de France, Monaco: the crossing w939530781 put axis a2 on the ground in its middle,
+2026-10-17).
 
 ### The rule
 

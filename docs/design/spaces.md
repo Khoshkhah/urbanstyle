@@ -69,7 +69,9 @@ the roadways of the arms to their stop lines, with the connectors' carriageways,
 
 **At a landing** the deck's lanes reach the ground. The ground under them, from the landing back to where the deck is 2.5 m high, is
 roadway: junction area in a sub-intersection, paved roadway in a section. So the deck's lanes meet roadway, never the walking side.
-The walking side starts beside them.
+The walking side starts beside them. The same holds where a deck touches the ground in its middle, on both sides of that point. On
+the deck's own level, the walking side within 4 m of a point on the ground is roadway too: where two ramps come down to one ground
+road, that roadway joins them to it, as a junction does.
 
 **The walking side** is the rest of the space, with the corners. A piece of the walking side that touches no block is an island of
 that space. An island is at least 2 m wide: a piece of it thinner than 2 m is paved roadway, cut off square, whatever OSM maps on it (a sidewalk line or a kerb point there means the roadway's edges are a little off), unless a barrier runs along it. A piece of the walking side under 2 m² that touches no block lies in the roadway: it is paved

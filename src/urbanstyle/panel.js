@@ -250,6 +250,7 @@ const KINDS={Ground:new Set(),Parts:new Set(),Spaces:new Set(),Sides:new Set()};
 const typeOn=(label,p)=>{const k=KINDS[label]; return !k||k.has(p.type)};
 const LYTREE=[
   ['Rank 0: the area',null,'the level, its whole area, with its content',[
+    ['The bridge, rank 0: the structure','#br3don','one height surface: the slab, the approach fill, the parapet, the piers (docs/notes/bridges-ranks.md); the cover, ranks 1 to 6, is not built yet'],
     ['The area','Area','the whole area of the level'],['Road lines','Roads',"OSM's road and walkway centre lines"],['Buildings','Buildings',''],
     ['Rail lines','Rail',''],['Track','Track',''],['Stations','Station','']]],
   ['Rank 1: the ground',null,'the area cut into three kinds, the street, the plots and the paths, nothing left over',[
@@ -299,22 +300,26 @@ function layersList(){if(typeof OVERLAYS==='undefined')return; const all=['Roads
     if(k&&k.endsWith(': ')){const ls=take(k); if(!ls.length)return ''; const on=ls.every(l=>allow.has(l));
       return `<details><summary><input type=checkbox data-all="${esc(k)}" ${on?'checked':''}> ${esc(txt)}${sm(note)}</summary><div class=lt>`+
         ls.map(l=>box(l,l.slice(k.length),'',k)).join('')+'</div></details>'}
+    if(k&&k[0]==='#'){const el=document.getElementById(k.slice(1)); used.add(k);      // (a switch of the page, not an overlay: the bridges' 3D)
+      return el?`<label><input type=checkbox data-el="${k.slice(1)}" ${el.checked?'checked':''}>${esc(txt)}${sm(note)}</label>`:''}
     if(k)return take(k).length?box(k,txt,note):'';
     // a rank: its own box switches every layer and kind in it; ticked when any is on, half-ticked when not all (syncRanks)
     return `<div class=rk><div class=lg><label><input type=checkbox data-rank="${esc(txt)}"${sub?'':' disabled'}> ${esc(txt)}</label>${sm(note)}</div>`+(sub?`<div class=lt>${sub}</div>`:'')+'</div>'};
   $('xplys').innerHTML=LYTREE.map(node).join(''); syncRanks()}
-function syncRanks(){$('xplys').querySelectorAll('.rk').forEach(rk=>{const b=rk.querySelector('input[data-rank]'), ls=[...rk.querySelectorAll('input[data-ly]:not([disabled]),input[data-kind]:not([disabled])')], n=ls.filter(c=>c.checked).length;
+function syncRanks(){$('xplys').querySelectorAll('.rk').forEach(rk=>{const b=rk.querySelector('input[data-rank]'), ls=[...rk.querySelectorAll('input[data-ly]:not([disabled]),input[data-kind]:not([disabled]),input[data-el]')], n=ls.filter(c=>c.checked).length;
   if(b){b.checked=n>0; b.indeterminate=n>0&&n<ls.length}})}
 // a rank's own box: every layer and kind in it on or off ("only rank 0": tick rank 0, untick the others)
 $('xplys').addEventListener('click',e=>{const r=e.target.dataset&&e.target.dataset.rank; if(!r)return; e.stopPropagation();
   // (a box that shows ticked, any layer on, turns every layer in the rank off; a box with nothing on turns every layer on)
-  const rk=e.target.closest('.rk'), ins=[...rk.querySelectorAll('input[data-ly]:not([disabled]),input[data-kind]:not([disabled])')], on=!ins.some(c=>c.checked);
+  const rk=e.target.closest('.rk'), ins=[...rk.querySelectorAll('input[data-ly]:not([disabled]),input[data-kind]:not([disabled]),input[data-el]')], on=!ins.some(c=>c.checked);
   ins.forEach(c=>{if(c.checked!==on){c.checked=on; c.dispatchEvent(new Event('change',{bubbles:true}))}});
   rk.querySelectorAll('input[data-all]').forEach(c=>c.checked=on)},true);
 // (a group's own box: all its types on or off)
 $('xplys').addEventListener('click',e=>{const a=e.target.dataset&&e.target.dataset.all; if(!a)return; e.stopPropagation();
   const on=e.target.checked; $('xplys').querySelectorAll(`input[data-grp="${a}"]`).forEach(c=>{if(c.checked!==on){c.checked=on; c.dispatchEvent(new Event('change',{bubbles:true}))}})},true);
-$('xplys').onchange=e=>{const t=e.target, l=t.dataset.ly, kl=t.dataset.kind; if(!l&&!kl)return; const on=t.checked;
+$('xplys').onchange=e=>{const t=e.target, l=t.dataset.ly, kl=t.dataset.kind;
+  if(t.dataset.el){const x=document.getElementById(t.dataset.el); if(x&&x.checked!==t.checked){x.checked=t.checked; x.dispatchEvent(new Event('change'))} syncRanks(); return}
+  if(!l&&!kl)return; const on=t.checked;
   if(kl){const types=t.dataset.types.split('|'); KINDS[kl]=KINDS[kl]||new Set(); types.forEach(x=>on?KINDS[kl].add(x):KINDS[kl].delete(x));
     const vis=KINDS[kl].size>0; if(vis)allow.add(kl); else allow.delete(kl); rsSetOverlay(kl,vis); levels2d()}
   else{if(on)allow.add(l); else allow.delete(l); if(l==='Roads')roadsOn(on); else rsSetOverlay(l,on)}

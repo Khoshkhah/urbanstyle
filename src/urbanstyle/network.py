@@ -67,7 +67,10 @@ ISLAND_MIN_M2 = 4.0     # a pedestrian piece that touches no block and is smalle
 from .parts import ARROW_M  # noqa: E402
 from .blocks import ALONG_COS, street_sql  # noqa: E402
 
+GROUND_ROAD_KEEP_M = 3.5  # ... except this far each side of a ground road's line: the road keeps its own ground where a ramp lands beside it
+LOW_DECK_M = 4.5        # a deck lower than this: nothing passes under it, so on the ground it is not the street's room (chosen: a truck's height)
 DECK_EDGE_M = 0.4       # a deck reaches this far past its outer lanes (the guard's own width; as bridge3d's DECK_MARGIN_M)
+LANDING_JOIN_M = 4.0    # on a deck level, the walking side this near a point on the ground is roadway: the landing joint (chosen)
 LANDING_Z_M = 2.5       # at a landing, the ground under the deck's lanes is roadway out to where the deck is this high (chosen, as checks.ON_GROUND_M)
 SLIVER_ROAD_M2 = 2.0    # a piece of the walking side smaller than this that touches no block is roadway (chosen, as product.MIN_PART_M2)
 ROAD_T = ("lane", "paved", "junction area", "parking", "cycle lane", "bridge deck")     # the parts a crosswalk is cut from
@@ -196,6 +199,43 @@ def build(con, epsg, bridges=(), level=0):
             return con.execute(sql, args or []).fetchall()
         except duckdb.CatalogException:
             return []
+
+    def low_decks():
+        """On the ground, the footprint of every deck lower than LOW_DECK_M (nothing passes under it, as under a building): the ground
+        street's room stops at a ramp's edge, so its walking side does not spread under the ramp (a8 and a11 at Avenue de France: one
+        furnishing of 1,674 m2 under the ramps, Kaveh 2026-10-17)."""
+        import pyproj
+        from .bridge_profile import _strip, height
+        out_ = []
+        for pf in bridges:
+            P_ = json.load(open(pf))
+            tr_ = (lambda x, y: (x, y)) if not P_.get("crs") or P_["crs"] == epsg else \
+                pyproj.Transformer.from_crs(P_["crs"], epsg, always_xy=True).transform
+            for a_ in P_.get("axes", []):
+                ax_ = shapely.LineString([q[:2] for q in a_["line"]["value"]])
+                for sec_ in a_.get("sections", []):
+                    bs_ = sec_.get("bands") or []
+                    if not bs_:
+                        continue
+                    lo_ = min(b["t"] - b["width"]["value"] / 2 for b in bs_) - DECK_EDGE_M
+                    hi_ = max(b["t"] + b["width"]["value"] / 2 for b in bs_) + DECK_EDGE_M
+                    run_ = None
+                    ss_ = [sec_["s0"] + k_ for k_ in range(int(sec_["s1"] - sec_["s0"]) + 1)] + [sec_["s1"]]
+                    for s_ in ss_ + [None]:
+                        low_ = s_ is not None and height(a_["vertical"], s_) < LOW_DECK_M
+                        if low_ and run_ is None:
+                            run_ = s_
+                        elif not low_ and run_ is not None:
+                            end_ = s_ if s_ is not None else sec_["s1"]
+                            if end_ - run_ > 0.5:
+                                out_.append(shapely.ops.transform(tr_, _strip(shapely.ops.substring(ax_, run_, end_), lo_, hi_)))
+                            run_ = None
+        if not out_:
+            return shapely.Polygon()
+        # (not over a ground road: where a low ramp meets the ground road it lands on, they share the ground; the block cut the last
+        # 13.5 m of Boulevard d'Italie's lanes at the a11 and a8 landings, Kaveh 2026-10-17)
+        ground_roads_ = [g(w) for (w,) in rows(f"SELECT {m()} FROM work.element WHERE type = 'road' AND level_min = 0")]
+        return shapely.union_all(out_).difference(shapely.union_all([r_.buffer(GROUND_ROAD_KEEP_M, cap_style="flat") for r_ in ground_roads_] or [shapely.Polygon()]))
 
     def deck_outside(lv):
         """Everything that is not deck at level lv, as the blocks are on the ground: so on a deck the street's edge is the deck's edge.
@@ -352,8 +392,9 @@ def build(con, epsg, bridges=(), level=0):
                 s = ln.project(p)
                 d += 1 if (s < 0.5 or s > ln.length - 0.5) else 2
         return d
-    def heads(p):
-        """The unit heading of each road end at p, away from p (a road through p: two ends)."""
+    def heads(p, flow=None):
+        """The unit heading of each road end at p, away from p (a road through p: two ends). With `flow` (a list), also each end's
+        traffic: 'in' (a one-way road that arrives at p), 'out' (one that leaves p) or None (two-way)."""
         out = []
         for k in tree.query(p.buffer(0.5)):
             ln = edges[k][6]
@@ -364,6 +405,8 @@ def build(con, epsg, bridges=(), level=0):
                 if 0 <= b_ <= ln.length and not (b_ > s_ and s_ > ln.length - 0.5) and not (b_ < s_ and s_ < 0.5):
                     q1, q2 = ln.interpolate(a_), ln.interpolate(b_)
                     out.append(unit_v((q2.x - q1.x, q2.y - q1.y)))
+                    if flow is not None:
+                        flow.append(("out" if b_ > s_ else "in") if edges[k][3] else None)     # (one-way: along the line)
         return out
 
     def crosses(p):
@@ -372,7 +415,8 @@ def build(con, epsg, bridges=(), level=0):
         whatever the angle; until 2026-10-16 a joint inside a section), or two streams through p that cross each other (their ends
         alternate round p). Two streams that only touch (two one-way lines of one street drawn into one node) make no junction there:
         the roads continue through p as sections."""
-        hs = heads(p)
+        fl = []
+        hs = heads(p, fl)
         if len(hs) < 3:
             return False
         best = {}
@@ -383,7 +427,14 @@ def build(con, epsg, bridges=(), level=0):
                 best[i] = min(cand)[1]
         if len(best) < len(hs):
             return True             # (an end no road continues: a road ends at p)
-        if len(set(best.values())) < len(best):
+        for j_ in set(best.values()):
+            src_ = [i for i, j in best.items() if j == j_]
+            if len(src_) < 2:
+                continue
+            # (a two-way road that splits into its two one-way carriageways, one arriving and one leaving: each direction keeps its own
+            # carriageway, nothing merges or forks; the Granville Bridge's i1-2625030369 was a junction, Kaveh 2026-10-17)
+            if len(src_) == 2 and fl[j_] is None and {fl[src_[0]], fl[src_[1]]} == {"in", "out"}:
+                continue
             return True             # (two ends continue into one end: a merge or a fork)
         # (a stream: an end and the end it continues into; two streams can share an end, a Y where two roads merge into one)
         pairs = {(min(i, j), max(i, j)) for i, j in best.items()}
@@ -725,14 +776,15 @@ def build(con, epsg, bridges=(), level=0):
     # what still does not fit is cut at the edge (every space is cut from the street at the end, check B7)
     # the sidewalk strips: every walkway at level 0 that is no crossing and has no corridor of its own (a path), at OSM's width or
     # 2 SW_HALF_M, centred on its line: the walking side there, its near side the kerb (the room ends at it), its far side the block's edge
-    # (blocks.py sets the edge 1 m behind the line)
+    # (blocks.py sets the edge 1 m behind the line; on a deck a footway's strip has flat ends: a round end wrapped the walking side round
+    # the deck road's end where it lands, a half-disc at a1's ground point, Kaveh 2026-10-17)
     cor_ways = {w for (w,) in rows("SELECT way_id FROM work.corridor")}
-    sw_items = [(g(w), g(w).buffer((wd / 2) if wd else SW_HALF_M)) for o, wd, w in rows(f"""SELECT e.osm_id, e.width_m, {m('e.geometry')}
+    sw_items = [(g(w), g(w).buffer((wd / 2) if wd else SW_HALF_M, cap_style="round" if LV == 0 else "flat")) for o, wd, w in rows(f"""SELECT e.osm_id, e.width_m, {m('e.geometry')}
                                    FROM work.element e WHERE e.type = 'walkway' AND e.level_min = {LV} AND coalesce(e.subtype, '') <> 'crossing'
                                    AND e.class IN ('footway', 'path', 'steps', 'pedestrian')""") if o not in cor_ways]
     sw_strips = shapely.union_all([st_ for _, st_ in sw_items] or [shapely.Polygon()])
     sw_tree = shapely.STRtree([st_ for _, st_ in sw_items]) if sw_items else None
-    blocks_L = [g(w) for (w,) in rows(f"SELECT {m()} FROM work.block WHERE level = 0")] if LV == 0 else [deck_outside(LV)]
+    blocks_L = [g(w) for (w,) in rows(f"SELECT {m()} FROM work.block WHERE level = 0")] + [low_decks()] if LV == 0 else [deck_outside(LV)]
     corridors_L = [g(w) for (w,) in rows(f"SELECT {m()} FROM work.corridor")] if LV == 0 else []
     hard_u = shapely.union_all(blocks_L + corridors_L or [shapely.Polygon()])
     htree = shapely.STRtree(list(shapely.get_parts(hard_u))) if not hard_u.is_empty else None
@@ -1926,6 +1978,23 @@ def build(con, epsg, bridges=(), level=0):
                 piece_ = substring(L_, 0.0, min(reach_, L_.length)) if at0 else substring(L_, max(L_.length - reach_, 0.0), L_.length)
                 if piece_.geom_type == "LineString" and piece_.length > 0.5:
                     land_bands.append(band(piece_, t1, t2))
+            # (and where the axis touches the ground in its middle, ground_at: the band on both sides of that point, out to where the deck
+            # is LANDING_Z_M high; a1 at Avenue Princesse Grace kept a half-disc of the ground road's walking side, Kaveh 2026-10-17)
+            from .bridge_profile import height as _hz
+            for s_g in ax.get("ground_at", []) if vp and secs else []:
+                sec_ = next((sc for sc in secs if sc["s0"] - 0.01 <= s_g <= sc["s1"] + 0.01), secs[0])
+                lanes_ = [(b_.get("t", 0.0), ((b_.get("width") or {}).get("value") or LANE_M)) for b_ in sec_.get("bands", []) if b_.get("type") == "lane"]
+                if not lanes_:
+                    continue
+                t1, t2 = min(t - w / 2 for t, w in lanes_), max(t + w / 2 for t, w in lanes_)
+                lo_s, hi_s = s_g, s_g
+                while lo_s > 0 and _hz(ax["vertical"], lo_s - 0.5) < LANDING_Z_M:
+                    lo_s -= 0.5
+                while hi_s < L_.length and _hz(ax["vertical"], hi_s + 0.5) < LANDING_Z_M:
+                    hi_s += 0.5
+                piece_ = substring(L_, max(lo_s, 0.0), min(hi_s, L_.length))
+                if piece_.geom_type == "LineString" and piece_.length > 0.5:
+                    land_bands.append(band(piece_, t1, t2))
     if land_bands:
         LB_ = shapely.union_all(land_bands)
         road_types = ROAD_T + ("crosswalk", "cycle crossing", "bus lane", "shoulder", "no parking", "bus zone", "island")
@@ -1941,6 +2010,52 @@ def build(con, epsg, bridges=(), level=0):
                 pid[u] = pid.get(u, 0) + 1
                 parts.append(dict(unit_id=u, part_id=f"{u}#{pid[u]}", level=LV, type="junction area" if k == "intersection" else "paved",
                                   source="urbanstyle", method="derived", ref="the ground under a bridge deck's lanes at its landing", geom=new_))
+    # ---- the landing joint on a deck level (docs/design/spaces.md, "At a landing"): within LANDING_JOIN_M of a point where this level's
+    # axes touch the ground, the walking side is roadway, so two ramps that come down to one ground road meet it as at a junction (a1 and
+    # its ramp at Avenue Princesse Grace: the walking side filled the tip of their V, a half-disc; Kaveh 2026-10-17)
+    if LV >= 1 and bridges:
+        lv_r = dict(rows("SELECT osm_id, level_min FROM work.element WHERE type = 'road'"))
+        joint_pts = []
+        for pf in bridges:
+            prof = json.load(open(pf))
+            if prof.get("crs") and prof["crs"] != epsg:
+                continue
+            for ax in prof.get("axes", []):
+                ls_ = [lv_r.get(int(w[1:])) for w in ax.get("ways", []) if lv_r.get(int(w[1:])) is not None]
+                if not ls_ or max(set(ls_), key=ls_.count) != LV:
+                    continue
+                L_ = shapely.LineString([p_[:2] for p_ in ax["line"]["value"]])
+                for s_j in [e_["s"] for e_ in ax.get("ends", []) if e_.get("ground")] + list(ax.get("ground_at", [])):
+                    joint_pts.append(L_.interpolate(s_j))
+        if joint_pts:
+            JZ_ = shapely.union_all([q_.buffer(LANDING_JOIN_M) for q_ in joint_pts])
+            road_types_j = ROAD_T + ("crosswalk", "cycle crossing", "bus lane", "shoulder", "no parking", "bus zone")
+            for p_ in parts:
+                if p_["type"] not in road_types_j and p_["geom"].intersects(JZ_):
+                    p_["geom"] = poly(p_["geom"].difference(JZ_))
+            for u, k, s_, x in units:
+                if not x.intersects(JZ_):
+                    continue
+                mine_ = [p_["geom"] for p_ in parts if p_["unit_id"] == u and p_["type"] in road_types_j]
+                new_ = poly(JZ_.intersection(x).difference(shapely.union_all(mine_) if mine_ else shapely.Polygon()))
+                if new_.area > 0.3:
+                    pid[u] = pid.get(u, 0) + 1
+                    parts.append(dict(unit_id=u, part_id=f"{u}#{pid[u]}", level=LV, type="junction area" if k == "intersection" else "paved",
+                                      source="urbanstyle", method="derived", ref="a deck road's landing joint: roadway where it meets the ground", geom=new_))
+    # ---- on a deck, the walking side is sidewalk only where OSM maps a footway or a sidewalk; the rest of the deck beside the lanes is
+    # shoulder, flat at the road's level (furnishing and frontage are a ground street's, beside its blocks: on Granville they covered
+    # 2,158 m2 of one deck space and on Avenue de France stood as raised blocks; Kaveh 2026-10-17)
+    if LV >= 1:
+        # (a cycleway on the deck, as the Granville Connector: OSM's line at its width; its walking side is the cycle lane)
+        cyc_ = shapely.union_all([g(w).buffer((wd or SW_HALF_M * 2) / 2, cap_style="flat") for wd, w in rows(f"""SELECT width_m, {m()}
+                                  FROM work.element WHERE type = 'cycleway' AND level_min = {LV}""")] or [shapely.Polygon()])
+        for p_ in parts:
+            if p_["type"] in ("furnishing", "frontage", "verge", "sidewalk"):
+                a_ = p_["geom"].area or 1.0
+                on_cyc_ = p_["geom"].intersection(cyc_).area if not cyc_.is_empty else 0.0
+                on_path_ = p_["geom"].intersection(sw_strips).area if not sw_strips.is_empty else 0.0
+                p_["type"] = "cycle lane" if on_cyc_ > 0.5 * a_ else "sidewalk" if on_path_ > 0.5 * a_ else \
+                    p_["type"] if p_["type"] == "sidewalk" else "shoulder"
     # parts of one space with the same type, source and lane that touch are one part (the pedestrian side and the strips between
     # roadways were shared out in cells: one part per cell drew "bricks", i0-414553083; Kaveh 2026-10-15)
     groups_ = {}

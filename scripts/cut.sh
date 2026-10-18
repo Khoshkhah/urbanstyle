@@ -33,6 +33,7 @@ for pf in bridges:
     if any((p[0] - X) ** 2 + (p[1] - Y) ** 2 <= (radius * 1.5) ** 2 for p in pts):
         near.append(pf)
 print("bridges:", [os.path.basename(b) for b in near], flush=True)
+lon0, lat0 = lon, lat           # (the place itself: the cut's small square is round it)
 # the square grows to hold every bridge it takes, whole, and the roads that join it (MARGIN_M round its axes)
 MARGIN_M = 60.0
 box = [(lon, lat, radius)]
@@ -49,16 +50,27 @@ print(f"cut: {2 * radius:.0f} m square round {lon:.5f}, {lat:.5f}", flush=True)
 # Vancouver's roads from the whole city's database, so a bridge that leaves the unit is whole (as Monaco's wide database)
 CITY = "../duckOSM/data/db/vancouver_city.duckdb"
 unit.clip(CITY if area == "vancouver" and os.path.exists(CITY) else src, base + ".osm.duckdb", lon, lat, radius)
-if area == "vancouver":        # the unit's own edge and every bridge's deck, and the unit's city data, found by the output's file name
-    import shapely, shapely.ops
-    from urbanstyle.bridge_profile import deck_polygon
-    decks = []
-    for pf in near:
-        P = json.load(open(pf)); tr_ = pyproj.Transformer.from_crs(P["crs"], "EPSG:4326", always_xy=True).transform
-        decks.append(shapely.ops.transform(tr_, deck_polygon(P).buffer(30.0)))
-    con = duckdb.connect(base + ".osm.duckdb"); con.execute("LOAD spatial"); con.execute(f"ATTACH '{src}' AS s (READ_ONLY)")
-    con.execute("UPDATE main.boundary SET geometry = ST_Intersection(geometry, ST_Union((SELECT geometry FROM s.main.boundary), "
-                "ST_GeomFromText(?)))", [shapely.union_all(decks).wkt if decks else "POLYGON EMPTY"]); con.close()
+# the cut's area: the small square round the place, and each bridge's deck with DECK_MARGIN_M round it (the roads that join it); not the
+# whole square that holds the bridges: Granville's 1.4 km square built a whole neighbourhood's ground and took 15 to 30 minutes
+import shapely, shapely.ops
+from urbanstyle.bridge_profile import deck_polygon
+DECK_MARGIN_M = 60.0
+k_ = 111320.0
+r0 = float(sys.argv[5])
+small = shapely.box(lon0 - r0 / (k_ * math.cos(math.radians(lat0))), lat0 - r0 / k_, lon0 + r0 / (k_ * math.cos(math.radians(lat0))), lat0 + r0 / k_)
+decks = []
+for pf in near:
+    P = json.load(open(pf)); tr_ = pyproj.Transformer.from_crs(P["crs"], "EPSG:4326", always_xy=True).transform
+    decks.append(shapely.ops.transform(tr_, deck_polygon(P).buffer(DECK_MARGIN_M)))
+keep = shapely.union_all([small] + decks)
+con = duckdb.connect(base + ".osm.duckdb"); con.execute("LOAD spatial")
+con.execute("UPDATE main.boundary SET geometry = ST_Intersection(geometry, ST_GeomFromText(?))", [keep.wkt])
+if area == "vancouver":        # (and only where the unit has its city data: its own edge, or a bridge's deck)
+    con.execute(f"ATTACH '{src}' AS s (READ_ONLY)")
+    con.execute("UPDATE main.boundary SET geometry = ST_Intersection(geometry, ST_Union((SELECT geometry FROM s.main.boundary), ST_GeomFromText(?)))",
+                [shapely.union_all(decks).wkt if decks else "POLYGON EMPTY"])
+con.close()
+if area == "vancouver":        # the unit's city data, found by the output's file name
     for f in ("vancouver.json", "urban.duckdb.mapillary.json"):
         s_, d = src.replace(".osm.duckdb", "." + f), f"{base}.{f}"
         if os.path.exists(s_) and not os.path.lexists(d):

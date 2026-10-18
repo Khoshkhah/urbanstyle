@@ -6,6 +6,13 @@ first, then this note, then `docs/notes/street-rules.md` and `docs/notes/section
 
 ## Bridges: the state on 2026-10-17 (read this first)
 
+**Rank 0 without LiDAR (2026-10-18):** the same pipeline, and now the same plan: the outline comes from the network only (no wall inside a
+level, every gap under 12 m is deck), and decks that are joined into one deck carry one surface: the solve couples the heights of two
+axes of one level wherever the other band lies within this one's half width plus 12 m (`_couplings`, `W_COUPLE` 100), except within 10 m
+of a ground node; a solve node every 10 m (`NODE_STEP_M`). Kaveh: "a branching point is where two bridge branches really separate, not
+where the lane geometry branches". Both Granville models: D1-D8 all 0. Without LiDAR the crest is 27 m by the top rule, the Hemlock link 7-12 m
+(LiDAR: 11-18 m).
+
 **Granville rank 0 accepted by Kaveh (2026-10-18):** the LiDAR model as built by `urbanstyle structure ... --plan viz/plan-granville.html`.
 Branches from the network; two one-way lines side by side from a shared node are one road over the stretch they run together
 (`_merge_carriageways`, `PAIR_M` 14 m, at least `PAIR_MIN_M` 40 m), and a road that goes straight on with about the same width joins the

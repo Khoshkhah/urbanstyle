@@ -41,6 +41,9 @@ BRANCH_M = 10.0       # D8: within this of a node where axes meet, a step in the
 NEAR_M = 0.5          # the blend of heights: weight 1 / (distance + NEAR_M)^2
 W_CLEAR = 50.0        # the weight of a clearance (a wish: a clearance the grade cannot reach is listed, D4)
 W_GRADE = 100.0       # the weight of a grade over GRADE (the deck climbs at GRADE where it can, MAX_GRADE at most)
+NODE_STEP_M = 10.0    # the solve has a node at least every this along each axis
+W_COUPLE = 100.0      # the weight that holds two joined decks at one height
+COUPLE_FROM_GROUND_M = 10.0  # ... except within this of a ground node (a ramp descends there)
 W_MEASURED = 10.0     # the weight that holds a measured height (LiDAR) where the profile has one
 W_RULE = 0.02         # the weight of the agreed rule where nothing else decides: a deck rises at GRADE from its ground ends, TOP_M at most
 STEEP_DEG = 45.0      # D2: a face steeper than this inside a structure
@@ -107,6 +110,7 @@ def _nodes(P, a_lv):
             d += math.dist(p, q)
             ss.add(round(d, 2))
         ss |= {round(s, 2) for s in a.get("ground_at", [])} | set(cross[a["id"]])
+        ss |= {round(float(s), 2) for s in __import__("numpy").arange(NODE_STEP_M, ln.length, NODE_STEP_M)}   # (a node every NODE_STEP_M)
         clear = []
         for c in a["vertical"].get("clearances", []):
             p = shapely.Point(c["at"])
@@ -136,7 +140,41 @@ def _nodes(P, a_lv):
     return nodes, per_axis, pairs
 
 
-def _solve(P, nodes, per_axis, pairs):
+def _couplings(P, nodes, per_axis, a_lv):
+    """Pairs of a node and a point on another axis of the same level whose bands overlap there (one deck: one surface), both at least
+    COUPLE_FROM_GROUND_M from every ground node: [(node, (node0, node1, t))], the point between two nodes of the other axis."""
+    import shapely
+    axes = [(shapely.LineString([q[:2] for q in a["line"]["value"]]), a) for a in P["axes"]]
+    strips = _axis_strips(axes, [])
+    halfw = {a["id"]: max(abs(v) for v in _axis_width(a, ln, [])) for ln, a in axes}
+    ground = [shapely.Point(nd["xy"]) for nd in nodes if nd["ground"]]
+    gmp = shapely.MultiPoint(ground) if ground else None
+    out = []
+    for ln, a in axes:
+        for s, n in per_axis[a["id"]]:
+            pt = shapely.Point(nodes[n]["xy"])
+            if gmp is not None and gmp.distance(pt) < COUPLE_FROM_GROUND_M:
+                continue
+            for ln2, b in axes:
+                # one deck until they physically separate: the other band within this axis's half width plus the gap that is still
+                # filled (2 GORE_M), so the two carry one surface up to where the deck really branches
+                if b["id"] == a["id"] or a_lv[a["id"]] != a_lv[b["id"]] or strips[b["id"]].distance(pt) > halfw[a["id"]] + 2 * GORE_M:
+                    continue
+                s2 = ln2.project(pt)
+                if s2 < 1.0 or s2 > ln2.length - 1.0:
+                    continue                                   # (at the other axis's end: they meet at a node, already one height)
+                seq = per_axis[b["id"]]
+                k = next((k for k in range(len(seq) - 1) if seq[k][0] <= s2 <= seq[k + 1][0]), None)
+                if k is None:
+                    continue
+                (sa, na), (sb, nb) = seq[k], seq[k + 1]
+                t = (s2 - sa) / ((sb - sa) or 1.0)
+                if n not in (na, nb):
+                    out.append((n, (na, nb, t)))
+    return out
+
+
+def _solve(P, nodes, per_axis, pairs, couples=()):
     """One height per node. Hard: 0 on the ground, 0..TOP_M, the grade at most CLEAR_MAX_GRADE along every axis. Soft: the clearances
     over roads and buildings, LEVEL_M + DECK_M between two decks that cross (the lower one goes down where the upper cannot climb), the
     grade over GRADE, a measured height, a small wish to stay low; and the smoothest result: the change of grade along each axis is the
@@ -169,6 +207,9 @@ def _solve(P, nodes, per_axis, pairs):
             rows.append(r * math.sqrt((d0 + d1) / 2))      # (weighted by the length it stands for)
     D = np.array(rows) if rows else np.zeros((0, n))
     Q = D.T @ D
+    for nn, (na, nb, t) in couples:                     # one deck, one surface: the node at the other axis's height there
+        r = np.zeros(n); r[nn] += 1.0; r[na] -= 1.0 - t; r[nb] -= t
+        Q += W_COUPLE * np.outer(r, r)
     clear = np.array([nd["clear"] for nd in nodes])
     has_m = ~np.isnan(measured)
     # the agreed rule as the target where nothing else decides: GRADE up from the nearest ground node along the network, TOP_M at most
@@ -709,8 +750,7 @@ def _structures(P, axes, a_lv, paths):
                 near = strips[i].buffer(reach).intersection(strips[j].buffer(reach))
                 if near.area < 0.5:
                     continue
-                wall = [c for c in grid(near, 2.0) if there(i, c.centroid) and there(j, c.centroid)
-                        and abs(z_at(i, c.centroid) - z_at(j, c.centroid)) > CUT_DZ_M]
+                wall = []          # (rank 0's outline comes from the network only: no wall inside a level, Kaveh 2026-10-18)
                 if not wall:
                     continue
                 W = shapely.union_all(wall).buffer(0.01)
@@ -740,20 +780,7 @@ def _structures(P, axes, a_lv, paths):
                                                         or [own[i] for i in g]))
             # one deck across every gap narrower than 2 GORE_M between its bands (a fork, the two carriageways of a loop): the union
             # closed by GORE_M; then no notch and no bump smaller than 2 SMOOTH_M; then the walls of rule 4 cut back in
-            closed = poly.buffer(GORE_M, join_style="round").buffer(-GORE_M, join_style="round")
-            added = closed.difference(poly)
-            keep_ = []
-            for c in grid(added, 2.0):            # (a cell of the gap is deck only where the deck across the gap is no steeper than 45 deg)
-                pt = c.centroid
-                ab = sorted(g, key=lambda i: own[i].distance(pt))[:2]
-                if len(ab) < 2:
-                    keep_.append(c)
-                    continue
-                gw = own[ab[0]].distance(pt) + own[ab[1]].distance(pt)
-                if abs(z_at(ab[0], pt) - z_at(ab[1], pt)) <= max(CUT_DZ_M, gw):
-                    keep_.append(c)
-            if keep_:
-                poly = poly.union(shapely.union_all(keep_).buffer(1.0, join_style="round").buffer(-1.0, join_style="round").intersection(added.buffer(0.05)))
+            poly = poly.union(poly.buffer(GORE_M, join_style="round").buffer(-GORE_M, join_style="round"))    # (every gap under 2 GORE_M: deck)
             poly = poly.buffer(SMOOTH_M, join_style="round").buffer(-2 * SMOOTH_M, join_style="round").buffer(SMOOTH_M, join_style="round")
             if slits:
                 poly = poly.difference(shapely.union_all(slits))
@@ -870,7 +897,7 @@ def model(con, P, rank0=False):
     axes = [(shapely.LineString([q[:2] for q in a["line"]["value"]]), a) for a in P["axes"]]
     a_lv = _axis_level(con, P)
     nodes, per_axis, pairs = _nodes(P, a_lv)
-    h, res = _solve(P, nodes, per_axis, pairs)
+    h, res = _solve(P, nodes, per_axis, pairs, _couplings(P, nodes, per_axis, a_lv))
     _write_back(P, nodes, per_axis, h)
     val = lambda v: v["value"] if isinstance(v, dict) else v        # (a profile value with its source, or a plain one)
     paths = [shapely.LineString([q[:2] for q in val(p["line"])]).buffer((val(p.get("width")) or 2.0) / 2)
@@ -1102,7 +1129,7 @@ def plan_html(con, P, out):
     axes = [(shapely.LineString([q[:2] for q in a["line"]["value"]]), a) for a in P["axes"]]
     a_lv = _axis_level(con, P)
     nodes, per_axis, pairs = _nodes(P, a_lv)
-    h, _ = _solve(P, nodes, per_axis, pairs)
+    h, _ = _solve(P, nodes, per_axis, pairs, _couplings(P, nodes, per_axis, a_lv))
     _write_back(P, nodes, per_axis, h)
     val = lambda v: v["value"] if isinstance(v, dict) else v
     paths = [shapely.LineString([q[:2] for q in val(p["line"])]).buffer((val(p.get("width")) or 2.0) / 2)

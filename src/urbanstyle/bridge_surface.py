@@ -33,7 +33,7 @@ OUTLINE_NEAR_M = 2.5  # OSM's outline widens the structure this far beyond its s
 END_DIR_M = 10.0      # an end cap stands square to the axis's direction over its last this many metres
 FORK_M = 30.0         # ... and only within this of the node where the two branches meet
 GORE_M = 6.0          # a gap between two strips that meet, narrower than twice this, is deck where their heights agree
-SMOOTH_M = 1.5        # an edge has no notch and no bump smaller than twice this
+SMOOTH_M = 3.0        # an edge has no notch and no bump smaller than twice this
 JUNCTION_SMOOTH_M = 3.5  # ... and at a junction none smaller than twice this
 JOG_DEG = 60.0        # D8: a turn in an edge over this ...
 JOG_M = 3.0           # ... beside a segment shorter than this is a jog (an end cap's corners are 90 degrees beside long segments: not counted)
@@ -618,9 +618,8 @@ def _transitions(branches):
                         for d in np.linspace(0.0, T, int(T) + 2):
                             xe, ye, nxe, nye = _frame(bl, end_s + sign * d)
                             E = np.array([xe + nxe * t_own, ye + nye * t_own])
-                            if outside:
-                                pts_.append(E); continue
-                            F = c_wide + tA * float((E - c_wide) @ tA)
+                            F = c_wide + tA * float((E - c_wide) @ tA)     # (inside or outside the wider deck: from its edge line onto
+                                                                            # the branch's own edge, never a jump at the joint)
                             u = d / T; g = u * u * (3.0 - 2.0 * u)
                             pts_.append(F + (E - F) * g)
                         edges.append(pts_)
@@ -694,6 +693,8 @@ def _merge_carriageways(branches):
                 head = [e for e in ext if e[0] <= 10.0] or ext[:1]
                 lo_, hi_ = float(np.median([e[1] for e in head])), float(np.median([e[2] for e in head]))
                 cut = next((e[0] for e in ext if (e[2] - e[1]) > (hi_ - lo_) + 1.0), ml.length)
+                if cut < PAIR_MIN_M:
+                    continue                  # (together for less than PAIR_MIN_M: no merged road, the two lines branch where they meet)
                 if cut < ml.length - 1.0:
                     ml = shapely.ops.substring(ml, 0.0, max(cut, 1.0))
                     Lp = ml.length

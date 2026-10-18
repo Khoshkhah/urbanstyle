@@ -44,6 +44,7 @@ NEAR_M = 0.5          # the blend of heights: weight 1 / (distance + NEAR_M)^2
 W_CLEAR = 50.0        # the weight of a clearance (a wish: a clearance the grade cannot reach is listed, D4)
 W_GRADE = 100.0       # the weight of a grade over GRADE (the deck climbs at GRADE where it can, MAX_GRADE at most)
 NODE_STEP_M = 10.0    # the solve has a node at least every this along each axis
+COVER_LIFT_M = 0.03   # the cover above the slab's top
 W_COUPLE = 100.0      # the weight that holds two joined decks at one height
 COUPLE_FROM_GROUND_M = 10.0  # ... except within this of a ground node (a ramp descends there)
 W_MEASURED = 10.0     # the weight that holds a measured height (LiDAR) where the profile has one
@@ -770,8 +771,8 @@ def _structures(P, axes, a_lv, paths):
         s_ = ln.project(p)
         return 0.5 < s_ < ln.length - 0.5
     out = []
-    for lv in sorted({a_lv[a["id"]] for _, a in axes}):
-        ids = [a["id"] for _, a in axes if a_lv[a["id"]] == lv]
+    for _all in (True,):           # (one pass over all axes: the structures are grouped by connection, not by level)
+        ids = [a["id"] for _, a in axes]
         own = {i: strips[i] for i in ids}
         slits = []
         for k, i in enumerate(ids):
@@ -795,9 +796,12 @@ def _structures(P, axes, a_lv, paths):
             while parent[i] != i:
                 i = parent[i]
             return i
+        ends_ = {i: [shapely.Point(by_id[i][0].coords[0]), shapely.Point(by_id[i][0].coords[-1])] for i in ids}
         for k, i in enumerate(ids):
             for j in ids[k + 1:]:
-                if own[i].intersection(own[j]).area > 0.1 or by_id[i][0].distance(by_id[j][0]) < 0.05:
+                same = a_lv[i] == a_lv[j]
+                meet = any(p_.distance(q_) < 0.5 for p_ in ends_[i] for q_ in ends_[j])       # (a shared node: one deck, whatever the level)
+                if meet or (same and (own[i].intersection(own[j]).area > 0.1 or by_id[i][0].distance(by_id[j][0]) < 0.05)):
                     parent[find(i)] = find(j)
         groups = {}
         for i in ids:
@@ -826,7 +830,7 @@ def _structures(P, axes, a_lv, paths):
             if slits:
                 poly = poly.difference(shapely.union_all(slits))
             poly = shapely.make_valid(poly)
-            out.append((lv, g, poly, {i: own[i] for i in g}))
+            out.append((min(a_lv[i] for i in g), g, poly, {i: own[i] for i in g}))
     return out
 
 
@@ -926,7 +930,7 @@ def _trim_to_osm(con, P):
 
 
 # ---------------------------------------------------------------- 3. the model
-def model(con, P, rank0=False):
+def model(con, P, rank0=False, cover=True):
     import numpy as np
     import pyproj
     import shapely
@@ -1079,6 +1083,52 @@ def model(con, P, rank0=False):
             ang = abs(math.degrees(math.atan2((x1 - x0) * (y2 - y1) - (y1 - y0) * (x2 - x1), (x1 - x0) * (x2 - x1) + (y1 - y0) * (y2 - y1))))
             if ang > JOG_DEG and (l1 < JOG_M or l2 < JOG_M) and (ends_mp is None or ends_mp.distance(shapely.Point(x1, y1)) > BRANCH_M):
                 d8.append(ll(x1, y1))                 # (a step at a node where axes meet is a branch: the width changes there)
+    # ---- the cover (ranks 1 to 6 on the structure): the street parts and marks of the deck levels, as the division made them, clipped to
+    # the structure's edge and lifted to its height surface plus each part's own raise; they choose no height
+    if cover and not rank0:
+        to_utm = f"ST_Transform(geometry, 'EPSG:4326', '{crs}', always_xy := true)"
+        g_ = lambda w_: shapely.make_valid(shapely.from_wkb(bytes(w_)))
+        try:
+            raise_ = dict(con.execute("SELECT kind, raise_m FROM urban.style WHERE raise_m IS NOT NULL").fetchall())
+        except Exception:
+            raise_ = {}
+        try:
+            dash_ = {k_: d_ for k_, d_ in con.execute("SELECT kind, dash FROM urban.style WHERE \"table\" = 'urban.mark' AND dash IS NOT NULL").fetchall()}
+        except Exception:
+            dash_ = {}
+        RAISE = {"sidewalk": 0.15, "island": 0.15, "median": 0.15, "path": 0.15, "verge": 0.15, "furnishing": 0.15}
+        cov_parts = con.execute(f"""SELECT p.part_id, p.unit_id, p.type, p.direction, ST_AsWKB({to_utm.replace('geometry', 'p.geometry')})
+                                    FROM work.part p WHERE p.level >= 1 AND p.geometry IS NOT NULL""").fetchall()
+        cov_marks = con.execute(f"""SELECT m.unit_id, m.type, m.width_m, ST_AsWKB({to_utm.replace('geometry', 'm.geometry')})
+                                    FROM work.mark m JOIN work.unit u USING (unit_id) WHERE u.level >= 1 AND m.geometry IS NOT NULL""").fetchall()
+        for part_id, unit_id, kind, direction, w_ in cov_parts:
+            geom = g_(w_)
+            for lv, pg, S, ids, kind_ in pieces:
+                piece = geom.intersection(pg)
+                if piece.is_empty or piece.area < 0.05:
+                    continue
+                key = f"{kind} {direction}" if kind == "lane" and direction else kind
+                rise = float(raise_.get(kind, RAISE.get(kind, 0.0)) or 0.0)
+                _mesh_flat(piece, key, {"id": part_id, "type": kind, "unit_id": unit_id, "layer": "cover", "bridge": P["name"]},
+                           S, COVER_LIFT_M, rise, tm, surf, grid)
+        for unit_id, kind, wd, w_ in cov_marks:
+            if kind == "kerb":
+                continue
+            mg = g_(w_)
+            if mg.geom_type in ("LineString", "MultiLineString"):
+                if dash_.get(kind):
+                    on_, off_ = dash_[kind][0], dash_[kind][1]
+                    segs = []
+                    for l_ in shapely.get_parts(mg):
+                        d0 = 0.0
+                        while d0 < l_.length:
+                            segs.append(shapely.ops.substring(l_, d0, min(d0 + on_, l_.length))); d0 += on_ + off_
+                    mg = shapely.union_all(segs) if segs else mg
+                mg = mg.buffer((float(wd) if wd else 0.12) / 2, cap_style="flat")
+            for lv, pg, S, ids, kind_ in pieces:
+                piece = mg.intersection(pg)
+                if not piece.is_empty and piece.area > 0.01:
+                    _mesh_flat(piece, f"mark {kind}", {"layer": "cover"}, S, COVER_LIFT_M + 0.03, 0.0, tm, surf, grid)
     # D6: two structures of one level overlapping
     for i, (lv, pg, _, _, _) in enumerate(pieces):
         for lv2, pg2, _, _, _ in pieces[i + 1:]:
@@ -1134,6 +1184,34 @@ def _tris(cell):
                     c = [c[0], c[2], c[1]]
                 out.append(tuple(c))
     return out
+
+
+def _mesh_flat(poly, key, props, S, lift, rise, tm, surf, grid):
+    """A part of the cover on the surface: its top at h + lift + rise; a raised part (rise > 0) gets its faces down to h + lift."""
+    import shapely
+    v, f, ix = [], [], {}
+
+    def vi(x, y, zz):
+        q = (round(x, 2), round(y, 2), round(zz, 2))
+        if q not in ix:
+            ix[q] = len(v)
+            v.append(tm(x, y, zz))
+        return ix[q]
+    for pg in shapely.get_parts(shapely.make_valid(poly)):
+        if pg.geom_type != "Polygon" or pg.area < 0.01:
+            continue
+        for c in grid(pg, STEP_M):
+            for t in _tris(c):
+                f.append([vi(x, y, S.one(x, y) + lift + rise) for x, y in t])
+        if rise > 0:
+            for ring in [pg.exterior] + list(pg.interiors):
+                cs = list(ring.segmentize(STEP_M / 2).coords)
+                for (ax, ay), (bx, by) in zip(cs, cs[1:]):
+                    za, zb = S.one(ax, ay) + lift, S.one(bx, by) + lift
+                    a0, b0, a1, b1 = vi(ax, ay, za), vi(bx, by, zb), vi(ax, ay, za + rise), vi(bx, by, zb + rise)
+                    f += [[a0, b0, b1], [a0, b1, a1]]
+    if f:
+        surf.append({"key": key, "props": props, "v": v, "f": f})
 
 
 def _mesh(poly, key, props, S, rise, tm, surf, grid):

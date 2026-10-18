@@ -28,6 +28,7 @@ STATION_M = 2.0       # the strip's width is set every this along the axis
 TAPER_M = 20.0        # a change of the strip's width spreads over this length: a taper, never a step
 OUTLINE_NEAR_M = 2.5  # OSM's outline widens the structure this far beyond its strips, no more (not the gores between ramps)
 END_DIR_M = 10.0      # an end cap stands square to the axis's direction over its last this many metres
+FORK_M = 30.0         # ... and only within this of the node where the two branches meet
 GORE_M = 6.0          # a gap between two strips that meet, narrower than twice this, is deck where their heights agree
 SMOOTH_M = 1.5        # an edge has no notch and no bump smaller than twice this
 JUNCTION_SMOOTH_M = 3.5  # ... and at a junction none smaller than twice this
@@ -444,7 +445,7 @@ def _axis_strips(axes, paths):
     return out
 
 
-def _branches(axes, paths):
+def _branches(axes, paths, a_lv=None):
     """The bridge's branches, from the network: the axes chained at each node, the two ends that continue each other most straight
     (|cos| over 0.7) joined, so the main span is one line from end to end and each ramp one line. Each branch has one width (the widest
     of its axes, lanes plus EDGE_M and the paths beside them). Returns [(line, lo, hi, [axis ids])]."""
@@ -463,8 +464,9 @@ def _branches(axes, paths):
     link = {}                                           # (axis, end) -> (axis, end) it continues into
     for at in ends.values():
         wd = lambda i: width[i][1] - width[i][0]
+        same_lv = lambda x, y: a_lv is None or a_lv.get(x) == a_lv.get(y)     # (a branch never changes level)
         cand = sorted(((float(-(d1 @ d2)), i1, i2) for i1, (a1, k1, d1) in enumerate(at) for i2, (a2, k2, d2) in enumerate(at)
-                       if i1 < i2 and a1 != a2 and abs(wd(a1) - wd(a2)) <= max(3.0, 0.25 * max(wd(a1), wd(a2)))), reverse=True)
+                       if i1 < i2 and a1 != a2 and same_lv(a1, a2) and abs(wd(a1) - wd(a2)) <= max(3.0, 0.25 * max(wd(a1), wd(a2)))), reverse=True)
         used = set()
         for c, i1, i2 in cand:
             if c < 0.7 or i1 in used or i2 in used:
@@ -503,7 +505,11 @@ def _branches(axes, paths):
             cur, cur_end = nxt[0], nxt[1]
         if len(coords) >= 2:
             out.append((shapely.LineString(coords), lo_, hi_, chain))
-    out = _merge_carriageways(out)
+    if a_lv is not None:
+        lv_of = lambda ids_: a_lv.get(ids_[0])
+        out = [b_ for lv_ in sorted({lv_of(b_[3]) for b_ in out}) for b_ in _merge_carriageways([x for x in out if lv_of(x[3]) == lv_])]
+    else:
+        out = _merge_carriageways(out)
     out = [(_smooth_line(bl), lo_, hi_, ids_) for bl, lo_, hi_, ids_ in out]
     # a carriageway split is not a branch: where two lines leave the end of a wider one nearly straight on (|cos| over 0.9), one to each
     # side, they are the same road drawn as two one-way lines; each keeps its one width, but its outer edge is set so that, once the
@@ -796,7 +802,7 @@ def _structures(P, axes, a_lv, paths):
         groups = {}
         for i in ids:
             groups.setdefault(find(i), []).append(i)
-        branches = _branches(axes, paths)
+        branches = _branches(axes, paths, a_lv)
         for g in groups.values():
             # the structure: its branches, each its line widened by its one width (square ends)
             mine = [br for br in branches if set(br[3]) & set(g)]
@@ -804,7 +810,18 @@ def _structures(P, axes, a_lv, paths):
                                                         or [own[i] for i in g]))
             # one deck across every gap narrower than 2 GORE_M between its bands (a fork, the two carriageways of a loop): the union
             # closed by GORE_M; then no notch and no bump smaller than 2 SMOOTH_M; then the walls of rule 4 cut back in
-            poly = poly.union(poly.buffer(GORE_M, join_style="round").buffer(-GORE_M, join_style="round"))    # (every gap under 2 GORE_M: deck)
+            # a gap under 2 GORE_M is deck between two different branches (a fork, two roads side by side); never between a branch and
+            # itself (a loop's middle, a road that bends back toward itself)
+            bands_ = [_strip(bl, blo, bhi) for bl, blo, bhi, bids in mine]
+            filled = poly.buffer(GORE_M, join_style="round").buffer(-GORE_M, join_style="round").difference(poly)
+            keep_ = []
+            for c in grid(filled, 2.0):
+                pt = c.centroid
+                ds_ = sorted(b_.distance(pt) for b_ in bands_)
+                if len(ds_) >= 2 and ds_[0] + ds_[1] <= 2 * GORE_M + 0.5:
+                    keep_.append(c)
+            if keep_:
+                poly = poly.union(shapely.union_all(keep_).buffer(1.0, join_style="round").buffer(-1.0, join_style="round").intersection(filled.buffer(0.05)))
             poly = poly.buffer(SMOOTH_M, join_style="round").buffer(-2 * SMOOTH_M, join_style="round").buffer(SMOOTH_M, join_style="round")
             if slits:
                 poly = poly.difference(shapely.union_all(slits))
@@ -961,7 +978,9 @@ def model(con, P, rank0=False):
         S = _Surface([by_id[i] for i in ids], own)
         for pg in shapely.get_parts(poly):
             if pg.geom_type == "Polygon" and pg.area >= 1.0:
-                pieces.append((lv, shapely.Polygon(pg.exterior), S, ids, "slab"))     # (no hole in a structure: Kaveh, 2026-10-17)
+                # no hole in a structure (Kaveh, 2026-10-17): a hole narrower than 2 GORE_M is filled; a real opening (a loop's middle) stays
+                keep_ = [r for r in pg.interiors if not shapely.Polygon(r).buffer(-GORE_M).is_empty]
+                pieces.append((lv, shapely.Polygon(pg.exterior, keep_), S, ids, "slab"))
     from shapely.geometry.polygon import orient
     pieces = [(lv, orient(pg), S, ids, kind) for lv, pg, S, ids, kind in pieces]      # (rings one way round: the sides face outward)
     for lv, pg, S, ids, kind in pieces:
@@ -1158,15 +1177,17 @@ def plan_html(con, P, out):
     val = lambda v: v["value"] if isinstance(v, dict) else v
     paths = [shapely.LineString([q[:2] for q in val(p["line"])]).buffer((val(p.get("width")) or 2.0) / 2)
              for p in P.get("paths", []) if len(val(p["line"])) >= 2]
-    branches = _branches(axes, paths)
+    branches = _branches(axes, paths, a_lv)
     structs = _structures(P, axes, a_lv, paths)
     allg = shapely.union_all([pg for _, _, pg, _ in structs] + [l_.buffer(20) for l_, *_ in branches])
     x0, y0, x1, y1 = allg.bounds
     cols = ["#e6194b", "#3cb44b", "#4363d8", "#f58231", "#911eb4", "#46f0f0", "#f032e6", "#9a6324", "#008080", "#800000", "#808000", "#000075"]
-    Y = lambda y: y0 + y1 - y                      # (north up)
+    ox, oy = x0, y1                               # (local coordinates: an SVG is drawn in single precision, UTM numbers lose 0.5 m)
+    X = lambda x: x - ox
+    Y = lambda y: oy - y                          # (north up)
 
     def ring(r):
-        return "M" + " L".join(f"{x:.1f},{Y(y):.1f}" for x, y in r.coords) + " Z"
+        return "M" + " L".join(f"{X(x):.2f},{Y(y):.2f}" for x, y in r.coords) + " Z"
 
     def poly_d(g):
         d = []
@@ -1180,27 +1201,27 @@ def plan_html(con, P, out):
     for k, (bl, lo, hi, ids) in enumerate(branches):
         c = cols[k % len(cols)]
         band = _strip(bl, lo, hi)
-        svg.append(f'<path d="{poly_d(band)}" fill="{c}" fill-opacity="0.12" stroke="{c}" stroke-width="0.4"/>')
+        svg.append(f'<path d="{poly_d(band)}" fill="{c}" fill-opacity="0.12" stroke="{c}" stroke-width="1" vector-effect="non-scaling-stroke"/>')
     for g in _transitions(branches):
-        svg.append(f'<path d="{poly_d(g)}" fill="none" stroke="#000" stroke-width="0.3" stroke-dasharray="1.5 1"/>')
+        svg.append(f'<path d="{poly_d(g)}" fill="none" stroke="#000" stroke-width="1" stroke-dasharray="4 3" vector-effect="non-scaling-stroke"/>')
     for _, _, pg, _ in structs:
-        svg.append(f'<path d="{poly_d(pg)}" fill="none" stroke="#111" stroke-width="0.8"/>')
+        svg.append(f'<path d="{poly_d(pg)}" fill="none" stroke="#111" stroke-width="2" vector-effect="non-scaling-stroke"/>')
     for k, (bl, lo, hi, ids) in enumerate(branches):
         c = cols[k % len(cols)]
-        svg.append(f'<polyline points="{" ".join(f"{x:.1f},{Y(y):.1f}" for x, y in bl.coords)}" fill="none" stroke="{c}" stroke-width="0.8"/>')
+        svg.append(f'<polyline points="{" ".join(f"{X(x):.2f},{Y(y):.2f}" for x, y in bl.coords)}" fill="none" stroke="{c}" stroke-width="2" vector-effect="non-scaling-stroke"/>')
         m = bl.interpolate(0.5, normalized=True)
-        svg.append(f'<text x="{m.x:.1f}" y="{Y(m.y):.1f}" font-size="5" fill="{c}" stroke="#fff" stroke-width="0.6" paint-order="stroke">'
+        svg.append(f'<text x="{X(m.x):.1f}" y="{Y(m.y):.1f}" font-size="5" fill="{c}" stroke="#fff" stroke-width="0.6" paint-order="stroke">'
                    f'{_html.escape("+".join(ids))}  {hi - lo:.1f} m</text>')
     for nd in nodes:
         if nd["ground"]:
-            svg.append(f'<circle cx="{nd["xy"][0]:.1f}" cy="{Y(nd["xy"][1]):.1f}" r="1.2" fill="#000"/>')
+            svg.append(f'<circle cx="{X(nd["xy"][0]):.1f}" cy="{Y(nd["xy"][1]):.1f}" r="1.2" fill="#000"/>')
     w, hgt = x1 - x0, y1 - y0
     page = f"""<!doctype html><html><head><meta charset="utf-8"><title>Plan: {_html.escape(P['name'])}</title>
 <style>html,body{{margin:0;height:100%;background:#fafaf5;font-family:sans-serif}}svg{{width:100%;height:100%;cursor:grab}}
 #k{{position:absolute;left:10px;top:8px;background:#fff;padding:6px 10px;border-radius:6px;box-shadow:0 1px 4px #0003;font-size:13px}}</style></head><body>
 <div id="k"><b>{_html.escape(P['name'])}: rank 0 in plan</b><br>coloured line: a branch's centre line &middot; coloured band: its one width &middot;
 dashed: a transition where a branch leaves &middot; black: the deck's edge &middot; dot: a point on the ground<br><small>drag: move &middot; wheel: zoom</small></div>
-<svg id="s" viewBox="{x0:.1f} {y0:.1f} {w:.1f} {hgt:.1f}" xmlns="http://www.w3.org/2000/svg">{''.join(svg)}</svg>
+<svg id="s" viewBox="0 0 {w:.1f} {hgt:.1f}" xmlns="http://www.w3.org/2000/svg">{''.join(svg)}</svg>
 <script>const s=document.getElementById('s');let v=s.viewBox.baseVal,d=null;
 s.onmousedown=e=>{{d={{x:e.clientX,y:e.clientY}};s.style.cursor='grabbing'}};window.onmouseup=()=>{{d=null;s.style.cursor='grab'}};
 window.onmousemove=e=>{{if(!d)return;const k=v.width/s.clientWidth;v.x-=(e.clientX-d.x)*k;v.y-=(e.clientY-d.y)*k;d={{x:e.clientX,y:e.clientY}}}};

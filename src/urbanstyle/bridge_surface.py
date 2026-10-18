@@ -45,6 +45,10 @@ W_CLEAR = 50.0        # the weight of a clearance (a wish: a clearance the grade
 W_GRADE = 100.0       # the weight of a grade over GRADE (the deck climbs at GRADE where it can, MAX_GRADE at most)
 NODE_STEP_M = 10.0    # the solve has a node at least every this along each axis
 COVER_LIFT_M = 0.03   # the cover above the slab's top
+LANE_EASE_M = 20.0    # a lane's offset is smoothed over this along its axis (sections join with no step)
+MEDIAN_M = 3.0        # a gap between lanes narrower than twice this is part of the driving side (a median)
+SEP_W = 0.5           # a barrier on the deck: this wide ...
+SEP_H = 0.9           # ... and this high (concrete barrier, TL-4 about 0.9 m)
 W_COUPLE = 100.0      # the weight that holds two joined decks at one height
 COUPLE_FROM_GROUND_M = 10.0  # ... except within this of a ground node (a ramp descends there)
 W_MEASURED = 10.0     # the weight that holds a measured height (LiDAR) where the profile has one
@@ -700,7 +704,8 @@ def _merge_carriageways(branches):
                         cb = list(lb.coords) if eb_ == 0.0 else list(lb.coords)[::-1]    # B starting at the joint
                         lo_a, hi_a = (A[1], A[2]) if ea_ > 0 else (-A[2], -A[1])
                         lo_b, hi_b = (Bb[1], Bb[2]) if eb_ == 0.0 else (-Bb[2], -Bb[1])
-                        new = [shapely.LineString(ca + cb[1:]), min(lo_a, lo_b), max(hi_a, hi_b), A[3] + Bb[3]]
+                        lo_n, hi_n = (lo_a, hi_a) if la.length >= lb.length else (lo_b, hi_b)     # (the longer road's width: one width, no widening)
+                        new = [shapely.LineString(ca + cb[1:]), lo_n, hi_n, A[3] + Bb[3]]
                         br = [b_ for k_, b_ in enumerate(br) if k_ not in (i, j)] + [new]
                         changed = True
     return [tuple(b_) for b_ in br]
@@ -1083,52 +1088,9 @@ def model(con, P, rank0=False, cover=True):
             ang = abs(math.degrees(math.atan2((x1 - x0) * (y2 - y1) - (y1 - y0) * (x2 - x1), (x1 - x0) * (x2 - x1) + (y1 - y0) * (y2 - y1))))
             if ang > JOG_DEG and (l1 < JOG_M or l2 < JOG_M) and (ends_mp is None or ends_mp.distance(shapely.Point(x1, y1)) > BRANCH_M):
                 d8.append(ll(x1, y1))                 # (a step at a node where axes meet is a branch: the width changes there)
-    # ---- the cover (ranks 1 to 6 on the structure): the street parts and marks of the deck levels, as the division made them, clipped to
-    # the structure's edge and lifted to its height surface plus each part's own raise; they choose no height
+    # ---- the cover (ranks 1 to 6), made from the same profile as the structure so it fills the deck by construction
     if cover and not rank0:
-        to_utm = f"ST_Transform(geometry, 'EPSG:4326', '{crs}', always_xy := true)"
-        g_ = lambda w_: shapely.make_valid(shapely.from_wkb(bytes(w_)))
-        try:
-            raise_ = dict(con.execute("SELECT kind, raise_m FROM urban.style WHERE raise_m IS NOT NULL").fetchall())
-        except Exception:
-            raise_ = {}
-        try:
-            dash_ = {k_: d_ for k_, d_ in con.execute("SELECT kind, dash FROM urban.style WHERE \"table\" = 'urban.mark' AND dash IS NOT NULL").fetchall()}
-        except Exception:
-            dash_ = {}
-        RAISE = {"sidewalk": 0.15, "island": 0.15, "median": 0.15, "path": 0.15, "verge": 0.15, "furnishing": 0.15}
-        cov_parts = con.execute(f"""SELECT p.part_id, p.unit_id, p.type, p.direction, ST_AsWKB({to_utm.replace('geometry', 'p.geometry')})
-                                    FROM work.part p WHERE p.level >= 1 AND p.geometry IS NOT NULL""").fetchall()
-        cov_marks = con.execute(f"""SELECT m.unit_id, m.type, m.width_m, ST_AsWKB({to_utm.replace('geometry', 'm.geometry')})
-                                    FROM work.mark m JOIN work.unit u USING (unit_id) WHERE u.level >= 1 AND m.geometry IS NOT NULL""").fetchall()
-        for part_id, unit_id, kind, direction, w_ in cov_parts:
-            geom = g_(w_)
-            for lv, pg, S, ids, kind_ in pieces:
-                piece = geom.intersection(pg)
-                if piece.is_empty or piece.area < 0.05:
-                    continue
-                key = f"{kind} {direction}" if kind == "lane" and direction else kind
-                rise = float(raise_.get(kind, RAISE.get(kind, 0.0)) or 0.0)
-                _mesh_flat(piece, key, {"id": part_id, "type": kind, "unit_id": unit_id, "layer": "cover", "bridge": P["name"]},
-                           S, COVER_LIFT_M, rise, tm, surf, grid)
-        for unit_id, kind, wd, w_ in cov_marks:
-            if kind == "kerb":
-                continue
-            mg = g_(w_)
-            if mg.geom_type in ("LineString", "MultiLineString"):
-                if dash_.get(kind):
-                    on_, off_ = dash_[kind][0], dash_[kind][1]
-                    segs = []
-                    for l_ in shapely.get_parts(mg):
-                        d0 = 0.0
-                        while d0 < l_.length:
-                            segs.append(shapely.ops.substring(l_, d0, min(d0 + on_, l_.length))); d0 += on_ + off_
-                    mg = shapely.union_all(segs) if segs else mg
-                mg = mg.buffer((float(wd) if wd else 0.12) / 2, cap_style="flat")
-            for lv, pg, S, ids, kind_ in pieces:
-                piece = mg.intersection(pg)
-                if not piece.is_empty and piece.area > 0.01:
-                    _mesh_flat(piece, f"mark {kind}", {"layer": "cover"}, S, COVER_LIFT_M + 0.03, 0.0, tm, surf, grid)
+        _cover(P, axes, pieces, tm, surf, grid, _branches(axes, paths, a_lv))
     # D6: two structures of one level overlapping
     for i, (lv, pg, _, _, _) in enumerate(pieces):
         for lv2, pg2, _, _, _ in pieces[i + 1:]:
@@ -1184,6 +1146,177 @@ def _tris(cell):
                     c = [c[0], c[2], c[1]]
                 out.append(tuple(c))
     return out
+
+
+def _cover(P, axes, pieces, tm, surf, grid, branches=()):
+    """The cover of a bridge, from its profile, laid on the structure's height surface:
+    - the driving side: every lane band of every axis (its section, its offset and width), lanes made disjoint; the gaps between
+      lanes closed (a median); a barrier between the two directions where their lanes touch or a median lies between them;
+    - the walking side: the deck outside the driving side where OSM maps a walking or cycling way, a barrier between it and the
+      driving side; the cycle lane inside it (a cycleway, or a path where bicycles are designated);
+    - elsewhere the deck outside the lanes is paved (a gore at a split);
+    - painted: dashed lines between lanes of one direction, edge lines along the driving side, an arrow on each lane every 100 m."""
+    import shapely
+    import shapely.ops
+    from .network import arrow_shape
+    val = lambda v: v["value"] if isinstance(v, dict) else v
+    deck = shapely.union_all([pg for _, pg, _, _, _ in pieces])
+    import numpy as np
+    lanes = []                       # (polygon, direction, centre line oriented in travel direction)
+    by_id = {a["id"]: (ln, a) for ln, a in axes}
+
+    def bands(a, s_, d):
+        sec = next((x for x in a.get("sections", []) if x["s0"] - 0.01 <= s_ <= x["s1"] + 0.01 and x.get("bands")), None)
+        bs = [b for b in (sec["bands"] if sec else []) if b.get("type") == "lane" and (b.get("direction") or "forward") == d]
+        return sorted(bs, key=lambda b: abs(float(b["t"])))          # (lane k: the k-th from the middle)
+
+    def continuation(ln, a, end_s):
+        """The axis that continues this one straight on at its end (|cos| over 0.9), with its end there: (line, axis, its end, same sense)."""
+        p_ = ln.interpolate(end_s)
+        x1, y1, nx1, ny1 = _frame(ln, end_s)
+        for ln2, b in axes:
+            if b["id"] == a["id"]:
+                continue
+            for e2 in (0.0, ln2.length):
+                if ln2.interpolate(e2).distance(p_) > 0.5:
+                    continue
+                x2, y2, nx2, ny2 = _frame(ln2, e2)
+                c_ = nx1 * nx2 + ny1 * ny2
+                if abs(c_) > 0.9 and ((end_s > 0) == (e2 == 0.0)) == (c_ > 0):
+                    return ln2, b, e2, c_ > 0
+        return None
+    # each lane of each axis as one ribbon: its offset and width smoothed over LANE_EASE_M (a section change is a taper); at an axis
+    # end where another axis goes straight on, both meet at the mean of their offsets there (a joint of two axes is never a step)
+    for ln, a in axes:
+        L = ln.length
+        if L < 1.0:
+            continue
+        ss = np.linspace(0.0, L, max(3, int(L) + 1))
+        for d in ("forward", "backward"):
+            nmax = max((len(bands(a, s_, d)) for s_ in ss), default=0)
+            for k in range(nmax):
+                tw = [(float(b_[k]["t"]), float(b_[k]["width"]["value"])) if len(b_) > k else None for b_ in (bands(a, s_, d) for s_ in ss)]
+                k0 = 0
+                while k0 < len(ss):
+                    if tw[k0] is None:
+                        k0 += 1; continue
+                    k1 = k0
+                    while k1 + 1 < len(ss) and tw[k1 + 1] is not None:
+                        k1 += 1
+                    run = list(range(k0, k1 + 1))
+                    if ss[k1] - ss[k0] >= 2.0:
+                        t_ = np.array([tw[q][0] for q in run]); w_ = np.array([tw[q][1] for q in run])
+                        h = max(1, int(LANE_EASE_M / 2 / max(ss[1] - ss[0], 0.1)))
+                        t_s = np.array([t_[max(0, q - h):q + h + 1].mean() for q in range(len(run))])
+                        w_s = np.array([w_[max(0, q - h):q + h + 1].mean() for q in range(len(run))])
+                        for end_i, end_s in ((0, 0.0), (len(run) - 1, L)):
+                            if abs(ss[run[end_i]] - end_s) > 0.6:
+                                continue
+                            cont = continuation(ln, a, end_s)
+                            if not cont:
+                                continue
+                            ln2, b2, e2, same = cont
+                            d2 = d if same else ("backward" if d == "forward" else "forward")
+                            b2s = bands(b2, min(max(e2, 0.3), ln2.length - 0.3), d2)
+                            if len(b2s) <= k:
+                                continue
+                            t2 = float(b2s[k]["t"]) * (1 if same else -1)
+                            x1, y1, nx1, ny1 = _frame(ln, end_s); x2, y2, nx2, ny2 = _frame(ln2, e2)
+                            t2 = ((x2 + nx2 * float(b2s[k]["t"]) - x1) * nx1 + (y2 + ny2 * float(b2s[k]["t"]) - y1) * ny1)
+                            target = (t_s[end_i] + t2) / 2
+                            for q in range(len(run)):
+                                dd = abs(ss[run[q]] - end_s)
+                                if dd < LANE_EASE_M:
+                                    f = 0.5 * (1 + np.cos(np.pi * dd / LANE_EASE_M))
+                                    t_s[q] = t_s[q] + (target - t_s[end_i]) * f
+                        left, right, mid = [], [], []
+                        for q, idx in enumerate(run):
+                            x, y, nx, ny = _frame(ln, float(ss[idx]))
+                            left.append((x + nx * (t_s[q] + w_s[q] / 2), y + ny * (t_s[q] + w_s[q] / 2)))
+                            right.append((x + nx * (t_s[q] - w_s[q] / 2), y + ny * (t_s[q] - w_s[q] / 2)))
+                            mid.append((x + nx * t_s[q], y + ny * t_s[q]))
+                        pg = shapely.make_valid(shapely.Polygon(left + right[::-1])).buffer(0)
+                        lanes.append((pg, d, shapely.LineString(mid if d == "forward" else mid[::-1])))
+                    k0 = k1 + 1
+    polys = lambda g_: shapely.union_all([x for x in shapely.get_parts(shapely.make_valid(g_)) if x.geom_type == "Polygon" and x.area > 0.01]
+                                         or [shapely.Polygon()])          # (only the area: a collection's lines and points have no boundary)
+    done, out_l = shapely.Polygon(), []
+    for pg, d, c in lanes:
+        q = polys(polys(pg.difference(done)).intersection(deck))
+        if q.area > 0.3:
+            out_l.append((q, d, c))
+            done = done.union(pg)
+    F = shapely.union_all([q for q, d, c in out_l if d != "backward"] or [shapely.Polygon()])
+    Bk = shapely.union_all([q for q, d, c in out_l if d == "backward"] or [shapely.Polygon()])
+    lanes_all = F.union(Bk)
+    D = lanes_all.buffer(MEDIAN_M, join_style="mitre").buffer(-MEDIAN_M, join_style="mitre").intersection(deck)
+    gaps = polys(D.difference(lanes_all))
+    median = shapely.Polygon()
+    if not F.is_empty and not Bk.is_empty:
+        touch = F.buffer(SEP_W / 2).intersection(Bk.buffer(SEP_W / 2))          # where the two directions meet
+        med = shapely.union_all([g for g in shapely.get_parts(gaps) if g.distance(F) < 0.3 and g.distance(Bk) < 0.3] or [shapely.Polygon()])
+        mid = []                                                                # the middle of a gap between them: as far from each
+        if not med.is_empty:
+            cells = [c for c in grid(med, 0.5) if c.area > 0.01]
+            if cells:
+                cs_ = shapely.centroid(np.array(cells, dtype=object))
+                dF, dB = shapely.distance(F, cs_), shapely.distance(Bk, cs_)
+                mid = [cells[q] for q in range(len(cells)) if abs(dF[q] - dB[q]) <= SEP_W]
+        line_ = shapely.union_all(mid).buffer(0.3, join_style="round").buffer(-0.3, join_style="round") if mid else shapely.Polygon()
+        median = polys(shapely.union_all([touch, line_]).intersection(D))
+    # the walking side: the deck outside the driving side, the pieces of it where a walking or cycling way lies
+    walk_ways = [p for p in P.get("paths", []) if p.get("footway") != "crossing" and len(val(p["line"])) >= 2]
+    wpoly = shapely.union_all([shapely.LineString([q[:2] for q in val(p["line"])]).buffer((val(p.get("width")) or 2.0) / 2) for p in walk_ways]
+                              or [shapely.Polygon()])
+    rest = polys(deck.difference(D))
+    walking = shapely.union_all([g for g in shapely.get_parts(rest) if g.geom_type == "Polygon" and g.intersection(wpoly).area > 1.0
+                                 and not g.buffer(-0.7).is_empty] or [shapely.Polygon()])
+    paved = polys(rest.difference(walking))
+    cyc = shapely.union_all([shapely.LineString([q[:2] for q in val(p["line"])]).buffer((val(p.get("width")) or 2.0) / 2) for p in walk_ways
+                             if p.get("type") == "cycleway" or p.get("bicycle") == "designated"] or [shapely.Polygon()])
+    cycle = polys(cyc.intersection(walking.buffer(-SEP_W)))
+    sep = polys(D.buffer(SEP_W, join_style="mitre").difference(D).intersection(walking))   # driving side | walking side
+    walking = polys(walking.difference(sep).difference(cycle))
+
+    def put(poly, key, lift, rise=0.0, props=None):
+        for lv, pg, S, ids, kind in pieces:
+            q = poly.intersection(pg)
+            if not q.is_empty and q.area > 0.01:
+                _mesh_flat(q, key, dict(props or {}, layer="cover"), S, lift, rise, tm, surf, grid)
+    for q, d, c in out_l:
+        put(shapely.make_valid(q.difference(median)), f"lane {d}", COVER_LIFT_M)
+    put(shapely.make_valid(gaps.difference(median)), "paved", COVER_LIFT_M)
+    put(paved, "paved", COVER_LIFT_M)
+    put(walking, "sidewalk", COVER_LIFT_M, 0.15)
+    put(cycle, "cycle lane", COVER_LIFT_M, 0.15)
+    put(sep, "barrier", COVER_LIFT_M, SEP_H, {"type": "barrier", "between": "the driving side and the walking side"})
+    put(median, "barrier", COVER_LIFT_M, SEP_H, {"type": "barrier", "between": "the two directions"})
+    # painted lines
+    paint = COVER_LIFT_M + 0.03
+    for q, d, c in out_l:
+        same = F if d != "backward" else Bk
+        inner = q.boundary.intersection(same.buffer(-0.2))
+        segs = []
+        for l_ in shapely.get_parts(shapely.line_merge(inner) if not inner.is_empty and inner.geom_type != "Point" else shapely.MultiLineString()):
+            if l_.geom_type != "LineString":
+                continue
+            d0 = 0.0
+            while d0 < l_.length:
+                segs.append(shapely.ops.substring(l_, d0, min(d0 + 3.0, l_.length))); d0 += 9.0
+        if segs:
+            put(shapely.union_all(segs).buffer(0.06, cap_style="flat").difference(median), "mark lane line", paint)
+    edge = D.buffer(-0.25).boundary
+    if not edge.is_empty:
+        put(edge.buffer(0.06, cap_style="flat").intersection(D).difference(median), "mark edge line", paint)
+    for q, d, c in out_l:
+        L = c.length
+        for s_ in [x for x in (L - 15.0, L - 115.0, L - 215.0, L - 315.0) if x > 8.0]:
+            tip, back = c.interpolate(s_), c.interpolate(s_ - 1.0)
+            hx, hy = tip.x - back.x, tip.y - back.y
+            n = (hx * hx + hy * hy) ** 0.5 or 1.0
+            a_ = arrow_shape((tip.x, tip.y), (hx / n, hy / n), {"straight"})
+            if a_ is not None and not a_.is_empty:
+                put(a_.buffer(0.075).intersection(q), "mark arrow", paint)
 
 
 def _mesh_flat(poly, key, props, S, lift, rise, tm, surf, grid):

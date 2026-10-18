@@ -682,15 +682,23 @@ def _merge_carriageways(branches):
                 sa0, sa1 = sorted((ea_, ea_ + sa * Lp)); sb0, sb1 = sorted((eb_, sb_end))
                 both = shapely.union_all([_strip(shapely.ops.substring(la, sa0, sa1), A[1], A[2]),
                                           _strip(shapely.ops.substring(lb, sb0, sb1), Bb[1], Bb[2])])
-                lo_, hi_ = 0.0, 0.0
-                for d in np.linspace(0.0, ml.length, max(3, int(ml.length / 5.0))):
+                # one width: the one they have where they start together (the first 10 m); the merged road ends where they spread
+                # wider than that by more than 1 m: there they separate, and each is its own branch (Kaveh: the width changes only at a branch)
+                ext = []
+                for d in np.linspace(0.0, ml.length, max(3, int(ml.length / 2.0))):
                     x, y, nx, ny = _frame(ml, d)
                     cross = shapely.LineString([(x - nx * 60, y - ny * 60), (x + nx * 60, y + ny * 60)]).intersection(both)
-                    for seg in shapely.get_parts(cross):
-                        if seg.is_empty or seg.geom_type != "LineString":
-                            continue
-                        ts = [((cx - x) * nx + (cy - y) * ny) for cx, cy in seg.coords]
-                        lo_, hi_ = min(lo_, min(ts)), max(hi_, max(ts))
+                    ts = [((cx - x) * nx + (cy - y) * ny) for seg in shapely.get_parts(cross)
+                          if not seg.is_empty and seg.geom_type == "LineString" for cx, cy in seg.coords]
+                    ext.append((d, min(ts) if ts else 0.0, max(ts) if ts else 0.0))
+                head = [e for e in ext if e[0] <= 10.0] or ext[:1]
+                lo_, hi_ = float(np.median([e[1] for e in head])), float(np.median([e[2] for e in head]))
+                cut = next((e[0] for e in ext if (e[2] - e[1]) > (hi_ - lo_) + 1.0), ml.length)
+                if cut < ml.length - 1.0:
+                    ml = shapely.ops.substring(ml, 0.0, max(cut, 1.0))
+                    Lp = ml.length
+                    qa_end = la.interpolate(ea_ + sa * Lp)
+                    sb_end = lb.project(qa_end)
                 new = [ml, lo_, hi_, A[3] + Bb[3]]
                 keep = [b_ for k_, b_ in enumerate(br) if k_ not in (i, j)] + [new]
                 # the parts beyond the pair, each from where it leaves it (the end of the centre line), stay their own branches

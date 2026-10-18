@@ -6,9 +6,9 @@
 #i small{color:#666}#i summary{cursor:pointer;color:#444;margin:4px 0}</style></head><body>
 <canvas id="c"></canvas>
 <div id="i"><b id="t">rank 0: the bridge's structure</b><details><summary>the checks D1 to D6</summary><div id="ck"></div></details>
-<label style="display:block;margin:4px 0"><input type="checkbox" id="cov" checked> the cover (ranks 1 to 6: lanes, sidewalks, marks)</label>
+<label style="display:block;margin:4px 0"><input type="checkbox" id="cov"> the cover (ranks 1 to 6: lanes, sidewalks, marks)</label>
 <div class="k"><span style="background:#a8a29e"></span>slab (top and sides) &nbsp; <span style="background:#e5e1d8"></span>parapet &nbsp; <span style="background:#8f8b86"></span>pier, abutment</div>
-<small>viewer v7 · drag: move the map · right-drag or Ctrl-drag: turn · wheel: zoom · arrow keys: move · the grid is the ground (z = 0), 10 m squares</small></div>
+<small>viewer v8 · drag: move the map · right-drag or Ctrl-drag: turn · wheel: zoom · arrow keys: move · the grid is the ground (z = 0), 10 m squares</small></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 const q = new URLSearchParams(location.search), file = q.get('m') || 'cut-france.bridge3d.json', only = q.get('b');   // b: one bridge by name
@@ -47,6 +47,7 @@ fetch(file, {cache: 'no-store'}).then(r => r.json()).then(models => {
     info.push(`<b>${M.name}</b>` + (M.checks || []).map(c => `${c[0]} ${c[2] ? (c[3] ? 'fail' : 'info') : 'pass'} ${c[2]}: ${c[1]}`).join('<br>'));
   });
   document.getElementById('ck').innerHTML = info.join('<hr>');
+  const cv = q.get('cover') === '1'; document.getElementById('cov').checked = cv; coverMeshes.forEach(m => m.visible = cv);   // (rank 0 alone unless ?cover=1)
   // the ground: a plane at z = 0 with 10 m squares
   const pad = 40, w = box.max.x - box.min.x + 2 * pad, h = box.max.y - box.min.y + 2 * pad, cx = (box.min.x + box.max.x) / 2, cy = (box.min.y + box.max.y) / 2;
   const gnd = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshLambertMaterial({color: 0xefe9dc})); gnd.position.set(cx, cy, -0.05); scene.add(gnd);

@@ -956,6 +956,8 @@ def model(con, P, rank0=False, cover=True):
     from .bridge3d import grid
     from .bridge_structure import structure
     crs = P["crs"]
+    from .bridge3d import correct_sections
+    correct_sections(P)              # (the agreed lane corrections, corrections/lanes.json, as the old model: Fir ramp 2 lanes)
     _trim_to_osm(con, P)
     axes = [(shapely.LineString([q[:2] for q in a["line"]["value"]]), a) for a in P["axes"]]
     _LANES.clear()    # (the profile's own lanes, as the old model: Kaveh 2026-10-18)
@@ -1466,6 +1468,8 @@ def plan_html(con, P, out):
     the transitions, the final edge of each structure, with each branch's name and width. Drag to move, wheel to zoom."""
     import html as _html
     import shapely
+    from .bridge3d import correct_sections
+    correct_sections(P)              # (the agreed lane corrections, corrections/lanes.json, as the old model: Fir ramp 2 lanes)
     _trim_to_osm(con, P)
     axes = [(shapely.LineString([q[:2] for q in a["line"]["value"]]), a) for a in P["axes"]]
     _LANES.clear()    # (the profile's own lanes, as the old model: Kaveh 2026-10-18)

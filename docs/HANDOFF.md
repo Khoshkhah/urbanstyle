@@ -6,6 +6,14 @@ first, then this note, then `docs/notes/street-rules.md` and `docs/notes/section
 
 ## Bridges: the state on 2026-10-17 (read this first)
 
+**End of the session, 2026-10-18 (read this first).** Code at commit 077ec1f (network-first, not pushed). Kaveh ended the session
+tired: the rank-0 outline still has kinks and bulges at the four forks (main span south, north split, Connector, Hemlock loop start),
+and every per-place rule added in the last rounds made another place worse; the last uncommitted round (a fork rule) was reverted.
+The cover from the profile (lanes, barriers, cycle lane) is worse than the old bridge3d model's at the junctions. Lane counts must be the
+profile's with corrections/lanes.json (bridge3d.correct_sections), as the old model: done. Open proposal, not decided: keep the old
+model's deck outline and lanes (bridge3d) and lift them onto the new height surface with its OSM ends, instead of building a new outline
+from branch bands. Do not add more per-place rules to bridge_surface.py's outline; agree an approach with Kaveh first.
+
 **Rank 0 without LiDAR (2026-10-18):** the same pipeline, and now the same plan: the outline comes from the network only (no wall inside a
 level, every gap under 12 m is deck), and decks that are joined into one deck carry one surface: the solve couples the heights of two
 axes of one level wherever the other band lies within this one's half width plus 12 m (`_couplings`, `W_COUPLE` 100), except within 10 m

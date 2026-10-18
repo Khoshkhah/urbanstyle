@@ -34,6 +34,7 @@ JUNCTION_SMOOTH_M = 3.5  # ... and at a junction none smaller than twice this
 JOG_DEG = 60.0        # D8: a turn in an edge over this ...
 JOG_M = 3.0           # ... beside a segment shorter than this is a jog (an end cap's corners are 90 degrees beside long segments: not counted)
 BRANCH_TAPER_M = 30.0 # a narrower axis leaves a wider one along a smooth S-curve this long
+LINE_SMOOTH_M = 12.0  # a branch's centre line is the mean of OSM's line within this on each side (no jog at a vertex)
 PAIR_M = 14.0         # two one-way lines this near each other, side by side, are one road ...
 PAIR_MIN_M = 40.0     # ... over at least this length from the node they share
 SPLIT_M = 40.0        # a carriageway split: the two lines are measured this far from the node, where they have moved apart
@@ -503,6 +504,7 @@ def _branches(axes, paths):
         if len(coords) >= 2:
             out.append((shapely.LineString(coords), lo_, hi_, chain))
     out = _merge_carriageways(out)
+    out = [(_smooth_line(bl), lo_, hi_, ids_) for bl, lo_, hi_, ids_ in out]
     # a carriageway split is not a branch: where two lines leave the end of a wider one nearly straight on (|cos| over 0.9), one to each
     # side, they are the same road drawn as two one-way lines; each keeps its one width, but its outer edge is set so that, once the
     # lines have moved apart (SPLIT_M along), it lies on the wider road's edge line: the deck keeps its width and edges through the split
@@ -618,9 +620,11 @@ def _merge_carriageways(branches):
                 ea_, eb_ = ea
                 sa, sb = (1 if ea_ == 0.0 else -1), (1 if eb_ == 0.0 else -1)
                 # how far from the shared node they run side by side (within PAIR_M, without a break)
+                # one road as long as their bands touch (Kaveh: a deck branches where the decks really separate, not where the lanes fork)
+                reach = max(abs(A[1]), abs(A[2])) + max(abs(Bb[1]), abs(Bb[2]))
                 Lp = 0.0
                 for d in np.arange(0.0, la.length + 0.01, 2.0):
-                    if lb.distance(la.interpolate(ea_ + sa * d)) > PAIR_M:
+                    if lb.distance(la.interpolate(ea_ + sa * d)) > reach:
                         break
                     Lp = d
                 pa, pb = la.interpolate(ea_ + sa * min(20.0, la.length)), lb.interpolate(eb_ + sb * min(20.0, lb.length))
@@ -693,6 +697,26 @@ def _merge_carriageways(branches):
                         br = [b_ for k_, b_ in enumerate(br) if k_ not in (i, j)] + [new]
                         changed = True
     return [tuple(b_) for b_ in br]
+
+
+def _smooth_line(ln):
+    """A branch's centre line as a smooth curve through OSM's points: resampled every metre, then each point the mean of the line within
+    LINE_SMOOTH_M on each side; the two ends stay exactly at OSM's end nodes (the smoothing fades out over the last LINE_SMOOTH_M). A
+    polyline widened by a fixed width has a jog at every vertex; a smooth line has smooth edges."""
+    import numpy as np
+    import shapely
+    L = ln.length
+    if L < 4 * LINE_SMOOTH_M:
+        return ln
+    ss = np.linspace(0.0, L, int(L) + 1)
+    pts = np.array([ln.interpolate(float(s_)).coords[0] for s_ in ss])
+    w = int(LINE_SMOOTH_M)
+    out = pts.copy()
+    for k in range(len(pts)):
+        r = min(w, k, len(pts) - 1 - k)                 # (the window shrinks to 0 at the ends: they stay where OSM puts them)
+        if r > 0:
+            out[k] = pts[k - r:k + r + 1].mean(axis=0)
+    return shapely.LineString(out).simplify(0.02)
 
 
 def _end_caps(ln):

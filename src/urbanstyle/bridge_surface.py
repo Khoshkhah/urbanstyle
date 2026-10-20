@@ -56,7 +56,7 @@ STEEP_DEG = 45.0      # D2: a face steeper than this inside a structure
 MAX_TURN_DEG = 90.0   # a bridge has no U-turn: a band link that turns more than this is not a move (Kaveh 2026-10-19)
 
 
-def models(con, bridges, rank0=False, lidar=True):
+def models(con, bridges, rank0=False, lidar=True, gmns=None):
     """rank0: the surface only, nothing on it or under it. lidar=False: the profile's measured heights are ignored; the heights come
     from the rules alone (to see what the rules give where there is no survey)."""
     import shapely
@@ -67,7 +67,7 @@ def models(con, bridges, rank0=False, lidar=True):
             for a in P["axes"]:
                 a["vertical"]["source"], a["vertical"]["method"] = "urbanstyle", "chosen"
             P["name"] += " (no LiDAR)"
-        m = model(con, P, rank0=rank0)
+        m = model(con, P, rank0=rank0, gmns=gmns)
         ms.append(m)
         # the street spaces of level 1 and up on these structures: the page hides their flat drawing (as deck3d did)
         poly = shapely.from_geojson(json.dumps(m["deck_ll"]))
@@ -958,7 +958,11 @@ def _trim_to_osm(con, P):
 
 
 # ---------------------------------------------------------------- 3. the model
-def model(con, P, rank0=False, cover=True):
+def model(con, P, rank0=False, cover=True, gmns=None):
+    """One bridge's 3D model. gmns (the bridge's SUMO via duckOSM GMNS): step 5 of docs/notes/bridge-steps.md, the structure (rank 0) on the
+    accepted steps 1 to 4: its outline is step 3b's smooth outline of each level, and each axis's heights count where its own bands lie
+    (step 4: SUMO's lanes on its ways, its OSM paths); no cover yet (step 6). Without gmns: the outline from bridge_cover.layout, as before."""
+    import copy
     import numpy as np
     import pyproj
     import shapely
@@ -967,6 +971,7 @@ def model(con, P, rank0=False, cover=True):
     from .bridge_structure import structure
     crs = P["crs"]
     from .bridge_cover import layout
+    P_raw = copy.deepcopy(P)          # (before the trim: steps_3b_4 trims its own copy)
     _trim_to_osm(con, P)             # (no corrections file: the lanes are SUMO's; an OSM fault goes to duckOSM's overrides)
     axes = [(shapely.LineString([q[:2] for q in a["line"]["value"]]), a) for a in P["axes"]]
     _LANES.clear()    # (the profile's own lanes, as the old model: Kaveh 2026-10-18)
@@ -976,8 +981,21 @@ def model(con, P, rank0=False, cover=True):
     _write_back(P, nodes, per_axis, h)
     # the deck is what lies on it: the lanes, the junction lanes and the paths, plus the edge (bridge_cover, rule 6); each axis's own
     # lanes and paths set where its heights count (_Surface)
-    cov = layout(P, axes, a_lv)
-    structs = [(lv, [aid for aid, l_ in a_lv.items() if l_ == lv], pg, cov["own"]) for lv, pg in cov["deck"].items()]
+    if gmns:
+        from .bridge_forks import steps_3b_4
+        # (on a copy: the steps trim the profile to OSM's ends themselves, and a second trim would cut the landings again)
+        s_axes, s_lv, R_, B_, F_, outline, S4 = steps_3b_4(con, copy.deepcopy(P_raw), gmns)
+        own = {}
+        for ln_, a_ in axes:
+            ways_ = set(a_["ways"])
+            g_ = [b_["poly"] for b_ in S4["bands"] if (b_["kind"] == "lane" and b_["props"].get("osm") in ways_)
+                  or (b_["kind"] in ("sidewalk", "cycle lane") and b_["props"].get("axis") == a_["id"])]
+            own[a_["id"]] = shapely.union_all(g_).buffer(EDGE_M) if g_ else ln_.buffer(1.0)
+        structs = [(lv, [aid for aid, l_ in a_lv.items() if l_ == lv], pg, own) for lv, pg in outline.items()]
+        cover = False                     # (step 6 lays the cover on this structure, later)
+    else:
+        cov = layout(P, axes, a_lv)
+        structs = [(lv, [aid for aid, l_ in a_lv.items() if l_ == lv], pg, cov["own"]) for lv, pg in cov["deck"].items()]
     by_id = {a["id"]: (ln, a) for ln, a in axes}
     all_poly = shapely.union_all([pg for _, _, pg, _ in structs])
 
@@ -1173,7 +1191,7 @@ def _tris(cell):
     import shapely
     out = []
     for pg in shapely.get_parts(cell):
-        if pg.geom_type != "Polygon" or pg.area < 0.01:
+        if pg.geom_type != "Polygon" or pg.area < 1e-6:     # (only pieces with no area: a 0.01 m2 sliver cell at the edge left a tear, D1)
             continue
         for t in shapely.get_parts(shapely.constrained_delaunay_triangles(pg)):
             if t.area > 1e-6:
@@ -1307,7 +1325,7 @@ def _mesh_flat(poly, key, props, S, lift, rise, tm, surf, grid):
             v.append(tm(x, y, zz))
         return ix[q]
     for pg in shapely.get_parts(shapely.make_valid(poly)):
-        if pg.geom_type != "Polygon" or pg.area < 0.01:
+        if pg.geom_type != "Polygon" or pg.area < 1e-6:     # (only pieces with no area: a 0.01 m2 sliver cell at the edge left a tear, D1)
             continue
         for c in grid(pg, STEP_M):
             for t in _tris(c):

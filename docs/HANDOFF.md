@@ -6,6 +6,13 @@ first, then this note, then `docs/notes/street-rules.md` and `docs/notes/section
 
 ## Bridges: the words and the order of the steps (2026-10-19, read this first)
 
+**2026-10-20, after the background session (30b4d6d).** Kaveh: "do the best for the project in general, not a special case". Step 3's
+width is now exact (`_extent_exact`: every corner point of the branch's own bands, along the whole axis from the taper's end at a fork,
+FORK_TAPER_M), not sampled every 2 m. The step 3b sliver rule (SLIVER_M) is removed: it was a workaround for the sampling and it made the
+last jog. Granville: 0 jogs and 0 holes in the smooth outline; 9 m2 of two paths lie outside, both more than BESIDE_M (3 m) from the
+lanes (a path that moves away from the road is not deck, by the agreed rule). Reference saved again with Kaveh's permission.
+Steps 3b and 4 are not accepted yet.
+
 **State at the end of 2026-10-19/20.** Steps 1 to 3 are made and shown in 2D; none is frozen yet (Kaveh has not accepted them).
 - `src/urbanstyle/bridge_forks.py`: step 1 (`forks`: junction nodes, carriageway pairs, forks, branch points), steps 2 and 3
   (`partition`: branches and forks on OSM's own lines, `_osm_axis`), and the 2D dashboard (`dashboard`, `viz/bridge2d-granville.html`):

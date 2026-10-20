@@ -172,6 +172,27 @@ def _pair_mid(lnA, kA, lnB, kB):
     return shapely.LineString(mids)
 
 
+def _extent_exact(line, polys, reach=40.0):
+    """(lo, hi): how far the polygons reach to the left (+) and right (-) of the line, from every corner point of them (exact: a width
+    measured at stations every 2 m missed the bands' edges between two stations, and they stuck out of the branch as slivers up to 1.1 m
+    wide). Only the parts beside the line count (its flat strip, ``reach`` wide on each side), not past its ends."""
+    import numpy as np
+    import shapely
+    from .bridge_surface import _frame
+    strip = line.buffer(reach, cap_style="flat")
+    pts = [c for g in polys for pg in shapely.get_parts(g.intersection(strip)) if pg.geom_type == "Polygon"
+           for ring in [pg.exterior] + list(pg.interiors) for c in ring.coords]
+    if not pts:
+        return 0.0, 0.0
+    ts = []
+    for x, y in pts:
+        s_ = line.project(shapely.Point(x, y))
+        x0, y0, nx, ny = _frame(line, s_)
+        ts.append((x - x0) * nx + (y - y0) * ny)
+    ts = np.array(ts)
+    return float(min(0.0, ts.min())), float(max(0.0, ts.max()))
+
+
 def _extent(line, polys, step=5.0, reach=40.0):
     """(lo, hi): how far the polygons reach to the left (+) and right (-) of the line, over its length."""
     import shapely
@@ -570,7 +591,9 @@ def band_widths(P, axes, R, gmns=None, edge=0.5):
                 cut[(aid, k)] = f["branch_m"].get(aid, 0.0)
     out = {}
     for ln0, a in axes:
-        c0, c1 = cut.get((a["id"], 0), 0.0), cut.get((a["id"], 1), 0.0)
+        # (from the taper's end at a fork, FORK_TAPER_M, not from the branch point: the arm's strip inside the fork has this width too, and
+        # a sidewalk beside a4 inside f1 stuck out of it by 0.7 m over 48 m; nearer the node the line runs through the shared deck)
+        c0, c1 = (min(FORK_TAPER_M, cut[(a["id"], k)]) if (a["id"], k) in cut else 0.0 for k in (0, 1))
         ln = shapely.ops.substring(ln0, c0, ln0.length - c1) if ln0.length - c0 - c1 > 2.0 else ln0
         ways = set(a["ways"])
         lanes = [b_["poly"] for b_ in bs if b_["kind"] == "lane" and b_["props"]["osm"] in ways]
@@ -600,7 +623,7 @@ def band_widths(P, axes, R, gmns=None, edge=0.5):
             if not added:
                 break
         own = list(lanes) + list(got.values())
-        lo, hi = _extent(ln, own, step=2.0)
+        lo, hi = _extent_exact(ln, own)
         out[a["id"]] = (round(lo - edge, 2), round(hi + edge, 2))
     return out
 
@@ -700,7 +723,6 @@ def jogs(poly):
 
 
 TAPER_M = 10.0          # step 3b: a step in the outline (a jog) becomes a straight taper over this on each side of its corner
-SLIVER_M = 1.5          # step 3b: a piece of a step-4 band within this of the branches and forks is part of the outline (a sliver at an edge)
 
 
 def step3b(B, F, bands=None):
@@ -708,36 +730,13 @@ def step3b(B, F, bands=None):
     closed and opened by SMOOTH_M with round joins, so no notch or bump smaller than 2 SMOOTH_M stays (a jog at an OSM vertex, a step where
     two branches' widths meet at a branch point), and never smaller than the union: nothing of a branch is taken, so a bridge end stays
     square. Then each jog left (a convex step where a wider branch's square end meets a narrower one: a10 against the a11 + a12 pair at
-    Hemlock) becomes a straight taper: the deck between the corner and the outline TAPER_M along it on each side. ``bands`` (step 4's): the
-    pieces of the lanes and paths that lie within SLIVER_M outside the branches and forks are part of the outline (slivers where a band's
-    edge and the branch's edge are a little apart: the width is measured every 2 m). Returns {level: polygon}."""
+    Hemlock) becomes a straight taper: the deck between the corner and the outline TAPER_M along it on each side. ``bands`` is not used: step 3
+    measures each branch's width exactly from its bands, so no sliver of a band is left outside (a path that moves away from the road,
+    more than BESIDE_M from the lanes, is not deck). Returns {level: polygon}."""
     import shapely
     out = {}
     for lv in sorted({b["level"] for b in B}):
         u = shapely.union_all([b["poly"] for b in B if b["level"] == lv] + [f["poly"] for f in F if f["level"] == lv])
-        if bands:
-            near = u.buffer(SLIVER_M)
-            # (not past a bridge end: the end stays square; a sidewalk that runs on a little there made a step on the end, b3)
-            beyond = []
-            for b in B:
-                if b["level"] != lv:
-                    continue
-                for e, nd in enumerate(b["ends"]):
-                    if nd is not None:
-                        continue
-                    ln = b["line"]
-                    p0 = ln.coords[0] if e == 0 else ln.coords[-1]
-                    q = ln.interpolate(min(2.0, ln.length) if e == 0 else max(0.0, ln.length - 2.0))
-                    dx, dy = p0[0] - q.x, p0[1] - q.y
-                    h = math.hypot(dx, dy) or 1.0
-                    dx, dy = dx / h, dy / h                        # out of the bridge, along the axis
-                    nx, ny = -dy, dx
-                    beyond.append(shapely.Polygon([(p0[0] + nx * 60, p0[1] + ny * 60), (p0[0] - nx * 60, p0[1] - ny * 60),
-                                                   (p0[0] - nx * 60 + dx * 60, p0[1] - ny * 60 + dy * 60), (p0[0] + nx * 60 + dx * 60, p0[1] + ny * 60 + dy * 60)]))
-            cut = shapely.union_all(beyond) if beyond else shapely.Polygon()
-            slivers = shapely.union_all([b_["poly"].intersection(near) for b_ in bands
-                                         if b_["kind"] in ("lane", "connector", "sidewalk", "cycle lane", "path joint")] or [shapely.Polygon()])
-            u = u.union(slivers.difference(cut.difference(u)))
         closed = u.buffer(SMOOTH_M, join_style="round").buffer(-SMOOTH_M, join_style="round")
         smooth = closed.buffer(-SMOOTH_M, join_style="round").buffer(SMOOTH_M, join_style="round").union(u)
         smooth = smooth.buffer(0.5, join_style="round").buffer(-0.5, join_style="round")    # (the corners where the opened and the original meet)

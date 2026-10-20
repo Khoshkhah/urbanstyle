@@ -47,3 +47,32 @@ def test_the_forks_of_step_2_are_as_accepted(now, ref):
     assert now["fork_areas"].keys() == ref["fork_areas"].keys()
     for k, v in ref["fork_areas"].items():
         assert now["fork_areas"][k] == pytest.approx(v, abs=0.05), k
+
+
+REF_3B_4 = os.path.join(os.path.dirname(__file__), "reference", "granville-bridge-steps-3b-4.json")
+
+
+@pytest.fixture(scope="module")
+def now_3b_4():
+    import duckdb
+    from urbanstyle.bridge_forks import snapshot_3b_4, steps_3b_4
+    con = duckdb.connect(DB, read_only=True)
+    con.execute("LOAD spatial")
+    *_, outline, S4 = steps_3b_4(con, json.load(open(PROFILE)), GMNS)
+    return snapshot_3b_4(outline, S4)
+
+
+def test_the_smooth_outline_of_step_3b_is_as_accepted(now_3b_4):
+    ref = json.load(open(REF_3B_4))
+    assert now_3b_4["outline"].keys() == ref["outline"].keys()
+    for lv, r in ref["outline"].items():
+        n = now_3b_4["outline"][lv]
+        assert n["area_m2"] == pytest.approx(r["area_m2"], abs=0.5) and n["edge_m"] == pytest.approx(r["edge_m"], abs=0.5), lv
+        assert n["rings"] == r["rings"], lv
+
+
+def test_the_bands_of_step_4_are_as_accepted(now_3b_4):
+    ref = json.load(open(REF_3B_4))
+    assert [(b["kind"], b["id"], b["home"]) for b in now_3b_4["bands"]] == [(b["kind"], b["id"], b["home"]) for b in ref["bands"]]
+    for b, r in zip(now_3b_4["bands"], ref["bands"]):
+        assert b["area_m2"] == pytest.approx(r["area_m2"], abs=0.05), b["id"]

@@ -761,3 +761,26 @@ def step3b(B, F, bands=None):
                                         for p_ in shapely.get_parts(smooth) if p_.geom_type == "Polygon"])   # (micro gaps where a taper meets an arc)
         out[lv] = shapely.make_valid(smooth)
     return out
+
+
+def snapshot_3b_4(outline, S4):
+    """Steps 3b and 4 as plain data, to freeze them: each level's smooth outline (area, length of its edge, its points rounded to 1 cm) and
+    the bands of step 4 (kind, source id, home, area), sorted."""
+    import shapely
+    r2 = lambda v: round(float(v), 2)
+    ol = {}
+    for lv, g in outline.items():
+        g = shapely.normalize(g.simplify(0.01))
+        ol[str(lv)] = {"area_m2": r2(g.area), "edge_m": r2(g.length),
+                       "rings": [[[r2(x), r2(y)] for x, y in ring.coords] for pg in shapely.get_parts(g) for ring in [pg.exterior] + list(pg.interiors)]}
+    key = lambda b: str(b["props"].get("lane_id") or b["props"].get("connector") or b["props"].get("osm") or b["props"].get("why"))
+    bands_ = sorted([{"kind": b["kind"], "id": key(b), "home": b["home"], "area_m2": r2(b["poly"].area)} for b in S4["bands"]],
+                    key=lambda d: (d["kind"], d["id"], d["area_m2"]))
+    return {"outline": ol, "bands": bands_}
+
+
+def steps_3b_4(con, P, gmns=None):
+    """Steps 3b and 4 as accepted, on the frozen steps 1 to 3: (axes, levels, R, B, F, outline {level: polygon}, step 4's result)."""
+    axes, a_lv, R, B, F = steps_1_3(con, P, gmns)
+    S4 = step4(P, axes, B, F, gmns=gmns)
+    return axes, a_lv, R, B, F, step3b(B, F, S4["bands"]), S4

@@ -26,7 +26,7 @@ The profile uses the standard terms of road design (OpenDRIVE, IFC 4.3 alignment
   has its centre offset `t` and its width.
 
 A bridge with ramps, for example the Granville Bridge, has more than one axis. Each OSM chain of road ways on the deck between two
-branch points is one axis.
+junction nodes is one axis.
 
 ## The file
 

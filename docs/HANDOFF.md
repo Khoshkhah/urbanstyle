@@ -4,6 +4,26 @@ Status: written at the end of the 2026-10-15/16 session, updated in the night of
 data-structure design. Read `AGENTS.md`
 first, then this note, then `docs/notes/street-rules.md` and `docs/notes/sections.md`.
 
+## Bridges: the words and the order of the steps (2026-10-19, read this first)
+
+**State at the end of 2026-10-19/20.** Steps 1 to 3 are made and shown in 2D; none is frozen yet (Kaveh has not accepted them).
+- `src/urbanstyle/bridge_forks.py`: step 1 (`forks`: junction nodes, carriageway pairs, forks, branch points), steps 2 and 3
+  (`partition`: branches and forks on OSM's own lines, `_osm_axis`), and the 2D dashboard (`dashboard`, `viz/bridge2d-granville.html`):
+  a layer for each step, SUMO's lanes and connectors from GMNS, OSM's paths, and the old bridge3d model for comparison.
+- The profile's axis lines are NOT OSM's lines (the LiDAR step added landings and moved them up to 0.6 m): read OSM's way lines.
+- Step 4 (the bands) takes SUMO's lanes. SUMO's input was fixed in duckOSM (branch geoparquet-export, commits 29b2df4 and 8088deb): the
+  lane counts as OSM overrides, the lane arrows at the north fork, no turn-back on a bridge, two-way roads centred on their line, and one
+  lane placement for GMNS and SUMO. SUMO for a bridge: build its edges from the PBF (`duckosm build --pbf ... -b <bridge area>`, 7 s) and
+  `duckosm gmns` on it (a few seconds), not the whole city. Granville's: `data/granville-bridge.gmns.duckdb` (not in git).
+- The city databases (`data/vancouver_city.osm.duckdb`, `.gmns.duckdb`) have the lane overrides but not the new SUMO rules.
+- Open: `bridge_cover.py` still makes its own lanes (step 4 must read SUMO's lanes and OSM's paths); smoothing (step 3b); a8's east
+  sidewalk lies on its lanes (lane widths are SUMO's 3.25 m by class); `corrections/lanes.json` is now in duckOSM's overrides too.
+
+`docs/notes/bridge-steps.md` is agreed with Kaveh: a bridge level is divided into branches and forks; junction nodes, carriageway
+pairs and branch points are found by its rules (Granville: 10 branches, 4 forks); the work goes in seven steps (1 to 4 and a 2D
+dashboard in 2D, then rank 0, the cover, the dashboard in 3D), and each step is frozen when Kaveh accepts it. Where the notes below
+disagree with it, that note is right.
+
 ## Bridges: the state on 2026-10-17 (read this first)
 
 **End of the session, 2026-10-18 (read this first).** Code at commit 077ec1f (network-first, not pushed). Kaveh ended the session

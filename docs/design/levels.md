@@ -19,7 +19,7 @@ measurement is a script that replaces a value with its source and method.
 
 The profile uses the words of road design:
 
-- **Axis:** a reference line along the deck, one chain of OSM road ways on the deck between two branch points. A bridge with ramps
+- **Axis:** a reference line along the deck, one chain of OSM road ways on the deck between two junction nodes. A bridge with ramps
   has several axes. A position on the deck is `(s, t)`: `s` along the axis from its start, `t` across it, left positive.
 - **Vertical profile:** the height of the deck top along the axis, as points `(s, z)`, linear between them.
 - **Section:** a length of the axis where the cross-section does not change. A new section starts where the bands change.

@@ -79,7 +79,13 @@ The words of the model, the code and the dashboard, in one place. When a word is
 | Term | Meaning |
 |---|---|
 | **bridge profile** | one JSON file per bridge: the deck outline, the axes, the vertical profiles, the sections, the bands and the piers, each value with its source and method; scripts make it; the 3D model reads only this file |
-| **axis** (of a bridge) | one chain of OSM road ways on the deck between two branch points; the reference line of `(s, t)` |
+| **axis** (of a bridge) | one chain of OSM road ways on the deck between two junction nodes; the reference line of `(s, t)` |
+| **bridge level** | the part of one bridge at one level (1 or 2); it is divided into branches and forks |
+| **branch** (of a bridge) | one road on a bridge level: one centre line from OSM and one width (its lanes and paths, plus the edge); it begins and ends at a fork or a bridge end |
+| **fork** (of a bridge) | the piece of deck where two or more branches meet and share one deck; a merge is the same piece; the width changes only there |
+| **branch point** | where the deck of one arm of a fork stops touching the decks of the other arms: the end of that branch at the fork |
+| **carriageway pair** | two one-way roads that leave one junction node side by side (within 14 m over at least 40 m and 80 % of the shorter): one road, one branch |
+| **bridge end** | the last OSM node of a bridge way |
 | **vertical profile** | the height of the deck top along an axis, as points `(s, z)` |
 | **section** (of an axis) | a length of the axis where its bands do not change |
 | **band** | one strip across a section: a lane with its GMNS lane id, at offset `t` with its width |

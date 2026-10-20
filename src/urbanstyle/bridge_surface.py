@@ -41,22 +41,19 @@ BRANCH_TAPER_M = 30.0 # a narrower axis leaves a wider one along a smooth S-curv
 LINE_SMOOTH_M = 12.0  # a branch's centre line is the mean of OSM's line within this on each side (no jog at a vertex)
 PAIR_M = 14.0         # two one-way lines this near each other, side by side, are one road ...
 PAIR_MIN_M = 40.0     # ... over at least this length from the node they share
+PAIR_STEADY_M = 20.0  # ... their width is measured from this far from the node, where the two lines have opened to their running distance
 SPLIT_M = 40.0        # a carriageway split: the two lines are measured this far from the node, where they have moved apart
 BRANCH_M = 10.0       # D8: within this of a node where axes meet, a step in the edge is the branch (the width changes there), not a fault
 NEAR_M = 0.5          # the blend of heights: weight 1 / (distance + NEAR_M)^2
 W_CLEAR = 50.0        # the weight of a clearance (a wish: a clearance the grade cannot reach is listed, D4)
 W_GRADE = 100.0       # the weight of a grade over GRADE (the deck climbs at GRADE where it can, MAX_GRADE at most)
 NODE_STEP_M = 10.0    # the solve has a node at least every this along each axis
-COVER_LIFT_M = 0.03   # the cover above the slab's top
-LANE_EASE_M = 20.0    # a lane's offset is smoothed over this along its axis (sections join with no step)
-MEDIAN_M = 3.0        # a gap between lanes narrower than twice this is part of the driving side (a median)
-SEP_W = 0.5           # a barrier on the deck: this wide ...
-SEP_H = 0.9           # ... and this high (concrete barrier, TL-4 about 0.9 m)
 W_COUPLE = 100.0      # the weight that holds two joined decks at one height
 COUPLE_FROM_GROUND_M = 10.0  # ... except within this of a ground node (a ramp descends there)
 W_MEASURED = 10.0     # the weight that holds a measured height (LiDAR) where the profile has one
 W_RULE = 0.02         # the weight of the agreed rule where nothing else decides: a deck rises at GRADE from its ground ends, TOP_M at most
 STEEP_DEG = 45.0      # D2: a face steeper than this inside a structure
+MAX_TURN_DEG = 90.0   # a bridge has no U-turn: a band link that turns more than this is not a move (Kaveh 2026-10-19)
 
 
 def models(con, bridges, rank0=False, lidar=True):
@@ -681,8 +678,10 @@ def _merge_carriageways(branches):
                 sa0, sa1 = sorted((ea_, ea_ + sa * Lp)); sb0, sb1 = sorted((eb_, sb_end))
                 both = shapely.union_all([_strip(shapely.ops.substring(la, sa0, sa1), A[1], A[2]),
                                           _strip(shapely.ops.substring(lb, sb0, sb1), Bb[1], Bb[2])])
-                # one width: the one they have where they start together (the first 10 m); the merged road ends where they spread
-                # wider than that by more than 1 m: there they separate, and each is its own branch (Kaveh: the width changes only at a branch)
+                # one width: the one they have where they run together, PAIR_STEADY_M to PAIR_STEADY_M + 10 m from the node (nearer, the two
+                # lines still open out from it: measured there, every pair ended at 6 m and none was merged, Hemlock a11 + a12); the merged road
+                # ends where they spread wider than that by more than 1 m: there they separate, and each is its own branch (Kaveh: the width
+                # changes only at a branch)
                 ext = []
                 for d in np.linspace(0.0, ml.length, max(3, int(ml.length / 2.0))):
                     x, y, nx, ny = _frame(ml, d)
@@ -690,11 +689,13 @@ def _merge_carriageways(branches):
                     ts = [((cx - x) * nx + (cy - y) * ny) for seg in shapely.get_parts(cross)
                           if not seg.is_empty and seg.geom_type == "LineString" for cx, cy in seg.coords]
                     ext.append((d, min(ts) if ts else 0.0, max(ts) if ts else 0.0))
-                head = [e for e in ext if e[0] <= 10.0] or ext[:1]
+                head = [e for e in ext if PAIR_STEADY_M <= e[0] <= PAIR_STEADY_M + 10.0] or ext[-1:]
                 lo_, hi_ = float(np.median([e[1] for e in head])), float(np.median([e[2] for e in head]))
-                cut = next((e[0] for e in ext if (e[2] - e[1]) > (hi_ - lo_) + 1.0), ml.length)
-                if cut < PAIR_MIN_M:
-                    continue                  # (together for less than PAIR_MIN_M: no merged road, the two lines branch where they meet)
+                cut = next((e[0] for e in ext if e[0] > PAIR_STEADY_M and (e[2] - e[1]) > (hi_ - lo_) + 1.0), ml.length)
+                if cut < PAIR_MIN_M or cut < 0.8 * min(la.length, lb.length):
+                    continue                  # (together for less than PAIR_MIN_M, or for less than 80 % of the shorter line: two ramps that
+                                              # leave one node, not one road's two carriageways; they branch where they meet. a9 and a4 at the
+                                              # main span's south end: 63 m of 179 m)
                 if cut < ml.length - 1.0:
                     ml = shapely.ops.substring(ml, 0.0, max(cut, 1.0))
                     Lp = ml.length
@@ -965,19 +966,18 @@ def model(con, P, rank0=False, cover=True):
     from .bridge3d import grid
     from .bridge_structure import structure
     crs = P["crs"]
-    from .bridge3d import correct_sections
-    correct_sections(P)              # (the agreed lane corrections, corrections/lanes.json, as the old model: Fir ramp 2 lanes)
-    _trim_to_osm(con, P)
+    from .bridge_cover import layout
+    _trim_to_osm(con, P)             # (no corrections file: the lanes are SUMO's; an OSM fault goes to duckOSM's overrides)
     axes = [(shapely.LineString([q[:2] for q in a["line"]["value"]]), a) for a in P["axes"]]
     _LANES.clear()    # (the profile's own lanes, as the old model: Kaveh 2026-10-18)
     a_lv = _axis_level(con, P)
     nodes, per_axis, pairs = _nodes(P, a_lv)
     h, res = _solve(P, nodes, per_axis, pairs, _couplings(P, nodes, per_axis, a_lv))
     _write_back(P, nodes, per_axis, h)
-    val = lambda v: v["value"] if isinstance(v, dict) else v        # (a profile value with its source, or a plain one)
-    paths = [shapely.LineString([q[:2] for q in val(p["line"])]).buffer((val(p.get("width")) or 2.0) / 2)
-             for p in P.get("paths", []) if len(val(p["line"])) >= 2]
-    structs = _structures(P, axes, a_lv, paths)
+    # the deck is what lies on it: the lanes, the junction lanes and the paths, plus the edge (bridge_cover, rule 6); each axis's own
+    # lanes and paths set where its heights count (_Surface)
+    cov = layout(P, axes, a_lv)
+    structs = [(lv, [aid for aid, l_ in a_lv.items() if l_ == lv], pg, cov["own"]) for lv, pg in cov["deck"].items()]
     by_id = {a["id"]: (ln, a) for ln, a in axes}
     all_poly = shapely.union_all([pg for _, _, pg, _ in structs])
 
@@ -1115,7 +1115,19 @@ def model(con, P, rank0=False, cover=True):
                 d8.append(ll(x1, y1))                 # (a step at a node where axes meet is a branch: the width changes there)
     # ---- the cover (ranks 1 to 6), made from the same profile as the structure so it fills the deck by construction
     if cover and not rank0:
-        _cover(P, axes, pieces, tm, surf, grid, _branches(axes, paths, a_lv))
+        for g, key, lift, rise, props in cov["items"]:
+            for lv, pg, S, ids, kind in pieces:
+                if lv == props.get("level"):
+                    q = shapely.make_valid(g.intersection(pg))
+                    if not q.is_empty and q.area > 0.01:
+                        _mesh_flat(q, key, dict(props, layer="cover"), S, lift, rise, tm, surf, grid)
+        # the rest of each slab is paved: also where a hole of the deck was filled (no hole in a structure), which the cover has no piece of
+        for lv, pg, S, ids, kind in pieces:
+            on = shapely.union_all([g for g, key, *_r, props in cov["items"] if props.get("level") == lv and not key.startswith("mark")]
+                                   or [shapely.Polygon()])
+            q = shapely.make_valid(pg.difference(on))
+            if not q.is_empty and q.area > 0.01:
+                _mesh_flat(q, "paved", {"type": "paved", "bridge": P["name"], "layer": "cover"}, S, 0.03, 0.0, tm, surf, grid)
     # D6: two structures of one level overlapping
     for i, (lv, pg, _, _, _) in enumerate(pieces):
         for lv2, pg2, _, _, _ in pieces[i + 1:]:
@@ -1173,248 +1185,114 @@ def _tris(cell):
     return out
 
 
-def _cover(P, axes, pieces, tm, surf, grid, branches=()):
-    """The cover of a bridge, from its profile, laid on the structure's height surface:
-    - the driving side: every lane band of every axis (its section, its offset and width), lanes made disjoint; the gaps between
-      lanes closed (a median); a barrier between the two directions where their lanes touch or a median lies between them;
-    - the walking side: the deck outside the driving side where OSM maps a walking or cycling way, a barrier between it and the
-      driving side; the cycle lane inside it (a cycleway, or a path where bicycles are designated);
-    - elsewhere the deck outside the lanes is paved (a gore at a split);
-    - painted: dashed lines between lanes of one direction, edge lines along the driving side, an arrow on each lane every 100 m."""
+def _moves(P):
+    """The band-to-band links of a bridge (the profile's `connectors`: SUMO's lane connectors, via duckOSM GMNS) between two axes, each
+    with its junction node and its turn: [(connector, (axis, direction, lane) from, ... to, node, turn in degrees, a move)]. A link that
+    turns more than MAX_TURN_DEG is not a move: a bridge has no U-turn, and where OSM maps no turn restriction SUMO links every lane in
+    to every lane out (Granville: 6 links of 113 to 141 degrees; every real move turns 30 degrees or less)."""
+    import math
+    band = {b["lane_id"]: (a["id"], b.get("direction"), b.get("lane")) for a in P["axes"] for sec in a.get("sections", [])
+            for b in sec.get("bands", []) if b.get("lane_id")}
+    ends = {}
+    for a in P["axes"]:
+        ln = a["line"]["value"]
+        for e, q in zip(a["ends"], (ln[0], ln[-1])):
+            if e.get("node"):
+                ends.setdefault(e["node"], q[:2])
+    hd = lambda p, q: math.degrees(math.atan2(q[1] - p[1], q[0] - p[0]))
+    out = []
+    for c in P.get("connectors", []):
+        f, t, ln = band.get(c["from"]), band.get(c["to"]), c["line"]
+        if not f or not t or f[0] == t[0] or len(ln) < 2 or not ends:
+            continue
+        turn = (hd(ln[-2], ln[-1]) - hd(ln[0], ln[1]) + 180) % 360 - 180
+        node = min(ends, key=lambda k: math.dist(ends[k], ln[len(ln) // 2]))
+        out.append((c, f, t, node, round(turn), abs(turn) <= MAX_TURN_DEG))
+    return out
+
+
+PATH_RUN_M = 5.0      # a path's stretch beside one axis shorter than this belongs to the axis before it (no flicker at a junction node)
+
+
+def _path_bands(P, axes):
+    """The walking and cycling bands of a bridge: each sidewalk, cycleway or shared path of the profile (`paths`, not a crossing) is a band
+    of the axis it runs beside, cut where it passes from one axis to the next; its line is its own OSM line, its width the path's width.
+    Two bands are connected where they are pieces of one OSM way, or where their OSM ways share a node; with no such source they are not
+    connected and each ends there (flat). Returns (bands, joints): bands [{axis, side, s0, s1, way, kind, line, width}], joints
+    [{at, bands: (i, j), why}] with i, j indexes into bands."""
+    import math
+    import numpy as np
     import shapely
     import shapely.ops
-    from .network import arrow_shape
     val = lambda v: v["value"] if isinstance(v, dict) else v
-    deck = shapely.union_all([pg for _, pg, _, _, _ in pieces])
-    import numpy as np
-    lanes = []                       # (polygon, direction, centre line oriented in travel direction)
-    by_id = {a["id"]: (ln, a) for ln, a in axes}
-
-    osm_l = {}          # (the profile's own lanes, as the old model used: never a recount from OSM's tags; Kaveh 2026-10-18)
-
-    def bands(a, s_, d):
-        """The lanes of axis a at s in direction d (relative to the axis), from OSM's lanes tags of the way there (never GMNS's count:
-        a mapped count is kept), centred on the way's line; lane k is the k-th from the middle."""
-        sec = next((x for x in a.get("sections", []) if x["s0"] - 0.01 <= s_ <= x["s1"] + 0.01 and x.get("bands")), None)
-        if not sec:
-            return []
-        w_ = next((b.get("way") for b in sec["bands"] if b.get("way")), None)
-        wid = float(sec["bands"][0]["width"]["value"]) if sec["bands"] else 3.25
-        if w_ not in osm_l:
-            bs = [b for b in sec["bands"] if b.get("type") == "lane" and (b.get("direction") or "forward") == d]
-            return sorted(bs, key=lambda b: abs(float(b["t"])))
-        nf, nb, same = osm_l[w_][a["id"]] if a["id"] in osm_l[w_] else osm_l[w_]["_"]
-        if not same:
-            nf, nb = nb, nf                                      # (the way runs against the axis)
-        n = nf + nb
-        # from the left edge: the nb lanes against the axis on the left, then the nf lanes with it
-        ts = [(n / 2 - 0.5 - q) * wid for q in range(n)]
-        mine = ts[nb:] if d == "forward" else ts[:nb]
-        out_ = [{"t": t, "width": {"value": wid}, "direction": d} for t in mine]
-        return sorted(out_, key=lambda b: abs(b["t"]) if nb and nf else (abs(b["t"] - (sum(ts) / len(ts))) if ts else 0))
-
-    def continuation(ln, a, end_s):
-        """The axis that continues this one straight on at its end (|cos| over 0.9), with its end there: (line, axis, its end, same sense)."""
-        p_ = ln.interpolate(end_s)
-        x1, y1, nx1, ny1 = _frame(ln, end_s)
-        for ln2, b in axes:
-            if b["id"] == a["id"]:
-                continue
-            for e2 in (0.0, ln2.length):
-                if ln2.interpolate(e2).distance(p_) > 0.5:
+    bands, ends = [], []
+    for p in P.get("paths", []):
+        if p.get("footway") == "crossing" or len(val(p["line"])) < 2:
+            continue
+        ln = shapely.LineString([q[:2] for q in val(p["line"])])
+        kind = "cycle lane" if p.get("type") == "cycleway" or p.get("bicycle") == "designated" else "sidewalk"
+        ds = np.linspace(0.0, ln.length, max(2, int(ln.length) + 1))
+        near = [min(axes, key=lambda la: la[0].distance(ln.interpolate(d)))[1]["id"] for d in ds]
+        runs = []                                       # [(axis id, from index, to index)], short runs given to the run before
+        for k, a_id in enumerate(near):
+            if runs and runs[-1][0] == a_id:
+                runs[-1][2] = k
+            else:
+                runs.append([a_id, k, k])
+        merged = []
+        for r in runs:
+            if merged and ds[r[2]] - ds[r[1]] < PATH_RUN_M:
+                merged[-1][2] = r[2]
+            elif merged and merged[-1][0] == r[0]:
+                merged[-1][2] = r[2]
+            else:
+                merged.append(r)
+        first = len(bands)
+        for a_id, k0, k1 in merged:
+            d0, d1 = ds[k0] if k0 == merged[0][1] else (ds[k0] + ds[k0 - 1]) / 2, ds[k1] if k1 == merged[-1][2] else (ds[k1] + ds[k1 + 1]) / 2
+            piece = shapely.ops.substring(ln, d0, d1)
+            ax, ax_a = next((la, a) for la, a in axes if a["id"] == a_id)
+            # a path band ends where its bridge ends on the ground: OSM's path way runs on past it, onto the ground (a tail past
+            # the deck at a2, a3, a5 and a8 of Granville); at a junction node the next axis's band takes it on
+            gr = [bool(e.get("ground")) for e in ax_a.get("ends", [{}, {}])]
+            if any(gr):
+                cs = list(ax.coords)
+                (x0, y0), (x1, y1), (x2, y2), (x3, y3) = cs[0], cs[1], cs[-2], cs[-1]
+                h0, h1 = math.hypot(x1 - x0, y1 - y0) or 1.0, math.hypot(x3 - x2, y3 - y2) or 1.0
+                run = 0.0 if gr[0] else 60.0
+                run1 = 0.0 if gr[-1] else 60.0
+                body = shapely.LineString([(x0 - (x1 - x0) / h0 * run, y0 - (y1 - y0) / h0 * run)] + cs[1:-1]
+                                          + [(x3 + (x3 - x2) / h1 * run1, y3 + (y3 - y2) / h1 * run1)])
+                kept = [g for g in shapely.get_parts(piece.intersection(body.buffer(40.0, cap_style="flat"))) if g.geom_type == "LineString"]
+                if not kept:
                     continue
-                x2, y2, nx2, ny2 = _frame(ln2, e2)
-                c_ = nx1 * nx2 + ny1 * ny2
-                if abs(c_) > 0.9 and ((end_s > 0) == (e2 == 0.0)) == (c_ > 0):
-                    return ln2, b, e2, c_ > 0
-        return None
-    # each lane of each axis as one ribbon: its offset and width smoothed over LANE_EASE_M (a section change is a taper); at an axis
-    # end where another axis goes straight on, both meet at the mean of their offsets there (a joint of two axes is never a step)
-    for ln, a in axes:
-        L = ln.length
-        if L < 1.0:
-            continue
-        ss = np.linspace(0.0, L, max(3, int(L) + 1))
-        for d in ("forward", "backward"):
-            nmax = max((len(bands(a, s_, d)) for s_ in ss), default=0)
-            for k in range(nmax):
-                tw = [(float(b_[k]["t"]), float(b_[k]["width"]["value"])) if len(b_) > k else None for b_ in (bands(a, s_, d) for s_ in ss)]
-                k0 = 0
-                while k0 < len(ss):
-                    if tw[k0] is None:
-                        k0 += 1; continue
-                    k1 = k0
-                    while k1 + 1 < len(ss) and tw[k1 + 1] is not None:
-                        k1 += 1
-                    run = list(range(k0, k1 + 1))
-                    if ss[k1] - ss[k0] >= 2.0:
-                        t_ = np.array([tw[q][0] for q in run]); w_ = np.array([tw[q][1] for q in run])
-                        h = max(1, int(LANE_EASE_M / 2 / max(ss[1] - ss[0], 0.1)))
-                        t_s = np.array([t_[max(0, q - h):q + h + 1].mean() for q in range(len(run))])
-                        w_s = np.array([w_[max(0, q - h):q + h + 1].mean() for q in range(len(run))])
-                        for end_i, end_s in ((0, 0.0), (len(run) - 1, L)):
-                            if abs(ss[run[end_i]] - end_s) > 0.6:
-                                continue
-                            cont = continuation(ln, a, end_s)
-                            if not cont:
-                                continue
-                            ln2, b2, e2, same = cont
-                            d2 = d if same else ("backward" if d == "forward" else "forward")
-                            b2s = bands(b2, min(max(e2, 0.3), ln2.length - 0.3), d2)
-                            if len(b2s) <= k:
-                                continue
-                            t2 = float(b2s[k]["t"]) * (1 if same else -1)
-                            x1, y1, nx1, ny1 = _frame(ln, end_s); x2, y2, nx2, ny2 = _frame(ln2, e2)
-                            t2 = ((x2 + nx2 * float(b2s[k]["t"]) - x1) * nx1 + (y2 + ny2 * float(b2s[k]["t"]) - y1) * ny1)
-                            target = (t_s[end_i] + t2) / 2
-                            for q in range(len(run)):
-                                dd = abs(ss[run[q]] - end_s)
-                                if dd < LANE_EASE_M:
-                                    f = 0.5 * (1 + np.cos(np.pi * dd / LANE_EASE_M))
-                                    t_s[q] = t_s[q] + (target - t_s[end_i]) * f
-                        left, right, mid = [], [], []
-                        for q, idx in enumerate(run):
-                            x, y, nx, ny = _frame(ln, float(ss[idx]))
-                            left.append((x + nx * (t_s[q] + w_s[q] / 2), y + ny * (t_s[q] + w_s[q] / 2)))
-                            right.append((x + nx * (t_s[q] - w_s[q] / 2), y + ny * (t_s[q] - w_s[q] / 2)))
-                            mid.append((x + nx * t_s[q], y + ny * t_s[q]))
-                        pg = shapely.make_valid(shapely.Polygon(left + right[::-1])).buffer(0)
-                        lanes.append((pg, d, shapely.LineString(mid if d == "forward" else mid[::-1])))
-                    k0 = k1 + 1
-    polys = lambda g_: shapely.union_all([x for x in shapely.get_parts(shapely.make_valid(g_)) if x.geom_type == "Polygon" and x.area > 0.01]
-                                         or [shapely.Polygon()])          # (only the area: a collection's lines and points have no boundary)
-    done, out_l = shapely.Polygon(), []
-    for pg, d, c in lanes:
-        q = polys(polys(pg.difference(done)).intersection(deck))
-        if q.area > 0.3:
-            out_l.append((q, d, c))
-            done = done.union(pg)
-    F = shapely.union_all([q for q, d, c in out_l if d != "backward"] or [shapely.Polygon()])
-    Bk = shapely.union_all([q for q, d, c in out_l if d == "backward"] or [shapely.Polygon()])
-    lanes_all = F.union(Bk)
-    D = lanes_all.buffer(MEDIAN_M, join_style="mitre").buffer(-MEDIAN_M, join_style="mitre").intersection(deck)
-    gaps = polys(D.difference(lanes_all))
-    median = shapely.Polygon()
-    if not F.is_empty and not Bk.is_empty:
-        touch = F.buffer(SEP_W / 2).intersection(Bk.buffer(SEP_W / 2))          # where the two directions meet
-        med = shapely.union_all([g for g in shapely.get_parts(gaps) if g.distance(F) < 0.3 and g.distance(Bk) < 0.3] or [shapely.Polygon()])
-        mid = []                                                                # the middle of a gap between them: as far from each
-        if not med.is_empty:
-            cells = [c for c in grid(med, 0.5) if c.area > 0.01]
-            if cells:
-                cs_ = shapely.centroid(np.array(cells, dtype=object))
-                dF, dB = shapely.distance(F, cs_), shapely.distance(Bk, cs_)
-                mid = [cells[q] for q in range(len(cells)) if abs(dF[q] - dB[q]) <= SEP_W]
-        line_ = shapely.union_all(mid).buffer(0.3, join_style="round").buffer(-0.3, join_style="round") if mid else shapely.Polygon()
-        median = polys(shapely.union_all([touch, line_]).intersection(D))
-    # the walking side: the deck outside the driving side, the pieces of it where a walking or cycling way lies
-    walk_ways = [p for p in P.get("paths", []) if p.get("footway") != "crossing" and len(val(p["line"])) >= 2]
-    wpoly = shapely.union_all([shapely.LineString([q[:2] for q in val(p["line"])]).buffer((val(p.get("width")) or 2.0) / 2) for p in walk_ways]
-                              or [shapely.Polygon()])
-    rest = polys(deck.difference(D))
-    walking = shapely.union_all([g for g in shapely.get_parts(rest) if g.geom_type == "Polygon" and g.intersection(wpoly).area > 1.0
-                                 and not g.buffer(-0.7).is_empty] or [shapely.Polygon()])
-    paved = polys(rest.difference(walking))
-    cyc = shapely.union_all([shapely.LineString([q[:2] for q in val(p["line"])]).buffer((val(p.get("width")) or 2.0) / 2) for p in walk_ways
-                             if p.get("type") == "cycleway" or p.get("bicycle") == "designated"] or [shapely.Polygon()])
-    cycle = polys(cyc.intersection(walking.buffer(-SEP_W)))
-    sep = polys(D.buffer(SEP_W, join_style="mitre").difference(D).intersection(walking))   # driving side | walking side
-    walking = polys(walking.difference(sep).difference(cycle))
-
-    def put(poly, key, lift, rise=0.0, props=None):
-        for lv, pg, S, ids, kind in pieces:
-            q = poly.intersection(pg)
-            if not q.is_empty and q.area > 0.01:
-                _mesh_flat(q, key, dict(props or {}, layer="cover"), S, lift, rise, tm, surf, grid)
-    for q, d, c in out_l:
-        put(shapely.make_valid(q.difference(median)), f"lane {d}", COVER_LIFT_M)
-    put(shapely.make_valid(gaps.difference(median)), "paved", COVER_LIFT_M)
-    put(paved, "paved", COVER_LIFT_M)
-    put(walking, "sidewalk", COVER_LIFT_M, 0.15)
-    put(cycle, "cycle lane", COVER_LIFT_M, 0.15)
-    put(sep, "barrier", COVER_LIFT_M, SEP_H, {"type": "barrier", "between": "the driving side and the walking side"})
-    put(median, "barrier", COVER_LIFT_M, SEP_H, {"type": "barrier", "between": "the two directions"})
-    # painted lines
-    paint = COVER_LIFT_M + 0.03
-    for q, d, c in out_l:
-        same = F if d != "backward" else Bk
-        inner = q.boundary.intersection(same.buffer(-0.2))
-        segs = []
-        for l_ in shapely.get_parts(shapely.line_merge(inner) if not inner.is_empty and inner.geom_type != "Point" else shapely.MultiLineString()):
-            if l_.geom_type != "LineString":
+                piece = max(kept, key=lambda g: g.length)
+            if piece.length < 0.5:
                 continue
-            d0 = 0.0
-            while d0 < l_.length:
-                segs.append(shapely.ops.substring(l_, d0, min(d0 + 3.0, l_.length))); d0 += 9.0
-        if segs:
-            put(shapely.union_all(segs).buffer(0.06, cap_style="flat").difference(median), "mark lane line", paint)
-    edge = D.buffer(-0.25).boundary
-    if not edge.is_empty:
-        put(edge.buffer(0.06, cap_style="flat").intersection(D).difference(median), "mark edge line", paint)
-    for q, d, c in out_l:
-        L = c.length
-        for s_ in [x for x in (L - 15.0, L - 115.0, L - 215.0, L - 315.0) if x > 8.0]:
-            tip, back = c.interpolate(s_), c.interpolate(s_ - 1.0)
-            hx, hy = tip.x - back.x, tip.y - back.y
-            n = (hx * hx + hy * hy) ** 0.5 or 1.0
-            a_ = arrow_shape((tip.x, tip.y), (hx / n, hy / n), {"straight"})
-            if a_ is not None and not a_.is_empty:
-                put(a_.buffer(0.075).intersection(q), "mark arrow", paint)
-
-
-def _osm_lanes(P, axes):
-    """OSM's lanes per way of the profile's sections: {way: {axis id: (lanes with the way, lanes against it, the way runs with the axis)}},
-    from the profile's own OSM database (made.inputs). lanes:forward / lanes:backward when given; else a oneway all forward; else lanes
-    split in two (the odd one forward); no lanes tag: one per direction (duckOSM's rule)."""
-    import duckdb
-    import pyproj
-    import shapely
-    src = next((x for x in (P.get("made") or {}).get("inputs", []) if str(x).endswith(".osm.duckdb")), None)
-    if not src:
-        return {}
-    import os
-    if not os.path.exists(src):
-        return {}
-    ways = sorted({b.get("way") for _, a in axes for sec in a.get("sections", []) for b in (sec.get("bands") or []) if b.get("way")})
-    o = duckdb.connect(src, read_only=True)
-    rows = o.execute("SELECT osm_id, tags, refs FROM raw.ways WHERE osm_id IN (SELECT unnest(?::BIGINT[]))", [[int(w[1:]) for w in ways]]).fetchall()
-    refs = sorted({r for _, _, rs in rows for r in rs})
-    pts = dict((i, (x, y)) for i, y, x in o.execute("SELECT osm_id, lat, lon FROM raw.nodes WHERE osm_id IN (SELECT unnest(?::BIGINT[]))", [refs]).fetchall())
-    tr = pyproj.Transformer.from_crs("EPSG:4326", P["crs"], always_xy=True).transform
-    out = {}
-    for oid, tags, rs in rows:
-        t = dict(tags)
-        one = t.get("oneway") in ("yes", "1", "true") or t.get("junction") == "roundabout"
-        try:
-            n = int(t.get("lanes", "0"))
-        except ValueError:
-            n = 0
-        lf, lb = t.get("lanes:forward"), t.get("lanes:backward")
-        if lf and lb:
-            nf, nb = int(lf), int(lb)
-        elif one:
-            nf, nb = max(n, 1), 0
-        elif n:
-            nf, nb = (n + 1) // 2, n // 2
-        else:
-            nf, nb = 1, 1
-        cs = [tr(*pts[r]) for r in rs if r in pts]
-        if len(cs) < 2:
-            continue
-        wl = shapely.LineString(cs)
-        rec = {}
-        for ln, a in axes:
-            if f"w{oid}" not in a.get("ways", []):
+            m = piece.interpolate(0.5, normalized=True)
+            x, y, nx, ny = _frame(ax, ax.project(m))
+            bands.append({"axis": a_id, "side": "left" if (m.x - x) * nx + (m.y - y) * ny > 0 else "right",
+                          "s0": round(min(ax.project(shapely.Point(piece.coords[0])), ax.project(shapely.Point(piece.coords[-1]))), 1),
+                          "s1": round(max(ax.project(shapely.Point(piece.coords[0])), ax.project(shapely.Point(piece.coords[-1]))), 1),
+                          "way": p.get("way"), "kind": kind, "line": piece, "width": float(val(p.get("width")) or 2.0)})
+        ends.append((p.get("way"), first, len(bands) - 1, ln.coords[0], ln.coords[-1]))
+    joints = []
+    for way, i0, i1, _, _ in ends:                      # pieces of one OSM way: end to end
+        for i in range(i0, i1):
+            joints.append({"at": bands[i]["line"].coords[-1], "bands": (i, i + 1), "why": f"one OSM way {way}"})
+    for k, (w1, a0, a1_, p0, p1) in enumerate(ends):    # two ways that share a node (an end of one on the other's line)
+        for w2, b0, b1_, q0, q1 in ends[k + 1:]:
+            if a1_ < a0 or b1_ < b0:
                 continue
-            mid = wl.interpolate(0.5, normalized=True)
-            s_ = ln.project(mid)
-            q0, q1 = ln.interpolate(max(0.0, s_ - 1.0)), ln.interpolate(min(ln.length, s_ + 1.0))
-            w0, w1 = wl.interpolate(max(0.0, wl.project(mid) - 1.0)), wl.interpolate(min(wl.length, wl.project(mid) + 1.0))
-            same = (q1.x - q0.x) * (w1.x - w0.x) + (q1.y - q0.y) * (w1.y - w0.y) >= 0
-            rec[a["id"]] = (nf, nb, same)
-        rec["_"] = (nf, nb, True)
-        out[f"w{oid}"] = rec
-    return out
+            for pt, i in ((p0, a0), (p1, a1_)):
+                for j in range(b0, b1_ + 1):
+                    if bands[j]["line"].distance(shapely.Point(pt)) < 0.3:
+                        joints.append({"at": pt, "bands": (i, j), "why": f"OSM ways {w1} and {w2} share a node"}); break
+            for pt, j in ((q0, b0), (q1, b1_)):
+                for i in range(a0, a1_ + 1):
+                    if bands[i]["line"].distance(shapely.Point(pt)) < 0.3 and not any(set(jt["bands"]) == {i, j} for jt in joints):
+                        joints.append({"at": pt, "bands": (i, j), "why": f"OSM ways {w1} and {w2} share a node"}); break
+    return bands, joints
 
 
 def _mesh_flat(poly, key, props, S, lift, rise, tm, surf, grid):
@@ -1493,6 +1371,7 @@ def plan_html(con, P, out):
     structs = _structures(P, axes, a_lv, paths)
     allg = shapely.union_all([pg for _, _, pg, _ in structs] + [l_.buffer(20) for l_, *_ in branches])
     x0, y0, x1, y1 = allg.bounds
+    fs = max(4.0, (x1 - x0) / 110)  # (labels readable when the whole bridge is in view)
     cols = ["#e6194b", "#3cb44b", "#4363d8", "#f58231", "#911eb4", "#46f0f0", "#f032e6", "#9a6324", "#008080", "#800000", "#808000", "#000075"]
     ox, oy = x0, y1                               # (local coordinates: an SVG is drawn in single precision, UTM numbers lose 0.5 m)
     X = lambda x: x - ox
@@ -1513,17 +1392,34 @@ def plan_html(con, P, out):
     for k, (bl, lo, hi, ids) in enumerate(branches):
         c = cols[k % len(cols)]
         band = _strip(bl, lo, hi)
-        svg.append(f'<path d="{poly_d(band)}" fill="{c}" fill-opacity="0.12" stroke="{c}" stroke-width="1" vector-effect="non-scaling-stroke"/>')
+        svg.append(f'<path d="{poly_d(band)}" fill="{c}" fill-opacity="0.12" stroke="{c}" stroke-width="1" class="br" vector-effect="non-scaling-stroke"/>')
     for g in _transitions(branches):
-        svg.append(f'<path d="{poly_d(g)}" fill="none" stroke="#000" stroke-width="1" stroke-dasharray="4 3" vector-effect="non-scaling-stroke"/>')
+        svg.append(f'<path d="{poly_d(g)}" fill="none" stroke="#000" stroke-width="1" stroke-dasharray="4 3" class="br" vector-effect="non-scaling-stroke"/>')
     for _, _, pg, _ in structs:
         svg.append(f'<path d="{poly_d(pg)}" fill="none" stroke="#111" stroke-width="2" vector-effect="non-scaling-stroke"/>')
     for k, (bl, lo, hi, ids) in enumerate(branches):
         c = cols[k % len(cols)]
-        svg.append(f'<polyline points="{" ".join(f"{X(x):.2f},{Y(y):.2f}" for x, y in bl.coords)}" fill="none" stroke="{c}" stroke-width="2" vector-effect="non-scaling-stroke"/>')
+        svg.append(f'<polyline points="{" ".join(f"{X(x):.2f},{Y(y):.2f}" for x, y in bl.coords)}" fill="none" stroke="{c}" stroke-width="2" class="br" vector-effect="non-scaling-stroke"/>')
         m = bl.interpolate(0.5, normalized=True)
-        svg.append(f'<text x="{X(m.x):.1f}" y="{Y(m.y):.1f}" font-size="5" fill="{c}" stroke="#fff" stroke-width="0.6" paint-order="stroke">'
+        svg.append(f'<text x="{X(m.x):.1f}" y="{Y(m.y):.1f}" font-size="{fs:.1f}" fill="{c}" stroke="#fff" stroke-width="{fs / 6:.2f}" paint-order="stroke" class="br">'
                    f'{_html.escape("+".join(ids))}  {hi - lo:.1f} m</text>')
+    for k, (ln, a) in enumerate(axes):   # the profile's split: each axis, a tick where a section ends, a ring where an axis ends at a node
+        c = cols[k % len(cols)]
+        svg.append(f'<polyline points="{" ".join(f"{X(x):.2f},{Y(y):.2f}" for x, y in ln.coords)}" fill="none" stroke="{c}" stroke-width="3" class="ax" vector-effect="non-scaling-stroke"/>')
+        for sec in a.get("sections", [])[1:]:
+            x, y, nx, ny = _frame(ln, float(sec["s0"]))
+            svg.append(f'<line x1="{X(x - nx * 4):.2f}" y1="{Y(y - ny * 4):.2f}" x2="{X(x + nx * 4):.2f}" y2="{Y(y + ny * 4):.2f}" '
+                       f'stroke="#000" stroke-width="1.5" class="ax" vector-effect="non-scaling-stroke"/>')
+        for e in a["ends"]:
+            if not e["ground"]:
+                p_ = ln.interpolate(float(e["s"]))
+                svg.append(f'<circle cx="{X(p_.x):.1f}" cy="{Y(p_.y):.1f}" r="2.2" fill="#fff" stroke="#000" stroke-width="1" class="ax" data-node="{e["node"]}" vector-effect="non-scaling-stroke"/>')
+        m = ln.interpolate(0.3, normalized=True)
+        svg.append(f'<text x="{X(m.x):.1f}" y="{Y(m.y):.1f}" font-size="{fs:.1f}" fill="{c}" stroke="#fff" stroke-width="{fs / 6:.2f}" paint-order="stroke" font-weight="bold" class="ax">{a["id"]}</text>')
+    for c, f, t, node, turn, ok in _moves(P):     # the band-to-band links between axes: a move dark, a link that turns back red
+        pts_ = " ".join(f"{X(x):.2f},{Y(y):.2f}" for x, y, *_ in c["line"])
+        look = 'stroke="#111" stroke-width="1.5" marker-end="url(#mv)"' if ok else 'stroke="#d00" stroke-width="2" stroke-dasharray="3 2" marker-end="url(#mvx)"'
+        svg.append(f'<polyline points="{pts_}" fill="none" {look} class="mv" vector-effect="non-scaling-stroke"/>')
     for nd in nodes:
         if nd["ground"]:
             svg.append(f'<circle cx="{X(nd["xy"][0]):.1f}" cy="{Y(nd["xy"][1]):.1f}" r="1.2" fill="#000"/>')
@@ -1532,8 +1428,11 @@ def plan_html(con, P, out):
 <style>html,body{{margin:0;height:100%;background:#fafaf5;font-family:sans-serif}}svg{{width:100%;height:100%;cursor:grab}}
 #k{{position:absolute;left:10px;top:8px;background:#fff;padding:6px 10px;border-radius:6px;box-shadow:0 1px 4px #0003;font-size:13px}}</style></head><body>
 <div id="k"><b>{_html.escape(P['name'])}: rank 0 in plan</b><br>coloured line: a branch's centre line &middot; coloured band: its one width &middot;
-dashed: a transition where a branch leaves &middot; black: the deck's edge &middot; dot: a point on the ground<br><small>drag: move &middot; wheel: zoom</small></div>
-<svg id="s" viewBox="0 0 {w:.1f} {hgt:.1f}" xmlns="http://www.w3.org/2000/svg">{''.join(svg)}</svg>
+dashed: a transition where a branch leaves &middot; black: the deck's edge &middot; dot: a point on the ground<br>
+a1, a2, ...: an axis &middot; ring: a junction node, where an axis ends (three or more road ends meet) &middot; tick: a section ends (a GMNS link ends there)<br>\nblack arrow: a band-to-band move between two axes (SUMO) &middot; red dashed arrow: a link that turns back over 90 degrees, left out<br><small>drag: move &middot; wheel: zoom</small></div>
+<svg id="s" viewBox="0 0 {w:.1f} {hgt:.1f}" xmlns="http://www.w3.org/2000/svg"><defs>
+<marker id="mv" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#111"/></marker>
+<marker id="mvx" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#d00"/></marker></defs>{''.join(svg)}</svg>
 <script>const s=document.getElementById('s');let v=s.viewBox.baseVal,d=null;
 s.onmousedown=e=>{{d={{x:e.clientX,y:e.clientY}};s.style.cursor='grabbing'}};window.onmouseup=()=>{{d=null;s.style.cursor='grab'}};
 window.onmousemove=e=>{{if(!d)return;const k=v.width/s.clientWidth;v.x-=(e.clientX-d.x)*k;v.y-=(e.clientY-d.y)*k;d={{x:e.clientX,y:e.clientY}}}};

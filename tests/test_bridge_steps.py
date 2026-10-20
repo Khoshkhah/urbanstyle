@@ -8,20 +8,19 @@ import pytest
 
 PROFILE = "data/bridges-measured/granville-bridge.bridge.json"
 DB = "data/cuts/granville.urban.duckdb"
+GMNS = "data/granville-bridge.gmns.duckdb"         # SUMO for the bridge's own edges (duckOSM, not in git)
 REF = os.path.join(os.path.dirname(__file__), "reference", "granville-bridge-steps-1-3.json")
 
-pytestmark = pytest.mark.skipif(not (os.path.exists(PROFILE) and os.path.exists(DB)), reason="needs the local data/")
+pytestmark = pytest.mark.skipif(not all(os.path.exists(f) for f in (PROFILE, DB, GMNS)), reason="needs the local data/")
 
 
 @pytest.fixture(scope="module")
 def now():
     import duckdb
-    from urbanstyle.bridge_forks import partition, snapshot, step1
+    from urbanstyle.bridge_forks import snapshot, steps_1_3
     con = duckdb.connect(DB, read_only=True)
     con.execute("LOAD spatial")
-    P = json.load(open(PROFILE))
-    axes, a_lv, widths, R = step1(con, P)
-    B, F = partition(P, axes, a_lv, widths, R)
+    axes, a_lv, R, B, F = steps_1_3(con, json.load(open(PROFILE)), GMNS)
     return snapshot(R, B, F)
 
 

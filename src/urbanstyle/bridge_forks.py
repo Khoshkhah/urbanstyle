@@ -132,6 +132,14 @@ def _osm_axis(P, a):
     return ln
 
 
+def steps_1_3(con, P, gmns=None):
+    """Steps 1 to 3 as accepted (docs/notes/bridge-steps.md): step 1's points with its own widths, then the branches and forks with each
+    branch's one width from its own step-4 bands (band_widths). Returns (axes, levels, R, B, F)."""
+    axes, a_lv, widths, R = step1(con, P)
+    B, F = partition(P, axes, a_lv, {**widths, **band_widths(P, axes, R, gmns)}, R)
+    return axes, a_lv, R, B, F
+
+
 def step1(con, P):
     """Step 1 of profile P with the area's database: (axes, levels, widths, the points of forks())."""
     import shapely
@@ -328,7 +336,7 @@ def dashboard(con, P, out, old=None, gmns=None):
     from .bridge_cover import COLOURS as COVER, layout
     from .bridge_surface import _frame
     axes, a_lv, widths, R = step1(con, P)
-    B, F = partition(P, axes, a_lv, widths, R)
+    B, F = partition(P, axes, a_lv, {**widths, **band_widths(P, axes, R, gmns)}, R)   # (step 1's branch points keep step 1's widths)
     S4 = step4(P, axes, B, F, gmns=gmns)
     by_id = {a["id"]: (ln, a) for ln, a in axes}
     allg = shapely.union_all([b["poly"] for b in B] + [ln.buffer(30) for ln, _ in axes])
@@ -518,6 +526,64 @@ def snapshot(R, B, F):
 STICK_OUT_M2 = 1.0      # a band piece outside every branch and fork larger than this is listed (a check)
 
 
+def bands(P, axes, gmns=None):
+    """The bands of step 4 without their homes (step4)."""
+    return step4(P, axes, None, None, gmns=gmns)["bands"]
+
+
+BESIDE_M = 3.0          # a path counts in a branch's width where its edge is within this of the branch's lanes
+
+
+def band_widths(P, axes, R, gmns=None, edge=0.5):
+    """Step 3's one width of each axis from its own step-4 bands (Kaveh, 2026-10-20): the lanes SUMO makes on its OSM ways and the path
+    bands OSM gives it, measured across its OSM line along its body (from its branch point at a fork, step 1's R, to its other end: inside
+    a fork the line runs through the shared deck and the other road's sidewalk lay 15 to 18 m from it), plus ``edge`` on each side.
+    {axis id: (lo, hi)}, left positive."""
+    import shapely
+    import shapely.ops
+    bs = bands(P, axes, gmns)
+    cut = {}
+    for f in R["forks"]:
+        for r in f["roads"]:
+            for aid, k in r:
+                cut[(aid, k)] = f["branch_m"].get(aid, 0.0)
+    out = {}
+    for ln0, a in axes:
+        c0, c1 = cut.get((a["id"], 0), 0.0), cut.get((a["id"], 1), 0.0)
+        ln = shapely.ops.substring(ln0, c0, ln0.length - c1) if ln0.length - c0 - c1 > 2.0 else ln0
+        ways = set(a["ways"])
+        lanes = [b_["poly"] for b_ in bs if b_["kind"] == "lane" and b_["props"]["osm"] in ways]
+        if not lanes:
+            continue
+        # a path counts only over the stretch where it runs beside the lanes, its edge within BESIDE_M of them (Kaveh, 2026-10-20):
+        # where it leaves the road (a sidewalk that turns away at a ramp) it is not this branch's width
+        # ... or within BESIDE_M of a path that already counts (a sidewalk behind the cycle path, a1: 6.7 m from the lanes, 0.5 m from the
+        # cycle path; Kaveh 2026-10-20). Repeated until no path is added.
+        # (a path is measured against the lanes and the OTHER paths' counted pieces: against its own, it went on counting metre by metre)
+        lane_g = shapely.union_all(lanes)
+        paths = [b_ for b_ in bs if b_["kind"] in ("sidewalk", "cycle lane") and b_["props"].get("axis") == a["id"]]
+        got = {}                                           # path index -> its counted piece
+        while True:
+            added = False
+            for k, b_ in enumerate(paths):
+                w_ = float(b_["props"].get("width_m") or 2.0)
+                near = shapely.union_all([lane_g] + [g for k2, g in got.items() if k2 != k])
+                beside = b_["line"].intersection(near.buffer(BESIDE_M + w_ / 2))
+                if beside.is_empty or beside.length <= 0.5:
+                    continue
+                piece = beside.buffer(w_ / 2, cap_style="flat")
+                if k in got and piece.area <= got[k].area + 0.5:
+                    continue
+                got[k] = piece
+                added = True
+            if not added:
+                break
+        own = list(lanes) + list(got.values())
+        lo, hi = _extent(ln, own, step=2.0)
+        out[a["id"]] = (round(lo - edge, 2), round(hi + edge, 2))
+    return out
+
+
 def step4(P, axes, B, F, gmns=None):
     """Step 4 (docs/notes/bridge-steps.md): the bands of the bridge, from the sources only. Lanes: SUMO's lane lines (GMNS lane.geom_cut,
     else geom) as wide as their width, on the bridge's OSM ways. Connectors: SUMO's paths from lane to lane through a junction
@@ -573,6 +639,8 @@ def step4(P, axes, B, F, gmns=None):
             w = float(val(q.get("width")) or 3.0)
             bands.append({"kind": "crossing", "line": ln, "poly": ln.buffer(w / 2, cap_style="flat"),
                           "props": {"osm": q.get("way"), "marked": not (q.get("crossing") == "unmarked" or q.get("markings") == "no"), "source": "OSM"}})
+    if B is None:
+        return {"bands": bands, "outside": []}
     homes = [(f"branch {b['id']}", b["poly"]) for b in B] + [(f"fork {f['id']}", f["poly"]) for f in F]
     everything = shapely.union_all([h for _, h in homes])
     outside = []

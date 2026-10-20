@@ -306,31 +306,28 @@ def partition(P, axes, a_lv, widths, R):
     for k_, f in enumerate(R["forks"]):
         parts = []
         arms = []
+        # the fork starts at its trunk's full cross-section at the node (Kaveh, 2026-10-20): from there to each other arm's cross-section
+        # FORK_TAPER_M along it (its branch point at most), the deck between the two is the fork's, and the arm's own strip begins only
+        # there. The trunk's square end met a narrower fork with a step of 6 m and more; an arm's own strip from the node stuck out past
+        # the trunk's edge as a spike (f4, a3 beside a9)
+        trunk_ids = {aid for aid, _ in f["trunk"]}
+        xsec = lambda b, e, d: (lambda fr: [(fr[0] + fr[2] * b["lo"], fr[1] + fr[3] * b["lo"]), (fr[0] + fr[2] * b["hi"], fr[1] + fr[3] * b["hi"])])(
+            _frame(b["line"], d if e == 0 else b["line"].length - d))
+        T = next(((b, e) for b in branches for e, nd in enumerate(b["ends"]) if nd == f["node"] and trunk_ids & set(b["axes"])), None)
         for b in branches:
-            for e, (node) in enumerate(b["ends"]):
+            for e, node in enumerate(b["ends"]):
                 if node != f["node"]:
                     continue
                 arms.append(b["id"])
                 s_cut = b["s0"] if e == 0 else b["s1"]
                 L = b["line"].length
-                seg = shapely.ops.substring(b["line"], 0.0, max(s_cut, 0.5)) if e == 0 else shapely.ops.substring(b["line"], L - max(s_cut, 0.5), L)
-                parts.append(seg.buffer(b["hi"], single_sided=True, cap_style="flat").union(seg.buffer(b["lo"], single_sided=True, cap_style="flat")))
-        # the fork starts at its trunk's full cross-section at the node (Kaveh, 2026-10-20): from there to each other arm's cross-section
-        # FORK_TAPER_M along it (its branch point at most), the deck between the two is the fork's; the trunk's square end met a narrower
-        # fork with a step of 6 m and more (7 jogs left after smoothing)
-        trunk_ids = {aid for aid, _ in f["trunk"]}
-        xsec = lambda b, e, d: (lambda fr: [(fr[0] + fr[2] * b["lo"], fr[1] + fr[3] * b["lo"]), (fr[0] + fr[2] * b["hi"], fr[1] + fr[3] * b["hi"])])(
-            _frame(b["line"], d if e == 0 else b["line"].length - d))
-        T = next(((b, e) for b in branches for e, nd in enumerate(b["ends"]) if nd == f["node"] and trunk_ids & set(b["axes"])), None)
-        if T is not None:
-            t_pts = xsec(T[0], T[1], 0.0)
-            for b in branches:
-                for e, nd in enumerate(b["ends"]):
-                    if nd != f["node"] or b is T[0]:
-                        continue
-                    d = min(FORK_TAPER_M, b["s0"] if e == 0 else b["s1"])
-                    if d > 0.5:
-                        parts.append(shapely.MultiPoint(t_pts + xsec(b, e, d)).convex_hull)
+                d = min(FORK_TAPER_M, s_cut) if (T is not None and b is not T[0]) else 0.0
+                if T is not None and b is not T[0] and d > 0.5:
+                    parts.append(shapely.MultiPoint(xsec(T[0], T[1], 0.0) + xsec(b, e, d)).convex_hull)
+                if s_cut - d > 0.5 or d <= 0.5:
+                    a0, a1 = (d, max(s_cut, d + 0.5)) if e == 0 else (L - max(s_cut, d + 0.5), L - d)
+                    seg = shapely.ops.substring(b["line"], a0, a1)
+                    parts.append(seg.buffer(b["hi"], single_sided=True, cap_style="flat").union(seg.buffer(b["lo"], single_sided=True, cap_style="flat")))
         g = shapely.union_all(parts)
         g = g.buffer(CLOSE_M, join_style="round").buffer(-CLOSE_M, join_style="round").union(g)
         g = g.difference(shapely.union_all([b["poly"] for b in branches if b["level"] == f["level"]]))

@@ -486,3 +486,20 @@ if(q.get('off'))q.get('off').split(',').forEach(g=>{{const i=document.querySelec
     with open(out, "w") as f_:
         f_.write(page_)
     return R, B, F
+
+
+# ---------------------------------------------------------------- the frozen result of steps 1 to 3
+def snapshot(R, B, F):
+    """Steps 1 to 3 as plain data, to freeze them (docs/notes/bridge-steps.md, "How a step is frozen"): the junction nodes, the
+    carriageway pairs, the forks with their trunk and branch points, and the branches with their axes, ends, cuts, widths, lines and
+    areas; the forks' areas. Coordinates and metres rounded to 1 cm."""
+    r2 = lambda v: round(float(v), 2)
+    return {
+        "nodes": sorted(n["node"] for n in R["nodes"]),
+        "pairs": sorted([[list(a) for a in p["arms"]], r2(p["together_m"])] for p in R["pairs"]),
+        "forks": [{"node": f["node"], "trunk": [list(a) for a in f["trunk"]], "branch_m": {k: r2(v) for k, v in sorted(f["branch_m"].items())}}
+                  for f in sorted(R["forks"], key=lambda f: f["node"])],
+        "branches": [{"id": b["id"], "axes": b["axes"], "ends": b["ends"], "s0": r2(b["s0"]), "s1": r2(b["s1"]), "lo": r2(b["lo"]), "hi": r2(b["hi"]),
+                      "line": [[r2(x), r2(y)] for x, y in b["line"].coords], "area_m2": r2(b["poly"].area)} for b in B],
+        "fork_areas": {f["node"]: r2(f["poly"].area) for f in F},
+    }

@@ -759,8 +759,46 @@ def step3b(B, F, bands=None):
             smooth = shapely.union_all([smooth] + add).buffer(0.3, join_style="mitre").buffer(-0.3, join_style="mitre")
             smooth = shapely.union_all([shapely.Polygon(p_.exterior, [r for r in p_.interiors if shapely.Polygon(r).area >= 2.0])
                                         for p_ in shapely.get_parts(smooth) if p_.geom_type == "Polygon"])   # (micro gaps where a taper meets an arc)
-        out[lv] = shapely.make_valid(smooth)
+        out[lv] = _smooth_bends(shapely.make_valid(smooth))
     return out
+
+
+BEND_DEG = 35.0         # step 3b: a turn in the outline of at most this is a bend (smoothed); a larger one is a corner (kept: a bridge end, a gore)
+BEND_PASSES = 4         # ... rounded by this many passes of corner cutting (Chaikin)
+
+
+def _smooth_bends(g):
+    """The outline's bends rounded (Kaveh, 2026-10-20: "smooth along the curves too, no kink at an OSM point"): each point where the edge
+    turns BEND_DEG or less is cut, a quarter and three quarters along its two segments, BEND_PASSES times (Chaikin); a point where it turns
+    more is a corner and stays (a bridge end stays square, a gore keeps its point). A kink of a few degrees at an OSM point becomes a curve
+    and the edge moves by a few centimetres."""
+    import shapely
+
+    def turn(a, b, c):
+        (x0, y0), (x1, y1), (x2, y2) = a, b, c
+        return abs(math.degrees(math.atan2((x1 - x0) * (y2 - y1) - (y1 - y0) * (x2 - x1), (x1 - x0) * (x2 - x1) + (y1 - y0) * (y2 - y1))))
+
+    def ring(cs):
+        pts = list(cs)[:-1]
+        for _ in range(BEND_PASSES):
+            n, new = len(pts), []
+            if n < 4:
+                break
+            for i in range(n):
+                a, b, c = pts[i - 1], pts[i], pts[(i + 1) % n]
+                if turn(a, b, c) > BEND_DEG:
+                    new.append(b)                                     # a corner: kept
+                    continue
+                new.append((0.75 * b[0] + 0.25 * a[0], 0.75 * b[1] + 0.25 * a[1]))
+                new.append((0.75 * b[0] + 0.25 * c[0], 0.75 * b[1] + 0.25 * c[1]))
+            pts = new
+        return pts + [pts[0]]
+    parts = []
+    for pg in shapely.get_parts(g.simplify(0.02)):          # (first the micro points a union leaves: a 4 cm zigzag turned 21 degrees)
+        if pg.geom_type != "Polygon":
+            continue
+        parts.append(shapely.make_valid(shapely.Polygon(ring(pg.exterior.coords), [ring(r.coords) for r in pg.interiors])))
+    return shapely.union_all(parts) if parts else g
 
 
 def snapshot_3b_4(outline, S4):

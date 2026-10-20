@@ -317,7 +317,7 @@ def partition(P, axes, a_lv, widths, R):
 COLOURS = ["#1e88e5", "#43a047", "#fb8c00", "#8e24aa", "#00897b", "#e53935", "#6d4c41", "#3949ab", "#c0ca33", "#d81b60", "#00acc1", "#7cb342"]
 
 
-def dashboard(con, P, out, old=None):
+def dashboard(con, P, out, old=None, gmns=None):
     """Steps 1 to 4 of a bridge on one 2D page (docs/notes/bridge-steps.md, step 4b): a layer for each step, each can be ticked off.
     Step 1: the junction nodes, the carriageway pairs, the branch points. Step 2: the branches and the forks. Step 3: each branch's
     centre line and one width. Step 4: the bands (lanes, paths, barriers, paint) from bridge_cover.layout. Tables of the forks and the
@@ -329,7 +329,7 @@ def dashboard(con, P, out, old=None):
     from .bridge_surface import _frame
     axes, a_lv, widths, R = step1(con, P)
     B, F = partition(P, axes, a_lv, widths, R)
-    cov = layout(P, axes, a_lv, steps1=R)
+    S4 = step4(P, axes, B, F, gmns=gmns)
     by_id = {a["id"]: (ln, a) for ln, a in axes}
     allg = shapely.union_all([b["poly"] for b in B] + [ln.buffer(30) for ln, _ in axes])
     x0, y0, x1, y1 = allg.bounds
@@ -414,10 +414,19 @@ def dashboard(con, P, out, old=None):
     for ln, a in axes:
         L["osm"].append(f'<path d="{line_d(ln)}" fill="none" stroke="#37474f" stroke-width="1" stroke-dasharray="4 3" vector-effect="non-scaling-stroke">'
                         f'<title>OSM axis {a["id"]}: {esc(", ".join(a["ways"]))}</title></path>')
-    order = list(COVER)
-    for g, key, lift, rise, props in sorted(cov["items"], key=lambda it: order.index(it[1]) if it[1] in order else 0):
-        tip = esc(" ".join(f"{k}={v}" for k, v in props.items() if k in ("id", "type", "axis", "lane_id", "direction", "lane", "osm")))
-        L["s4"].append(f'<path d="{poly_d(g)}" fill="{COVER.get(key, "#999")}"><title>{tip}</title></path>')
+    C4 = {"lane": "#5f6b70", "connector": "#f0b05a", "sidewalk": "#c8b48a", "cycle lane": "#2e8b57", "path joint": "#8d6e63", "crossing": "#ffffff"}
+    everything = shapely.union_all([b["poly"] for b in B] + [f["poly"] for f in F])
+    for kind in ("sidewalk", "cycle lane", "path joint", "lane", "connector", "crossing"):
+        for b_ in S4["bands"]:
+            if b_["kind"] != kind:
+                continue
+            tip = esc(f"{kind} in {b_['home']}: " + " ".join(f"{k}={v}" for k, v in b_["props"].items() if k != "source") + f" ({b_['props'].get('source')})")
+            op = ' fill-opacity="0.8"' if kind in ("connector", "crossing") else ""
+            L["s4"].append(f'<path d="{poly_d(b_["poly"])}" fill="{C4[kind]}"{op} stroke="#fff" stroke-width="0.6" vector-effect="non-scaling-stroke"><title>{tip}</title></path>')
+    for i, area in S4["outside"]:
+        g_ = S4["bands"][i]["poly"].difference(everything)
+        L["s4"].append(f'<path d="{poly_d(g_)}" fill="#e53935" fill-opacity="0.85"><title>outside every branch and fork: {area} m2 of this '
+                       f'{S4["bands"][i]["kind"]}</title></path>')
     for k_, b in enumerate(B):
         c = COLOURS[k_ % len(COLOURS)]
         L["s2"].append(f'<path d="{poly_d(b["poly"])}" fill="{c}" fill-opacity="0.35" stroke="{c}" stroke-width="1.5" vector-effect="non-scaling-stroke">'
@@ -457,7 +466,7 @@ def dashboard(con, P, out, old=None):
                 L["s1"].append(f'<path d="{line_d(bar)}" stroke="#000" stroke-width="3" vector-effect="non-scaling-stroke"><title>branch point of {aid}: '
                                f'{d:.0f} m from {f["node"]}</title></path>')
     names = {"osm": "OSM axes", "s1": "step 1: junction nodes, pairs, branch points", "s2": "step 2: branches and forks",
-             "s3": "step 3: centre lines and widths", "s4": "step 4: the bands (lanes, paths, paint)",
+             "s3": "step 3: centre lines and widths", "s4": f"step 4: the bands: SUMO's lanes (grey) and connectors (orange), OSM's paths; red: outside every branch and fork ({len(S4['outside'])})",
              "gm": "SUMO's lanes (teal) and connectors (orange), from GMNS", "old": "the old model (bridge3d)",
              "pa": "sidewalks (beige) and cycleways (green) from OSM, crossings (white dashes)"}
     boxes = "".join(f'<label><input type="checkbox" checked data-g="{k}"> {names[k]}</label><br>' for k in ("old", "gm", "pa", "s4", "s2", "s3", "s1", "osm"))
@@ -503,3 +512,74 @@ def snapshot(R, B, F):
                       "line": [[r2(x), r2(y)] for x, y in b["line"].coords], "area_m2": r2(b["poly"].area)} for b in B],
         "fork_areas": {f["node"]: r2(f["poly"].area) for f in F},
     }
+
+
+# ---------------------------------------------------------------- step 4: the bands, from SUMO and OSM
+STICK_OUT_M2 = 1.0      # a band piece outside every branch and fork larger than this is listed (a check)
+
+
+def step4(P, axes, B, F, gmns=None):
+    """Step 4 (docs/notes/bridge-steps.md): the bands of the bridge, from the sources only. Lanes: SUMO's lane lines (GMNS lane.geom_cut,
+    else geom) as wide as their width, on the bridge's OSM ways. Connectors: SUMO's paths from lane to lane through a junction
+    (lane_connector), none that turns back. Paths: OSM's sidewalks, cycleways and shared paths (bridge_surface._path_bands, joined where
+    OSM joins them) and OSM's crossings. Each band is given to the branch or fork that holds most of it; the pieces that lie outside every
+    branch and fork are listed. gmns: the GMNS database (default: the profile's input).
+    Returns {"bands": [{kind, poly, line, props, home}], "outside": [(band index, area m2)]}."""
+    import duckdb
+    import pyproj
+    import shapely
+    import shapely.ops
+    from .bridge_cover import _turn
+    from .bridge_surface import _path_bands
+    gpath = gmns or next((x for x in (P.get("made") or {}).get("inputs", []) if str(x).endswith(".gmns.duckdb")), None)
+    g = duckdb.connect(gpath, read_only=True)
+    g.execute("LOAD spatial")
+    tr = pyproj.Transformer.from_crs("EPSG:4326", P["crs"], always_xy=True).transform
+    ways = sorted({int(w[1:]) for _, a in axes for w in a["ways"]})
+    bands = []
+    rows = g.execute("""SELECT n.lane_id, n.link_id, l.osm_id, n.lane_num, n.allowed_uses, n.width, n.turn, ST_AsText(coalesce(n.geom_cut, n.geom))
+                        FROM gmns_driving.lane n JOIN gmns_driving.link l USING (link_id)
+                        WHERE l.osm_id IN (SELECT unnest(?::BIGINT[])) AND coalesce(n.geom_cut, n.geom) IS NOT NULL""", [ways]).fetchall()
+    lids = [r[0] for r in rows]
+    for lid, lk, osm, num, use, w, turn, wkt in rows:
+        ln = shapely.ops.transform(tr, shapely.from_wkt(wkt))
+        w = float(w or 3.25)
+        bands.append({"kind": "lane", "line": ln, "poly": ln.buffer(w / 2, cap_style="flat"),
+                      "props": {"lane_id": lid, "link_id": lk, "osm": f"w{osm}", "lane": num, "use": use, "width_m": w, "turn": turn,
+                                "source": "SUMO via duckOSM GMNS (lane.geom_cut)"}})
+    for cid, fl, tl, w, wkt in g.execute("""SELECT connector_id, from_lane_id, to_lane_id, width, ST_AsText(geom) FROM gmns_driving.lane_connector
+                                            WHERE from_lane_id IN (SELECT unnest(?::VARCHAR[])) AND to_lane_id IN (SELECT unnest(?::VARCHAR[]))
+                                            AND geom IS NOT NULL""", [lids, lids]).fetchall():
+        ln = shapely.ops.transform(tr, shapely.from_wkt(wkt))
+        if len(ln.coords) < 2 or ln.length < 0.05 or _turn(ln) > 90.0:
+            continue
+        w = float(w or 3.25)
+        bands.append({"kind": "connector", "line": ln, "poly": ln.buffer(w / 2, cap_style="flat"),
+                      "props": {"connector": cid, "from": fl, "to": tl, "width_m": w, "source": "SUMO via duckOSM GMNS (lane_connector)"}})
+    crossing = lambda q: q.get("footway") == "crossing" or q.get("cycleway") == "crossing" or bool(q.get("crossing"))
+    pb, pj = _path_bands(dict(P, paths=[q for q in P.get("paths", []) if not crossing(q)]), axes)
+    for b_ in pb:
+        bands.append({"kind": b_["kind"], "line": b_["line"], "poly": b_["line"].buffer(b_["width"] / 2, cap_style="flat"),
+                      "props": {"osm": b_["way"], "width_m": b_["width"], "axis": b_["axis"], "side": b_["side"], "source": "OSM"}})
+    for jt in pj:
+        i, k = jt["bands"]
+        w = min(pb[i]["width"], pb[k]["width"])
+        bands.append({"kind": "path joint", "line": None, "poly": shapely.Point(jt["at"]).buffer(w / 2),
+                      "props": {"why": jt["why"], "source": "OSM"}})
+    val = lambda v: v["value"] if isinstance(v, dict) else v
+    for q in P.get("paths", []):
+        if crossing(q) and len(val(q["line"])) >= 2:
+            ln = shapely.LineString([v[:2] for v in val(q["line"])])
+            w = float(val(q.get("width")) or 3.0)
+            bands.append({"kind": "crossing", "line": ln, "poly": ln.buffer(w / 2, cap_style="flat"),
+                          "props": {"osm": q.get("way"), "marked": not (q.get("crossing") == "unmarked" or q.get("markings") == "no"), "source": "OSM"}})
+    homes = [(f"branch {b['id']}", b["poly"]) for b in B] + [(f"fork {f['id']}", f["poly"]) for f in F]
+    everything = shapely.union_all([h for _, h in homes])
+    outside = []
+    for i, b_ in enumerate(bands):
+        best = max(homes, key=lambda h: h[1].intersection(b_["poly"]).area)
+        b_["home"] = best[0] if best[1].intersection(b_["poly"]).area > 0 else None
+        out = b_["poly"].difference(everything).area
+        if out > STICK_OUT_M2 and b_["kind"] != "crossing":
+            outside.append((i, round(out, 1)))
+    return {"bands": bands, "outside": outside}

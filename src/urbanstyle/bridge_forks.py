@@ -156,6 +156,7 @@ def step1(con, P):
 
 # ---------------------------------------------------------------- steps 2 and 3: branches and forks, centre lines and widths
 CLOSE_M = 1.5           # a gap narrower than twice this inside a fork is deck
+FORK_TAPER_M = 20.0     # a fork goes from its trunk's full cross-section to each other arm's over this (its branch point at most)
 
 
 def _pair_mid(lnA, kA, lnB, kB):
@@ -210,7 +211,7 @@ def partition(P, axes, a_lv, widths, R):
     Returns (branches, forks): branches [{id, axes, level, line, s0, s1, lo, hi, poly, ends}], forks [{id, node, level, arms, poly}]."""
     import shapely
     import shapely.ops
-    from .bridge_surface import EDGE_M, _smooth_line
+    from .bridge_surface import _frame
     by_id = {a["id"]: (ln, a) for ln, a in axes}
     fork_of = {f["node"]: f for f in R["forks"]}
     # the road units
@@ -314,6 +315,22 @@ def partition(P, axes, a_lv, widths, R):
                 L = b["line"].length
                 seg = shapely.ops.substring(b["line"], 0.0, max(s_cut, 0.5)) if e == 0 else shapely.ops.substring(b["line"], L - max(s_cut, 0.5), L)
                 parts.append(seg.buffer(b["hi"], single_sided=True, cap_style="flat").union(seg.buffer(b["lo"], single_sided=True, cap_style="flat")))
+        # the fork starts at its trunk's full cross-section at the node (Kaveh, 2026-10-20): from there to each other arm's cross-section
+        # FORK_TAPER_M along it (its branch point at most), the deck between the two is the fork's; the trunk's square end met a narrower
+        # fork with a step of 6 m and more (7 jogs left after smoothing)
+        trunk_ids = {aid for aid, _ in f["trunk"]}
+        xsec = lambda b, e, d: (lambda fr: [(fr[0] + fr[2] * b["lo"], fr[1] + fr[3] * b["lo"]), (fr[0] + fr[2] * b["hi"], fr[1] + fr[3] * b["hi"])])(
+            _frame(b["line"], d if e == 0 else b["line"].length - d))
+        T = next(((b, e) for b in branches for e, nd in enumerate(b["ends"]) if nd == f["node"] and trunk_ids & set(b["axes"])), None)
+        if T is not None:
+            t_pts = xsec(T[0], T[1], 0.0)
+            for b in branches:
+                for e, nd in enumerate(b["ends"]):
+                    if nd != f["node"] or b is T[0]:
+                        continue
+                    d = min(FORK_TAPER_M, b["s0"] if e == 0 else b["s1"])
+                    if d > 0.5:
+                        parts.append(shapely.MultiPoint(t_pts + xsec(b, e, d)).convex_hull)
         g = shapely.union_all(parts)
         g = g.buffer(CLOSE_M, join_style="round").buffer(-CLOSE_M, join_style="round").union(g)
         g = g.difference(shapely.union_all([b["poly"] for b in branches if b["level"] == f["level"]]))

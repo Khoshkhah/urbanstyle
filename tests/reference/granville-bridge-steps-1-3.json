@@ -1063,10 +1063,10 @@
   }
  ],
  "fork_areas": {
-  "n13040317836": 2676.51,
-  "n266729860": 1384.25,
-  "n414553095": 499.68,
+  "n13040317836": 2731.4,
+  "n266729860": 1399.28,
+  "n414553095": 596.59,
   "n3488072817": 1484.18
  },
- "_note": "Steps 1 to 3 of Granville Bridge as Kaveh accepted them (2026-10-20; step 3's widths from each branch's own step-4 bands, paths counted within 3 m of the lanes or of a counted path). tests/test_bridge_steps.py fails when the code gives anything else; change this file only when Kaveh asks for a change to these steps by name."
+ "_note": "Steps 1 to 3 of Granville Bridge as Kaveh accepted them (2026-10-20; step 3's widths from each branch's own step-4 bands; a fork starts at its trunk's full cross-section at the node). tests/test_bridge_steps.py fails when the code gives anything else; change this file only when Kaveh asks for a change to these steps by name."
 }

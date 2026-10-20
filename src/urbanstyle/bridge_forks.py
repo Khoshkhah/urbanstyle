@@ -390,7 +390,7 @@ def dashboard(con, P, out, old=None, gmns=None):
     import duckdb
     import pyproj
     import shapely.ops
-    gpath = next((x for x in (P.get("made") or {}).get("inputs", []) if str(x).endswith(".gmns.duckdb")), None)
+    gpath = gmns or next((x for x in (P.get("made") or {}).get("inputs", []) if str(x).endswith(".gmns.duckdb")), None)   # (the same GMNS as step 4)
     lids = sorted({b["lane_id"] for _, a in axes for sc in a["sections"] for b in (sc.get("bands") or []) if b.get("lane_id")})
     missing = []
     if gpath:
@@ -483,15 +483,17 @@ def dashboard(con, P, out, old=None, gmns=None):
     groups = "".join(f'<g id="{k}">{"".join(L[k])}</g>' for k in ("old", "s4", "s2", "s3", "pa", "gm", "osm", "s1"))
     page_ = f"""<!doctype html><html><head><meta charset="utf-8"><title>Bridge 2D: {esc(P['name'])}</title>
 <style>html,body{{margin:0;height:100%;background:#fafaf5;font-family:sans-serif}}svg{{width:100%;height:100%;cursor:grab}}
-#k{{position:absolute;left:10px;top:8px;background:#fff;padding:8px 12px;border-radius:6px;box-shadow:0 1px 4px #0003;font-size:13px;max-height:95vh;overflow:auto}}
+#k{{position:absolute;left:10px;top:8px;background:#fff;padding:8px 12px;border-radius:6px;box-shadow:0 1px 4px #0003;font-size:12px;max-height:95vh;max-width:430px;overflow:auto}}
+#k.min .more{{display:none}} #fold{{float:right;cursor:pointer;border:1px solid #ccc;border-radius:4px;padding:0 6px;margin-left:8px;background:#f5f5f5}}
 #k table{{border-collapse:collapse;margin:4px 0 8px}}#k td,#k th{{border-top:1px solid #ddd;padding:1px 6px;text-align:left}}</style></head><body>
-<div id="k"><b>{esc(P['name'])}: steps 1 to 4 in 2D</b> <small>(docs/notes/bridge-steps.md)</small><br>{boxes}
+<div id="k" class="min"><span id="fold" title="show or hide the tables">tables</span><b>{esc(P['name'])}: steps 1 to 4 in 2D</b> <small>(docs/notes/bridge-steps.md)</small><br>{boxes}<div class="more">
 <small>SUMO's lanes on the bridge's OSM ways: {len(lids)} (GMNS, {esc(str(gpath))})</small><br>
 <b>Forks</b><table><tr><th>fork</th><th>node</th><th>branches</th></tr>{frows}</table>
 <b>Branches</b><table><tr><th>branch</th><th>axes</th><th>length</th><th>one width</th></tr>{brows}</table>
-<small>drag: move &middot; wheel: zoom &middot; hover: the facts</small></div>
+</div><small>drag: move &middot; wheel: zoom &middot; hover: the facts</small></div>
 <svg id="s" viewBox="0 0 {x1 - x0:.1f} {y1 - y0:.1f}" xmlns="http://www.w3.org/2000/svg">{groups}</svg>
 <script>const s=document.getElementById('s');let v=s.viewBox.baseVal,d=null;
+document.getElementById('fold').onclick=()=>document.getElementById('k').classList.toggle('min');
 document.querySelectorAll('#k input').forEach(i=>i.onchange=()=>document.getElementById(i.dataset.g).style.display=i.checked?'':'none');
 s.onmousedown=e=>{{d={{x:e.clientX,y:e.clientY}}}};window.onmouseup=()=>{{d=null}};
 window.onmousemove=e=>{{if(!d)return;const k=v.width/s.clientWidth;v.x-=(e.clientX-d.x)*k;v.y-=(e.clientY-d.y)*k;d={{x:e.clientX,y:e.clientY}}}};

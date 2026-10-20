@@ -346,7 +346,12 @@ def dashboard(con, P, out, old=None, gmns=None):
     poly_d = lambda g: " ".join(ring(pg.exterior) + "".join(ring(r) for r in pg.interiors) for pg in shapely.get_parts(g) if pg.geom_type == "Polygon")
     line_d = lambda ln: "M" + " L".join(f"{X(x):.2f},{Y(y):.2f}" for x, y in ln.coords)
     esc = _html.escape
-    L = {k: [] for k in ("osm", "s4", "s2", "s3", "s1", "gm", "old", "pa")}
+    L = {k: [] for k in ("osm", "s4", "s2", "s3", "s1", "gm", "old", "pa", "s3b")}
+    for lv, g_ in step3b(B, F).items():
+        L["s3b"].append(f'<path d="{poly_d(g_)}" fill="#fff59d" fill-opacity="0.35" stroke="#f57f17" stroke-width="2" vector-effect="non-scaling-stroke">'
+                        f'<title>step 3b: the smooth outline of level {lv}</title></path>')
+        for x, y in jogs(g_):
+            L["s3b"].append(f'<circle cx="{X(x):.1f}" cy="{Y(y):.1f}" r="2" fill="#d50000"><title>a jog left in the smooth outline</title></circle>')
     # the walking and cycling ways on the bridge (OSM, each along its own line; its width OSM's or urbanstyle's 2 m), and the crossings
     from .bridge_surface import _path_bands
     crossing_ = lambda q: q.get("footway") == "crossing" or q.get("cycleway") == "crossing" or bool(q.get("crossing"))
@@ -474,13 +479,13 @@ def dashboard(con, P, out, old=None, gmns=None):
                 L["s1"].append(f'<path d="{line_d(bar)}" stroke="#000" stroke-width="3" vector-effect="non-scaling-stroke"><title>branch point of {aid}: '
                                f'{d:.0f} m from {f["node"]}</title></path>')
     names = {"osm": "OSM axes", "s1": "step 1: junction nodes, pairs, branch points", "s2": "step 2: branches and forks",
-             "s3": "step 3: centre lines and widths", "s4": f"step 4: the bands: SUMO's lanes (grey) and connectors (orange), OSM's paths; red: outside every branch and fork ({len(S4['outside'])})",
+             "s3": "step 3: centre lines and widths", "s3b": "step 3b: the smooth outline (red dot: a jog left)", "s4": f"step 4: the bands: SUMO's lanes (grey) and connectors (orange), OSM's paths; red: outside every branch and fork ({len(S4['outside'])})",
              "gm": "SUMO's lanes (teal) and connectors (orange), from GMNS", "old": "the old model (bridge3d)",
              "pa": "sidewalks (beige) and cycleways (green) from OSM, crossings (white dashes)"}
-    boxes = "".join(f'<label><input type="checkbox" checked data-g="{k}"> {names[k]}</label><br>' for k in ("old", "gm", "pa", "s4", "s2", "s3", "s1", "osm"))
+    boxes = "".join(f'<label><input type="checkbox" checked data-g="{k}"> {names[k]}</label><br>' for k in ("old", "gm", "pa", "s4", "s3b", "s2", "s3", "s1", "osm"))
     frows = "".join(f"<tr><td>{f['id']}</td><td>{f['node']}</td><td>{', '.join(f['arms'])}</td></tr>" for f in F)
     brows = "".join(f"<tr><td>{b['id']}</td><td>{'+'.join(b['axes'])}</td><td>{b['line'].length - b['s0'] - b['s1']:.0f} m</td><td>{b['hi'] - b['lo']:.1f} m</td></tr>" for b in B)
-    groups = "".join(f'<g id="{k}">{"".join(L[k])}</g>' for k in ("old", "s4", "s2", "s3", "pa", "gm", "osm", "s1"))
+    groups = "".join(f'<g id="{k}">{"".join(L[k])}</g>' for k in ("old", "s3b", "s4", "s2", "s3", "pa", "gm", "osm", "s1"))
     page_ = f"""<!doctype html><html><head><meta charset="utf-8"><title>Bridge 2D: {esc(P['name'])}</title>
 <style>html,body{{margin:0;height:100%;background:#fafaf5;font-family:sans-serif}}svg{{width:100%;height:100%;cursor:grab}}
 #k{{position:absolute;left:10px;top:8px;background:#fff;padding:8px 12px;border-radius:6px;box-shadow:0 1px 4px #0003;font-size:12px;max-height:95vh;max-width:430px;overflow:auto}}
@@ -653,3 +658,44 @@ def step4(P, axes, B, F, gmns=None):
         if out > STICK_OUT_M2 and b_["kind"] != "crossing":
             outside.append((i, round(out, 1)))
     return {"bands": bands, "outside": outside}
+
+
+# ---------------------------------------------------------------- step 3b: smoothing
+SMOOTH_M = 3.0          # the outline has no notch and no bump smaller than twice this (a jog at an OSM vertex, a step where two widths meet)
+JOG_DEG, JOG_M = 60.0, 3.0   # a jog: a turn over JOG_DEG beside a segment shorter than JOG_M (as rank 0's check D8)
+
+
+def jogs(poly):
+    """The jogs in a polygon's outline: [(x, y)] where it turns more than JOG_DEG beside a segment shorter than JOG_M."""
+    import shapely
+    out = []
+    for pg in shapely.get_parts(poly):
+        if pg.geom_type != "Polygon":
+            continue
+        for ring in [pg.exterior] + list(pg.interiors):
+            cs = list(ring.simplify(0.05).coords)
+            cs = cs[:-1] + cs[:2]
+            for (x0, y0), (x1, y1), (x2, y2) in zip(cs, cs[1:], cs[2:]):
+                l1, l2 = math.hypot(x1 - x0, y1 - y0), math.hypot(x2 - x1, y2 - y1)
+                if min(l1, l2) < 0.05:
+                    continue
+                ang = abs(math.degrees(math.atan2((x1 - x0) * (y2 - y1) - (y1 - y0) * (x2 - x1), (x1 - x0) * (x2 - x1) + (y1 - y0) * (y2 - y1))))
+                if ang > JOG_DEG and (l1 < JOG_M or l2 < JOG_M):
+                    out.append((x1, y1))
+    return out
+
+
+def step3b(B, F):
+    """Step 3b (docs/notes/bridge-steps.md): the outline of each bridge level made smooth, from the frozen branches and forks: their union,
+    closed and opened by SMOOTH_M with round joins, so no notch or bump smaller than 2 SMOOTH_M stays (a jog at an OSM vertex, a step where
+    two branches' widths meet at a branch point), and never smaller than the union: nothing of a branch is taken, so a bridge end stays
+    square. Returns {level: polygon}."""
+    import shapely
+    out = {}
+    for lv in sorted({b["level"] for b in B}):
+        u = shapely.union_all([b["poly"] for b in B if b["level"] == lv] + [f["poly"] for f in F if f["level"] == lv])
+        closed = u.buffer(SMOOTH_M, join_style="round").buffer(-SMOOTH_M, join_style="round")
+        smooth = closed.buffer(-SMOOTH_M, join_style="round").buffer(SMOOTH_M, join_style="round").union(u)
+        smooth = smooth.buffer(0.5, join_style="round").buffer(-0.5, join_style="round")    # (the corners where the opened and the original meet)
+        out[lv] = shapely.make_valid(smooth)
+    return out

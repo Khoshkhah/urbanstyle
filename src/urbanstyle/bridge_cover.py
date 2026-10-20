@@ -327,18 +327,8 @@ def _level_items(P, lv, deck_lv, out_l, junction, paths_lv, crossings, arrow_sha
     cyc = paths_lv["cycle lane"].difference(drive)
     sep = drive.buffer(SEP_W, join_style="mitre").difference(drive).intersection(walk.union(cyc).buffer(PATH_BARRIER_M))
     walk, cyc = walk.difference(sep), cyc.difference(sep)
-    # the rest of the deck that touches a path is that path's (to the barrier, to the edge, a median the path runs in): the paving left
-    # only where no path is, a gore between lanes
-    rest = deck_lv.difference(drive).difference(walk).difference(cyc).difference(sep)
-    for g in shapely.get_parts(rest):
-        if g.geom_type != "Polygon" or g.area < 0.05:
-            continue
-        dw, dc = g.distance(walk) if not walk.is_empty else 1e9, g.distance(cyc) if not cyc.is_empty else 1e9
-        if min(dw, dc) < 0.1:
-            if dw <= dc:
-                walk = walk.union(g)
-            else:
-                cyc = cyc.union(g)
+    # (the rest of the deck is paved, bridge_surface.model: a gore between ramps or the edge beside a path is no sidewalk; it was made
+    # the path's, and the sidewalks looked 10 m wide where the deck came from the bands, 2026-10-20)
     items.append((walk, "sidewalk", LIFT_M, RAISE_M, {"type": "sidewalk", "bridge": P["name"], "source": "osm", "method": "mapped"}))
     items.append((cyc, "cycle lane", LIFT_M, RAISE_M, {"type": "cycle lane", "bridge": P["name"], "source": "osm", "method": "mapped"}))
     items.append((sep, "barrier", LIFT_M, SEP_H, {"type": "barrier", "bridge": P["name"], "between": "the driving side and a path",

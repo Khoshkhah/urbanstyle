@@ -992,7 +992,9 @@ def model(con, P, rank0=False, cover=True, gmns=None):
                   or (b_["kind"] in ("sidewalk", "cycle lane") and b_["props"].get("axis") == a_["id"])]
             own[a_["id"]] = shapely.union_all(g_).buffer(EDGE_M) if g_ else ln_.buffer(1.0)
         structs = [(lv, [aid for aid, l_ in a_lv.items() if l_ == lv], pg, own) for lv, pg in outline.items()]
-        cover = False                     # (step 6 lays the cover on this structure, later)
+        if cover and not rank0:           # step 6: step 4's bands on this structure
+            from .bridge_forks import cover_items
+            cov = {"items": cover_items(P_raw, s_axes, s_lv, S4, outline)}
     else:
         cov = layout(P, axes, a_lv)
         structs = [(lv, [aid for aid, l_ in a_lv.items() if l_ == lv], pg, cov["own"]) for lv, pg in cov["deck"].items()]

@@ -822,3 +822,52 @@ def steps_3b_4(con, P, gmns=None):
     axes, a_lv, R, B, F = steps_1_3(con, P, gmns)
     S4 = step4(P, axes, B, F, gmns=gmns)
     return axes, a_lv, R, B, F, step3b(B, F, S4["bands"]), S4
+
+
+# ---------------------------------------------------------------- step 6: the cover
+def cover_items(P, axes, a_lv, S4, outline):
+    """Step 6 (docs/notes/bridge-steps.md): what lies on the structure, from step 4's bands only, in the form bridge_surface.model lays on
+    the height surface: [(polygon, key, lift, rise, props)]. The lanes are SUMO's (step 4), drawn one after the other so none lies on
+    another (a connector only where no lane is); the paths are OSM's; a barrier stands between the driving side and a path; the paint
+    (lane lines between lanes of one direction of travel, a centre line between the two, edge lines, a guide line along each connector,
+    arrows, zebra bars on the crossings) as bridge_cover._level_items draws it. The rest of the deck is paved (bridge_surface.model)."""
+    import shapely
+    from .bridge_cover import _level_items
+    from .network import arrow_shape
+    from .parts import CROSSWALK_M, ZEBRA_BAR_M, ZEBRA_GAP_M
+    axis_of_way = {w: a["id"] for _, a in axes for w in a["ways"]}
+    items = []
+    for lv, deck_lv in outline.items():
+        ids = {aid for aid, l_ in a_lv.items() if l_ == lv}
+        done, out_l, junction = shapely.Polygon(), [], []
+        for b in S4["bands"]:
+            if b["kind"] != "lane":
+                continue
+            aid = axis_of_way.get(b["props"].get("osm"))
+            if aid not in ids:
+                continue
+            q = shapely.make_valid(b["poly"].difference(done)).intersection(deck_lv)
+            if q.area > 0.3:
+                props = {"type": "lane", "lane_id": b["props"]["lane_id"], "width_m": b["props"]["width_m"], "axis": aid, "osm": b["props"]["osm"],
+                         "bridge": P["name"], "source": b["props"]["source"]}
+                out_l.append((q, props, b["line"], aid))
+                done = done.union(b["poly"])
+        for b in S4["bands"]:
+            if b["kind"] != "connector":
+                continue
+            q = shapely.make_valid(b["poly"].difference(done)).intersection(deck_lv)
+            if q.area > 0.3:
+                props = {"id": b["props"]["connector"], "type": "junction lane", "from_lane": b["props"]["from"], "to_lane": b["props"]["to"],
+                         "width_m": b["props"]["width_m"], "bridge": P["name"], "source": b["props"]["source"]}
+                junction.append((q, props, b["line"], None))
+                done = done.union(b["poly"])
+        paths_lv = {}
+        for kind in ("sidewalk", "cycle lane"):
+            g = [b["poly"] for b in S4["bands"] if b["kind"] == kind and a_lv.get(b["props"].get("axis")) == lv]
+            g += [b["poly"] for b in S4["bands"] if b["kind"] == "path joint"] if kind == "sidewalk" else []
+            paths_lv[kind] = shapely.union_all(g or [shapely.Polygon()]).intersection(deck_lv)
+        crossings = [(b["line"], float(b["poly"].area / max(b["line"].length, 0.1)), b["props"].get("marked", True), b["props"].get("osm"))
+                     for b in S4["bands"] if b["kind"] == "crossing" and deck_lv.intersects(b["line"])]
+        items += _level_items(P, lv, deck_lv, out_l + junction, junction, paths_lv, crossings, arrow_shape,
+                              (CROSSWALK_M, ZEBRA_BAR_M, ZEBRA_GAP_M))
+    return items

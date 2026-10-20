@@ -361,7 +361,7 @@ def dashboard(con, P, out, old=None, gmns=None):
     line_d = lambda ln: "M" + " L".join(f"{X(x):.2f},{Y(y):.2f}" for x, y in ln.coords)
     esc = _html.escape
     L = {k: [] for k in ("osm", "s4", "s2", "s3", "s1", "gm", "old", "pa", "s3b")}
-    for lv, g_ in step3b(B, F).items():
+    for lv, g_ in step3b(B, F, S4["bands"]).items():
         L["s3b"].append(f'<path d="{poly_d(g_)}" fill="#fff59d" fill-opacity="0.35" stroke="#f57f17" stroke-width="2" vector-effect="non-scaling-stroke">'
                         f'<title>step 3b: the smooth outline of level {lv}</title></path>')
         for x, y in jogs(g_):
@@ -699,17 +699,66 @@ def jogs(poly):
     return out
 
 
-def step3b(B, F):
+TAPER_M = 10.0          # step 3b: a step in the outline (a jog) becomes a straight taper over this on each side of its corner
+SLIVER_M = 1.5          # step 3b: a piece of a step-4 band within this of the branches and forks is part of the outline (a sliver at an edge)
+
+
+def step3b(B, F, bands=None):
     """Step 3b (docs/notes/bridge-steps.md): the outline of each bridge level made smooth, from the frozen branches and forks: their union,
     closed and opened by SMOOTH_M with round joins, so no notch or bump smaller than 2 SMOOTH_M stays (a jog at an OSM vertex, a step where
     two branches' widths meet at a branch point), and never smaller than the union: nothing of a branch is taken, so a bridge end stays
-    square. Returns {level: polygon}."""
+    square. Then each jog left (a convex step where a wider branch's square end meets a narrower one: a10 against the a11 + a12 pair at
+    Hemlock) becomes a straight taper: the deck between the corner and the outline TAPER_M along it on each side. ``bands`` (step 4's): the
+    pieces of the lanes and paths that lie within SLIVER_M outside the branches and forks are part of the outline (slivers where a band's
+    edge and the branch's edge are a little apart: the width is measured every 2 m). Returns {level: polygon}."""
     import shapely
     out = {}
     for lv in sorted({b["level"] for b in B}):
         u = shapely.union_all([b["poly"] for b in B if b["level"] == lv] + [f["poly"] for f in F if f["level"] == lv])
+        if bands:
+            near = u.buffer(SLIVER_M)
+            # (not past a bridge end: the end stays square; a sidewalk that runs on a little there made a step on the end, b3)
+            beyond = []
+            for b in B:
+                if b["level"] != lv:
+                    continue
+                for e, nd in enumerate(b["ends"]):
+                    if nd is not None:
+                        continue
+                    ln = b["line"]
+                    p0 = ln.coords[0] if e == 0 else ln.coords[-1]
+                    q = ln.interpolate(min(2.0, ln.length) if e == 0 else max(0.0, ln.length - 2.0))
+                    dx, dy = p0[0] - q.x, p0[1] - q.y
+                    h = math.hypot(dx, dy) or 1.0
+                    dx, dy = dx / h, dy / h                        # out of the bridge, along the axis
+                    nx, ny = -dy, dx
+                    beyond.append(shapely.Polygon([(p0[0] + nx * 60, p0[1] + ny * 60), (p0[0] - nx * 60, p0[1] - ny * 60),
+                                                   (p0[0] - nx * 60 + dx * 60, p0[1] - ny * 60 + dy * 60), (p0[0] + nx * 60 + dx * 60, p0[1] + ny * 60 + dy * 60)]))
+            cut = shapely.union_all(beyond) if beyond else shapely.Polygon()
+            slivers = shapely.union_all([b_["poly"].intersection(near) for b_ in bands
+                                         if b_["kind"] in ("lane", "connector", "sidewalk", "cycle lane", "path joint")] or [shapely.Polygon()])
+            u = u.union(slivers.difference(cut.difference(u)))
         closed = u.buffer(SMOOTH_M, join_style="round").buffer(-SMOOTH_M, join_style="round")
         smooth = closed.buffer(-SMOOTH_M, join_style="round").buffer(SMOOTH_M, join_style="round").union(u)
         smooth = smooth.buffer(0.5, join_style="round").buffer(-0.5, join_style="round")    # (the corners where the opened and the original meet)
+        for _ in range(6):                                   # the jogs left: a straight taper at each (a few passes: a taper can leave a smaller one)
+            js = jogs(smooth)
+            if not js:
+                break
+            add = []
+            for x, y in js:
+                for part in shapely.get_parts(smooth):
+                    ring = part.exterior if part.geom_type == "Polygon" else None
+                    if ring is None or ring.distance(shapely.Point(x, y)) > 0.1:
+                        continue
+                    # the taper: the convex hull of the outline TAPER_M along it on each side of the corner (it fills the step's inner
+                    # corner with a straight line from the wider edge to the narrower one, and adds nothing beyond the two edges)
+                    L, s0 = ring.length, ring.project(shapely.Point(x, y))
+                    ss = [(s0 + d) % L for d in [k * 0.5 for k in range(int(-2 * TAPER_M), int(2 * TAPER_M) + 1)]]
+                    piece = shapely.MultiPoint([ring.interpolate(v) for v in ss])
+                    add.append(piece.convex_hull)
+            smooth = shapely.union_all([smooth] + add).buffer(0.3, join_style="mitre").buffer(-0.3, join_style="mitre")
+            smooth = shapely.union_all([shapely.Polygon(p_.exterior, [r for r in p_.interiors if shapely.Polygon(r).area >= 2.0])
+                                        for p_ in shapely.get_parts(smooth) if p_.geom_type == "Polygon"])   # (micro gaps where a taper meets an arc)
         out[lv] = shapely.make_valid(smooth)
     return out

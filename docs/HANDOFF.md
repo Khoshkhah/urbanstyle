@@ -16,6 +16,15 @@ first, then this note, then `docs/notes/street-rules.md` and `docs/notes/section
   lane placement for GMNS and SUMO. SUMO for a bridge: build its edges from the PBF (`duckosm build --pbf ... -b <bridge area>`, 7 s) and
   `duckosm gmns` on it (a few seconds), not the whole city. Granville's: `data/granville-bridge.gmns.duckdb` (not in git).
 - The city databases (`data/vancouver_city.osm.duckdb`, `.gmns.duckdb`) have the lane overrides but not the new SUMO rules.
+- 2026-10-20: Kaveh accepted steps 1 to 3; they are frozen (`tests/reference/granville-bridge-steps-1-3.json`,
+  `tests/test_bridge_steps.py`). At Kaveh's request, step 3's widths come from each branch's own step-4 bands (a path counts within 3 m
+  of the lanes or of a path that counts), and a fork starts at its trunk's full cross-section (the arms' own strips 20 m from the node).
+- Step 4 (`bridge_forks.step4`) reads only SUMO's lanes and connectors (`data/granville-bridge.gmns.duckdb`) and OSM's paths.
+  Not accepted yet.
+- Step 3b (`bridge_forks.step3b`, not accepted yet): the union of the branches and forks, with the slivers of the step-4 bands within
+  1.5 m (not past a bridge end), closed and opened by 3 m; each jog left becomes a straight taper (the hull of the outline 10 m on each
+  side of the corner). Granville: jogs 2 -> 1, band pieces outside the outline 3 -> 0. The jog left is 9.8 m from a3's bridge end
+  (the a3 sidewalk lies 1.1 m outside b3 there, inside the taper reach of the square end).
 - Open: `bridge_cover.py` still makes its own lanes (step 4 must read SUMO's lanes and OSM's paths); smoothing (step 3b); a8's east
   sidewalk lies on its lanes (lane widths are SUMO's 3.25 m by class); `corrections/lanes.json` is now in duckOSM's overrides too.
 

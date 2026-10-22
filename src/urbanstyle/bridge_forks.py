@@ -512,9 +512,9 @@ def dashboard(con, P, out, old=None, gmns=None):
     for ln, a in axes:
         L["osm"].append(f'<path d="{line_d(ln)}" fill="none" stroke="#37474f" stroke-width="1" stroke-dasharray="4 3" vector-effect="non-scaling-stroke">'
                         f'<title>OSM axis {a["id"]}: {esc(", ".join(a["ways"]))}</title></path>')
-    C4 = {"lane": "#5f6b70", "connector": "#f0b05a", "sidewalk": "#c8b48a", "cycle lane": "#2e8b57", "path joint": "#8d6e63", "crossing": "#ffffff"}
+    C4 = {"lane": "#5f6b70", "connector": "#f0b05a", "sidewalk": "#c8b48a", "cycle lane": "#2e8b57", "path joint": "#8d6e63", "path link": "#a1887f", "crossing": "#ffffff"}
     everything = shapely.union_all([b["poly"] for b in B] + [f["poly"] for f in F])
-    for kind in ("sidewalk", "cycle lane", "path joint", "lane", "connector", "crossing"):
+    for kind in ("sidewalk", "cycle lane", "path joint", "path link", "lane", "connector", "crossing"):
         for b_ in S4["bands"]:
             if b_["kind"] != kind:
                 continue
@@ -621,6 +621,23 @@ STICK_OUT_M2 = 1.0      # a band piece outside every branch and fork larger than
 def bands(P, axes, gmns=None):
     """The bands of step 4 without their homes (step4)."""
     return step4(P, axes, None, None, gmns=gmns)["bands"]
+
+
+LINK_M = 12.0           # a path piece shorter than this ...
+LINK_DEG = 30.0         # ... at more than this to its axis is a link between two paths (a sidewalk to the cycle path), not a band
+
+
+def _is_link(line, axis):
+    """A short path piece that runs across its axis: a link inside the pedestrian realm. It is not a band of the branch's width (step 3),
+    so it makes no bump in the outline; the cover draws it inside the realm (step 6)."""
+    import math
+    if line.length >= LINK_M:
+        return False
+    s = axis.project(line.interpolate(0.5, normalized=True))
+    p, q = axis.interpolate(max(0.0, s - 2.0)), axis.interpolate(min(axis.length, s + 2.0))
+    (x0, y0), (x1, y1) = line.coords[0], line.coords[-1]
+    a = math.degrees(abs(math.atan2(x1 - x0, y1 - y0) - math.atan2(q.x - p.x, q.y - p.y))) % 180.0
+    return min(a, 180.0 - a) > LINK_DEG
 
 
 BESIDE_M = 3.0          # a path counts in a branch's width where its edge is within this of the branch's lanes
@@ -805,7 +822,8 @@ def step4(P, axes, B, F, gmns=None):
     crossing = lambda q: q.get("footway") == "crossing" or q.get("cycleway") == "crossing" or bool(q.get("crossing"))
     pb, pj = _path_bands(dict(P, paths=[q for q in P.get("paths", []) if not crossing(q)]), axes)
     for b_ in pb:
-        bands.append({"kind": b_["kind"], "line": b_["line"], "poly": b_["line"].buffer(b_["width"] / 2, cap_style="flat"),
+        kind = "path link" if _is_link(b_["line"], next(ln for ln, a in axes if a["id"] == b_["axis"])) else b_["kind"]
+        bands.append({"kind": kind, "line": b_["line"], "poly": b_["line"].buffer(b_["width"] / 2, cap_style="flat"),
                       "props": {"osm": b_["way"], "width_m": b_["width"], "axis": b_["axis"], "side": b_["side"], "source": "OSM"}})
     for jt in pj:
         i, k = jt["bands"]
@@ -1092,7 +1110,7 @@ def cover_items(P, axes, a_lv, S4, outline):
         paths_lv = {}
         for kind in ("sidewalk", "cycle lane"):
             g = [b["poly"] for b in S4["bands"] if b["kind"] == kind and a_lv.get(b["props"].get("axis")) == lv]
-            g += [b["poly"] for b in S4["bands"] if b["kind"] == "path joint"] if kind == "sidewalk" else []
+            g += [b["poly"] for b in S4["bands"] if b["kind"] in ("path joint", "path link")] if kind == "sidewalk" else []
             paths_lv[kind] = shapely.union_all(g or [shapely.Polygon()]).intersection(deck_lv)
         # the pedestrian realm, as on the ground: beside a path, the deck from the lanes to the parapet is the path's side; the paths of
         # step 4 lie inside it. It is the deck nearer to a path than to a lane (to REALM_STEP_M): a side with no OSM path stays paved

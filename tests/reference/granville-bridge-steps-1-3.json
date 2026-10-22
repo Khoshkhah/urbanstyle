@@ -198,8 +198,8 @@
    ],
    "s0": 0.0,
    "s1": 44.0,
-   "lo": -8.26,
-   "hi": 8.26,
+   "lo": -6.29,
+   "hi": 6.29,
    "line": [
     [
      490111.32,
@@ -302,7 +302,7 @@
      5457393.83
     ]
    ],
-   "area_m2": 5330.45
+   "area_m2": 4058.26
   },
   {
    "id": "b4",
@@ -380,8 +380,8 @@
    ],
    "s0": 35.0,
    "s1": 0.0,
-   "lo": -7.74,
-   "hi": 7.74,
+   "lo": -6.32,
+   "hi": 6.32,
    "line": [
     [
      490473.16,
@@ -432,7 +432,7 @@
      5458042.66
     ]
    ],
-   "area_m2": 3917.19
+   "area_m2": 3203.91
   },
   {
    "id": "b6",
@@ -445,8 +445,8 @@
    ],
    "s0": 0.0,
    "s1": 41.0,
-   "lo": -9.84,
-   "hi": 9.84,
+   "lo": -9.74,
+   "hi": 9.74,
    "line": [
     [
      490579.19,
@@ -501,7 +501,7 @@
      5457920.88
     ]
    ],
-   "area_m2": 4654.52
+   "area_m2": 4607.81
   },
   {
    "id": "b7",
@@ -587,8 +587,8 @@
    ],
    "s0": 39.0,
    "s1": 0.0,
-   "lo": -15.71,
-   "hi": 15.71,
+   "lo": -12.58,
+   "hi": 12.58,
    "line": [
     [
      490473.16,
@@ -603,7 +603,7 @@
      5458051.83
     ]
    ],
-   "area_m2": 4555.85
+   "area_m2": 3648.42
   },
   {
    "id": "b9",
@@ -1064,9 +1064,9 @@
  ],
  "fork_areas": {
   "n13040317836": 2840.24,
-  "n266729860": 1480.11,
+  "n266729860": 1492.09,
   "n414553095": 682.18,
-  "n3488072817": 1287.4
+  "n3488072817": 1287.35
  },
- "_note": "Steps 1 to 3 of Granville Bridge as Kaveh accepted them (2026-10-22: each axis on its smooth centre line, OSM's line averaged over 20 m with its ends held, one width and one constant offset from all its bands; a fork is the hull between the smooth cross-sections). tests/test_bridge_steps.py fails when the code gives anything else; change this file only when Kaveh asks."
+ "_note": "Steps 1 to 3 of Granville Bridge as Kaveh accepted them (2026-10-22: each axis on its smooth centre line, OSM's line averaged over 20 m with its ends held, one width and one constant offset from all its bands, a short sideways path link not counted; a fork is the hull between the smooth cross-sections). tests/test_bridge_steps.py fails when the code gives anything else; change this file only when Kaveh asks."
 }

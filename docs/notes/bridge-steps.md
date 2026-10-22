@@ -90,6 +90,13 @@ lines, the centre line and the arrows go through it. Only a connector that turns
 Granville every connector turns 27° or less, so the bridge has no junction lane. The lane lines are drawn along the shared edge of
 two lanes of one direction of travel; a hairline gap between two lanes (under 0.1 m) does not stop them.
 
+## Rule 3: a short sideways path piece is a link
+
+An OSM path piece shorter than 12 m that runs at more than 30° to its axis is a **path link** (for example, from a sidewalk to the cycle
+path, or to a crossing). It is not a band of the branch's width (step 3), so it makes no bump in the outline (step 3b). The cover
+draws it inside the pedestrian realm, cut at the deck's edge (step 6). Granville has six: on a1, a3, a5, a6 and two on a8. The deck
+is 58,155 m² (60,924 m² before).
+
 ## The order of the steps
 
 Steps 1 to 4 are in 2D, and they are most of the work. Each one is checked on a fast 2D page first. After step 4, and before any 3D,

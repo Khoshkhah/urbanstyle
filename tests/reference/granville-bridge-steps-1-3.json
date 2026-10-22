@@ -315,8 +315,8 @@
    ],
    "s0": 86.0,
    "s1": 0.0,
-   "lo": -13.67,
-   "hi": 13.67,
+   "lo": -8.28,
+   "hi": 8.28,
    "line": [
     [
      490085.13,
@@ -367,7 +367,7 @@
      5457320.26
     ]
    ],
-   "area_m2": 6181.0
+   "area_m2": 3739.32
   },
   {
    "id": "b5",
@@ -445,8 +445,8 @@
    ],
    "s0": 0.0,
    "s1": 41.0,
-   "lo": -9.74,
-   "hi": 9.74,
+   "lo": -7.37,
+   "hi": 7.37,
    "line": [
     [
      490579.19,
@@ -501,7 +501,7 @@
      5457920.88
     ]
    ],
-   "area_m2": 4607.81
+   "area_m2": 3497.33
   },
   {
    "id": "b7",
@@ -616,8 +616,8 @@
    ],
    "s0": 0.0,
    "s1": 85.0,
-   "lo": -9.71,
-   "hi": 9.71,
+   "lo": -13.17,
+   "hi": 13.17,
    "line": [
     [
      489971.64,
@@ -652,7 +652,7 @@
      5457530.46
     ]
    ],
-   "area_m2": 1808.46
+   "area_m2": 2473.8
   },
   {
    "id": "b10",
@@ -668,7 +668,7 @@
    "s0": 0.0,
    "s1": 43.0,
    "lo": -14.75,
-   "hi": 14.88,
+   "hi": 14.75,
    "line": [
     [
      489930.63,
@@ -1059,14 +1059,14 @@
      5457393.83
     ]
    ],
-   "area_m2": 4923.62
+   "area_m2": 4783.25
   }
  ],
  "fork_areas": {
-  "n13040317836": 2840.24,
-  "n266729860": 1492.09,
-  "n414553095": 682.18,
-  "n3488072817": 1287.35
+  "n13040317836": 2836.14,
+  "n266729860": 1491.97,
+  "n414553095": 525.2,
+  "n3488072817": 1444.59
  },
- "_note": "Steps 1 to 3 of Granville Bridge as Kaveh accepted them (2026-10-22: each axis on its smooth centre line, OSM's line averaged over 20 m with its ends held, one width and one constant offset from all its bands, a short sideways path link not counted; a fork is the hull between the smooth cross-sections). tests/test_bridge_steps.py fails when the code gives anything else; change this file only when Kaveh asks."
+ "_note": "Steps 1 to 3 of Granville Bridge as Kaveh accepted them (2026-10-22: each axis on its smooth centre line, OSM's line averaged over 20 m with its ends held, one width and one constant offset from its bands; a path counts only where this branch's lanes are its nearest lanes, beside them over 12 m or more; a short sideways path link not counted; a fork is the hull between the smooth cross-sections). tests/test_bridge_steps.py fails when the code gives anything else; change this file only when Kaveh asks."
 }

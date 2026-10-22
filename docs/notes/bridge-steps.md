@@ -64,6 +64,11 @@ evenly between the node and the branch points, and it has no bump where the arms
 A branch has one width and one position. Both come from all the branch's bands (step 4): the lanes SUMO makes on its OSM ways, and the
 OSM paths whose edge is within 3 m of the lanes or of a path that already counts.
 
+A path counts in a branch's width only where this branch's lanes are the nearest lanes to it, whichever axis the path was given to,
+and only over a stretch of 12 m or more beside them. No chain goes through another road's path. A path in a gore belongs to the road
+whose lanes are nearer; a touch of a few metres at a gore tip counts for neither road (Granville: a4 27.3 m → 16.6 m, a6 19.5 m →
+14.7 m, a9 19.4 m → 26.3 m).
+
 - **The centre line** is OSM's line, smoothed: each point is the mean of the line within 10 m on each side, and the ends stay where OSM
   puts them. There is no kink at an OSM point.
 - **The offset** is one constant for the whole branch: the middle of the bands' overall reach to the left and right of the centre line.

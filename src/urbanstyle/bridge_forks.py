@@ -643,6 +643,18 @@ def _is_link(line, axis):
 BESIDE_M = 3.0          # a path counts in a branch's width where its edge is within this of the branch's lanes
 
 
+def _nearest_stretch(line, mine, others, step=1.0):
+    """The parts of a path's line where the lanes ``mine`` are nearer to it than the lanes ``others`` (to ``step``)."""
+    import shapely
+    import shapely.ops
+    if others.is_empty:
+        return line
+    n = max(1, int(line.length / step))
+    keep = [shapely.ops.substring(line, line.length * i / n, line.length * (i + 1) / n) for i in range(n)
+            if (lambda p: mine.distance(p) <= others.distance(p))(line.interpolate(line.length * (i + 0.5) / n))]
+    return shapely.line_merge(shapely.union_all(keep)) if keep else shapely.LineString()
+
+
 def band_widths(P, axes, R, gmns=None, edge=0.5):
     """Step 3's one width of each axis from its own step-4 bands (Kaveh, 2026-10-20): the lanes SUMO makes on its OSM ways and the path
     bands OSM gives it, measured across its OSM line along its body (from its branch point at a fork, step 1's R, to its other end: inside
@@ -672,14 +684,22 @@ def band_widths(P, axes, R, gmns=None, edge=0.5):
         # cycle path; Kaveh 2026-10-20). Repeated until no path is added.
         # (a path is measured against the lanes and the OTHER paths' counted pieces: against its own, it went on counting metre by metre)
         lane_g = shapely.union_all(lanes)
-        paths = [b_ for b_ in bs if b_["kind"] in ("sidewalk", "cycle lane") and b_["props"].get("axis") == a["id"]]
+        other_g = shapely.union_all([b_["poly"] for b_ in bs if b_["kind"] == "lane" and b_["props"]["osm"] not in ways] or [shapely.Polygon()])
+        # a path counts only where this branch's lanes are the nearest lanes to it (Kaveh, 2026-10-22), whichever axis it was given to:
+        # a path in a gore that is nearer another road's lanes is that road's, and no chain goes through it (a4 was 27.3 m wide for 6.5 m
+        # of lanes, with a9's cycle path in the gore)
+        paths = [b_ for b_ in bs if b_["kind"] in ("sidewalk", "cycle lane")]
+        mine = [_nearest_stretch(b_["line"], lane_g, other_g) for b_ in paths]
         got = {}                                           # path index -> its counted piece
         while True:
             added = False
             for k, b_ in enumerate(paths):
                 w_ = float(b_["props"].get("width_m") or 2.0)
                 near = shapely.union_all([lane_g] + [g for k2, g in got.items() if k2 != k])
-                beside = b_["line"].intersection(near.buffer(BESIDE_M + w_ / 2))
+                beside = mine[k].intersection(near.buffer(BESIDE_M + w_ / 2))
+                # (it runs beside them over LINK_M at least: a few metres at a gore tip, where two roads' lanes are as near, is not)
+                beside = shapely.union_all([g for g in shapely.get_parts(shapely.line_merge(beside) if beside.geom_type == "MultiLineString" else beside)
+                                            if g.geom_type == "LineString" and g.length >= LINK_M] or [shapely.LineString()])
                 if beside.is_empty or beside.length <= 0.5:
                     continue
                 piece = beside.buffer(w_ / 2, cap_style="flat")

@@ -34,6 +34,8 @@ SMOOTH_M = 1.0          # the deck's edge has no notch and no bump smaller than 
 STEP_M = 1.0            # lanes are sampled this often along their axis
 PATH_BARRIER_M = 2.0    # a barrier between the driving side and a path band this near it
 ARROW_EVERY_M = 100.0   # an arrow on each lane this often
+ARROW_CLEAR_M = 5.0     # no arrow this near a zebra
+BARRIER_MIN_M = 12.0    # no barrier shorter than this (a path must run beside the lanes this far)
 LIFT_M = 0.03           # the cover above the slab's top
 PAINT_M = 0.06          # paint above the slab's top
 RAISE_M = 0.15          # a sidewalk or cycle lane above the roadway
@@ -323,9 +325,15 @@ def _level_items(P, lv, deck_lv, out_l, junction, paths_lv, crossings, arrow_sha
     items = []
     drive = shapely.union_all([q for q, *_ in out_l] or [shapely.Polygon()])
     drive = drive.buffer(0.1, join_style="mitre").buffer(-0.1, join_style="mitre")   # (a hairline between two lane pieces made an edge line across)
+    drive = shapely.union_all([shapely.Polygon(p_.exterior, [r for r in p_.interiors if shapely.Polygon(r).area >= 5.0])
+                               for p_ in shapely.get_parts(drive) if p_.geom_type == "Polygon"] or [shapely.Polygon()])   # (a small hole between lane pieces made an edge-line loop on a zebra)
     walk = paths_lv["sidewalk"].difference(drive).difference(paths_lv["cycle lane"])
     cyc = paths_lv["cycle lane"].difference(drive)
-    sep = drive.buffer(SEP_W, join_style="mitre").difference(drive).intersection(walk.union(cyc).buffer(PATH_BARRIER_M))
+    sep = drive.buffer(SEP_W, join_style="mitre").difference(drive).intersection(paths_lv.get("osm", walk.union(cyc)).buffer(PATH_BARRIER_M))
+    # (none at a crossing: the path meets the lanes there; and none shorter than BARRIER_MIN_M: a stub at a gore tip stood alone)
+    xing = shapely.union_all([fl.buffer((w or 3.0) / 2 + 1.0, cap_style="flat") for fl, w, *_ in crossings] or [shapely.Polygon()])
+    sep = shapely.union_all([g for g in shapely.get_parts(sep.difference(xing)) if g.geom_type == "Polygon" and g.area / SEP_W >= BARRIER_MIN_M]
+                            or [shapely.Polygon()])
     walk, cyc = walk.difference(sep), cyc.difference(sep)
     # (the rest of the deck is paved, bridge_surface.model: a gore between ramps or the edge beside a path is no sidewalk; it was made
     # the path's, and the sidewalks looked 10 m wide where the deck came from the bands, 2026-10-20)
@@ -385,9 +393,14 @@ def _level_items(P, lv, deck_lv, out_l, junction, paths_lv, crossings, arrow_sha
         while d0 < cl.length:
             segs.append(shapely.ops.substring(cl, d0, min(d0 + 1.0, cl.length))); d0 += 3.0
         items.append((paint(shapely.union_all(segs), 0.1), "mark guide line", PAINT_M, 0.0, {"type": "guide line", "connector": props["id"]}))
+    zebra_zone = shapely.union_all([fl.buffer((w or 3.0) / 2 + ARROW_CLEAR_M) for fl, w, marked, _ in crossings if marked] or [shapely.Polygon()])
     for q, props, c, aid in band_l:
         Lc = c.length
         for s_ in ([x for x in np.arange(Lc - 15.0, 8.0, -ARROW_EVERY_M)] if Lc > 23.0 else [Lc / 2] if Lc > 8.0 else []):
+            while s_ > 4.0 and zebra_zone.intersects(shapely.LineString([c.interpolate(s_ - 4.0).coords[0], c.interpolate(s_).coords[0]])):
+                s_ -= 1.0                                    # (no arrow on or next to a zebra: it moves back along the lane)
+            if s_ <= 4.0:
+                continue
             tip, back = c.interpolate(s_), c.interpolate(s_ - 1.0)
             hx, hy = tip.x - back.x, tip.y - back.y
             n = math.hypot(hx, hy) or 1.0

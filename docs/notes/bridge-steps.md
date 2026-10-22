@@ -92,6 +92,14 @@ cycleway bands of step 4 lie inside it. It is the part of the deck that is neare
 30 m from the path), with its edge rounded over 1 m. A side of a road with no OSM path stays paved. A gore between a road with a path
 and a road without one is divided where the two distances are the same.
 
+## Step 6, the north fork rules
+
+- A barrier stands only along an OSM path (not along the pedestrian realm), ends 1 m before a crossing, and is never shorter than
+  12 m (lone pieces stood at the crossings and the gore tips).
+- No lane arrow lies within 5 m of a zebra: it moves back along the lane.
+- A hole under 5 m² between lane pieces is filled before the edge lines are painted (a loop of edge line lay on a zebra).
+- The pedestrian realm's edge is rounded over 3 m (1 m left it ragged in the gores).
+
 ## Step 6, rule 2: a straight-on connector is a lane
 
 A SUMO connector that turns 30° or less goes straight on. It is drawn as a lane on the axis of the lane it comes from, so the lane

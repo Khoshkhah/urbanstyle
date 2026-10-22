@@ -102,6 +102,14 @@ def forks(P, axes, a_lv, widths):
 _OSM_LINES = {}
 
 
+def _input(P, gmns):
+    """The profile's OSM database (gmns False) or its GMNS database (gmns True), by what it is: a GMNS file has "gmns" in its name
+    (Granville: granville-bridge.gmns.duckdb; Monaco: monaco-wide_gmns.duckdb), the OSM database is the other one."""
+    import os
+    ins = [str(x) for x in (P.get("made") or {}).get("inputs", []) if str(x).endswith(".duckdb")]
+    return next((x for x in ins if ("gmns" in os.path.basename(x)) == gmns), None)
+
+
 def _osm_axis(P, a):
     """An axis's line from OSM itself: its ways' node coordinates in the OSM database the profile was made from, joined end to end. The
     profile's own line is not OSM's: the LiDAR step adds landings past OSM's ends and fits the line (a8: 62 m past its end, a4: 0.6 m
@@ -110,7 +118,7 @@ def _osm_axis(P, a):
     import pyproj
     import shapely
     import shapely.ops
-    src = next((x for x in (P.get("made") or {}).get("inputs", []) if str(x).endswith(".osm.duckdb")), None)
+    src = _input(P, gmns=False)
     if src not in _OSM_LINES:
         _OSM_LINES[src] = {}
     cache = _OSM_LINES[src]
@@ -480,7 +488,7 @@ def dashboard(con, P, out, old=None, gmns=None):
     import duckdb
     import pyproj
     import shapely.ops
-    gpath = gmns or next((x for x in (P.get("made") or {}).get("inputs", []) if str(x).endswith(".gmns.duckdb")), None)   # (the same GMNS as step 4)
+    gpath = gmns or _input(P, gmns=True)   # (the same GMNS as step 4)
     lids = sorted({b["lane_id"] for _, a in axes for sc in a["sections"] for b in (sc.get("bands") or []) if b.get("lane_id")})
     missing = []
     if gpath:
@@ -862,7 +870,7 @@ def step4(P, axes, B, F, gmns=None, smooth=True):
     import shapely.ops
     from .bridge_cover import _turn
     from .bridge_surface import _path_bands
-    gpath = gmns or next((x for x in (P.get("made") or {}).get("inputs", []) if str(x).endswith(".gmns.duckdb")), None)
+    gpath = gmns or _input(P, gmns=True)
     g = duckdb.connect(gpath, read_only=True)
     g.execute("LOAD spatial")
     tr = pyproj.Transformer.from_crs("EPSG:4326", P["crs"], always_xy=True).transform
@@ -1159,7 +1167,7 @@ def steps_3b_4(con, P, gmns=None):
 STRAIGHT_DEG = 30.0     # step 6: a connector that turns at most this goes straight on: it is a lane
 REALM_STEP_M = 0.5      # step 6: the deck nearer to a path than to a lane is the pedestrian realm, measured to this ...
 REALM_REACH_M = 30.0    # ... up to this far from the path
-REALM_SMOOTH_M = 1.0    # ... its edge rounded over this
+REALM_SMOOTH_M = 3.0    # ... its edge rounded over this (1 m left it ragged in the gores, Kaveh 2026-10-22)
 
 
 def cover_items(P, axes, a_lv, S4, outline):
@@ -1217,6 +1225,7 @@ def cover_items(P, axes, a_lv, S4, outline):
         # step 4 lie inside it. It is the deck nearer to a path than to a lane (to REALM_STEP_M): a side with no OSM path stays paved
         drive = shapely.union_all([q for q, *_ in out_l + junction] or [shapely.Polygon()])
         any_path = paths_lv["sidewalk"].union(paths_lv["cycle lane"])
+        paths_lv["osm"] = any_path                                      # (the barriers stand along OSM's paths, not along the realm)
         rest = deck_lv.difference(drive)
         realm = [any_path.buffer(k * REALM_STEP_M).difference(drive.buffer(k * REALM_STEP_M)).intersection(rest)
                  for k in range(1, int(REALM_REACH_M / REALM_STEP_M) + 1)] if not any_path.is_empty else []

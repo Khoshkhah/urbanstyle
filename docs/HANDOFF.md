@@ -11,8 +11,11 @@ links), the width rule (a path counts only where its branch's lanes are the near
 two-way road (duckOSM 5d227bb). The bridge's GMNS is built again so: `duckosm build --pbf ../duckOSM/data/maps/metro_vancouver.osm.pbf
 -b data/granville-bridge.boundary.geojson -o data/granville-bridge.osm.duckdb -m driving --fixes ../duckOSM/osm_overrides/osm_overrides.yaml`,
 then `duckosm gmns data/granville-bridge.osm.duckdb --out data/granville-bridge.gmns.duckdb -m driving` (the boundary is a 2 m buffer
-round the old GMNS links; with the taper off it gives the same bridge lanes within 0.18 m). Open: the lane steps at Hemlock and at the
-a4 forks (the rule is proposed).
+round the old GMNS links; with the taper off it gives the same bridge lanes within 0.18 m). Also installed: a carriageway goes straight
+on from its two-way road through OSM's V (duckOSM 220c7fb; Hemlock, a10 into a11 and a12; the aerial photo shows one deck with a median
+barrier). Open: a 1 m S-wiggle in a11's and a12's lanes in the first 15 m (duckOSM centres a carriageway on its own OSM line; placing
+the pair from the median would remove it); the two `merge_to_left` lanes that do not end (w256879265, w1419040131: B1 remove the tag or
+B2 end the lane, check the aerial photo); the lane steps at the a4 forks.
 
 **2026-10-22, evening.** Each branch is on its smooth centre line with one width and one constant offset (c1ef74c), and step 3b rounds
 each corner where a fork's side meets a branch's edge with a short fillet (`bridge_forks._fillet_corners`, `bridge-steps.md`, "Step 3b:

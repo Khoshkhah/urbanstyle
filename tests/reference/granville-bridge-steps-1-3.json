@@ -1059,7 +1059,7 @@
      5457393.83
     ]
    ],
-   "area_m2": 4782.16
+   "area_m2": 4554.88
   }
  ],
  "fork_areas": {
@@ -1068,5 +1068,5 @@
   "n414553095": 525.21,
   "n3488072817": 1444.59
  },
- "_note": "Steps 1 to 3 of Granville Bridge as Kaveh accepted them (2026-10-22: each axis on its smooth centre line, OSM's line averaged over 20 m with its ends held, one width and one constant offset from its bands; a path counts only where this branch's lanes are its nearest lanes, beside them over 12 m or more; a short sideways path link not counted; a fork is the hull between the smooth cross-sections; SUMO's lanes from duckOSM with the lane taper at plain joints, 5d227bb). tests/test_bridge_steps.py fails when the code gives anything else; change this file only when Kaveh asks."
+ "_note": "Steps 1 to 3 of Granville Bridge as Kaveh accepted them (2026-10-22: each axis on its smooth centre line, OSM's line averaged over 20 m with its ends held, one width and one constant offset from its bands; a path counts only where this branch's lanes are its nearest lanes, beside them over 12 m or more; a short sideways path link not counted; a fork is the hull between the smooth cross-sections; SUMO's lanes from duckOSM with the lane taper at plain joints and the carriageways straight through OSM's V). tests/test_bridge_steps.py fails when the code gives anything else; change this file only when Kaveh asks."
 }

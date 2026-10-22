@@ -193,6 +193,34 @@ def _extent_exact(line, polys, reach=40.0):
     return float(min(0.0, ts.min())), float(max(0.0, ts.max()))
 
 
+def _widest_section(line, polys, reach=40.0, step=1.0):
+    """(lo, hi) of the widest cross-section of the polygons across the line: at every station (every ``step`` m, and at every corner
+    point of the polygons) the reach to the left (+) and right (-) at THAT station; the station with the largest width gives both edges.
+    (The widest reach to the left anywhere and to the right anywhere, taken apart, gave b4 27.5 m when no cross-section was wider
+    than 22.3 m, and b10 39.5 m against 28.4 m; Kaveh, 2026-10-22: one width, from all the bands.)"""
+    import numpy as np
+    import shapely
+    from .bridge_surface import _frame
+    g = shapely.union_all(polys)
+    strip = line.buffer(reach, cap_style="flat")
+    ss = set(np.arange(0.0, line.length + 0.01, step).tolist())
+    for pg in shapely.get_parts(g.intersection(strip)):
+        if pg.geom_type == "Polygon":
+            for ring in [pg.exterior] + list(pg.interiors):
+                for x, y in ring.coords:
+                    ss.add(float(line.project(shapely.Point(x, y))))
+    best = (0.0, 0.0, 0.0)
+    for s_ in sorted(ss):
+        x0, y0, nx, ny = _frame(line, s_)
+        cut = shapely.LineString([(x0 - nx * reach, y0 - ny * reach), (x0 + nx * reach, y0 + ny * reach)]).intersection(g)
+        ts = [(cx - x0) * nx + (cy - y0) * ny for part in shapely.get_parts(cut) for cx, cy in getattr(part, "coords", [])]
+        if ts:
+            lo, hi = min(0.0, min(ts)), max(0.0, max(ts))
+            if hi - lo > best[0]:
+                best = (hi - lo, lo, hi)
+    return best[1], best[2]
+
+
 def _extent(line, polys, step=5.0, reach=40.0):
     """(lo, hi): how far the polygons reach to the left (+) and right (-) of the line, over its length."""
     import shapely
@@ -250,7 +278,7 @@ def partition(P, axes, a_lv, widths, R):
             mid = _pair_mid(by_id[a1][0], k1, by_id[a2][0], k2)          # (from the shared node outward)
             strips = []
             for aid in (a1, a2):
-                lo_, hi_ = widths[aid]
+                lo_, hi_ = widths[aid][:2]
                 l_ = by_id[aid][0]
                 strips.append(l_.buffer(hi_, single_sided=True, cap_style="flat").union(l_.buffer(lo_, single_sided=True, cap_style="flat")))
             lo, hi = _extent(mid, strips)
@@ -259,7 +287,7 @@ def partition(P, axes, a_lv, widths, R):
                           "ends": [pr["node"], far[0] if far and far[0] and far[0] == far[-1] else None]})
             seen |= {a1, a2}
         else:
-            lo, hi = widths[a["id"]]
+            lo, hi = widths[a["id"]][:2]
             units.append({"axes": [a["id"]], "line": ln, "lo": lo, "hi": hi,
                           "ends": [e.get("node") if not e.get("ground") else None for e in a["ends"]]})
             seen.add(a["id"])
@@ -303,7 +331,7 @@ def partition(P, axes, a_lv, widths, R):
         s0, s1 = cut_at(ends[0]), cut_at(ends[1])
         # the branch on OSM's lines: each axis from its branch point to its other end; a carriageway pair's two axes each on its own
         # line with its own width (a midway line was 2.8 m from each carriageway), any other axis with the branch's one width
-        osm_lines, strips = [], []
+        osm_lines, strips, strip_of = [], [], {}
         for v in chain:
             for aid in v["axes"]:
                 ln_a, a_ = by_id[aid]
@@ -316,12 +344,20 @@ def partition(P, axes, a_lv, widths, R):
                         else:
                             c1 = f["branch_m"][aid]
                 seg = shapely.ops.substring(ln_a, c0, ln_a.length - c1)
-                w_lo, w_hi = widths[aid] if len(v["axes"]) > 1 else _side(ln_a, line, lo, hi)
                 osm_lines.append(seg)
-                strips.append(seg.buffer(w_hi, single_sided=True, cap_style="flat").union(seg.buffer(w_lo, single_sided=True, cap_style="flat")))
+                wd = widths[aid]
+                if len(wd) == 3:                                   # one width about the bands' middle (band_widths)
+                    half = (wd[1] - wd[0]) / 2.0
+                    strip_of[aid] = (ln_a, wd[2], half)
+                    strips.append(_strip_along(ln_a, wd[2], half, c0, ln_a.length - c1))
+                else:
+                    w_lo, w_hi = wd if len(v["axes"]) > 1 else _side(ln_a, line, lo, hi)
+                    strip_of[aid] = (ln_a, [(0.0, (w_lo + w_hi) / 2.0), (ln_a.length, (w_lo + w_hi) / 2.0)], (w_hi - w_lo) / 2.0)
+                    strips.append(seg.buffer(w_hi, single_sided=True, cap_style="flat").union(seg.buffer(w_lo, single_sided=True, cap_style="flat")))
         poly = shapely.union_all(strips)
         branches.append({"id": f"b{len(branches) + 1}", "axes": ids, "level": a_lv.get(ids[0]), "line": line, "s0": s0, "s1": s1,
-                         "lo": lo, "hi": hi, "poly": poly, "ends": ends, "osm_lines": osm_lines})
+                         "lo": lo, "hi": hi, "poly": poly, "ends": ends, "osm_lines": osm_lines, "strip_of": strip_of,
+                         "end_axes": (list(chain[0]["axes"]), list(chain[-1]["axes"]))})
     # the forks: each arm's line from the node to its branch point, as wide as its branch
     forks_ = []
     for k_, f in enumerate(R["forks"]):
@@ -332,8 +368,19 @@ def partition(P, axes, a_lv, widths, R):
         # there. The trunk's square end met a narrower fork with a step of 6 m and more; an arm's own strip from the node stuck out past
         # the trunk's edge as a spike (f4, a3 beside a9)
         trunk_ids = {aid for aid, _ in f["trunk"]}
-        xsec = lambda b, e, d: (lambda fr: [(fr[0] + fr[2] * b["lo"], fr[1] + fr[3] * b["lo"]), (fr[0] + fr[2] * b["hi"], fr[1] + fr[3] * b["hi"])])(
-            _frame(b["line"], d if e == 0 else b["line"].length - d))
+        node_pt = shapely.Point(f["xy"])
+
+        def at_end(b, e):
+            """The axes of branch b at its end e, each with its station d metres from the node: [(axis id, line, mids, half, s_of(d))]."""
+            out_ = []
+            for aid in b["end_axes"][e]:
+                ln_a, mids, half = b["strip_of"][aid]
+                start_at_node = shapely.Point(ln_a.coords[0]).distance(node_pt) <= shapely.Point(ln_a.coords[-1]).distance(node_pt)
+                out_.append((aid, ln_a, mids, half, (lambda d, L=ln_a.length, st=start_at_node: d if st else L - d)))
+            return out_
+
+        def xsec(b, e, d):
+            return [p for aid, ln_a, mids, half, s_of in at_end(b, e) for p in _edges_at(ln_a, mids, half, s_of(d))]
         T = next(((b, e) for b in branches for e, nd in enumerate(b["ends"]) if nd == f["node"] and trunk_ids & set(b["axes"])), None)
         for b in branches:
             for e, node in enumerate(b["ends"]):
@@ -346,9 +393,9 @@ def partition(P, axes, a_lv, widths, R):
                 if T is not None and b is not T[0] and d > 0.5:
                     parts.append(shapely.MultiPoint(xsec(T[0], T[1], 0.0) + xsec(b, e, d)).convex_hull)
                 if s_cut - d > 0.5 or d <= 0.5:
-                    a0, a1 = (d, max(s_cut, d + 0.5)) if e == 0 else (L - max(s_cut, d + 0.5), L - d)
-                    seg = shapely.ops.substring(b["line"], a0, a1)
-                    parts.append(seg.buffer(b["hi"], single_sided=True, cap_style="flat").union(seg.buffer(b["lo"], single_sided=True, cap_style="flat")))
+                    for aid, ln_a, mids, half, s_of in at_end(b, e):       # the arm's own strip from the taper's end to its branch point
+                        sa, sb = sorted((s_of(d), s_of(max(s_cut, d + 0.5))))
+                        parts.append(_strip_along(ln_a, mids, half, sa, sb))
         g = shapely.union_all(parts)
         g = g.buffer(CLOSE_M, join_style="round").buffer(-CLOSE_M, join_style="round").union(g)
         g = g.difference(shapely.union_all([b["poly"] for b in branches if b["level"] == f["level"]]))
@@ -623,9 +670,87 @@ def band_widths(P, axes, R, gmns=None, edge=0.5):
             if not added:
                 break
         own = list(lanes) + list(got.values())
-        lo, hi = _extent_exact(ln, own)
-        out[a["id"]] = (round(lo - edge, 2), round(hi + edge, 2))
+        half, mids = _one_width(ln, own)
+        mids = [(s_ + c0, m) for s_, m in mids]                        # (stations on the whole line: the body starts at c0)
+        if c0 > 0:
+            mids = [(0.0, mids[0][1])] + mids
+        if c1 > 0:
+            mids = mids + [(ln0.length, mids[-1][1])]
+        out[a["id"]] = (round(-half - edge, 2), round(half + edge, 2), mids)
     return out
+
+
+MID_SMOOTH_M = 20.0     # the strip's middle follows the bands' middle, averaged over this (no kink where a path begins or ends)
+
+
+def _one_width(line, polys, reach=40.0, step=1.0):
+    """One width for an axis, placed where its bands are (Kaveh, 2026-10-22: one width, from all the bands): at every station along the
+    line, the bands' reach to the left (+) and right (-); their middle, averaged over MID_SMOOTH_M, is the strip's middle m(s); the half
+    width is the largest reach from m(s) to a band's edge at any station, so the strip holds every band everywhere. Returns (half,
+    [(s, m)]). A strip of one width centred on the line itself had to be as wide as the widest reach on each side anywhere (b4 27.5 m
+    for a widest cross-section of 22.3 m; b10 39.5 m against 28.4 m)."""
+    import numpy as np
+    import shapely
+    from .bridge_surface import _frame
+    g = shapely.union_all(polys)
+    ss = np.arange(0.0, line.length + 0.01, step)
+    lo, hi = [], []
+    for s_ in ss:
+        x0, y0, nx, ny = _frame(line, float(s_))
+        cut = shapely.LineString([(x0 - nx * reach, y0 - ny * reach), (x0 + nx * reach, y0 + ny * reach)]).intersection(g)
+        ts = [(cx - x0) * nx + (cy - y0) * ny for part in shapely.get_parts(cut) for cx, cy in getattr(part, "coords", [])]
+        lo.append(min(ts) if ts else np.nan)
+        hi.append(max(ts) if ts else np.nan)
+    lo, hi = np.array(lo), np.array(hi)
+    have = ~np.isnan(lo)
+    if not have.any():
+        return 0.0, [(0.0, 0.0), (float(line.length), 0.0)]
+    # where no band is (past the lanes' end), the nearest station with one
+    idx = np.where(have)[0]
+    lo = np.interp(np.arange(len(ss)), idx, lo[idx]); hi = np.interp(np.arange(len(ss)), idx, hi[idx])
+    # the width: the widest cross-section; the middle: as smooth as the corridor [hi - half, lo + half] allows (the bands' middle,
+    # averaged over MID_SMOOTH_M and clamped into the corridor, repeated: an average alone lagged where the bands shift fast and the
+    # width grew to cover it, b9 24.9 m for a widest cross-section of 19.4 m)
+    half = float(((hi - lo) / 2.0).max())
+    ms = (lo + hi) / 2.0
+    w = max(1, int(MID_SMOOTH_M / 2 / step))
+    for _ in range(12):
+        ms = np.array([ms[max(0, i - w):i + w + 1].mean() for i in range(len(ss))])
+        ms = np.clip(ms, hi - half, lo + half)
+    # one last average with no clamp (the clamp leaves a kink where a path begins or ends: b8), and the width grows by what it needs
+    w2 = max(1, int(MID_SMOOTH_M / 8 / step))                           # (a short one: a long one moved the middle far and b8 grew 4 m)
+    ms = np.array([ms[max(0, i - w2):i + w2 + 1].mean() for i in range(len(ss))])
+    half = float(max(half, (hi - ms).max(), (ms - lo).max()))
+    return half, [(float(a), round(float(b), 3)) for a, b in zip(ss, ms)]
+
+
+def _strip_along(line, mids, half, s0=None, s1=None, step=1.0):
+    """The strip of one width 2 ``half`` about the middle line m(s) (``mids``: [(s, m)] on ``line``), from s0 to s1 (the whole line
+    when not given), square ends."""
+    import numpy as np
+    import shapely
+    from .bridge_surface import _frame
+    s0 = 0.0 if s0 is None else max(0.0, s0)
+    s1 = line.length if s1 is None else min(line.length, s1)
+    if s1 - s0 < 0.1:
+        return shapely.Polygon()
+    xs = [p[0] for p in mids]; ys = [p[1] for p in mids]
+    left, right = [], []
+    for s_ in list(np.arange(s0, s1, step)) + [s1]:
+        m = float(np.interp(s_, xs, ys))
+        x0, y0, nx, ny = _frame(line, float(s_))
+        left.append((x0 + nx * (m + half), y0 + ny * (m + half)))
+        right.append((x0 + nx * (m - half), y0 + ny * (m - half)))
+    return shapely.make_valid(shapely.Polygon(left + right[::-1])).buffer(0)
+
+
+def _edges_at(line, mids, half, s_):
+    """The strip's left and right edge points at station s_."""
+    import numpy as np
+    from .bridge_surface import _frame
+    m = float(np.interp(s_, [p[0] for p in mids], [p[1] for p in mids]))
+    x0, y0, nx, ny = _frame(line, float(s_))
+    return [(x0 + nx * (m + half), y0 + ny * (m + half)), (x0 + nx * (m - half), y0 + ny * (m - half))]
 
 
 def step4(P, axes, B, F, gmns=None):

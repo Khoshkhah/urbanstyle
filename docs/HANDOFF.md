@@ -6,6 +6,13 @@ first, then this note, then `docs/notes/street-rules.md` and `docs/notes/section
 
 ## Bridges: the words and the order of the steps (2026-10-19, read this first)
 
+**2026-10-22.** Steps 1 to 5 are frozen and accepted (references in `tests/reference/`, tests `test_bridge_steps.py` and
+`test_bridge_step5.py`). Step 3 changed at Kaveh's word ("keep one width, from all the bands"): the width is the widest cross-section,
+and the strip's middle follows the bands' middle (`bridge_forks._one_width`, `_strip_along`); the references were saved again. Step 6 (the
+cover: `bridge_forks.cover_items`, `urbanstyle structure ... --gmns`) is built on rank 0 and matches the old model at every fork; not
+accepted yet. The servers must be started again after a restart of the machine: `viz/` on 8784 (`python3 -m http.server`), the Granville
+cut's `serve` on 8786, the old dashboard on 8788.
+
 **2026-10-20, after the background session (30b4d6d).** Kaveh: "do the best for the project in general, not a special case". Step 3's
 width is now exact (`_extent_exact`: every corner point of the branch's own bands, along the whole axis from the taper's end at a fork,
 FORK_TAPER_M), not sampled every 2 m. The step 3b sliver rule (SLIVER_M) is removed: it was a workaround for the sampling and it made the

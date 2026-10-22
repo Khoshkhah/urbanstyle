@@ -92,8 +92,8 @@
    ],
    "s0": 0.0,
    "s1": 0.0,
-   "lo": -13.37,
-   "hi": 19.22,
+   "lo": -16.05,
+   "hi": 16.05,
    "line": [
     [
      490085.13,
@@ -112,7 +112,7 @@
      5457920.88
     ]
    ],
-   "area_m2": 17939.01
+   "area_m2": 17669.29
   },
   {
    "id": "b2",
@@ -125,8 +125,8 @@
    ],
    "s0": 30.0,
    "s1": 0.0,
-   "lo": -7.62,
-   "hi": 3.76,
+   "lo": -5.85,
+   "hi": 5.85,
    "line": [
     [
      489855.54,
@@ -185,7 +185,7 @@
      5456938.91
     ]
    ],
-   "area_m2": 4267.67
+   "area_m2": 4386.96
   },
   {
    "id": "b3",
@@ -198,8 +198,8 @@
    ],
    "s0": 0.0,
    "s1": 44.0,
-   "lo": -8.75,
-   "hi": 7.8,
+   "lo": -7.62,
+   "hi": 7.62,
    "line": [
     [
      490111.32,
@@ -302,7 +302,7 @@
      5457393.83
     ]
    ],
-   "area_m2": 5355.71
+   "area_m2": 4935.18
   },
   {
    "id": "b4",
@@ -315,8 +315,8 @@
    ],
    "s0": 86.0,
    "s1": 0.0,
-   "lo": -12.82,
-   "hi": 14.72,
+   "lo": -11.49,
+   "hi": 11.49,
    "line": [
     [
      490085.13,
@@ -367,7 +367,7 @@
      5457320.26
     ]
    ],
-   "area_m2": 6233.98
+   "area_m2": 5202.33
   },
   {
    "id": "b5",
@@ -380,8 +380,8 @@
    ],
    "s0": 35.0,
    "s1": 0.0,
-   "lo": -8.73,
-   "hi": 7.0,
+   "lo": -7.27,
+   "hi": 7.27,
    "line": [
     [
      490473.16,
@@ -432,7 +432,7 @@
      5458042.66
     ]
    ],
-   "area_m2": 3984.36
+   "area_m2": 3687.92
   },
   {
    "id": "b6",
@@ -445,8 +445,8 @@
    ],
    "s0": 0.0,
    "s1": 41.0,
-   "lo": -11.13,
-   "hi": 9.11,
+   "lo": -9.19,
+   "hi": 9.19,
    "line": [
     [
      490579.19,
@@ -501,7 +501,7 @@
      5457920.88
     ]
    ],
-   "area_m2": 4793.52
+   "area_m2": 4362.39
   },
   {
    "id": "b7",
@@ -514,8 +514,8 @@
    ],
    "s0": 30.0,
    "s1": 0.0,
-   "lo": -6.33,
-   "hi": 2.12,
+   "lo": -4.36,
+   "hi": 4.36,
    "line": [
     [
      489855.54,
@@ -574,7 +574,7 @@
      5457270.42
     ]
    ],
-   "area_m2": 1679.39
+   "area_m2": 1734.56
   },
   {
    "id": "b8",
@@ -587,8 +587,8 @@
    ],
    "s0": 39.0,
    "s1": 0.0,
-   "lo": -12.05,
-   "hi": 19.38,
+   "lo": -14.97,
+   "hi": 14.97,
    "line": [
     [
      490473.16,
@@ -603,7 +603,7 @@
      5458051.83
     ]
    ],
-   "area_m2": 4557.31
+   "area_m2": 4341.53
   },
   {
    "id": "b9",
@@ -616,8 +616,8 @@
    ],
    "s0": 0.0,
    "s1": 85.0,
-   "lo": -10.78,
-   "hi": 8.63,
+   "lo": -10.06,
+   "hi": 10.06,
    "line": [
     [
      489971.64,
@@ -652,7 +652,7 @@
      5457530.46
     ]
    ],
-   "area_m2": 1810.08
+   "area_m2": 1874.29
   },
   {
    "id": "b10",
@@ -667,8 +667,8 @@
    ],
    "s0": 0.0,
    "s1": 43.0,
-   "lo": -18.68,
-   "hi": 20.77,
+   "lo": -14.83,
+   "hi": 14.83,
    "line": [
     [
      489930.63,
@@ -1059,14 +1059,14 @@
      5457393.83
     ]
    ],
-   "area_m2": 5457.53
+   "area_m2": 4554.85
   }
  ],
  "fork_areas": {
-  "n13040317836": 2821.33,
-  "n266729860": 1432.28,
-  "n414553095": 613.21,
-  "n3488072817": 1412.95
+  "n13040317836": 3427.54,
+  "n266729860": 1404.04,
+  "n414553095": 581.96,
+  "n3488072817": 1452.21
  },
- "_note": "Steps 1 to 3 of Granville Bridge as Kaveh accepted them (2026-10-20; step 3's widths exact, from every corner point of each branch's own step-4 bands, along the whole axis from the taper's end at a fork; a fork starts at its trunk's full cross-section). tests/test_bridge_steps.py fails when the code gives anything else; change this file only when Kaveh asks for a change to these steps."
+ "_note": "Steps 1 to 3 of Granville Bridge as Kaveh accepted them (2026-10-22: one width per axis, its widest cross-section, the strip's middle following its bands' middle, smoothed inside the corridor the bands allow; a fork starts at its trunk's full cross-section). tests/test_bridge_steps.py fails when the code gives anything else; change this file only when Kaveh asks for a change to these steps."
 }

@@ -53,6 +53,18 @@ and a path width with no `width` tag (2 m) are urbanstyle's chosen values, so a 
 The Hemlock node (n2625030369) is not a fork: a11 and a12 are a carriageway pair, so only two roads meet there. a10, a11 and a12 are
 one branch. The branches: a1, a2, a3, a4, a5, a6, a7, a8, a9, and a10+a11+a12.
 
+## Step 3: the one width of a branch
+
+A branch has one width. It comes from all the branch's bands (step 4): the lanes SUMO makes on its OSM ways, and the OSM paths whose edge
+is within 3 m of the lanes or of a path that already counts. Along the branch's body (from the taper's end at a fork), the bands' reach
+to the left and right is measured at every metre.
+
+- **The width** is the widest cross-section, plus 0.5 m of edge on each side. The widest reach to the left anywhere and to the right
+  anywhere, taken apart, gave a width no cross-section had (b4 27.5 m for a widest cross-section of 22.3 m).
+- **The strip's position:** its middle follows the bands' middle, averaged over 20 m and kept inside the corridor the bands allow, so
+  the strip holds every band everywhere and has no kink where a path begins or ends. OSM's line stays the reference for `s`.
+- A carriageway pair has one strip per carriageway, each on its own OSM line.
+
 ## The order of the steps
 
 Steps 1 to 4 are in 2D, and they are most of the work. Each one is checked on a fast 2D page first. After step 4, and before any 3D,
@@ -62,7 +74,7 @@ the bridge gets a 2D dashboard (step 4b).
 |---|---|---|---|
 | 1 | Junction nodes, carriageway pairs, forks, branch points | 2D | the points |
 | 2 | Branches and forks | 2D | the partition of each bridge level |
-| 3 | The centre line (OSM's own line, not smoothed; a carriageway pair on its two OSM lines) and the one width of each branch | 2D | the branch geometry |
+| 3 | The centre line (OSM's own line, not smoothed; a carriageway pair on its two OSM lines) and the one width of each branch, placed about its bands' middle ("Step 3: the one width of a branch") | 2D | the branch geometry |
 | 3b | Smoothing: the branch lines and edges made smooth, with no jog at an OSM vertex and no step where widths meet (Kaveh, 2026-10-19: "smoothing is the next step") | 2D | smooth branch geometry |
 | 4 | The bands of each branch (lanes and paths), joined band by band through each fork, smoothly | 2D | the plan of the cover |
 | 4b | A 2D dashboard of the bridge: steps 1 to 4 on the map, before any 3D (Kaveh, 2026-10-19) | 2D | the 2D review page |

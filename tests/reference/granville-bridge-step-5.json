@@ -1,5 +1,5 @@
 {
- "_note": "Step 5 (rank 0) of Granville Bridge as Kaveh accepted it (2026-10-22, on the smooth centre lines, the fork corners rounded, the path links not counted, a path counted only where its branch's lanes are the nearest, duckOSM's lane taper and the carriageways straight through OSM's V, duckOSM's overrides #23 and #24, the lane-split rule). tests/test_bridge_step5.py fails when the code gives anything else; change this file only when Kaveh asks.",
+ "_note": "Step 5 (rank 0) of Granville Bridge as Kaveh accepted it (2026-10-22, on the smooth centre lines, the fork corners rounded, the path links not counted, a path counted only where its branch's lanes are the nearest, duckOSM's lane taper and the carriageways straight through OSM's V, duckOSM's overrides #23 and #24, the lane-split rule, the V as one smooth curve, the moves as smooth curves). tests/test_bridge_step5.py fails when the code gives anything else; change this file only when Kaveh asks.",
  "structures": [
   {
    "level": 1,
@@ -18,7 +18,7 @@
     "a12"
    ],
    "kind": "slab",
-   "area_m2": 55266.0
+   "area_m2": 55276.4
   }
  ],
  "heights": {
@@ -1729,133 +1729,133 @@
  },
  "piers": [
   [
-   -433.4,
-   -303.98,
+   -433.35,
+   -303.91,
    4.77
   ],
   [
-   -420.82,
-   -614.61,
+   -420.77,
+   -614.54,
    5.99
   ],
   [
-   -399.6,
-   -537.78,
+   -399.55,
+   -537.71,
    8.61
   ],
   [
-   -385.72,
-   -458.88,
+   -385.67,
+   -458.81,
    9.49
   ],
   [
-   -371.29,
-   -380.12,
+   -371.24,
+   -380.05,
    9.41
   ],
   [
-   -348.75,
-   -303.67,
+   -348.71,
+   -303.6,
    8.98
   ],
   [
-   -298.36,
-   -252.91,
+   -298.31,
+   -252.84,
    11.23
   ],
   [
-   -251.17,
-   -327.43,
+   -251.12,
+   -327.36,
    5.22
   ],
   [
-   -239.12,
-   -199.29,
+   -239.07,
+   -199.21,
    15.39
   ],
   [
-   -235.25,
-   -249.23,
+   -235.21,
+   -249.16,
    12.55
   ],
   [
-   -223.07,
-   -252.98,
+   -223.02,
+   -252.9,
    12.55
   ],
   [
-   -202.78,
-   -208.36,
+   -202.73,
+   -208.29,
    15.95
   ],
   [
-   -200.52,
-   -285.01,
+   -200.47,
+   -284.94,
    11.14
   ],
   [
-   -182.75,
-   -142.61,
+   -182.7,
+   -142.54,
    20.13
   ],
   [
-   -144.6,
-   -341.13,
+   -144.55,
+   -341.06,
    9.69
   ],
   [
-   -125.34,
-   -86.91,
+   -125.29,
+   -86.84,
    24.03
   ],
   [
-   -84.66,
-   -394.22,
+   -84.61,
+   -394.14,
    8.45
   ],
   [
-   107.07,
-   117.57,
+   107.12,
+   117.64,
    10.5
   ],
   [
-   198.35,
-   210.12,
+   198.4,
+   210.19,
    10.5
   ],
   [
-   321.21,
-   399.32,
+   321.26,
+   399.4,
    15.07
   ],
   [
-   330.81,
-   341.85,
+   330.86,
+   341.92,
    17.81
   ],
   [
-   342.47,
-   476.56,
+   342.52,
+   476.63,
    9.1
   ],
   [
-   374.87,
-   415.79,
+   374.92,
+   415.86,
    10.37
   ],
   [
-   381.81,
-   409.28,
+   381.86,
+   409.35,
    10.37
   ],
   [
-   405.24,
-   370.38,
+   405.29,
+   370.45,
    11.56
   ],
   [
-   480.62,
-   396.92,
+   480.66,
+   397.0,
    4.53
   ]
  ],

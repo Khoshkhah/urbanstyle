@@ -619,8 +619,9 @@ STICK_OUT_M2 = 1.0      # a band piece outside every branch and fork larger than
 
 
 def bands(P, axes, gmns=None):
-    """The bands of step 4 without their homes (step4)."""
-    return step4(P, axes, None, None, gmns=gmns)["bands"]
+    """The bands of step 4 without their homes (step4), with SUMO's moves as SUMO gives them: step 3 measures the widths from these (a
+    smooth curve shortened the next lane, and the widths moved)."""
+    return step4(P, axes, None, None, gmns=gmns, smooth=False)["bands"]
 
 
 LINK_M = 12.0           # a path piece shorter than this ...
@@ -801,7 +802,54 @@ def _edges_at(line, mids, half, s_):
     return [(x0 + nx * (m + half), y0 + ny * (m + half)), (x0 + nx * (m - half), y0 + ny * (m - half))]
 
 
-def step4(P, axes, B, F, gmns=None):
+MOVE_TAPER_PER_M = 30.0 / 3.25   # step 4: a move that goes straight on but sideways takes at least this many metres per metre it moves
+
+
+def _smooth_moves(bands):
+    """Step 4: SUMO's move from a lane to the next that goes straight on (turns STRAIGHT_DEG or less) but sideways is one smooth curve
+    (cubic Hermite: the headings of both lanes kept) from the lane's end to the next lane, not SUMO's straight line inside its junction
+    (Granville, a4 into a2 and a7: 1.2 to 2.8 m sideways over 6 to 8 m). Where it moves far, the curve takes the first metres of the
+    next lane too (MOVE_TAPER_PER_M), and that lane starts there. Changes ``bands`` in place."""
+    import math
+    import numpy as np
+    import shapely
+    import shapely.ops
+    from .bridge_cover import _turn
+    lane = {b["props"]["lane_id"]: b for b in bands if b["kind"] == "lane"}
+    trim, new = {}, []
+    for c in bands:
+        if c["kind"] != "connector" or _turn(c["line"]) > STRAIGHT_DEG:
+            continue
+        f, t = lane.get(c["props"]["from"]), lane.get(c["props"]["to"])
+        if f is None or t is None or f["line"].length < 2.0 or t["line"].length < 2.0:
+            continue
+        p0, a = np.array(f["line"].coords[-1]), np.array(f["line"].interpolate(f["line"].length - 1.0).coords[0])
+        t0 = (p0 - a) / (np.hypot(*(p0 - a)) or 1.0)
+        q0 = np.array(t["line"].coords[0])
+        shift = abs(-t0[1] * (q0[0] - p0[0]) + t0[0] * (q0[1] - p0[1]))
+        if shift < 0.5:
+            continue
+        cl = c["line"].length
+        d = min(max(shift * MOVE_TAPER_PER_M - cl, 0.0), 0.5 * t["line"].length)
+        e = np.array(t["line"].interpolate(d).coords[0])
+        b_ = np.array(t["line"].interpolate(d + 1.0).coords[0])
+        te = (b_ - e) / (np.hypot(*(b_ - e)) or 1.0)
+        L = float(np.hypot(*(e - p0)))
+        u = np.linspace(0.0, 1.0, max(int(L) + 1, 3))[:, None]
+        curve = ((2 * u**3 - 3 * u**2 + 1) * p0 + (u**3 - 2 * u**2 + u) * L * t0 + (-2 * u**3 + 3 * u**2) * e + (u**3 - u**2) * L * te)
+        new.append((c, shapely.LineString(curve)))
+        trim[t["props"]["lane_id"]] = max(trim.get(t["props"]["lane_id"], 0.0), d)
+    for c, ln in new:
+        c["line"], c["poly"] = ln, ln.buffer(c["props"]["width_m"] / 2, cap_style="flat")
+        c["props"]["smoothed"] = True
+    for lid, d in trim.items():
+        b = lane[lid]
+        if d > 0.05:
+            b["line"] = shapely.ops.substring(b["line"], d, b["line"].length)
+            b["poly"] = b["line"].buffer(b["props"]["width_m"] / 2, cap_style="flat")
+
+
+def step4(P, axes, B, F, gmns=None, smooth=True):
     """Step 4 (docs/notes/bridge-steps.md): the bands of the bridge, from the sources only. Lanes: SUMO's lane lines (GMNS lane.geom_cut,
     else geom) as wide as their width, on the bridge's OSM ways. Connectors: SUMO's paths from lane to lane through a junction
     (lane_connector), none that turns back. Paths: OSM's sidewalks, cycleways and shared paths (bridge_surface._path_bands, joined where
@@ -839,6 +887,8 @@ def step4(P, axes, B, F, gmns=None):
         w = float(w or 3.25)
         bands.append({"kind": "connector", "line": ln, "poly": ln.buffer(w / 2, cap_style="flat"),
                       "props": {"connector": cid, "from": fl, "to": tl, "width_m": w, "source": "SUMO via duckOSM GMNS (lane_connector)"}})
+    if smooth:
+        _smooth_moves(bands)
     crossing = lambda q: q.get("footway") == "crossing" or q.get("cycleway") == "crossing" or bool(q.get("crossing"))
     pb, pj = _path_bands(dict(P, paths=[q for q in P.get("paths", []) if not crossing(q)]), axes)
     for b_ in pb:

@@ -95,6 +95,17 @@ lines, the centre line and the arrows go through it. Only a connector that turns
 Granville every connector turns 27° or less, so the bridge has no junction lane. The lane lines are drawn along the shared edge of
 two lanes of one direction of travel; a hairline gap between two lanes (under 0.1 m) does not stop them.
 
+## Step 4: a move that goes sideways is one smooth curve
+
+SUMO's move from a lane to the next lane, where it goes straight on (it turns 30° or less) but moves sideways 0.5 m or more, is drawn
+as one smooth curve (cubic Hermite: the headings of both lanes are kept), not as SUMO's line inside its short junction. Where it moves
+far, the curve also takes the first metres of the next lane (30 m for each 3.25 m of sideways move), and that lane starts there.
+Granville: the a4 fork (a7: 11.5 m, a2: 21.4 m) and 14 other moves.
+
+In duckOSM, where a two-way road goes on into its two carriageways through OSM's V (Hemlock), each carriageway lane is one smooth
+curve from the two-way road's lane to its own line, also over 30 m for each 3.25 m of sideways move. Its own line in the V is not
+used, because it first goes outwards.
+
 ## Rule 3: a short sideways path piece is a link
 
 An OSM path piece shorter than 12 m that runs at more than 30° to its axis is a **path link** (for example, from a sidewalk to the cycle

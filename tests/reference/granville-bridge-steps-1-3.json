@@ -125,8 +125,8 @@
    ],
    "s0": 30.0,
    "s1": 0.0,
-   "lo": -5.73,
-   "hi": 5.73,
+   "lo": -6.11,
+   "hi": 6.11,
    "line": [
     [
      489855.54,
@@ -185,7 +185,7 @@
      5456938.91
     ]
    ],
-   "area_m2": 4291.13
+   "area_m2": 4577.2
   },
   {
    "id": "b3",
@@ -198,8 +198,8 @@
    ],
    "s0": 0.0,
    "s1": 44.0,
-   "lo": -6.29,
-   "hi": 6.29,
+   "lo": -6.47,
+   "hi": 6.47,
    "line": [
     [
      490111.32,
@@ -302,7 +302,7 @@
      5457393.83
     ]
    ],
-   "area_m2": 4058.26
+   "area_m2": 4174.47
   },
   {
    "id": "b4",
@@ -315,8 +315,8 @@
    ],
    "s0": 86.0,
    "s1": 0.0,
-   "lo": -8.28,
-   "hi": 8.28,
+   "lo": -8.34,
+   "hi": 8.34,
    "line": [
     [
      490085.13,
@@ -367,7 +367,7 @@
      5457320.26
     ]
    ],
-   "area_m2": 3739.32
+   "area_m2": 3766.47
   },
   {
    "id": "b5",
@@ -380,8 +380,8 @@
    ],
    "s0": 35.0,
    "s1": 0.0,
-   "lo": -6.32,
-   "hi": 6.32,
+   "lo": -6.4,
+   "hi": 6.4,
    "line": [
     [
      490473.16,
@@ -432,7 +432,7 @@
      5458042.66
     ]
    ],
-   "area_m2": 3203.92
+   "area_m2": 3244.98
   },
   {
    "id": "b6",
@@ -445,8 +445,8 @@
    ],
    "s0": 0.0,
    "s1": 41.0,
-   "lo": -7.38,
-   "hi": 7.38,
+   "lo": -7.7,
+   "hi": 7.7,
    "line": [
     [
      490579.19,
@@ -501,7 +501,7 @@
      5457920.88
     ]
    ],
-   "area_m2": 3502.06
+   "area_m2": 3653.7
   },
   {
    "id": "b7",
@@ -514,8 +514,8 @@
    ],
    "s0": 30.0,
    "s1": 0.0,
-   "lo": -4.37,
-   "hi": 4.37,
+   "lo": -4.53,
+   "hi": 4.53,
    "line": [
     [
      489855.54,
@@ -574,7 +574,7 @@
      5457270.42
     ]
    ],
-   "area_m2": 1731.58
+   "area_m2": 1794.92
   },
   {
    "id": "b8",
@@ -667,8 +667,8 @@
    ],
    "s0": 0.0,
    "s1": 43.0,
-   "lo": -14.75,
-   "hi": 14.75,
+   "lo": -14.82,
+   "hi": 14.82,
    "line": [
     [
      489930.63,
@@ -1059,14 +1059,14 @@
      5457393.83
     ]
    ],
-   "area_m2": 4596.78
+   "area_m2": 4611.38
   }
  ],
  "fork_areas": {
-  "n13040317836": 2836.14,
-  "n266729860": 1492.12,
-  "n414553095": 525.21,
-  "n3488072817": 1444.59
+  "n13040317836": 2835.76,
+  "n266729860": 1500.26,
+  "n414553095": 532.66,
+  "n3488072817": 1447.78
  },
- "_note": "Steps 1 to 3 of Granville Bridge as Kaveh accepted them (2026-10-22: each axis on its smooth centre line, OSM's line averaged over 20 m with its ends held, one width and one constant offset from its bands; a path counts only where this branch's lanes are its nearest lanes, beside them over 12 m or more; a short sideways path link not counted; a fork is the hull between the smooth cross-sections; SUMO's lanes from duckOSM with the lane taper at plain joints and the carriageways straight through OSM's V; duckOSM's overrides #23 and #24, the lane-split rule, the V as one smooth curve, the two merge lanes that do not end). tests/test_bridge_steps.py fails when the code gives anything else; change this file only when Kaveh asks."
+ "_note": "Steps 1 to 3 of Granville Bridge as Kaveh accepted them (2026-10-22: each axis on its smooth centre line, OSM's line averaged over 20 m with its ends held, one width and one constant offset from its bands, measured across the smooth line; a band counts where its nearest point on the axis is the station; a path counts only where this branch's lanes are its nearest lanes, beside them over 12 m or more; a short sideways path link not counted; a fork is the hull between the smooth cross-sections; SUMO's lanes from duckOSM with the lane taper at plain joints and the carriageways straight through OSM's V; duckOSM's overrides #23 and #24, the lane-split rule, the V as one smooth curve, the two merge lanes that do not end). tests/test_bridge_steps.py fails when the code gives anything else; change this file only when Kaveh asks."
 }

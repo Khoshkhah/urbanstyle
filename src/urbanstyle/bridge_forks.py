@@ -682,9 +682,13 @@ def band_widths(P, axes, R, gmns=None, edge=0.5):
         # (from the taper's end at a fork, FORK_TAPER_M, not from the branch point: the arm's strip inside the fork has this width too, and
         # a sidewalk beside a4 inside f1 stuck out of it by 0.7 m over 48 m; nearer the node the line runs through the shared deck)
         c0, c1 = (min(FORK_TAPER_M, cut[(a["id"], k)]) if (a["id"], k) in cut else 0.0 for k in (0, 1))
-        ln = shapely.ops.substring(ln0, c0, ln0.length - c1) if ln0.length - c0 - c1 > 2.0 else ln0
+        # (measured across the smooth centre line the strip is laid along, not OSM's: on a tight curve the smooth line lies 0.6 to 0.8 m
+        # inside OSM's, and Avenue Princesse Grace's lanes stuck out of the outer edge with a paved strip inside)
+        sm0 = _smooth_axis(ln0)
+        ln = shapely.ops.substring(sm0, c0, sm0.length - c1) if sm0.length - c0 - c1 > 2.0 else sm0
         ways = set(a["ways"])
-        lanes = [b_["poly"] for b_ in bs if b_["kind"] == "lane" and b_["props"]["osm"] in ways]
+        lanes = [b_["poly"] for b_ in bs if b_["kind"] == "lane" and b_["props"]["osm"] in ways] \
+            or [b_["poly"] for b_ in bs if b_["props"].get("own_axis") == a["id"]]      # (steps or a footpath alone: its own band)
         if not lanes:
             continue
         # a path counts only over the stretch where it runs beside the lanes, its edge within BESIDE_M of them (Kaveh, 2026-10-20):
@@ -728,6 +732,9 @@ def band_widths(P, axes, R, gmns=None, edge=0.5):
 MID_SMOOTH_M = 20.0     # the strip's middle follows the bands' middle, averaged over this (no kink where a path begins or ends)
 
 
+HERE_M = 2.0            # step 3: a band counts in a cross-section where its nearest point on the axis is this near the station
+
+
 def _one_width(line, polys, reach=40.0, step=1.0):
     """One width and one offset for an axis, from all its bands (Kaveh, 2026-10-22): at every station along the line, the bands' reach to
     the left (+) and right (-); the offset is the middle of the overall reach, the half width holds every band from there. Returns
@@ -742,7 +749,10 @@ def _one_width(line, polys, reach=40.0, step=1.0):
     for s_ in ss:
         x0, y0, nx, ny = _frame(line, float(s_))
         cut = shapely.LineString([(x0 - nx * reach, y0 - ny * reach), (x0 + nx * reach, y0 + ny * reach)]).intersection(g)
-        ts = [(cx - x0) * nx + (cy - y0) * ny for part in shapely.get_parts(cut) for cx, cy in getattr(part, "coords", [])]
+        # (only where the band's nearest point on the axis is this station: at a hairpin the other leg's lanes lay across the line,
+        # 20 to 40 m off, and Avenue de France's a1 was 46 m wide)
+        ts = [(cx - x0) * nx + (cy - y0) * ny for part in shapely.get_parts(cut) for cx, cy in getattr(part, "coords", [])
+              if abs(line.project(shapely.Point(cx, cy)) - float(s_)) <= HERE_M]
         lo.append(min(ts) if ts else np.nan)
         hi.append(max(ts) if ts else np.nan)
     lo, hi = np.array(lo), np.array(hi)
@@ -808,6 +818,62 @@ def _edges_at(line, mids, half, s_):
     m = float(np.interp(s_, [p[0] for p in mids], [p[1] for p in mids]))
     x0, y0, nx, ny = _frame(line, float(s_))
     return [(x0 + nx * (m + half), y0 + ny * (m + half)), (x0 + nx * (m - half), y0 + ny * (m - half))]
+
+
+PATH_KINDS = ("steps", "footway", "path", "pedestrian", "cycleway")
+STEPS_W_M = 2.0         # steps on a bridge with no width tag: as a footway's (bridge_profile.PATH_W)
+
+
+def _osm_only_bands(P, axes, have):
+    """Step 4: the bands of a bridge way that SUMO gives no lanes (Monaco: three steps bridges, two private service roads; the driving
+    network leaves both out), from OSM alone. Steps or a footpath is one walking band as wide as its `width` tag, else the bridge
+    profile's path width; a road has OSM's lane count (`lanes`, else 1 one-way and 2 two-way), each lane as wide as duckOSM's lane width
+    for its class, centred on its OSM line. ``have``: the ways SUMO gives lanes."""
+    import duckdb
+    import shapely
+    from duckosm.gmns import _default_lane_w
+    from .bridge_profile import PATH_W
+    src = _input(P, gmns=False)
+    ids = [int(w[1:]) for _, a in axes for w in a["ways"] if w not in have]
+    if not ids or src is None:
+        return []
+    o = duckdb.connect(src, read_only=True)
+    tags = {w: dict(t) if not isinstance(t, dict) else t for w, t in o.execute(
+        "SELECT osm_id, tags FROM raw.ways WHERE osm_id IN (SELECT unnest(?::BIGINT[]))", [ids]).fetchall()}
+    out = []
+    for _, a in axes:
+        for w in a["ways"]:
+            t = tags.get(int(w[1:]))
+            if t is None or w in have:
+                continue
+            ln = _osm_axis(P, dict(a, ways=[w]))
+            hw = t.get("highway", "")
+            try:
+                width = float(str(t.get("width", "")).replace("m", "").strip())
+            except ValueError:
+                width = None
+            if hw in PATH_KINDS:
+                wd = width or PATH_W.get(hw, STEPS_W_M)
+                out.append({"kind": "sidewalk", "line": ln, "poly": ln.buffer(wd / 2, cap_style="flat"),
+                            "props": {"osm": w, "width_m": wd, "axis": a["id"], "own_axis": a["id"], "steps": hw == "steps",
+                                      "source": "OSM" + (" (width tag)" if width else f" (width: bridge_profile.PATH_W, {hw})")}})
+                continue
+            one = t.get("oneway") in ("yes", "1", "true")
+            try:
+                n = int(t.get("lanes"))
+            except (TypeError, ValueError):
+                n = 1 if one else 2
+            lw = _default_lane_w(hw)
+            for k in range(n):
+                off = (n / 2 - k - 0.5) * lw
+                lk = ln.offset_curve(off) if abs(off) > 1e-6 else ln
+                if not one and k >= n / 2:                       # (two-way: the right half runs the other way)
+                    lk = shapely.LineString(list(lk.coords)[::-1])
+                out.append({"kind": "lane", "line": lk, "poly": lk.buffer(lw / 2, cap_style="flat"),
+                            "props": {"lane_id": f"{w}_osm_{k + 1}", "link_id": None, "osm": w, "lane": k + 1, "use": "auto",
+                                      "width_m": lw, "turn": None, "own_axis": a["id"],
+                                      "source": "OSM (lanes: tag or one-way rule; width: duckOSM's lane width by class)"}})
+    return out
 
 
 MOVE_TAPER_PER_M = 30.0 / 3.25   # step 4: a move that goes straight on but sideways takes at least this many metres per metre it moves
@@ -886,6 +952,7 @@ def step4(P, axes, B, F, gmns=None, smooth=True):
         bands.append({"kind": "lane", "line": ln, "poly": ln.buffer(w / 2, cap_style="flat"),
                       "props": {"lane_id": lid, "link_id": lk, "osm": f"w{osm}", "lane": num, "use": use, "width_m": w, "turn": turn,
                                 "source": "SUMO via duckOSM GMNS (lane.geom_cut)"}})
+    bands += _osm_only_bands(P, axes, {b["props"]["osm"] for b in bands if b["kind"] == "lane"})
     for cid, fl, tl, w, wkt in g.execute("""SELECT connector_id, from_lane_id, to_lane_id, width, ST_AsText(geom) FROM gmns_driving.lane_connector
                                             WHERE from_lane_id IN (SELECT unnest(?::VARCHAR[])) AND to_lane_id IN (SELECT unnest(?::VARCHAR[]))
                                             AND geom IS NOT NULL""", [lids, lids]).fetchall():

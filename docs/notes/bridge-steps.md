@@ -83,6 +83,13 @@ cycleway bands of step 4 lie inside it. It is the part of the deck that is neare
 30 m from the path), with its edge rounded over 1 m. A side of a road with no OSM path stays paved. A gore between a road with a path
 and a road without one is divided where the two distances are the same.
 
+## Step 6, rule 2: a straight-on connector is a lane
+
+A SUMO connector that turns 30° or less goes straight on. It is drawn as a lane on the axis of the lane it comes from, so the lane
+lines, the centre line and the arrows go through it. Only a connector that turns more is a junction lane with a guide line. On
+Granville every connector turns 27° or less, so the bridge has no junction lane. The lane lines are drawn along the shared edge of
+two lanes of one direction of travel; a hairline gap between two lanes (under 0.1 m) does not stop them.
+
 ## The order of the steps
 
 Steps 1 to 4 are in 2D, and they are most of the work. Each one is checked on a fast 2D page first. After step 4, and before any 3D,

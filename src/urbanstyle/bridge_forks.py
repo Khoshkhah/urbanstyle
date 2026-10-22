@@ -1037,6 +1037,7 @@ def steps_3b_4(con, P, gmns=None):
 
 
 # ---------------------------------------------------------------- step 6: the cover
+STRAIGHT_DEG = 30.0     # step 6: a connector that turns at most this goes straight on: it is a lane
 REALM_STEP_M = 0.5      # step 6: the deck nearer to a path than to a lane is the pedestrian realm, measured to this ...
 REALM_REACH_M = 30.0    # ... up to this far from the path
 REALM_SMOOTH_M = 1.0    # ... its edge rounded over this
@@ -1049,7 +1050,7 @@ def cover_items(P, axes, a_lv, S4, outline):
     (lane lines between lanes of one direction of travel, a centre line between the two, edge lines, a guide line along each connector,
     arrows, zebra bars on the crossings) as bridge_cover._level_items draws it. The rest of the deck is paved (bridge_surface.model)."""
     import shapely
-    from .bridge_cover import _level_items
+    from .bridge_cover import _level_items, _turn
     from .network import arrow_shape
     from .parts import CROSSWALK_M, ZEBRA_BAR_M, ZEBRA_GAP_M
     axis_of_way = {w: a["id"] for _, a in axes for w in a["ways"]}
@@ -1069,14 +1070,24 @@ def cover_items(P, axes, a_lv, S4, outline):
                          "bridge": P["name"], "source": b["props"]["source"]}
                 out_l.append((q, props, b["line"], aid))
                 done = done.union(b["poly"])
+        # a connector that goes straight on (it turns STRAIGHT_DEG or less) is a lane: it joins its two lanes, with their lane lines, centre
+        # line and arrows, on the axis of the lane it comes from. Only a connector that turns more is a junction lane with a guide line
+        osm_of_lane = {b["props"]["lane_id"]: b["props"]["osm"] for b in S4["bands"] if b["kind"] == "lane"}
         for b in S4["bands"]:
             if b["kind"] != "connector":
                 continue
             q = shapely.make_valid(b["poly"].difference(done)).intersection(deck_lv)
             if q.area > 0.3:
-                props = {"id": b["props"]["connector"], "type": "junction lane", "from_lane": b["props"]["from"], "to_lane": b["props"]["to"],
-                         "width_m": b["props"]["width_m"], "bridge": P["name"], "source": b["props"]["source"]}
-                junction.append((q, props, b["line"], None))
+                osm = osm_of_lane.get(b["props"]["from"])
+                if _turn(b["line"]) <= STRAIGHT_DEG and axis_of_way.get(osm) in ids:
+                    props = {"type": "lane", "lane_id": b["props"]["connector"], "width_m": b["props"]["width_m"], "axis": axis_of_way[osm],
+                             "osm": osm, "from_lane": b["props"]["from"], "to_lane": b["props"]["to"], "bridge": P["name"],
+                             "source": b["props"]["source"]}
+                    out_l.append((q, props, b["line"], axis_of_way[osm]))
+                else:
+                    props = {"id": b["props"]["connector"], "type": "junction lane", "from_lane": b["props"]["from"], "to_lane": b["props"]["to"],
+                             "width_m": b["props"]["width_m"], "bridge": P["name"], "source": b["props"]["source"]}
+                    junction.append((q, props, b["line"], None))
                 done = done.union(b["poly"])
         paths_lv = {}
         for kind in ("sidewalk", "cycle lane"):

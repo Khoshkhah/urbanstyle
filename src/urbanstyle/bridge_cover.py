@@ -358,6 +358,7 @@ def _level_items(P, lv, deck_lv, out_l, junction, paths_lv, crossings, arrow_sha
                 grp[j] = grp[i] if h1[0] * h2[0] + h1[1] * h2[1] >= 0 else 1 - grp[i]
                 stack.append(j)
     G = [shapely.union_all([q for (q, *_), g in zip(band_l, grp) if g == k] or [shapely.Polygon()]) for k in (0, 1)]
+    G = [g_.buffer(0.1, join_style="mitre").buffer(-0.1, join_style="mitre") for g_ in G]   # (a hairline between two lanes stopped the lane line)
     # each lane drawn in the colour of its direction of travel (an axis's own forward was the other colour on the next axis: Hemlock)
     for (q, props, c, aid), g in zip(band_l, grp):
         items.append((q, "lane forward" if g == 0 else "lane backward", LIFT_M, 0.0, props))

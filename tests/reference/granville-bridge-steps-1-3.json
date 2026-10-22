@@ -1063,10 +1063,10 @@
   }
  ],
  "fork_areas": {
-  "n13040317836": 3427.54,
-  "n266729860": 1404.04,
-  "n414553095": 581.96,
-  "n3488072817": 1452.21
+  "n13040317836": 2957.63,
+  "n266729860": 1428.82,
+  "n414553095": 617.58,
+  "n3488072817": 1307.67
  },
- "_note": "Steps 1 to 3 of Granville Bridge as Kaveh accepted them (2026-10-22: one width per axis, its widest cross-section, the strip's middle following its bands' middle, smoothed inside the corridor the bands allow; a fork starts at its trunk's full cross-section). tests/test_bridge_steps.py fails when the code gives anything else; change this file only when Kaveh asks for a change to these steps."
+ "_note": "Steps 1 to 3 of Granville Bridge as Kaveh accepted them (2026-10-22: one width per axis about its bands' middle; a fork is one straight-sided piece from the trunk's cross-section at the node to each arm's cross-section at its branch point). tests/test_bridge_steps.py fails when the code gives anything else; change this file only when Kaveh asks for a change to these steps."
 }

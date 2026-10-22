@@ -156,7 +156,7 @@ def step1(con, P):
 
 # ---------------------------------------------------------------- steps 2 and 3: branches and forks, centre lines and widths
 CLOSE_M = 1.5           # a gap narrower than twice this inside a fork is deck
-FORK_TAPER_M = 20.0     # a fork goes from its trunk's full cross-section to each other arm's over this (its branch point at most)
+FORK_TAPER_M = 20.0     # (band_widths: a branch's width is measured from this far into it from a fork, where the shared deck ends)
 
 
 def _pair_mid(lnA, kA, lnB, kB):
@@ -389,12 +389,14 @@ def partition(P, axes, a_lv, widths, R):
                 arms.append(b["id"])
                 s_cut = b["s0"] if e == 0 else b["s1"]
                 L = b["line"].length
-                d = min(FORK_TAPER_M, s_cut) if (T is not None and b is not T[0]) else 0.0
-                if T is not None and b is not T[0] and d > 0.5:
-                    parts.append(shapely.MultiPoint(xsec(T[0], T[1], 0.0) + xsec(b, e, d)).convex_hull)
-                if s_cut - d > 0.5 or d <= 0.5:
-                    for aid, ln_a, mids, half, s_of in at_end(b, e):       # the arm's own strip from the taper's end to its branch point
-                        sa, sb = sorted((s_of(d), s_of(max(s_cut, d + 0.5))))
+                # the fork is one straight-sided piece from the trunk's cross-section at the node to each arm's cross-section at its branch
+                # point (Kaveh, 2026-10-22): a taper over FORK_TAPER_M and then the arm's own strip swelled out at the node where the
+                # arms' two strips lie wider than the trunk (the south fork, a4 + a9 against a1) and bulged where they lie narrower
+                if T is not None and b is not T[0]:
+                    parts.append(shapely.MultiPoint(xsec(T[0], T[1], 0.0) + xsec(b, e, max(s_cut, 0.5))).convex_hull)
+                elif T is None:
+                    for aid, ln_a, mids, half, s_of in at_end(b, e):
+                        sa, sb = sorted((s_of(0.0), s_of(max(s_cut, 0.5))))
                         parts.append(_strip_along(ln_a, mids, half, sa, sb))
         g = shapely.union_all(parts)
         g = g.buffer(CLOSE_M, join_style="round").buffer(-CLOSE_M, join_style="round").union(g)

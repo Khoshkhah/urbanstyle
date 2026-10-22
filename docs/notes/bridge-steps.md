@@ -53,6 +53,12 @@ and a path width with no `width` tag (2 m) are urbanstyle's chosen values, so a 
 The Hemlock node (n2625030369) is not a fork: a11 and a12 are a carriageway pair, so only two roads meet there. a10, a11 and a12 are
 one branch. The branches: a1, a2, a3, a4, a5, a6, a7, a8, a9, and a10+a11+a12.
 
+## Step 2: the shape of a fork
+
+A fork is one straight-sided piece for each arm: from the trunk's cross-section at the junction node to that arm's cross-section at its
+branch point (the convex hull of the two cross-sections). The arms' own strips begin at their branch points. So the deck changes width
+evenly between the node and the branch points, and it has no bump where the arms' strips would lie wider or narrower than the trunk.
+
 ## Step 3: the one width of a branch
 
 A branch has one width. It comes from all the branch's bands (step 4): the lanes SUMO makes on its OSM ways, and the OSM paths whose edge

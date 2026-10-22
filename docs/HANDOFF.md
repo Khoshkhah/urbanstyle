@@ -6,6 +6,12 @@ first, then this note, then `docs/notes/street-rules.md` and `docs/notes/section
 
 ## Bridges: the words and the order of the steps (2026-10-19, read this first)
 
+**2026-10-22, later.** The fork is one straight-sided piece from the trunk's end to each arm's cross-section at its branch point
+(`bridge-steps.md`, "Step 2: the shape of a fork"): the bump at the south fork is gone. Open, listed with their causes in the session of
+2026-10-22: the cover does not fill the deck beside the paths (one width per branch; the street rule for the pedestrian realm is
+proposed), SUMO's 47 m junction at the south fork drawn as connectors (a straight-on connector should be a lane), the eight sideways
+path stubs (links, not bands), the lane kink at a lane gain (duckOSM).
+
 **2026-10-22.** Steps 1 to 5 are frozen and accepted (references in `tests/reference/`, tests `test_bridge_steps.py` and
 `test_bridge_step5.py`). Step 3 changed at Kaveh's word ("keep one width, from all the bands"): the width is the widest cross-section,
 and the strip's middle follows the bands' middle (`bridge_forks._one_width`, `_strip_along`); the references were saved again. Step 6 (the

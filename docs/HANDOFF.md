@@ -6,6 +6,14 @@ first, then this note, then `docs/notes/street-rules.md` and `docs/notes/section
 
 ## Bridges: the words and the order of the steps (2026-10-19, read this first)
 
+**2026-10-22, night.** Accepted and frozen: the cover rules 1 to 3 (the pedestrian realm, a straight-on connector is a lane, path
+links), the width rule (a path counts only where its branch's lanes are the nearest) and duckOSM's lane taper at a plain joint of a
+two-way road (duckOSM 5d227bb). The bridge's GMNS is built again so: `duckosm build --pbf ../duckOSM/data/maps/metro_vancouver.osm.pbf
+-b data/granville-bridge.boundary.geojson -o data/granville-bridge.osm.duckdb -m driving --fixes ../duckOSM/osm_overrides/osm_overrides.yaml`,
+then `duckosm gmns data/granville-bridge.osm.duckdb --out data/granville-bridge.gmns.duckdb -m driving` (the boundary is a 2 m buffer
+round the old GMNS links; with the taper off it gives the same bridge lanes within 0.18 m). Open: the lane steps at Hemlock and at the
+a4 forks (the rule is proposed).
+
 **2026-10-22, evening.** Each branch is on its smooth centre line with one width and one constant offset (c1ef74c), and step 3b rounds
 each corner where a fork's side meets a branch's edge with a short fillet (`bridge_forks._fillet_corners`, `bridge-steps.md`, "Step 3b:
 the corners at a fork"); the bridge ends and the gore tips stay square. References saved again. Not accepted by Kaveh yet.

@@ -2848,9 +2848,9 @@
   },
   {
    "kind": "connector",
-   "id": "7694832835568690674_2>1211493292939381263_2",
+   "id": "7694832835568690674_1>1211493292939381263_2",
    "home": "fork f3",
-   "area_m2": 26.67
+   "area_m2": 25.19
   },
   {
    "kind": "connector",
@@ -3933,5 +3933,5 @@
    "area_m2": 311.1
   }
  ],
- "_note": "Steps 3b and 4 of Granville Bridge as Kaveh accepted them (2026-10-22, on the smooth centre lines; each corner where a fork's side meets a branch's edge rounded with a short fillet, the bridge ends square; a path piece under 12 m at more than 30 degrees to its axis is a path link; the width rule of 2026-10-22; SUMO's lanes with duckOSM's lane taper and the carriageways straight through OSM's V; duckOSM's overrides #23). tests/test_bridge_steps.py fails when the code gives anything else; change this file only when Kaveh asks."
+ "_note": "Steps 3b and 4 of Granville Bridge as Kaveh accepted them (2026-10-22, on the smooth centre lines; each corner where a fork's side meets a branch's edge rounded with a short fillet, the bridge ends square; a path piece under 12 m at more than 30 degrees to its axis is a path link; the width rule of 2026-10-22; SUMO's lanes with duckOSM's lane taper and the carriageways straight through OSM's V; duckOSM's overrides #23 and #24, the lane-split rule). tests/test_bridge_steps.py fails when the code gives anything else; change this file only when Kaveh asks."
 }

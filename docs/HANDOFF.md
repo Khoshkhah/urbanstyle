@@ -14,7 +14,9 @@ then `duckosm gmns data/granville-bridge.osm.duckdb --out data/granville-bridge.
 round the old GMNS links; with the taper off it gives the same bridge lanes within 0.18 m). Also installed: a carriageway goes straight
 on from its two-way road through OSM's V (duckOSM 220c7fb; Hemlock, a10 into a11 and a12; the aerial photo shows one deck with a median
 barrier). Open: a 1 m S-wiggle in a11's and a12's lanes in the first 15 m (duckOSM centres a carriageway on its own OSM line; placing
-the pair from the median would remove it); the lane steps at the a4 forks. The two `merge_to_left` lanes that do not end (w256879265,
+the pair from the median would remove it); at the a4 fork the lanes still step sideways inside SUMO's junction (proposed: G1 move OSM's
+fork node to the real gore, or G2 draw SUMO's moves as smooth curves). Which lane goes where at the a4 fork is fixed (duckOSM f8d1cc0:
+a4's arrows, known issue #24, and the lane-split rule). The two `merge_to_left` lanes that do not end (w256879265,
 w1419040131) are overrides in duckOSM (known issue #23, 2c9da68): Kaveh chose B1 from the aerial photo.
 
 **2026-10-22, evening.** Each branch is on its smooth centre line with one width and one constant offset (c1ef74c), and step 3b rounds

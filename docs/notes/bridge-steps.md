@@ -76,6 +76,13 @@ Each corner where a fork's straight side meets a branch's edge is rounded with a
 of the corner. Only corners that turn between 4° and 35° are rounded. The corners near a bridge end (within 16 m) stay square, and so
 does the tip of a gore between two arms (it turns more than 35°). The rest of the outline keeps its own points.
 
+## Step 6, rule 1: the pedestrian realm
+
+As on the ground, the pedestrian realm fills the deck from the lanes (or the barrier) to the parapet beside a path. OSM's sidewalk and
+cycleway bands of step 4 lie inside it. It is the part of the deck that is nearer to a path than to a lane (measured to 0.5 m, up to
+30 m from the path), with its edge rounded over 1 m. A side of a road with no OSM path stays paved. A gore between a road with a path
+and a road without one is divided where the two distances are the same.
+
 ## The order of the steps
 
 Steps 1 to 4 are in 2D, and they are most of the work. Each one is checked on a fast 2D page first. After step 4, and before any 3D,

@@ -1037,6 +1037,11 @@ def steps_3b_4(con, P, gmns=None):
 
 
 # ---------------------------------------------------------------- step 6: the cover
+REALM_STEP_M = 0.5      # step 6: the deck nearer to a path than to a lane is the pedestrian realm, measured to this ...
+REALM_REACH_M = 30.0    # ... up to this far from the path
+REALM_SMOOTH_M = 1.0    # ... its edge rounded over this
+
+
 def cover_items(P, axes, a_lv, S4, outline):
     """Step 6 (docs/notes/bridge-steps.md): what lies on the structure, from step 4's bands only, in the form bridge_surface.model lays on
     the height surface: [(polygon, key, lift, rise, props)]. The lanes are SUMO's (step 4), drawn one after the other so none lies on
@@ -1078,6 +1083,18 @@ def cover_items(P, axes, a_lv, S4, outline):
             g = [b["poly"] for b in S4["bands"] if b["kind"] == kind and a_lv.get(b["props"].get("axis")) == lv]
             g += [b["poly"] for b in S4["bands"] if b["kind"] == "path joint"] if kind == "sidewalk" else []
             paths_lv[kind] = shapely.union_all(g or [shapely.Polygon()]).intersection(deck_lv)
+        # the pedestrian realm, as on the ground: beside a path, the deck from the lanes to the parapet is the path's side; the paths of
+        # step 4 lie inside it. It is the deck nearer to a path than to a lane (to REALM_STEP_M): a side with no OSM path stays paved
+        drive = shapely.union_all([q for q, *_ in out_l + junction] or [shapely.Polygon()])
+        any_path = paths_lv["sidewalk"].union(paths_lv["cycle lane"])
+        rest = deck_lv.difference(drive)
+        realm = [any_path.buffer(k * REALM_STEP_M).difference(drive.buffer(k * REALM_STEP_M)).intersection(rest)
+                 for k in range(1, int(REALM_REACH_M / REALM_STEP_M) + 1)] if not any_path.is_empty else []
+        # (closed, then opened by REALM_SMOOTH_M, then simplified: no gaps, and a smooth edge where a gore is split between two sides)
+        realm = shapely.union_all(realm or [shapely.Polygon()]).buffer(REALM_SMOOTH_M).buffer(-2 * REALM_SMOOTH_M).buffer(REALM_SMOOTH_M)
+        realm = realm.simplify(0.2).intersection(rest)
+        walk = shapely.union_all([paths_lv["sidewalk"]] + [p for p in shapely.get_parts(realm) if p.geom_type == "Polygon" and p.area > 2.0])
+        paths_lv["sidewalk"] = shapely.union_all([p for p in shapely.get_parts(walk) if p.geom_type == "Polygon"] or [shapely.Polygon()])
         crossings = [(b["line"], float(b["poly"].area / max(b["line"].length, 0.1)), b["props"].get("marked", True), b["props"].get("osm"))
                      for b in S4["bands"] if b["kind"] == "crossing" and deck_lv.intersects(b["line"])]
         items += _level_items(P, lv, deck_lv, out_l + junction, junction, paths_lv, crossings, arrow_shape,

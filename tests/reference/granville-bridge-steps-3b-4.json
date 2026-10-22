@@ -2590,15 +2590,21 @@
   },
   {
    "kind": "connector",
-   "id": "3068703730488255660_1>4147826010470322749_2",
+   "id": "3068703730488255660_1>4147826010470322749_1",
    "home": "branch b10",
-   "area_m2": 10.61
+   "area_m2": 0.98
   },
   {
    "kind": "connector",
-   "id": "3068703730488255660_2>4147826010470322749_3",
+   "id": "3068703730488255660_2>4147826010470322749_2",
    "home": "branch b10",
-   "area_m2": 10.61
+   "area_m2": 0.98
+  },
+  {
+   "kind": "connector",
+   "id": "3068703730488255660_3>4147826010470322749_3",
+   "home": "branch b10",
+   "area_m2": 0.94
   },
   {
    "kind": "connector",
@@ -2944,9 +2950,15 @@
   },
   {
    "kind": "connector",
-   "id": "924211959243917652_1>2096100133861932500_2",
+   "id": "924211959243917652_1>2096100133861932500_1",
    "home": "branch b3",
-   "area_m2": 10.61
+   "area_m2": 1.02
+  },
+  {
+   "kind": "connector",
+   "id": "924211959243917652_2>2096100133861932500_2",
+   "home": "branch b3",
+   "area_m2": 0.9
   },
   {
    "kind": "crossing",
@@ -3921,5 +3933,5 @@
    "area_m2": 311.1
   }
  ],
- "_note": "Steps 3b and 4 of Granville Bridge as Kaveh accepted them (2026-10-22, on the smooth centre lines; each corner where a fork's side meets a branch's edge rounded with a short fillet, the bridge ends square; a path piece under 12 m at more than 30 degrees to its axis is a path link; the width rule of 2026-10-22; SUMO's lanes with duckOSM's lane taper and the carriageways straight through OSM's V). tests/test_bridge_steps.py fails when the code gives anything else; change this file only when Kaveh asks."
+ "_note": "Steps 3b and 4 of Granville Bridge as Kaveh accepted them (2026-10-22, on the smooth centre lines; each corner where a fork's side meets a branch's edge rounded with a short fillet, the bridge ends square; a path piece under 12 m at more than 30 degrees to its axis is a path link; the width rule of 2026-10-22; SUMO's lanes with duckOSM's lane taper and the carriageways straight through OSM's V; duckOSM's overrides #23). tests/test_bridge_steps.py fails when the code gives anything else; change this file only when Kaveh asks."
 }

@@ -1,5 +1,5 @@
 {
- "_note": "Step 5 (rank 0) of Granville Bridge as Kaveh accepted it (2026-10-22, on the smooth centre lines, the fork corners rounded, the path links not counted, a path counted only where its branch's lanes are the nearest, duckOSM's lane taper and the carriageways straight through OSM's V). tests/test_bridge_step5.py fails when the code gives anything else; change this file only when Kaveh asks.",
+ "_note": "Step 5 (rank 0) of Granville Bridge as Kaveh accepted it (2026-10-22, on the smooth centre lines, the fork corners rounded, the path links not counted, a path counted only where its branch's lanes are the nearest, duckOSM's lane taper and the carriageways straight through OSM's V, duckOSM's overrides #23). tests/test_bridge_step5.py fails when the code gives anything else; change this file only when Kaveh asks.",
  "structures": [
   {
    "level": 1,

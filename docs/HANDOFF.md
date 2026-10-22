@@ -6,6 +6,10 @@ first, then this note, then `docs/notes/street-rules.md` and `docs/notes/section
 
 ## Bridges: the words and the order of the steps (2026-10-19, read this first)
 
+**2026-10-22, evening.** Each branch is on its smooth centre line with one width and one constant offset (c1ef74c), and step 3b rounds
+each corner where a fork's side meets a branch's edge with a short fillet (`bridge_forks._fillet_corners`, `bridge-steps.md`, "Step 3b:
+the corners at a fork"); the bridge ends and the gore tips stay square. References saved again. Not accepted by Kaveh yet.
+
 **2026-10-22, later.** The fork is one straight-sided piece from the trunk's end to each arm's cross-section at its branch point
 (`bridge-steps.md`, "Step 2: the shape of a fork"): the bump at the south fork is gone. Open, listed with their causes in the session of
 2026-10-22: the cover does not fill the deck beside the paths (one width per branch; the street rule for the pedestrian realm is

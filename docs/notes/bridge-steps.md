@@ -70,6 +70,12 @@ OSM paths whose edge is within 3 m of the lanes or of a path that already counts
 - **The width** holds every band from that offset, plus 0.5 m of edge on each side.
 - So the two edges are clean curves parallel to the smooth centre line. A carriageway pair has one strip per carriageway.
 
+## Step 3b: the corners at a fork
+
+Each corner where a fork's straight side meets a branch's edge is rounded with a short fillet: a quadratic curve over 8 m on each side
+of the corner. Only corners that turn between 4° and 35° are rounded. The corners near a bridge end (within 16 m) stay square, and so
+does the tip of a gore between two arms (it turns more than 35°). The rest of the outline keeps its own points.
+
 ## The order of the steps
 
 Steps 1 to 4 are in 2D, and they are most of the work. Each one is checked on a fast 2D page first. After step 4, and before any 3D,

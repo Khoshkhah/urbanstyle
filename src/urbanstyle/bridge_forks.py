@@ -895,8 +895,84 @@ def step3b(B, F, bands=None):
             smooth = shapely.union_all([smooth] + add).buffer(0.3, join_style="mitre").buffer(-0.3, join_style="mitre")
             smooth = shapely.union_all([shapely.Polygon(p_.exterior, [r for r in p_.interiors if shapely.Polygon(r).area >= 2.0])
                                         for p_ in shapely.get_parts(smooth) if p_.geom_type == "Polygon"])   # (micro gaps where a taper meets an arc)
-        out[lv] = shapely.make_valid(smooth.simplify(0.02))      # (no corner cutting: the strips are smooth curves themselves)
+        ends = [shapely.Point(b["line"].coords[0] if e == 0 else b["line"].coords[-1]) for b in B if b["level"] == lv
+                for e, nd in enumerate(b["ends"]) if nd is None]
+        out[lv] = _fillet_corners(shapely.make_valid(smooth.simplify(0.02)), ends)
     return out
+
+
+FILLET_M = 8.0          # step 3b: a corner of the outline (a fork's side meeting a branch's edge) is rounded over this on each side
+FILLET_MIN_DEG = 4.0    # ... where the edge turns more than this at one point
+FILLET_MAX_DEG = 35.0   # ... and at most this (a bigger turn is a bridge end or a gore: kept)
+
+
+def _fillet_corners(g, ends=()):
+    """The corners of the outline rounded (Kaveh, 2026-10-22: "round each corner where a fork's side meets a branch's edge, keep the
+    bridge ends square"): at each point where the edge turns between FILLET_MIN_DEG and FILLET_MAX_DEG, the edge from FILLET_M before the
+    point to FILLET_M after it is replaced by a curve (a quadratic Bezier through the two ends with the corner as its control point), so
+    it leaves both sides along their own direction. A point within 2 FILLET_M of a bridge end is not touched (the end stays square)."""
+    import numpy as np
+    import shapely
+
+    def turn(a, b, c):
+        (x0, y0), (x1, y1), (x2, y2) = a, b, c
+        return abs(math.degrees(math.atan2((x1 - x0) * (y2 - y1) - (y1 - y0) * (x2 - x1), (x1 - x0) * (x2 - x1) + (y1 - y0) * (y2 - y1))))
+
+    def ring_fillet(ring):
+        # (the ring starts at the point nearest a bridge end: no window then crosses the ring's start)
+        cs0 = list(ring.coords)[:-1]
+        if ends:
+            k0 = min(range(len(cs0)), key=lambda i: min(shapely.Point(cs0[i]).distance(e) for e in ends))
+            cs0 = cs0[k0:] + cs0[:k0]
+        ring = shapely.LinearRing(cs0)
+        L = ring.length
+        at = lambda v: np.array(ring.interpolate(min(max(v, 0.0), L)).coords[0])
+        coarse = list(ring.simplify(0.1).coords)[:-1]
+        n = len(coarse)
+        corners = []
+        for i in range(n):
+            if turn(coarse[i - 1], coarse[i], coarse[(i + 1) % n]) <= FILLET_MIN_DEG:
+                continue
+            p = shapely.Point(coarse[i])
+            if any(p.distance(e) <= 2 * FILLET_M for e in ends):
+                continue
+            c = ring.project(p)
+            if c - FILLET_M < 0 or c + FILLET_M > L:
+                continue
+            # the corner's turn over the window: between the chords into it and out of it; and the edge's total turn inside the window
+            # (a gore tip or a bridge end turns far more than FILLET_MAX_DEG over the window: kept)
+            P0, P1, P2 = at(c - FILLET_M), at(c), at(c + FILLET_M)
+            net = turn(tuple(P0), tuple(P1), tuple(P2))
+            ss = np.arange(c - FILLET_M, c + FILLET_M + 0.01, 1.0)
+            q = [tuple(at(v)) for v in ss]
+            total = sum(turn(q[j - 1], q[j], q[j + 1]) for j in range(1, len(q) - 1))
+            if FILLET_MIN_DEG < net <= FILLET_MAX_DEG and total <= FILLET_MAX_DEG + 5.0:
+                corners.append((c, net))
+        if not corners:
+            return list(ring.coords)
+        spans = []                                       # the windows, the sharpest first, none overlapping another
+        for c, net in sorted(corners, key=lambda x: -x[1]):
+            if all(c + FILLET_M <= a or c - FILLET_M >= b for a, b, _ in spans):
+                spans.append((c - FILLET_M, c + FILLET_M, c))
+        spans.sort()
+        # the ring's own points outside the windows (a resampling every 0.5 m put short pieces beside the square bridge ends: jogs)
+        own = [(ring.project(shapely.Point(q)), q) for q in list(ring.coords)[:-1]]
+        pts, s_ = [], 0.0
+        for a, b, c in spans:
+            pts += [q for v, q in own if s_ <= v < a]
+            P0, P1, P2 = at(a), at(c), at(b)
+            for u in np.linspace(0.0, 1.0, 25):
+                pts.append(tuple((1 - u) ** 2 * P0 + 2 * (1 - u) * u * P1 + u ** 2 * P2))
+            s_ = b
+        pts += [q for v, q in own if s_ <= v]
+        return pts + [pts[0]]
+
+    parts = []
+    for pg in shapely.get_parts(g):
+        if pg.geom_type != "Polygon":
+            continue
+        parts.append(shapely.make_valid(shapely.Polygon(ring_fillet(pg.exterior), [r.coords for r in pg.interiors])))
+    return shapely.union_all(parts).simplify(0.02) if parts else g
 
 
 BEND_DEG = 35.0         # step 3b: a turn in the outline of at most this is a bend (smoothed); a larger one is a corner (kept: a bridge end, a gore)

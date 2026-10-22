@@ -8,7 +8,8 @@
 <div id="i"><b id="t">rank 0: the bridge's structure</b><details><summary>the checks D1 to D6</summary><div id="ck"></div></details>
 <label style="display:block;margin:4px 0"><input type="checkbox" id="cov"> the cover (ranks 1 to 6: lanes, sidewalks, marks)</label>
 <div class="k"><span style="background:#a8a29e"></span>slab (top and sides) &nbsp; <span style="background:#e5e1d8"></span>parapet &nbsp; <span style="background:#8f8b86"></span>pier, abutment</div>
-<small>viewer v8 · drag: move the map · right-drag or Ctrl-drag: turn · wheel: zoom · arrow keys: move · the grid is the ground (z = 0), 10 m squares</small></div>
+<div id="bl"></div>
+<small>viewer v9 · drag: move the map · right-drag or Ctrl-drag: turn · wheel: zoom · arrow keys: move · the grid is the ground (z = 0), 10 m squares</small></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 const q = new URLSearchParams(location.search), file = q.get('m') || 'cut-france.bridge3d.json', only = q.get('b');   // b: one bridge by name
@@ -33,8 +34,9 @@ fetch(file, {cache: 'no-store'}).then(r => r.json()).then(models => {
   if (only) models = models.filter(M => M.name === only);
   document.getElementById('t').textContent = 'rank 0: the structure of ' + models.map(M => M.name).join(', ');
   const info = [];
+  const boxes = [];
   models.forEach(M => {
-    const V = M.verts;
+    const V = M.verts, bx = new THREE.Box3(); V.forEach(v => bx.expandByPoint(new THREE.Vector3(...v))); boxes.push([M.name, bx]);
     mesh(V, M.deck, COL.deck); mesh(V, M.sides, COL.side);
     M.surf.forEach(s => { const k2 = s.key.split(' ').slice(0, 2).join(' '); const c = MARK[k2] || KEY2[s.key] || COL[s.key.split(' ')[0]] || 0x999999;
       const m = mesh(s.v, s.f, c, false, s.key.startsWith('mark ') ? 2 : (s.props && s.props.layer === 'cover' ? 1 : 0)); if (m && s.props && s.props.layer === 'cover' || m && s.key.startsWith('mark ')) coverMeshes.push(m) });
@@ -47,6 +49,12 @@ fetch(file, {cache: 'no-store'}).then(r => r.json()).then(models => {
     info.push(`<b>${M.name}</b>` + (M.checks || []).map(c => `${c[0]} ${c[2] ? (c[3] ? 'fail' : 'info') : 'pass'} ${c[2]}: ${c[1]}`).join('<br>'));
   });
   document.getElementById('ck').innerHTML = info.join('<hr>');
+  // more than one bridge (an area's file, all in one frame): a list; a click takes the view to that bridge
+  if (boxes.length > 1) document.getElementById('bl').innerHTML = '<div style="margin:6px 0 4px;color:#444">the bridges (click to go there):</div>' +
+    boxes.map(([n], k) => `<button data-k="${k}" style="margin:2px;padding:2px 6px;font-size:12px;cursor:pointer">${n}</button>`).join('');
+  document.getElementById('bl').onclick = e => { const k = e.target.dataset && e.target.dataset.k; if (k === undefined) return;
+    const bx = boxes[+k][1], c = bx.getCenter(new THREE.Vector3()), sz = bx.getSize(new THREE.Vector3());
+    Object.assign(cam, {tx: c.x, ty: c.y, tz: 0, d: Math.max(60, 1.6 * Math.max(sz.x, sz.y))}); place() };
   const cv = q.get('cover') === '1'; document.getElementById('cov').checked = cv; coverMeshes.forEach(m => m.visible = cv);   // (rank 0 alone unless ?cover=1)
   // the ground: a plane at z = 0 with 10 m squares
   const pad = 40, w = box.max.x - box.min.x + 2 * pad, h = box.max.y - box.min.y + 2 * pad, cx = (box.min.x + box.max.x) / 2, cy = (box.min.y + box.max.y) / 2;

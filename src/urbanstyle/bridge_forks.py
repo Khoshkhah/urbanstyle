@@ -346,10 +346,11 @@ def partition(P, axes, a_lv, widths, R):
                 seg = shapely.ops.substring(ln_a, c0, ln_a.length - c1)
                 osm_lines.append(seg)
                 wd = widths[aid]
-                if len(wd) == 3:                                   # one width about the bands' middle (band_widths)
+                if len(wd) == 3:                                   # one width and one offset (band_widths) about the smooth centre line
                     half = (wd[1] - wd[0]) / 2.0
-                    strip_of[aid] = (ln_a, wd[2], half)
-                    strips.append(_strip_along(ln_a, wd[2], half, c0, ln_a.length - c1))
+                    sm = _smooth_axis(ln_a)
+                    strip_of[aid] = (sm, wd[2], half)
+                    strips.append(_strip_along(sm, wd[2], half, c0, sm.length - c1))
                 else:
                     w_lo, w_hi = wd if len(v["axes"]) > 1 else _side(ln_a, line, lo, hi)
                     strip_of[aid] = (ln_a, [(0.0, (w_lo + w_hi) / 2.0), (ln_a.length, (w_lo + w_hi) / 2.0)], (w_hi - w_lo) / 2.0)
@@ -672,12 +673,8 @@ def band_widths(P, axes, R, gmns=None, edge=0.5):
             if not added:
                 break
         own = list(lanes) + list(got.values())
-        half, mids = _one_width(ln, own)
-        mids = [(s_ + c0, m) for s_, m in mids]                        # (stations on the whole line: the body starts at c0)
-        if c0 > 0:
-            mids = [(0.0, mids[0][1])] + mids
-        if c1 > 0:
-            mids = mids + [(ln0.length, mids[-1][1])]
+        half, off = _one_width(ln, own)
+        mids = [(0.0, off), (ln0.length, off)]                         # (one offset along the whole line)
         out[a["id"]] = (round(-half - edge, 2), round(half + edge, 2), mids)
     return out
 
@@ -686,11 +683,10 @@ MID_SMOOTH_M = 20.0     # the strip's middle follows the bands' middle, averaged
 
 
 def _one_width(line, polys, reach=40.0, step=1.0):
-    """One width for an axis, placed where its bands are (Kaveh, 2026-10-22: one width, from all the bands): at every station along the
-    line, the bands' reach to the left (+) and right (-); their middle, averaged over MID_SMOOTH_M, is the strip's middle m(s); the half
-    width is the largest reach from m(s) to a band's edge at any station, so the strip holds every band everywhere. Returns (half,
-    [(s, m)]). A strip of one width centred on the line itself had to be as wide as the widest reach on each side anywhere (b4 27.5 m
-    for a widest cross-section of 22.3 m; b10 39.5 m against 28.4 m)."""
+    """One width and one offset for an axis, from all its bands (Kaveh, 2026-10-22): at every station along the line, the bands' reach to
+    the left (+) and right (-); the offset is the middle of the overall reach, the half width holds every band from there. Returns
+    (half, offset). A strip centred on the line itself was wider than any cross-section (b4 27.5 m for 22.3 m; b10 39.5 m for 28.4 m);
+    a middle that followed the bands wandered where a path began or ended."""
     import numpy as np
     import shapely
     from .bridge_surface import _frame
@@ -710,20 +706,33 @@ def _one_width(line, polys, reach=40.0, step=1.0):
     # where no band is (past the lanes' end), the nearest station with one
     idx = np.where(have)[0]
     lo = np.interp(np.arange(len(ss)), idx, lo[idx]); hi = np.interp(np.arange(len(ss)), idx, hi[idx])
-    # the width: the widest cross-section; the middle: as smooth as the corridor [hi - half, lo + half] allows (the bands' middle,
-    # averaged over MID_SMOOTH_M and clamped into the corridor, repeated: an average alone lagged where the bands shift fast and the
-    # width grew to cover it, b9 24.9 m for a widest cross-section of 19.4 m)
-    half = float(((hi - lo) / 2.0).max())
-    ms = (lo + hi) / 2.0
-    w = max(1, int(MID_SMOOTH_M / 2 / step))
-    for _ in range(12):
-        ms = np.array([ms[max(0, i - w):i + w + 1].mean() for i in range(len(ss))])
-        ms = np.clip(ms, hi - half, lo + half)
-    # one last average with no clamp (the clamp leaves a kink where a path begins or ends: b8), and the width grows by what it needs
-    w2 = max(1, int(MID_SMOOTH_M / 8 / step))                           # (a short one: a long one moved the middle far and b8 grew 4 m)
-    ms = np.array([ms[max(0, i - w2):i + w2 + 1].mean() for i in range(len(ss))])
-    half = float(max(half, (hi - ms).max(), (ms - lo).max()))
-    return half, [(float(a), round(float(b), 3)) for a, b in zip(ss, ms)]
+    # one width and ONE offset (Kaveh, 2026-10-22: the edges are parallel offsets of the smooth centre line, no wandering where a path
+    # begins or ends): the offset is the middle of the bands' overall reach, the half width what holds every band from there
+    off = float((lo.min() + hi.max()) / 2.0)
+    half = float(max(hi.max() - off, off - lo.min()))
+    return half, round(off, 3)
+
+
+CENTRE_SMOOTH_M = 20.0  # a branch's centre line: OSM's line averaged over this (step 3b; no kink at an OSM point)
+
+
+def _smooth_axis(line):
+    """The smooth centre line of an axis (Kaveh, 2026-10-22): OSM's line resampled every metre, each point the mean of the line within
+    CENTRE_SMOOTH_M / 2 on each side; the window shrinks to nothing at the ends, so they stay where OSM puts them."""
+    import numpy as np
+    import shapely
+    L = line.length
+    if L < 4.0:
+        return line
+    ss = np.linspace(0.0, L, int(L) + 1)
+    pts = np.array([line.interpolate(float(v)).coords[0] for v in ss])
+    w = int(CENTRE_SMOOTH_M / 2)
+    out = pts.copy()
+    for k in range(len(pts)):
+        r = min(w, k, len(pts) - 1 - k)
+        if r > 0:
+            out[k] = pts[k - r:k + r + 1].mean(axis=0)
+    return shapely.LineString(out)
 
 
 def _strip_along(line, mids, half, s0=None, s1=None, step=1.0):
@@ -886,7 +895,7 @@ def step3b(B, F, bands=None):
             smooth = shapely.union_all([smooth] + add).buffer(0.3, join_style="mitre").buffer(-0.3, join_style="mitre")
             smooth = shapely.union_all([shapely.Polygon(p_.exterior, [r for r in p_.interiors if shapely.Polygon(r).area >= 2.0])
                                         for p_ in shapely.get_parts(smooth) if p_.geom_type == "Polygon"])   # (micro gaps where a taper meets an arc)
-        out[lv] = _smooth_bends(shapely.make_valid(smooth))
+        out[lv] = shapely.make_valid(smooth.simplify(0.02))      # (no corner cutting: the strips are smooth curves themselves)
     return out
 
 

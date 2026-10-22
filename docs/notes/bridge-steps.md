@@ -61,15 +61,14 @@ evenly between the node and the branch points, and it has no bump where the arms
 
 ## Step 3: the one width of a branch
 
-A branch has one width. It comes from all the branch's bands (step 4): the lanes SUMO makes on its OSM ways, and the OSM paths whose edge
-is within 3 m of the lanes or of a path that already counts. Along the branch's body (from the taper's end at a fork), the bands' reach
-to the left and right is measured at every metre.
+A branch has one width and one position. Both come from all the branch's bands (step 4): the lanes SUMO makes on its OSM ways, and the
+OSM paths whose edge is within 3 m of the lanes or of a path that already counts.
 
-- **The width** is the widest cross-section, plus 0.5 m of edge on each side. The widest reach to the left anywhere and to the right
-  anywhere, taken apart, gave a width no cross-section had (b4 27.5 m for a widest cross-section of 22.3 m).
-- **The strip's position:** its middle follows the bands' middle, averaged over 20 m and kept inside the corridor the bands allow, so
-  the strip holds every band everywhere and has no kink where a path begins or ends. OSM's line stays the reference for `s`.
-- A carriageway pair has one strip per carriageway, each on its own OSM line.
+- **The centre line** is OSM's line, smoothed: each point is the mean of the line within 10 m on each side, and the ends stay where OSM
+  puts them. There is no kink at an OSM point.
+- **The offset** is one constant for the whole branch: the middle of the bands' overall reach to the left and right of the centre line.
+- **The width** holds every band from that offset, plus 0.5 m of edge on each side.
+- So the two edges are clean curves parallel to the smooth centre line. A carriageway pair has one strip per carriageway.
 
 ## The order of the steps
 

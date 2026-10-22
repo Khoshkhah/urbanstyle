@@ -949,6 +949,36 @@ def jogs(poly):
 TAPER_M = 10.0          # step 3b: a step in the outline (a jog) becomes a straight taper over this on each side of its corner
 
 
+PAIR_START_M = 20.0     # step 3b: where a two-way road goes on into its two carriageways, the deck is straight-sided over this (OSM's V)
+
+
+def _pair_starts(B):
+    """Step 3b: where three axes of one branch meet at a node (a two-way road and its two carriageways, OSM's V: Granville a10 into a11
+    and a12 at Hemlock), the deck from the two-way road's cross-section at the node to each carriageway's cross-section PAIR_START_M on
+    is one straight-sided piece (their convex hull), as at a fork (step 2). Without it the carriageways' strips followed OSM's V and
+    left a notch in the edge."""
+    import shapely
+    out = []
+    for b in B:
+        st = b.get("strip_of") or {}
+        if len(st) < 3:
+            continue
+        ends = []                                                   # (axis, the end at the node: 0 start / 1 end, its point)
+        for aid, (line, mids, half) in st.items():
+            ends += [(aid, 0, line.coords[0]), (aid, 1, line.coords[-1])]
+        for aid, k, pt in ends:
+            meet = [(a2, k2) for a2, k2, p2 in ends if a2 != aid and shapely.Point(pt).distance(shapely.Point(p2)) < 1.0]
+            if len(meet) != 2:
+                continue
+            line, mids, half = st[aid]
+            xs = _edges_at(line, mids, half, 0.0 if k == 0 else line.length)
+            for a2, k2 in meet:
+                l2, m2, h2 = st[a2]
+                s2 = min(PAIR_START_M, l2.length / 2)
+                out.append(shapely.MultiPoint(xs + _edges_at(l2, m2, h2, s2 if k2 == 0 else l2.length - s2)).convex_hull)
+    return out
+
+
 def step3b(B, F, bands=None):
     """Step 3b (docs/notes/bridge-steps.md): the outline of each bridge level made smooth, from the frozen branches and forks: their union,
     closed and opened by SMOOTH_M with round joins, so no notch or bump smaller than 2 SMOOTH_M stays (a jog at an OSM vertex, a step where
@@ -960,7 +990,8 @@ def step3b(B, F, bands=None):
     import shapely
     out = {}
     for lv in sorted({b["level"] for b in B}):
-        u = shapely.union_all([b["poly"] for b in B if b["level"] == lv] + [f["poly"] for f in F if f["level"] == lv])
+        u = shapely.union_all([b["poly"] for b in B if b["level"] == lv] + [f["poly"] for f in F if f["level"] == lv]
+                              + _pair_starts([b for b in B if b["level"] == lv]))
         closed = u.buffer(SMOOTH_M, join_style="round").buffer(-SMOOTH_M, join_style="round")
         smooth = closed.buffer(-SMOOTH_M, join_style="round").buffer(SMOOTH_M, join_style="round").union(u)
         smooth = smooth.buffer(0.5, join_style="round").buffer(-0.5, join_style="round")    # (the corners where the opened and the original meet)

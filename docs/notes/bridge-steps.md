@@ -77,6 +77,10 @@ whose lanes are nearer; a touch of a few metres at a gore tip counts for neither
 
 ## Step 3b: the corners at a fork
 
+Where a two-way road goes on into its two carriageways (OSM's V; Hemlock: a10 into a11 and a12), the deck from the two-way road's
+cross-section at the node to each carriageway's cross-section 20 m on is one straight-sided piece, as at a fork. Without it, the
+carriageways' strips followed the V and left a notch in the edge.
+
 Each corner where a fork's straight side meets a branch's edge is rounded with a short fillet: a quadratic curve over 8 m on each side
 of the corner. Only corners that turn between 4° and 35° are rounded. The corners near a bridge end (within 16 m) stay square, and so
 does the tip of a gore between two arms (it turns more than 35°). The rest of the outline keeps its own points.

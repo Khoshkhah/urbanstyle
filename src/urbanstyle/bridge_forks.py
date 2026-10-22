@@ -747,8 +747,8 @@ def _one_width(line, polys, reach=40.0, step=1.0):
         hi.append(max(ts) if ts else np.nan)
     lo, hi = np.array(lo), np.array(hi)
     have = ~np.isnan(lo)
-    if not have.any():
-        return 0.0, [(0.0, 0.0), (float(line.length), 0.0)]
+    if not have.any():                                   # (no band crosses the line: no width from the bands)
+        return 0.0, 0.0
     # where no band is (past the lanes' end), the nearest station with one
     idx = np.where(have)[0]
     lo = np.interp(np.arange(len(ss)), idx, lo[idx]); hi = np.interp(np.arange(len(ss)), idx, hi[idx])

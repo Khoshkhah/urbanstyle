@@ -566,7 +566,10 @@ def roadway_meets(c, epsg):
             return "a section and an intersection" if ka != kb else "two intersections"
         return "two subsections of one section" if sa and sa == sb else "two sections"
     w1, w2 = [], []
-    lines = [geo(w) for (w,) in c.execute(f"SELECT {m('geometry')} FROM work.element WHERE type = 'road' AND level_min = 0").fetchall()]
+    from .blocks import street_sql
+    # (the streets' lines only: a road that is no street, an unnamed service road, has no roadway, and its line crosses the outline
+    # between two carriageways side by side without a joint there)
+    lines = [geo(w) for (w,) in c.execute(f"SELECT {m('geometry')} FROM work.element e WHERE type = 'road' AND level_min = 0 AND {street_sql('e')}").fetchall()]
     ltree = shapely.STRtree(lines) if lines else None
     # (a road's dead end: the end node of a road line that no other road or walkway meets; there the roadway stops, no step)
     deg = {}

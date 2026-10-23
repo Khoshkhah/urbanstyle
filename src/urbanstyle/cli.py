@@ -66,6 +66,7 @@ def main(argv=None):
     st.add_argument("out", help="the JSON file beside the page, e.g. viz/cut-france.bridge3d.json")
     st.add_argument("--bridge", action="extend", nargs="+", required=True, help="a bridge profile, as for the dashboard")
     st.add_argument("--rank0", action="store_true", help="the surface only, nothing on it")
+    st.add_argument("--above-ground", action="store_true", help="heights above the ground, solved from the measured clearances, not elevations: for a flat map (the dashboard)")
     st.add_argument("--no-lidar", action="store_true", help="ignore the profile's measured heights: the rules alone")
     st.add_argument("--plan", help="also write a 2D plan of each bridge (centre lines, widths, edges) to this HTML file")
     st.add_argument("--gmns", help="the bridge's SUMO (duckOSM GMNS): the structure on the accepted steps 1 to 4 (docs/notes/bridge-steps.md, step 5)")
@@ -136,7 +137,7 @@ def main(argv=None):
         con.execute("LOAD spatial")
         from .bridge_surface import models
         from .dashboard import write_bridge3d
-        ms, _ = models(con, a.bridge, rank0=a.rank0, lidar=not a.no_lidar, gmns=a.gmns)
+        ms, _ = models(con, a.bridge, rank0=a.rank0, lidar=not a.no_lidar, gmns=a.gmns, above_ground=a.above_ground)
         if len(ms) > 1:     # (an area's file: all bridges in the first one's frame, so the viewer shows them where they are)
             import math as _m
             def merc(lon, lat):

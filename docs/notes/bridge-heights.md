@@ -83,6 +83,16 @@ works in elevations:
 - An edge at most `LAND_GROUND_M` (0.5 m) above this ground is a landing, with no parapet. Without measured ground the limit is 0.05 m.
 - The slab's bottom is at least `UNDER_M` (0.1 m) under its top.
 
+A point in the air (an axis middle, or a node that is no ground end) with no deck-class points: its `ground_elev` is the deck's
+elevation, not the ground. IGN classes some decks as ground (Boulevard du Larvotto: every point; Avenue de France: some junctions).
+
+The dashboard's map is flat: its ground is z = 0 everywhere. `urbanstyle structure ... --above-ground` writes the dashboard's file
+from its own solve in heights above the ground: road ends at 0, the measured clearances (`mid_m`, `deck_m`), the same smoothness and
+grade limits. Nothing is subtracted after the solve: a ground subtracted from a solved deck bends it (the inverse-distance ground made
+waves), and one plane per bridge loses the clearance (and fails where the road ends lie on one line). The limit of a flat map: a clearance
+that the grade limit cannot reach from the road ends is not reached (Costa: 1.9 m, IGN 9.2 m; w572934026: 2.7 m, IGN 9.6 m). The
+elevation viewer shows these bridges as they are.
+
 No ground grid is used. A trial with a grid of IGN's ground points (2026-10-22) was removed: IGN classes some decks and walls as ground,
 so the grid came up through the decks, and it needed three more rules to hide this.
 

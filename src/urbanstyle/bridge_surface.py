@@ -58,7 +58,7 @@ STEEP_DEG = 45.0      # D2: a face steeper than this inside a structure
 MAX_TURN_DEG = 90.0   # a bridge has no U-turn: a band link that turns more than this is not a move (Kaveh 2026-10-19)
 
 
-def models(con, bridges, rank0=False, lidar=True, gmns=None):
+def models(con, bridges, rank0=False, lidar=True, gmns=None, above_ground=False):
     """rank0: the surface only, nothing on it or under it. lidar=False: the profile's measured heights are ignored; the heights come
     from the rules alone (to see what the rules give where there is no survey)."""
     import shapely
@@ -69,7 +69,7 @@ def models(con, bridges, rank0=False, lidar=True, gmns=None):
             for a in P["axes"]:
                 a["vertical"]["source"], a["vertical"]["method"] = "urbanstyle", "chosen"
             P["name"] += " (no LiDAR)"
-        m = model(con, P, rank0=rank0, gmns=gmns)
+        m = model(con, P, rank0=rank0, gmns=gmns, above_ground=above_ground)
         ms.append(m)
         # the street spaces of level 1 and up on these structures: the page hides their flat drawing (as deck3d did)
         poly = shapely.from_geojson(json.dumps(m["deck_ll"]))
@@ -237,12 +237,12 @@ def _solve(P, nodes, per_axis, pairs, couples=(), parted=None, terrain=None):
         for a in P["axes"]:
             seq = per_axis[a["id"]]
             mine = (known or {}).get(a["id"]) or {}
-            if mine.get("deck_elev") is not None and seq:
+            z_ = _deck_elev(mine)
+            if z_ is not None and seq:
                 L_ = seq[-1][0]
-                measured[min(seq, key=lambda t: abs(t[0] - L_ / 2))[1]] = mine["deck_elev"] - e0
+                measured[min(seq, key=lambda t: abs(t[0] - L_ / 2))[1]] = z_ - e0
             for k, e in enumerate(a.get("ends", [])):
-                h_ = (known or {}).get(e.get("node") or "") or {}
-                z_ = h_.get("deck_elev") if h_.get("deck_elev") is not None else (h_.get("ground_elev") if e.get("ground") else None)
+                z_ = _deck_elev((known or {}).get(e.get("node") or "") or {})   # (a ground end: its road's elevation)
                 if z_ is not None and seq:
                     measured[seq[0][1] if k == 0 else seq[-1][1]] = z_ - e0
         for i, nd in enumerate(nodes):    # (at a ground end the road's own elevation is the ground, not the grid: a slope beside the road)
@@ -1023,26 +1023,37 @@ UNDER_M = 0.1          # with measured ground, the slab's bottom at least this f
 LAND_GROUND_M = 0.5    # with measured ground, an edge at most this far above it is on the ground (a landing, no parapet): the ground between the points is coarse
 
 
+def _deck_elev(h):
+    """The deck's elevation at a measured point: its deck_elev; with no deck points there, its ground_elev. LiDAR classes some decks as
+    ground (IGN: Boulevard du Larvotto, Avenue de France), so the ground points at a point in the air with no deck points are the deck;
+    at a ground end they are the road."""
+    return h.get("deck_elev") if h.get("deck_elev") is not None else h.get("ground_elev")
+
+
 class _Ground:
-    """The ground under a bridge from the few measured points of its heights section (docs/notes/bridge-heights.md): each entry's
-    `ground_elev` at its place (a node: the axes' ends there; an axis: its middle). z(x, y) is their inverse-distance mean, an elevation
+    """The ground under a bridge from the few measured points of its heights section (docs/notes/bridge-heights.md): the `ground_elev`
+    under a measured deck (an entry with deck_elev) and at each ground end (a node: the axes' ends there; an axis: its middle; a point in
+    the air with no deck points is the deck, not the ground: _deck_elev). z(x, y) is their inverse-distance mean, an elevation
     (sea level is z = 0, so all bridges on one page share one base). With it the model works in elevations: a ground end at its road's
     elevation, the slab's bottom and the piers down to this ground. No grid: LiDAR gives these few heights only."""
 
     def __init__(self, P):
         import shapely
-        pts = []
+        pts, every = [], []
+        grounds = {e.get("node") for a in P["axes"] for e in a.get("ends", []) if e.get("ground")}
         for k, v in (P.get("heights") or {}).items():
             if not isinstance(v, dict) or v.get("ground_elev") is None:
                 continue
+            here = pts if v.get("deck_elev") is not None or k in grounds else every   # (else the deck itself, classed as ground)
             for a in P["axes"]:
                 ln = shapely.LineString(a["line"]["value"])
                 if a["id"] == k:
-                    q = ln.interpolate(0.5, normalized=True); pts.append((q.x, q.y, v["ground_elev"]))
+                    q = ln.interpolate(0.5, normalized=True); here.append((q.x, q.y, v["ground_elev"]))
                 for n_, e in enumerate(a.get("ends", [])[:2]):
                     if e.get("node") == k:
-                        q = ln.coords[0] if n_ == 0 else ln.coords[-1]; pts.append((q[0], q[1], v["ground_elev"]))
-        self.pts = pts
+                        q = ln.coords[0] if n_ == 0 else ln.coords[-1]; here.append((q[0], q[1], v["ground_elev"]))
+        # (a bridge with no ground end and no deck point: only its points in the air are known; the ground is taken at them)
+        self.pts = pts or every
         self.e0 = 0.0
 
     def z(self, x, y):
@@ -1164,7 +1175,7 @@ def _trim_to_osm(con, P):
 
 
 # ---------------------------------------------------------------- 3. the model
-def model(con, P, rank0=False, cover=True, gmns=None):
+def model(con, P, rank0=False, cover=True, gmns=None, above_ground=False):
     """One bridge's 3D model. gmns (the bridge's SUMO via duckOSM GMNS): step 5 of docs/notes/bridge-steps.md, the structure (rank 0) on the
     accepted steps 1 to 4: its outline is step 3b's smooth outline of each level, and each axis's heights count where its own bands lie
     (step 4: SUMO's lanes on its ways, its OSM paths); no cover yet (step 6). Without gmns: the outline from bridge_cover.layout, as before."""
@@ -1184,7 +1195,9 @@ def model(con, P, rank0=False, cover=True, gmns=None):
     a_lv = _axis_level(con, P)
     nodes, per_axis, pairs = _nodes(P, a_lv)
     couples = _couplings(P, nodes, per_axis, a_lv)
-    terr = _Ground(P) if any(isinstance(v, dict) and v.get("ground_elev") is not None for v in (P.get("heights") or {}).values()) else None
+    # (elevations from the measured points; above_ground: a flat map, whose ground is z = 0 everywhere, gets its own solve in heights
+    # above the ground, from the measured clearances deck_m and mid_m, so the solve itself makes the smooth line)
+    terr = _Ground(P) if not above_ground and any(isinstance(v, dict) and v.get("ground_elev") is not None for v in (P.get("heights") or {}).values()) else None
     gz_ = (lambda x, y: terr.z(x, y)) if terr is not None else (lambda x, y: 0.0)      # (the ground under a point: 0 without measured ground)
     land_m = LAND_GROUND_M if terr is not None else 0.05      # (an edge this near the ground is a landing: the ground between the points is coarse)
     v_first = {a["id"]: copy.deepcopy(a["vertical"]) for a in P["axes"]}     # (the profile's own heights, for the second pass)

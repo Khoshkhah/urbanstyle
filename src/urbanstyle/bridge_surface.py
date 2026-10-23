@@ -945,6 +945,41 @@ def _slits(poly, axes, own, step=0.25, pairs_out=None):
     return shapely.union_all(out).intersection(poly) if out else shapely.Polygon()
 
 
+class _Top:
+    """The slab's top as meshed: its triangles and their corner heights. one(x, y) is the height of the triangle that holds the point
+    (barycentric), so the cover lies exactly on the slab; the surface itself (S) where no triangle holds it. The cover sampled the
+    surface again on its own grid, and where the surface bends sharply it lay up to 0.2 m under the slab (Avenue de France)."""
+
+    def __init__(self, tris, hs, S):
+        import shapely
+        self.t = [tuple(map(tuple, t)) for t in tris]
+        self.h = [tuple(map(float, z)) for z in hs]
+        self.tree = shapely.STRtree([shapely.Polygon(t) for t in self.t])
+        self.S = S
+
+    def one(self, x, y):
+        import shapely
+        for k in self.tree.query(shapely.Point(x, y).buffer(1e-6)):
+            (ax, ay), (bx, by), (cx, cy) = self.t[k]
+            d = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy)
+            if abs(d) < 1e-12:
+                continue
+            l1 = ((by - cy) * (x - cx) + (cx - bx) * (y - cy)) / d
+            l2 = ((cy - ay) * (x - cx) + (ax - cx) * (y - cy)) / d
+            l3 = 1.0 - l1 - l2
+            if min(l1, l2, l3) >= -1e-6:
+                za, zb, zc = self.h[k]
+                return l1 * za + l2 * zb + l3 * zc
+        return self.S.one(x, y)
+
+    def split(self, cell):
+        """A piece of the cover cut along the slab's triangles: each part lies in one slab triangle, on its plane."""
+        import shapely
+        polys = [shapely.Polygon(self.t[k]) for k in self.tree.query(cell)]
+        parts = [p for p in (shapely.intersection(cell, q) for q in polys) if not p.is_empty and p.area > 1e-6]
+        return parts or [cell]
+
+
 class _Surface:
     """h(x, y) of one structure: a point takes the heights of the axes whose own strip holds it, blended by nearness; outside every
     strip (the filled edge), the nearest strip's axis."""
@@ -1130,6 +1165,7 @@ def model(con, P, rank0=False, cover=True, gmns=None):
                 pieces.append((lv, shapely.Polygon(pg.exterior, keep_), S_, ids, "slab"))
     from shapely.geometry.polygon import orient
     pieces = [(lv, orient(pg), S, ids, kind) for lv, pg, S, ids, kind in pieces]      # (rings one way round: the sides face outward)
+    top_of = {}
     for lv, pg, S, ids, kind in pieces:
         tris = grid(pg, STEP_M)
         tri_list = [t for t in [tt for c in tris for tt in _tris(c)]]
@@ -1137,6 +1173,7 @@ def model(con, P, rank0=False, cover=True, gmns=None):
             continue
         xs = np.array([x for t in tri_list for x, y in t]); ys = np.array([y for t in tri_list for x, y in t])
         hs = S.at(xs, ys).reshape(-1, 3)
+        top_of[id(pg)] = _Top(tri_list, hs, S)       # (the cover lies on these very triangles, not on the surface sampled again)
         ring = pg.exterior
         edge_use = {}
         fill_v, fill_f, fill_ix = [], [], {}
@@ -1233,14 +1270,14 @@ def model(con, P, rank0=False, cover=True, gmns=None):
                 if lv == props.get("level"):
                     q = shapely.make_valid(g.intersection(pg))
                     if not q.is_empty and q.area > 0.01:
-                        _mesh_flat(q, key, dict(props, layer="cover"), S, lift, rise, tm, surf, grid)
+                        _mesh_flat(q, key, dict(props, layer="cover"), top_of.get(id(pg), S), lift, rise, tm, surf, grid)
         # the rest of each slab is paved: also where a hole of the deck was filled (no hole in a structure), which the cover has no piece of
         for lv, pg, S, ids, kind in pieces:
             on = shapely.union_all([g for g, key, *_r, props in cov["items"] if props.get("level") == lv and not key.startswith("mark")]
                                    or [shapely.Polygon()])
             q = shapely.make_valid(pg.difference(on))
             if not q.is_empty and q.area > 0.01:
-                _mesh_flat(q, "paved", {"type": "paved", "bridge": P["name"], "layer": "cover"}, S, 0.03, 0.0, tm, surf, grid)
+                _mesh_flat(q, "paved", {"type": "paved", "bridge": P["name"], "layer": "cover"}, top_of.get(id(pg), S), 0.03, 0.0, tm, surf, grid)
     # D6: two structures of one level overlapping
     for i, (lv, pg, _, _, _) in enumerate(pieces):
         for lv2, pg2, _, _, _ in pieces[i + 1:]:
@@ -1423,8 +1460,9 @@ def _mesh_flat(poly, key, props, S, lift, rise, tm, surf, grid):
         if pg.geom_type != "Polygon" or pg.area < 1e-6:     # (only pieces with no area: a 0.01 m2 sliver cell at the edge left a tear, D1)
             continue
         for c in grid(pg, STEP_M):
-            for t in _tris(c):
-                f.append([vi(x, y, S.one(x, y) + lift + rise) for x, y in t])
+            for c2 in (S.split(c) if hasattr(S, "split") else [c]):
+                for t in _tris(c2):
+                    f.append([vi(x, y, S.one(x, y) + lift + rise) for x, y in t])
         if rise > 0:
             for ring in [pg.exterior] + list(pg.interiors):
                 cs = list(ring.segmentize(STEP_M / 2).coords)

@@ -793,7 +793,8 @@ def build(con, epsg, bridges=(), level=0):
 
     def room(ln, sg):
         """The least distance from line ln to the street's edge on side sg (+ left), measured every ROOM_STEP_M; inf with no edge. A
-        sidewalk strip counts only where its line runs along ln (within ALONG_COS): a footway that ends at the road or crosses it is no
+        sidewalk strip counts only where its line runs along ln (within ALONG_COS) and beside it (LANE_M / 2 or more from ln's line): a
+        footway on the road's line is no sidewalk of it, and a footway that ends at the road or crosses it is no
         sidewalk of it (its strip touched the road's line and the room was 0 for the whole road: no roadway at all, Monaco A3 499,
         Rue Bel Respiro; Kaveh, 2026-10-17, option b)"""
         best = math.inf
@@ -816,6 +817,9 @@ def build(con, epsg, bridges=(), level=0):
                 if hit.is_empty:
                     continue
                 wl = sw_items[k][0]
+                if wl.distance(q) < LANE_M / 2:
+                    continue        # (a walking way on the road's line, mapped over it or sharing its nodes, is no sidewalk of it:
+                                    # a pedestrian way on Avenue Crovetto-Frères for 22 m gave its 375 m frame no room; Kaveh 2026-10-23)
                 s_ = wl.project(shapely.ops.nearest_points(hit, q)[0])
                 a2, b2 = wl.interpolate(max(s_ - 1, 0)), wl.interpolate(min(s_ + 1, wl.length))
                 ddx, ddy = b2.x - a2.x, b2.y - a2.y

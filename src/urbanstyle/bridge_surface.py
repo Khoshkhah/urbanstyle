@@ -194,6 +194,7 @@ def _solve(P, nodes, per_axis, pairs, couples=(), parted=None, terrain=None):
     x0 = np.zeros(n)
     measured = np.full(n, np.nan)
     rows = []            # second differences along each axis
+    curv = []            # (the change of grade at an inside node, its limit): a road's line bends in a vertical curve, not at a point
     edges = []           # (i, j, d)
     known = P.get("heights")          # (the profile's known heights, docs/notes/bridge-heights.md; without it, a measured vertical as before)
     for a in P["axes"]:
@@ -225,6 +226,7 @@ def _solve(P, nodes, per_axis, pairs, couples=(), parted=None, terrain=None):
             r[j] -= 1 / d0 + 1 / d1
             r[k] += 1 / d1
             rows.append(r * math.sqrt((d0 + d1) / 2))      # (weighted by the length it stands for)
+            curv.append((r.copy(), VC_PER_M * (d0 + d1) / 2))   # (the change of grade there, and its limit)
     D = np.array(rows) if rows else np.zeros((0, n))
     Q = D.T @ D
     clear = np.array([nd["clear"] for nd in nodes])
@@ -352,7 +354,19 @@ def _solve(P, nodes, per_axis, pairs, couples=(), parted=None, terrain=None):
     cons = [{"type": "ineq", "fun": lambda x: A @ x + b, "jac": lambda x: A}] if len(edges) else []
     if not has_m.any():
         x0 = np.clip(target, [-np.inf if lo is None else lo for lo, _ in bounds], [hi for _, hi in bounds])     # (no survey: start from the rule's own line)
-    res = minimize(f, x0, jac=jac, bounds=bounds, constraints=cons, method="SLSQP", options={"maxiter": 500, "ftol": 1e-7})
+    # the deck's line is smooth first, as a road is (Kaveh, 2026-10-23: "not smooth, especially from its height"): along each axis the
+    # grade changes by at most VC_PER_M a metre, so the clearances, the measured points and the couplings bend it in vertical curves,
+    # not at a point (Avenue de France: 32 to 36 % changes in 1 to 5 m). Where the hard rules leave no such line, the solve runs without it
+    if curv:
+        C = np.array([c for c, _ in curv]); lim = np.array([l_ for _, l_ in curv])
+        cons_c = cons + [{"type": "ineq", "fun": lambda x: lim - C @ x, "jac": lambda x: -C},
+                         {"type": "ineq", "fun": lambda x: lim + C @ x, "jac": lambda x: C}]
+        res = minimize(f, x0, jac=jac, bounds=bounds, constraints=cons_c, method="SLSQP", options={"maxiter": 500, "ftol": 1e-7})
+        if not res.success:
+            res = minimize(f, x0, jac=jac, bounds=bounds, constraints=cons, method="SLSQP", options={"maxiter": 500, "ftol": 1e-7})
+            res.message = "no smooth line meets the hard rules (VC_PER_M): solved without it; " + str(res.message)
+    else:
+        res = minimize(f, x0, jac=jac, bounds=bounds, constraints=cons, method="SLSQP", options={"maxiter": 500, "ftol": 1e-7})
     return (np.minimum(res.x, gz + TOP_M) if terrain is not None else np.clip(res.x, 0.0, TOP_M)), res
 
 
@@ -1032,6 +1046,7 @@ def _slits(poly, axes, own, step=0.25, pairs_out=None):
     return shapely.union_all(out).intersection(poly) if out else shapely.Polygon()
 
 
+VC_PER_M = 0.02         # the deck's grade changes by at most this a metre along an axis (2 % a metre: a 36 % change needs 18 m)
 UNDER_M = 0.1          # with measured ground, the slab's bottom at least this far under the top
 LAND_GROUND_M = 0.5    # with measured ground, an edge at most this far above it is on the ground (a landing, no parapet): the ground between the points is coarse
 

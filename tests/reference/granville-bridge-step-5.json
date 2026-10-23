@@ -1,5 +1,5 @@
 {
- "_note": "Step 5 (rank 0) of Granville Bridge as Kaveh accepted it (2026-10-22, on the smooth centre lines, the fork corners rounded, the start of a carriageway pair straight-sided, the path links not counted, a path counted only where its branch's lanes are the nearest, duckOSM's lane taper and the carriageways straight through OSM's V, duckOSM's overrides #23 and #24, the lane-split rule, the V as one smooth curve, the moves as smooth curves). tests/test_bridge_step5.py fails when the code gives anything else; change this file only when Kaveh asks.",
+ "_note": "Step 5 (rank 0) of Granville Bridge as Kaveh accepted it (2026-10-22, on the smooth centre lines, the fork corners rounded, the start of a carriageway pair straight-sided, the path links not counted, a path counted only where its branch's lanes are the nearest, duckOSM's lane taper and the carriageways straight through OSM's V, duckOSM's overrides #23 and #24, the lane-split rule, the V as one smooth curve, the moves as smooth curves). tests/test_bridge_step5.py fails when the code gives anything else; change this file only when Kaveh asks. Saved again 2026-10-23: the deck's grade changes by at most 2 % a metre (VC_PER_M), heights within 3 cm of before.",
  "structures": [
   {
    "level": 1,
@@ -709,11 +709,11 @@
    ],
    [
     359.25,
-    17.79
+    17.77
    ],
    [
     360.0,
-    17.75
+    17.76
    ],
    [
     367.6,
@@ -929,7 +929,7 @@
    ],
    [
     50.0,
-    18.92
+    18.93
    ],
    [
     58.14,
@@ -1175,19 +1175,19 @@
    ],
    [
     220.0,
-    18.55
+    18.56
    ],
    [
     225.39,
-    18.89
+    18.88
    ],
    [
     228.43,
-    19.1
+    19.07
    ],
    [
     230.0,
-    19.06
+    19.09
    ],
    [
     233.56,
@@ -1387,7 +1387,7 @@
    ],
    [
     50.0,
-    18.85
+    18.86
    ],
    [
     60.0,
@@ -1575,7 +1575,7 @@
    ],
    [
     30.0,
-    13.98
+    13.97
    ],
    [
     40.0,
@@ -1583,11 +1583,11 @@
    ],
    [
     48.99,
-    15.0
+    14.99
    ],
    [
     50.0,
-    14.94
+    14.96
    ],
    [
     58.52,
@@ -1615,11 +1615,11 @@
    ],
    [
     86.34,
-    17.72
+    17.73
    ],
    [
     90.0,
-    17.84
+    17.85
    ],
    [
     95.68,

@@ -879,6 +879,47 @@ def _osm_only_bands(P, axes, have):
 MOVE_TAPER_PER_M = 30.0 / 3.25   # step 4: a move that goes straight on but sideways takes at least this many metres per metre it moves
 
 
+UTURN_DEG = 150.0       # step 4: a move that turns more than this is a U-turn: a bridge has none
+
+
+def _open_ends(bands, full):
+    """Step 4: a lane end with no move on the bridge (into it at its start, out of it at its end) runs on to its OSM node on SUMO's uncut
+    lane line: SUMO cuts a lane back where a junction with the ground roads begins, and the moves into those roads are not the bridge's,
+    so the lane stopped 1.5 to 5 m before the deck's end and the road looked closed (Avenue de France). An end that meets another lane's
+    end is a joint, and stays. Changes ``bands`` in place."""
+    import shapely
+    import shapely.ops
+    lanes = [b for b in bands if b["kind"] == "lane"]
+    conn = [b for b in bands if b["kind"] == "connector"]
+    out_of = {b["props"]["from"] for b in conn}
+    into = {b["props"]["to"] for b in conn}
+    starts = [shapely.Point(b["line"].coords[0]) for b in lanes]
+    ends = [shapely.Point(b["line"].coords[-1]) for b in lanes]
+    for k, b in enumerate(lanes):
+        g = full.get(b["props"]["lane_id"])
+        if g is None or g.length < 1.0:
+            continue
+        c = b["line"]
+        open0 = b["props"]["lane_id"] not in into and not any(e.distance(starts[k]) < 0.5 for j, e in enumerate(ends) if j != k)
+        open1 = b["props"]["lane_id"] not in out_of and not any(st.distance(ends[k]) < 0.5 for j, st in enumerate(starts) if j != k)
+        # (straight on in the lane's own direction, as far as its uncut line reaches: the uncut line bends into the junction at its end)
+        cs = list(c.coords)
+        if open0:
+            d = shapely.Point(cs[0]).distance(shapely.Point(g.coords[0]))
+            (x0, y0), (x1, y1) = cs[0], cs[1]; h = ((x0 - x1) ** 2 + (y0 - y1) ** 2) ** 0.5 or 1.0
+            if 0.05 < d < 15.0:
+                cs = [(x0 + (x0 - x1) / h * d, y0 + (y0 - y1) / h * d)] + cs
+        if open1:
+            d = shapely.Point(cs[-1]).distance(shapely.Point(g.coords[-1]))
+            (x0, y0), (x1, y1) = cs[-1], cs[-2]; h = ((x0 - x1) ** 2 + (y0 - y1) ** 2) ** 0.5 or 1.0
+            if 0.05 < d < 15.0:
+                cs = cs + [(x0 + (x0 - x1) / h * d, y0 + (y0 - y1) / h * d)]
+        if len(cs) > len(c.coords):
+            ln = shapely.LineString(cs)
+            b["line"], b["poly"] = ln, ln.buffer(b["props"]["width_m"] / 2, cap_style="flat")
+            b["props"]["source"] += "; at an end with no move on the bridge, straight on as far as its node (lane.geom)"
+
+
 def _smooth_moves(bands):
     """Step 4: SUMO's move from a lane to the next that goes straight on (turns STRAIGHT_DEG or less) but sideways is one smooth curve
     (cubic Hermite: the headings of both lanes kept) from the lane's end to the next lane, not SUMO's straight line inside its junction
@@ -942,10 +983,15 @@ def step4(P, axes, B, F, gmns=None, smooth=True):
     tr = pyproj.Transformer.from_crs("EPSG:4326", P["crs"], always_xy=True).transform
     ways = sorted({int(w[1:]) for _, a in axes for w in a["ways"]})
     bands = []
-    rows = g.execute("""SELECT n.lane_id, n.link_id, l.osm_id, n.lane_num, n.allowed_uses, n.width, n.turn, ST_AsText(coalesce(n.geom_cut, n.geom))
+    rows = g.execute("""SELECT n.lane_id, n.link_id, l.osm_id, n.lane_num, n.allowed_uses, n.width, n.turn, ST_AsText(coalesce(n.geom_cut, n.geom)),
+                               ST_AsText(n.geom)
                         FROM gmns_driving.lane n JOIN gmns_driving.link l USING (link_id)
                         WHERE l.osm_id IN (SELECT unnest(?::BIGINT[])) AND coalesce(n.geom_cut, n.geom) IS NOT NULL""", [ways]).fetchall()
+    full = {r[0]: shapely.ops.transform(tr, shapely.from_wkt(r[8])) for r in rows if r[8]}
+    rows = [r[:8] for r in rows]
     lids = [r[0] for r in rows]
+    link_ends = {lk: (osm, a, b) for lk, osm, a, b in g.execute("SELECT link_id, osm_id, from_node_id, to_node_id FROM gmns_driving.link").fetchall()}
+    lane_link = dict(g.execute("SELECT lane_id, link_id FROM gmns_driving.lane").fetchall())
     for lid, lk, osm, num, use, w, turn, wkt in rows:
         ln = shapely.ops.transform(tr, shapely.from_wkt(wkt))
         w = float(w or 3.25)
@@ -957,11 +1003,16 @@ def step4(P, axes, B, F, gmns=None, smooth=True):
                                             WHERE from_lane_id IN (SELECT unnest(?::VARCHAR[])) AND to_lane_id IN (SELECT unnest(?::VARCHAR[]))
                                             AND geom IS NOT NULL""", [lids, lids]).fetchall():
         ln = shapely.ops.transform(tr, shapely.from_wkt(wkt))
-        if len(ln.coords) < 2 or ln.length < 0.05 or _turn(ln) > 90.0:
+        # (a U-turn is a move that turns back, more than UTURN_DEG, or into the other direction of the same road (its link the reverse of the
+        # lane's own). A sharp corner is a move: a2's corner at Avenue de France turns 94 degrees, and its lanes stopped when every turn over
+        # 90 was dropped)
+        lf, lt = link_ends.get(lane_link.get(fl)), link_ends.get(lane_link.get(tl))
+        if len(ln.coords) < 2 or ln.length < 0.05 or _turn(ln) > UTURN_DEG or (lf and lt and lf[0] == lt[0] and (lf[1], lf[2]) == (lt[2], lt[1])):
             continue
         w = float(w or 3.25)
         bands.append({"kind": "connector", "line": ln, "poly": ln.buffer(w / 2, cap_style="flat"),
                       "props": {"connector": cid, "from": fl, "to": tl, "width_m": w, "source": "SUMO via duckOSM GMNS (lane_connector)"}})
+    _open_ends(bands, full)
     if smooth:
         _smooth_moves(bands)
     crossing = lambda q: q.get("footway") == "crossing" or q.get("cycleway") == "crossing" or bool(q.get("crossing"))

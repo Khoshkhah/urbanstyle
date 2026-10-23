@@ -3060,13 +3060,13 @@
    "kind": "lane",
    "id": "1003138862587399816_1",
    "home": "branch b10",
-   "area_m2": 288.32
+   "area_m2": 288.8
   },
   {
    "kind": "lane",
    "id": "1003138862587399816_2",
    "home": "branch b10",
-   "area_m2": 289.96
+   "area_m2": 290.43
   },
   {
    "kind": "lane",
@@ -3084,13 +3084,13 @@
    "kind": "lane",
    "id": "1211493292939381263_1",
    "home": "branch b2",
-   "area_m2": 1248.36
+   "area_m2": 1249.16
   },
   {
    "kind": "lane",
    "id": "1211493292939381263_2",
    "home": "branch b2",
-   "area_m2": 1298.78
+   "area_m2": 1299.61
   },
   {
    "kind": "lane",
@@ -3210,19 +3210,19 @@
    "kind": "lane",
    "id": "3068703730488255660_1",
    "home": "branch b10",
-   "area_m2": 168.34
+   "area_m2": 169.03
   },
   {
    "kind": "lane",
    "id": "3068703730488255660_2",
    "home": "branch b10",
-   "area_m2": 168.38
+   "area_m2": 168.85
   },
   {
    "kind": "lane",
    "id": "3068703730488255660_3",
    "home": "branch b10",
-   "area_m2": 168.38
+   "area_m2": 168.67
   },
   {
    "kind": "lane",
@@ -3474,31 +3474,31 @@
    "kind": "lane",
    "id": "7747823684014332833_1",
    "home": "branch b8",
-   "area_m2": 344.46
+   "area_m2": 344.97
   },
   {
    "kind": "lane",
    "id": "7747823684014332833_2",
    "home": "branch b8",
-   "area_m2": 344.46
+   "area_m2": 345.0
   },
   {
    "kind": "lane",
    "id": "7963057357776000027_1",
    "home": "branch b7",
-   "area_m2": 606.93
+   "area_m2": 607.4
   },
   {
    "kind": "lane",
    "id": "8022340902316796315_1",
    "home": "branch b8",
-   "area_m2": 344.46
+   "area_m2": 344.94
   },
   {
    "kind": "lane",
    "id": "8022340902316796315_2",
    "home": "branch b8",
-   "area_m2": 344.49
+   "area_m2": 345.0
   },
   {
    "kind": "lane",
@@ -3534,25 +3534,25 @@
    "kind": "lane",
    "id": "8220665898639769953_1",
    "home": "branch b5",
-   "area_m2": 233.67
+   "area_m2": 234.13
   },
   {
    "kind": "lane",
    "id": "8220665898639769953_2",
    "home": "branch b5",
-   "area_m2": 236.55
+   "area_m2": 237.01
   },
   {
    "kind": "lane",
    "id": "8516675238149249037_1",
    "home": "branch b3",
-   "area_m2": 181.06
+   "area_m2": 181.6
   },
   {
    "kind": "lane",
    "id": "8516675238149249037_2",
    "home": "branch b3",
-   "area_m2": 181.03
+   "area_m2": 181.51
   },
   {
    "kind": "lane",
@@ -3576,13 +3576,13 @@
    "kind": "lane",
    "id": "8702091341824914496_1",
    "home": "branch b6",
-   "area_m2": 209.36
+   "area_m2": 209.86
   },
   {
    "kind": "lane",
    "id": "8702091341824914496_2",
    "home": "branch b6",
-   "area_m2": 212.17
+   "area_m2": 212.64
   },
   {
    "kind": "lane",

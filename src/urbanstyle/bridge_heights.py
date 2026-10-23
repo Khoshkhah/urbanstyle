@@ -44,10 +44,18 @@ def apply(P, H):
     for a in P["axes"]:
         a.setdefault("length_m", round(_length(a["line"]["value"]), 2))
     later = []
+    known = P.setdefault("heights", {})
+    for k, h in H.items():                        # (one height at a junction or an end: the key is its OSM node, "n<id>")
+        if k.startswith("n") and k[1:].isdigit() and isinstance(h, (int, float)):
+            known[k] = {"deck_m": float(h), "source": "heights file", "method": "chosen"}
     for aid, a in axes.items():
         h = H.get(aid)
+        if isinstance(h, (int, float)):               # (one number for an axis: its height at its middle)
+            known[aid] = {"mid_m": float(h), "source": "heights file", "method": "chosen"}
+            continue
         if isinstance(h, list):
             a["vertical"] = _vertical(h, d["curve_m"], "heights file: the points given")
+            known[aid] = {"points": a["vertical"]["points"], "curves": a["vertical"].get("curves"), "source": "heights file", "method": "chosen"}
         elif isinstance(h, dict) and h.get("from"):
             later.append((a, h))
         else:
@@ -91,6 +99,17 @@ def apply(P, H):
         if e_meet == 1:
             pts = [[L - s, z] for s, z in pts]
         a["vertical"] = _vertical(pts, d["curve_m"], f"heights file: from {h['from']}'s height where they meet, {g * 100:.1f}% down to the ground")
+    return P
+
+
+def from_vertical(P):
+    """The profile's `heights` section from each axis whose vertical is measured (LiDAR): its fitted points and curves, a few per axis
+    (Granville: 77 points on 12 axes from 350 stations). Axes with chosen heights get no entry: the rule fills them. Returns P."""
+    H = P.setdefault("heights", {})
+    for a in P["axes"]:
+        v = a["vertical"]
+        if "lidar" in str(v.get("source", "")).lower() or "measured" in str(v.get("method", "")).lower():
+            H[a["id"]] = {"points": v["points"], "curves": v.get("curves"), "source": v.get("source"), "method": "measured"}
     return P
 
 

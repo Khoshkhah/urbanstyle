@@ -422,7 +422,8 @@ def _fit_in_order(P, touch_m=1.5):
 def write(profile_path, out, tiles, osm_db=None):
     """Measure the profile at profile_path with the LiDAR tiles; write it to out (a file or a directory). Returns the path."""
     import os
-    P = measure(json.load(open(profile_path)), tiles, osm_db=osm_db)
+    from .bridge_heights import from_vertical
+    P = from_vertical(measure(json.load(open(profile_path)), tiles, osm_db=osm_db))     # (the fitted points as the heights section)
     if os.path.isdir(out) or not out.endswith(".json"):
         os.makedirs(out, exist_ok=True)
         out = os.path.join(out, os.path.basename(profile_path))

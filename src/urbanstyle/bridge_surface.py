@@ -195,15 +195,26 @@ def _solve(P, nodes, per_axis, pairs, couples=(), parted=None):
     measured = np.full(n, np.nan)
     rows = []            # second differences along each axis
     edges = []           # (i, j, d)
+    known = P.get("heights")          # (the profile's known heights, docs/notes/bridge-heights.md; without it, a measured vertical as before)
     for a in P["axes"]:
         seq = per_axis[a["id"]]
         v = a["vertical"]
-        fixed = "lidar" in str(v.get("source", "")).lower() or "measured" in str(v.get("method", "")).lower()
+        fixed = known is None and ("lidar" in str(v.get("source", "")).lower() or "measured" in str(v.get("method", "")).lower())
+        mine = (known or {}).get(a["id"])
         for s, i in seq:
             z = max(0.0, height(v, s))
             x0[i] = z
             if fixed:
                 measured[i] = z
+            elif mine and mine.get("points") and mine["points"][0][0] - 0.01 <= s <= mine["points"][-1][0] + 0.01:
+                measured[i] = max(0.0, height(mine, s))     # (an axis's own points: straight grades with their curves, between its first and last)
+        if mine and "mid_m" in mine and seq:                   # (a branch's one height, at its middle)
+            L_ = seq[-1][0]
+            measured[min(seq, key=lambda t: abs(t[0] - L_ / 2))[1]] = float(mine["mid_m"])
+        for k, e in enumerate(a.get("ends", [])):             # (a junction's or an end's one height, on every axis that ends there)
+            h_ = (known or {}).get(e.get("node") or "")
+            if h_ is not None and "deck_m" in h_ and seq:
+                measured[seq[0][1] if k == 0 else seq[-1][1]] = float(h_["deck_m"])
         for (s0, i), (s1, j) in zip(seq, seq[1:]):
             if s1 - s0 > 0.01:
                 edges.append((i, j, s1 - s0))
@@ -1058,13 +1069,14 @@ def _trim_to_osm(con, P):
         cut = shapely.ops.substring(ln, s0, s1)
         a["line"]["value"] = [[round(x, 2), round(y, 2)] for x, y in cut.coords]
         a["length_m"] = round(cut.length, 2)
-        v = a["vertical"]
-        v["points"] = [[round(s - s0, 2), z] for s, z in v["points"] if s0 - 0.01 <= s <= s1 + 0.01] or [[0.0, 0.0], [round(cut.length, 2), 0.0]]
-        if v["points"][0][0] > 0.01:
-            v["points"].insert(0, [0.0, v["points"][0][1]])
-        if v["points"][-1][0] < cut.length - 0.01:
-            v["points"].append([round(cut.length, 2), v["points"][-1][1]])
-        v["curves"] = None
+        # (the vertical, and the axis's points in the heights section, cut the same way)
+        for v in [a["vertical"]] + [h_ for h_ in [(P.get("heights") or {}).get(a["id"])] if h_ and h_.get("points")]:
+            v["points"] = [[round(s - s0, 2), z] for s, z in v["points"] if s0 - 0.01 <= s <= s1 + 0.01] or [[0.0, 0.0], [round(cut.length, 2), 0.0]]
+            if v["points"][0][0] > 0.01:
+                v["points"].insert(0, [0.0, v["points"][0][1]])
+            if v["points"][-1][0] < cut.length - 0.01:
+                v["points"].append([round(cut.length, 2), v["points"][-1][1]])
+            v["curves"] = None
         a["ground_at"] = [round(g - s0, 2) for g in a.get("ground_at", []) if s0 + 0.5 < g < s1 - 0.5]
         ends = a.get("ends", [{}, {}])
         a["ends"] = [{"s": 0.0, "ground": True if cut_start >= 0.5 else ends[0].get("ground", False), "node": None if cut_start >= 0.5 else ends[0].get("node")},

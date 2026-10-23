@@ -568,6 +568,14 @@ def roadway_meets(c, epsg):
     w1, w2 = [], []
     lines = [geo(w) for (w,) in c.execute(f"SELECT {m('geometry')} FROM work.element WHERE type = 'road' AND level_min = 0").fetchall()]
     ltree = shapely.STRtree(lines) if lines else None
+    # (a road's dead end: the end node of a road line that no other road or walkway meets; there the roadway stops, no step)
+    deg = {}
+    for s_, d_ in c.execute("SELECT src, dst FROM work.element WHERE type IN ('road', 'walkway') AND level_min = 0").fetchall():
+        for n_ in (s_, d_):
+            deg[n_] = deg.get(n_, 0) + 1
+    dead = [shapely.Point(geo(w).coords[0 if k == 0 else -1]) for s_, d_, w in c.execute(f"""SELECT src, dst, {m('geometry')} FROM work.element
+            WHERE type = 'road' AND level_min = 0""").fetchall() for k, n_ in ((0, s_), (1, d_)) if deg.get(n_) == 1]
+    dtree = shapely.STRtree(dead) if dead else None
     for ln in lines:
         for g in shapely.get_parts(ln.difference(rw)):
             if g.geom_type != "LineString" or g.length < W1_M or not area.contains(g):
@@ -593,6 +601,8 @@ def roadway_meets(c, epsg):
             jl = across(jl, lines, ltree)
             if jl.is_empty or jl.length < 0.3:
                 continue
+            if dtree is not None and any(dead[k].distance(jl) < 1.0 for k in dtree.query(jl.buffer(1.0))):
+                continue                    # (a road's dead end: the roadway stops there)
             xa, xb = jl.intersection(rw_u.get(a, shapely.Polygon())), jl.intersection(rw_u.get(b, shapely.Polygon()))
             if xa.is_empty and xb.is_empty:
                 continue

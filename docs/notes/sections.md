@@ -188,3 +188,31 @@ block the sidewalk line had set (s0-w473754701.2/2 × b0-w23189661l.4, 84 m²). 
 7. **A divided road is one section** (`dual-carriageways.md`, 2026-10-16 evening): the two one-way carriageways of one street between
    the same two junctions are one section and one space, each with its own lanes and kerbs, the median between them the space's
    island. Two sections made the median go left and right piece by piece (Fir Street north of West Broadway).
+
+## The roadway meets (2026-10-23)
+
+With the dashboard's G button the ground and the sidewalks can be hidden, and the roadway alone showed gaps and steps at joints and
+junction mouths. Two checks measure them: W1 (a street's line between two pieces of roadway with no roadway under it) and W2 (where
+two spaces meet across a street, the roadway reaches the joint at different points on the two sides). Each place has its cause.
+W2 at first also counted outline pieces along a kerb, the lines of roads that are no street (unnamed service roads), and dead ends;
+it reads only the outline segments across a street now. Monaco, the build of 2026-10-23: W1 16, W2 64.
+
+The rules that came from them:
+
+- **The room** (6a''): a walking way sets a road's room only where it lies beside the road, half a lane width or more from its line.
+  A pedestrian way on Avenue Crovetto-Frères for 22 m gave the road's 375 m frame no room, and the road had no roadway at all.
+  Monaco: A3 124 -> 1.
+- **A short piece's heading**: an end's direction over 3 m of its line, or the whole piece where it is shorter. A 2.8 m piece of
+  Avenue Albert II had no heading, and the T where Avenue des Papalins ends on it was no junction.
+- **A bend between two sections**: two sections that end at one node with no junction are cut on the bisector there. Cut at
+  7.42009, 43.73305: W2 13 -> 10. Open: a short piece (6.3 m) between such a bend and a junction is cut on a slant at the junction
+  (n25193892).
+
+Tried and reverted: no fillet within a lane width of an arm's stop line (the mouth of a junction as wide as the arm). On a cut W2
+went 9 -> 7; on Monaco it removed 24 shifts and made 27, because in a compact junction the corner between two arms lies in both
+arms' mouths, and without its fillet it was a sharp notch. A crumb (a small piece of walking side between roadways) in a mouth kept
+as walking side fixed one place but turned a crumb inside the roadway into furnishing. A mouth rule must keep the fillet where two
+arms' mouths meet; it is open.
+
+Open W2 causes: the junction's mouth wider or narrower than its arm (about 40); islands that do not line up at a cut; a road that
+meets the side of a short arm instead of its stop line.

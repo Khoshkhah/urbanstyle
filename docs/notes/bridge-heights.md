@@ -93,6 +93,11 @@ waves), and one plane per bridge loses the clearance (and fails where the road e
 that the grade limit cannot reach from the road ends is not reached (Costa: 1.9 m, IGN 9.2 m; w572934026: 2.7 m, IGN 9.6 m). The
 elevation viewer shows these bridges as they are.
 
+Where two decks cross and both are measured, the measured separation at the crossing is their gap: at most the chosen
+LEVEL_M + DECK_M (7.3 m), at least a slab. Avenue de France: a3 crosses over a1, and IGN's points are 5.7 m apart there; the chosen
+7.3 m lifted a3's junction n21927897 0.5 m over IGN. With the measured gap it is on IGN's point (0.0 m), a4 too. Open: a1's middle
+is 2.4 m under its point (47.4 against 49.83); that point has no deck return, so it may be the ground under a1, not a1's deck.
+
 No ground grid is used. A trial with a grid of IGN's ground points (2026-10-22) was removed: IGN classes some decks and walls as ground,
 so the grid came up through the decks, and it needed three more rules to hide this.
 

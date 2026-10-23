@@ -11,7 +11,8 @@ The road network of the level: duckOSM's driving edges with OSM's tags (`lanes`,
 ## The junction nodes
 
 A junction node is an OSM node where three or more road ends meet. A road that runs through the node counts two ends. The ends are
-paired into streams: an end continues into the most opposite end within 45°. The node is a junction in three cases:
+paired into streams: an end continues into the most opposite end within 45°. An end's direction is taken over 3 m of its line, or
+over the whole piece where the piece is shorter. The node is a junction in three cases:
 
 - an end has no continuation (a road ends there, a T junction);
 - two ends continue into one (a merge or a fork: a Y, a ramp that joins a road, a slip lane that leaves a road);
@@ -38,7 +39,9 @@ intersection it touches, and only that roadway.
 
 A run is one OSM way with one cross-section, split at the junction nodes. A section is the road from one junction to the next,
 whatever OSM ways it is made of: the runs chained end to end across every node that is no junction. Every section ends at every
-junction it reaches. The longest way names the section (`s0-w<way>`); a second chain of the same way gets `.2`.
+junction it reaches. The longest way names the section (`s0-w<way>`); a second chain of the same way gets `.2`. Two sections that
+end at one node that is no junction (a bend sharper than 45°) are cut on the bisector of their directions there, as at a joint inside a
+section: both frames run on past the node to the bisector, so the corner is filled with no notch and no overlap.
 
 **A divided road is one section.** Two runs pair when all of these hold: both are one-way; both carry the same name; they lie side
 by side (the middle of each line projects onto the inside of the other, 2 m or more away from it; each end of each line is within
@@ -123,4 +126,6 @@ both sides. `urban.street` and `urban.arm`: the named streets and their arms ([T
 | J2 | no intersection has a piece over 40 m² and over a tenth of its area outside its arms' bands |
 | J3 | every connector lies inside an intersection or on a bridge deck |
 | J4 (INFO) | the tag changes along the sections, with the count per class |
+| W1 | no street's line has a stretch of 0.1 m or more between two pieces of roadway with no roadway under it |
+| W2 | where two spaces meet across a street, the roadway reaches the joint at the same points on both sides (0.2 m); a street's dead end is no joint |
 | K1 (INFO) | the kerb of a subsection against the city's catch basins: a difference over 1.5 m |

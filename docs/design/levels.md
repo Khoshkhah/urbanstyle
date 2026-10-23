@@ -9,6 +9,11 @@ A level is an integer floor of the area, -2 to 2, 0 the ground ([The model](mode
 spaces: a deck or a tube, the roadway and a narrow walkway, with no blocks. The links between levels (`urban.link`) are the only
 joins between levels: a ramp, stairs, an elevator, an entrance, or a connection where a road's level changes at a node.
 
+A road's level is its OSM `layer`, else 1 on a bridge and -1 in a tunnel. A building passage (`tunnel=building_passage`) is the
+exception: its `layer` gives its place relative to the building, not a deck. Its level is the lowest level above every way under it (a
+way at a lower level that crosses it, or runs along it within 3 m for 5 m or more): 0 where nothing at level 0 or above lies under it.
+A way that goes on from such a passage with the same `layer` and no bridge or tunnel tag has the passage's level.
+
 The page gives each level a button with three states: full, faded, hidden. In 3D a deck with no bridge model is drawn 6 m a level
 above the ground; a tunnel is drawn under the ground of level 0 and shows where level 0 is faded or hidden.
 
@@ -52,6 +57,28 @@ At a station every 10 m along each axis:
    over 60 m and pinned to the deck at each landing. A station with fewer than 20 returns keeps the chosen value.
 
 The deck thickness and the piers stay chosen: from above, the survey does not see the deck's underside.
+
+## Heights from a few measured points
+
+A profile's heights section can hold a few measured points instead of stations: the deck at each junction and at each branch middle,
+the road at each ground end, each as an elevation (`deck_elev`, `ground_elev`). With them the model works in elevations, with z = 0 at
+sea level:
+
+1. A ground end keeps its road's measured elevation. A measured deck point holds the deck there. The rule fills in between: up from
+   the lowest ground end at the grade.
+2. A point in the air with no deck return of its own has its ground return as the deck's elevation: the survey classes some decks as
+   ground.
+3. The ground under the bridge is known at the measured points only (the ground under a measured deck, and the ground ends). Between
+   them it is their mean, weighted by inverse distance. It sets where the slab's sides and the piers stop. It is not a lower limit for
+   the deck.
+4. Where two decks cross and both are measured, the measured separation at the crossing is their gap: at most the chosen gap (5.5 m
+   and the slab), at least the slab.
+5. An edge at most 0.5 m above this ground is a landing, with no parapet.
+
+The dashboard's map is flat. Its file of bridges comes from its own solve in heights above the ground (`structure --above-ground`):
+the ground ends at 0, the measured clearances (deck less ground) held, the same smoothness and grade limits. Nothing is subtracted
+after the solve, so the deck keeps its smooth line. Where the grade limit cannot reach a measured clearance from the ground ends, the
+flat map shows the bridge lower than it is; the elevation viewer shows it as measured.
 
 ## Heights from a file
 

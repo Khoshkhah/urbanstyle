@@ -46,7 +46,7 @@ The words of the model, the code and the dashboard, in one place. When a word is
 | **space** | the area of a subsection or of a sub-intersection, block edge to block edge (`urban.space`); rank 3 |
 | **side** | the driving side or the walking side of a space (`urban.side`, `<space>:d`, `<space>:w`); rank 4; the two partition the space |
 | **frame** | one width for a whole section: its lanes and strips at its widest place (`subsection.width_m`); the driving side's shape in a section |
-| **room** | the least distance from a run's line to the street's edge on one side; it caps the frame's kerb there |
+| **room** | the least distance from a run's line to the street's edge on one side; it caps the frame's kerb there. A walking way is the street's edge only where it lies beside the road (half a lane width or more from the road's line) |
 | **kerb** | the boundary between the roadway and the walking side: the near side of the sidewalk strip where OSM maps the line, else the lanes' outer edge |
 | **kerb evidence** | a city's catch basins, poles and sidewalk lines: they check the kerb and widen an outer lane for parking; they never move a lane |
 | **merge shift** | how far a section's lanes sit off the OSM line because it keeps the through arm's kerb at a merge or fork (`subsection.left_extra`) |

@@ -183,7 +183,7 @@ def _couplings(P, nodes, per_axis, a_lv):
     return out
 
 
-def _solve(P, nodes, per_axis, pairs, couples=(), parted=None):
+def _solve(P, nodes, per_axis, pairs, couples=(), parted=None, terrain=None):
     """One height per node. Hard: 0 on the ground, 0..TOP_M, the grade at most CLEAR_MAX_GRADE along every axis. Soft: the clearances
     over roads and buildings, LEVEL_M + DECK_M between two decks that cross (the lower one goes down where the upper cannot climb), the
     grade over GRADE, a measured height, a small wish to stay low; and the smoothest result: the change of grade along each axis is the
@@ -228,6 +228,23 @@ def _solve(P, nodes, per_axis, pairs, couples=(), parted=None):
     D = np.array(rows) if rows else np.zeros((0, n))
     Q = D.T @ D
     clear = np.array([nd["clear"] for nd in nodes])
+    gz = np.zeros(n)                  # (the ground under each node: 0, or the terrain's height in elevation mode)
+    if terrain is not None:
+        gz = np.array([terrain.z(*nd["xy"]) for nd in nodes])
+        clear = np.where(clear > 0, clear + gz, 0.0)
+        measured[:] = np.nan          # (in elevation mode a known height is an elevation: deck_elev, not a height above a flat ground)
+        e0 = terrain.e0
+        for a in P["axes"]:
+            seq = per_axis[a["id"]]
+            mine = (known or {}).get(a["id"]) or {}
+            if mine.get("deck_elev") is not None and seq:
+                L_ = seq[-1][0]
+                measured[min(seq, key=lambda t: abs(t[0] - L_ / 2))[1]] = mine["deck_elev"] - e0
+            for k, e in enumerate(a.get("ends", [])):
+                h_ = (known or {}).get(e.get("node") or "") or {}
+                z_ = h_.get("deck_elev") if h_.get("deck_elev") is not None else (h_.get("ground_elev") if e.get("ground") else None)
+                if z_ is not None and seq:
+                    measured[seq[0][1] if k == 0 else seq[-1][1]] = z_ - e0
     has_m = ~np.isnan(measured)
     # the agreed rule as the target where nothing else decides: GRADE up from the nearest ground node along the network, TOP_M at most
     import heapq
@@ -244,6 +261,23 @@ def _solve(P, nodes, per_axis, pairs, couples=(), parted=None):
             if d0 + d < dist.get(j, np.inf):
                 dist[j] = d0 + d; heapq.heappush(heap, (d0 + d, j))
     target = np.array([min(TOP_M, GRADE * dist.get(i, 0.0)) for i in range(n)])
+    if terrain is not None:           # (the rule from each ground end's own elevation, never under the ground)
+        g0 = {i: (measured[i] if not np.isnan(measured[i]) else gz[i]) for i, nd in enumerate(nodes) if nd["ground"]}
+        best = np.full(n, np.inf)
+        for gi, zg in g0.items():
+            dd = {gi: 0.0}; hp = [(0.0, gi)]
+            while hp:
+                d0, i = heapq.heappop(hp)
+                if d0 > dd.get(i, np.inf):
+                    continue
+                for j, d in adj.get(i, []):
+                    if d0 + d < dd.get(j, np.inf):
+                        dd[j] = d0 + d; heapq.heappush(hp, (d0 + d, j))
+            for i, d0 in dd.items():
+                best[i] = min(best[i], zg + GRADE * d0)
+        target = np.maximum(np.where(np.isfinite(best), best, gz), gz)
+        for gi, zg in g0.items():
+            target[gi] = zg               # (a ground end keeps its own road's elevation)
     # one deck, one surface: a node held at the other axis's height there, but only where the two axes' rule heights agree (within
     # CUT_DZ_M); where they part, the two are two decks side by side (Larvotto: the ramp a2 goes down to the ground beside a1, and the
     # coupling pulled a1 down with it to 1.2 m)
@@ -296,12 +330,14 @@ def _solve(P, nodes, per_axis, pairs, couples=(), parted=None):
         A[2 * k, i], A[2 * k, j], b[2 * k] = -1, 1, CLEAR_MAX_GRADE * d
         A[2 * k + 1, i], A[2 * k + 1, j], b[2 * k + 1] = 1, -1, CLEAR_MAX_GRADE * d
     bounds = [(0.0, 0.0) if nd["ground"] else (0.0, TOP_M) for nd in nodes]
+    if terrain is not None:           # (a ground end at its road's elevation; the deck never under the ground, at most TOP_M above it)
+        bounds = [((target[i], target[i]) if nd["ground"] else (gz[i], gz[i] + TOP_M)) for i, nd in enumerate(nodes)]
     x0 = np.clip(x0, [lo for lo, _ in bounds], [hi for _, hi in bounds])
     cons = [{"type": "ineq", "fun": lambda x: A @ x + b, "jac": lambda x: A}] if len(edges) else []
     if not has_m.any():
         x0 = np.clip(target, [lo for lo, _ in bounds], [hi for _, hi in bounds])     # (no survey: start from the rule's own line)
     res = minimize(f, x0, jac=jac, bounds=bounds, constraints=cons, method="SLSQP", options={"maxiter": 500, "ftol": 1e-7})
-    return np.clip(res.x, 0.0, TOP_M), res
+    return (np.clip(res.x, gz, gz + TOP_M) if terrain is not None else np.clip(res.x, 0.0, TOP_M)), res
 
 
 def _write_back(P, nodes, per_axis, h):
@@ -980,6 +1016,29 @@ def _slits(poly, axes, own, step=0.25, pairs_out=None):
     return shapely.union_all(out).intersection(poly) if out else shapely.Polygon()
 
 
+class _Terrain:
+    """The ground under and round a bridge (profile key "terrain": an .npz grid made from LiDAR ground points, docs/notes/bridge-heights.md):
+    z(x, y) in metres above its lowest point (e0, the elevation that is z = 0 in the model). With a terrain the model works in elevations: a
+    ground end at its road's elevation, the slab's bottom and the piers down to this ground, not to a flat 0 m."""
+
+    def __init__(self, path):
+        import numpy as np
+        d = np.load(path)
+        self.x0, self.y0, self.step = float(d["x0"]), float(d["y0"]), float(d["step"])
+        self.g = d["z"].astype(float)
+        self.e0 = float(np.nanmin(self.g))
+
+    def z(self, x, y):
+        import numpy as np
+        fx = np.clip((np.asarray(x, dtype=float) - self.x0) / self.step, 0, self.g.shape[1] - 1.001)
+        fy = np.clip((np.asarray(y, dtype=float) - self.y0) / self.step, 0, self.g.shape[0] - 1.001)
+        i, j = np.floor(fy).astype(int), np.floor(fx).astype(int)
+        ty, tx = fy - i, fx - j
+        g = self.g
+        v = (g[i, j] * (1 - tx) * (1 - ty) + g[i, j + 1] * tx * (1 - ty) + g[i + 1, j] * (1 - tx) * ty + g[i + 1, j + 1] * tx * ty) - self.e0
+        return float(v) if np.ndim(v) == 0 else v
+
+
 class _Top:
     """The slab's top as meshed: its triangles and their corner heights. one(x, y) is the height of the triangle that holds the point
     (barycentric), so the cover lies exactly on the slab; the surface itself (S) where no triangle holds it. The cover sampled the
@@ -1114,8 +1173,10 @@ def model(con, P, rank0=False, cover=True, gmns=None):
     a_lv = _axis_level(con, P)
     nodes, per_axis, pairs = _nodes(P, a_lv)
     couples = _couplings(P, nodes, per_axis, a_lv)
+    terr = _Terrain(P["terrain"]) if P.get("terrain") else None
+    gz_ = (lambda x, y: terr.z(x, y)) if terr is not None else (lambda x, y: 0.0)      # (the ground under a point: 0 without a terrain)
     v_first = {a["id"]: copy.deepcopy(a["vertical"]) for a in P["axes"]}     # (the profile's own heights, for the second pass)
-    h, res = _solve(P, nodes, per_axis, pairs, couples)
+    h, res = _solve(P, nodes, per_axis, pairs, couples, terrain=terr)
     _write_back(P, nodes, per_axis, h)
     # the deck is what lies on it: the lanes, the junction lanes and the paths, plus the edge (bridge_cover, rule 6); each axis's own
     # lanes and paths set where its heights count (_Surface)
@@ -1139,7 +1200,7 @@ def model(con, P, rank0=False, cover=True, gmns=None):
             _slits(pg, lv_ids[lv], own, pairs_out=parted)
         for a_ in P["axes"]:
             a_["vertical"] = copy.deepcopy(v_first[a_["id"]])
-        h, res = _solve(P, nodes, per_axis, pairs, couples, parted=parted)
+        h, res = _solve(P, nodes, per_axis, pairs, couples, parted=parted, terrain=terr)
         _write_back(P, nodes, per_axis, h)
         slit_of = {lv: _slits(pg, lv_ids[lv], own) for lv, pg in outline.items()}
         zone = shapely.union_all([z.buffer(GORE_M) for z in slit_of.values() if not z.is_empty] or [shapely.Polygon()])
@@ -1228,7 +1289,7 @@ def model(con, P, rank0=False, cover=True, gmns=None):
                 fill_f.append([fv(x, y, z) for (x, y), z in zip(t, hz)])
             else:
                 slab.append(top)
-                slab.append([vid(x, y, max(0.0, z - DECK_M)) for (x, y), z in zip(t, hz)][::-1])
+                slab.append([vid(x, y, max(gz_(x, y), z - DECK_M)) for (x, y), z in zip(t, hz)][::-1])
             # D1: every edge of the top is shared, or lies on the piece's edge
             for p, q in ((t[0], t[1]), (t[1], t[2]), (t[2], t[0])):
                 k = tuple(sorted((tuple(round(v, 2) for v in p), tuple(round(v, 2) for v in q))))
@@ -1263,11 +1324,12 @@ def model(con, P, rank0=False, cover=True, gmns=None):
             cs = list(rg.segmentize(STEP_M / 2).coords)
             for (ax, ay), (bx, by) in zip(cs, cs[1:]):
                 za, zb = S.one(ax, ay), S.one(bx, by)
-                if max(za, zb) > 0.05:
-                    a0, b0, a1, b1 = vid(ax, ay, max(0.0, za - DECK_M)), vid(bx, by, max(0.0, zb - DECK_M)), vid(ax, ay, za), vid(bx, by, zb)
+                ga, gb = gz_(ax, ay), gz_(bx, by)
+                if max(za - ga, zb - gb) > 0.05:
+                    a0, b0, a1, b1 = vid(ax, ay, max(ga, za - DECK_M)), vid(bx, by, max(gb, zb - DECK_M)), vid(ax, ay, za), vid(bx, by, zb)
                     sides += [[a0, b0, b1], [a0, b1, a1]]
                 mid = shapely.Point((ax + bx) / 2, (ay + by) / 2)
-                zm = (za + zb) / 2
+                zm = (za + zb) / 2 - (ga + gb) / 2     # (above the ground there)
                 if zm < 0.05:                       # the landing line itself, on the ground: open (the sides keep their parapet to it)
                     n_low += 1
                     continue
@@ -1330,7 +1392,26 @@ def model(con, P, rank0=False, cover=True, gmns=None):
         h_ = math.hypot(b_.x - a_.x, b_.y - a_.y) or 1
         return p_.x, p_.y, -(b_.y - a_.y) / h_, (b_.x - a_.x) / h_
     piers_p, truss_p = structure(P, axes, all_poly, frame, DECK_M) if not rank0 else ([], [])
-    piers = [{"a": tm(*q["a"], 0)[:2], "b": tm(*q["b"], 0)[:2], "t": q["t"], "h": q["h"]} for q in piers_p if q["h"] >= PIER_MIN_M]   # (none under a low deck: a half-metre pier at a landing looked like a disc)
+    if terr is not None:              # (a pier stands on the ground under it: its height is the deck's bottom less that ground)
+        for q in piers_p:
+            q["z0"] = round(float(gz_((q["a"][0] + q["b"][0]) / 2, (q["a"][1] + q["b"][1]) / 2)), 2)
+            q["h"] = round(q["h"] - q["z0"], 2)
+    piers = [{"a": tm(*q["a"], 0)[:2], "b": tm(*q["b"], 0)[:2], "t": q["t"], "h": q["h"], "z0": q.get("z0", 0.0)} for q in piers_p if q["h"] >= PIER_MIN_M]
+    if terr is not None:              # (the terrain itself, every 2 m, for the viewer: the ground the bridge stands on)
+        import numpy as np
+        st_ = 2
+        G_ = terr.g[::st_, ::st_] - terr.e0
+        tv, tf = [], []
+        for i_ in range(G_.shape[0]):
+            for j_ in range(G_.shape[1]):
+                tv.append(tm(terr.x0 + j_ * terr.step * st_, terr.y0 + i_ * terr.step * st_, float(G_[i_, j_])))
+        W_ = G_.shape[1]
+        for i_ in range(G_.shape[0] - 1):
+            for j_ in range(W_ - 1):
+                a_, b_, c_, d_ = i_ * W_ + j_, i_ * W_ + j_ + 1, (i_ + 1) * W_ + j_, (i_ + 1) * W_ + j_ + 1
+                tf += [[a_, b_, d_], [a_, d_, c_]]
+        surf.append({"key": "terrain", "props": {"type": "terrain", "layer": "ground", "elevation_m": round(terr.e0, 2),
+                                                 "source": "IGN LiDAR HD 2025, ground points (class 2)", "method": "measured"}, "v": tv, "f": tf})   # (none under a low deck: a half-metre pier at a landing looked like a disc)
     truss = [dict(q, a=tm(*q["a"]), b=tm(*q["b"])) for q in truss_p]
     unmet = [ll(*c["at"]) + [round(c["z"] - height(a["vertical"], ln.project(shapely.Point(c["at"]))), 2)]
              for ln, a in axes for c in a["vertical"].get("clearances", [])

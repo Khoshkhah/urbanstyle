@@ -66,8 +66,28 @@ The tools write into this section:
 
 Granville's profile has its section from its LiDAR fit; its model is the same as before (tests/test_bridge_step5.py).
 
-Not yet used: the ground's own height (`ground_m`) and heights above sea level. The model still stands on a flat ground at 0 m; they come
-with a ground model (Monaco: IGN LiDAR HD, docs/HANDOFF.md).
+## A bridge on a hillside: the terrain (trial, 2026-10-22)
+
+The flat model puts the ground at 0 m everywhere. On a slope this is wrong: Avenue de la Costa's two road ends are 2 m apart in
+elevation, and the ground under its middle is 9 m lower than the deck. The flat model gave a deck 2 m high at its middle; IGN measures 9.2 m.
+
+A profile can name a terrain grid: `"terrain": "data/terrain-monaco/<bridge>.npz"` (arrays `z`, `x0`, `y0`, `step`, in the model's
+metres; elevation in IGN69). With it, `bridge_surface` works in elevations:
+
+- The ground under each node is the grid's height there (bilinear). The deck stays between this ground and the ground plus `TOP_M`.
+- A ground end keeps its own road's elevation; the rule's target is the lowest ground end plus `GRADE` times the distance, and never
+  under the ground.
+- A heights entry with `deck_elev` (or a ground end's `ground_elev`) is a measured elevation and wins over `deck_m`.
+- The slab's bottom, its sides and the piers go down to the grid, not to 0 m. The viewer draws the grid as a terrain surface.
+- The model's z is the elevation less the grid's lowest point, so the viewer's grid at z = 0 is under the whole terrain.
+
+The grid comes from IGN LiDAR HD's point cloud: the class-2 (ground) points 40 m round the axes, a 1 m grid in the profile's CRS,
+linear interpolation, holes (under a deck) from the nearest point (the script is in the trial's scratch folder; it goes into the
+repository when the trial is accepted).
+IGN's MNT raster is not usable here: it keeps the decks in the ground.
+
+Avenue de la Costa, axis a1: the deck is at 33.13 m (IGN deck points: 33.15) at its start, 32.0 m at its middle (32.09), and 31.06 m at
+its end (the road: 31.08). A profile with no terrain is built as before (Granville: tests/test_bridge_step5.py).
 
 ## Sources
 

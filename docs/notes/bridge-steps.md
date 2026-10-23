@@ -99,6 +99,9 @@ and a road without one is divided where the two distances are the same.
 - Between two such decks there is a gap, 0.3 m wide. It lies where the two strips' edges are equally near, measured from each
   axis's line less its strip's mean half width. So it goes round a ramp's end and out to the deck's edge.
 - No height is blended across the gap.
+- Only where the two run side by side at heights apart over 25 m or more. A shorter gap is at a junction, where the axes leave a
+  node, and the deck stays one there (Avenue de France: short gaps broke its deck into pieces). So the heights are solved twice:
+  the first time to find the long gaps, the second time with only those pairs as two decks and every other pair held together.
 - Within 6 m of the gap, step 3b makes no closing and no taper: there the outline is the branches' own strips.
 
 Larvotto: the ramp a2 goes down to the ground beside the viaduct a1, which stays high. Before, one blended surface pulled a1

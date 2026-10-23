@@ -24,6 +24,7 @@ CUT_DZ_M = 1.0        # ... with heights more than this apart are two structures
 EDGE_M = 0.5          # the structure's edge beyond the outer band: the parapet stands on it
 SLIT_M = 0.3          # rule 4: the gap between a ramp's strip and its bridge's where a wall stands
 SLIT_END_M = 8.0      # ... an end of that gap this near the deck's edge goes on through it (two decks)
+SLIT_MIN_M = 25.0     # ... only where the two run side by side over this at least (Larvotto's ramp: 100 m); a shorter one is a junction
 PATH_NEAR_M = 3.0     # a path beside an axis belongs to its strip where it lies within this of the strip
 OWN_REACH_M = 2.5     # a walking or cycling way within this of an axis's lanes, ...
 OWN_W_M = 6.0         # an own way reaches at most this beyond the reach (a cycleway with its sidewalk)
@@ -178,11 +179,11 @@ def _couplings(P, nodes, per_axis, a_lv):
                 (sa, na), (sb, nb) = seq[k], seq[k + 1]
                 t = (s2 - sa) / ((sb - sa) or 1.0)
                 if n not in (na, nb):
-                    out.append((n, (na, nb, t)))
+                    out.append((n, (na, nb, t), a["id"], b["id"]))
     return out
 
 
-def _solve(P, nodes, per_axis, pairs, couples=()):
+def _solve(P, nodes, per_axis, pairs, couples=(), parted=None):
     """One height per node. Hard: 0 on the ground, 0..TOP_M, the grade at most CLEAR_MAX_GRADE along every axis. Soft: the clearances
     over roads and buildings, LEVEL_M + DECK_M between two decks that cross (the lower one goes down where the upper cannot climb), the
     grade over GRADE, a measured height, a small wish to stay low; and the smoothest result: the change of grade along each axis is the
@@ -236,8 +237,9 @@ def _solve(P, nodes, per_axis, pairs, couples=()):
     # CUT_DZ_M); where they part, the two are two decks side by side (Larvotto: the ramp a2 goes down to the ground beside a1, and the
     # coupling pulled a1 down with it to 1.2 m)
     ref = np.where(has_m, measured, target)          # (a measured height where there is one: LiDAR at Granville)
-    for nn, (na, nb, t) in couples:
-        if abs(ref[nn] - ((1.0 - t) * ref[na] + t * ref[nb])) > CUT_DZ_M:
+    for nn, (na, nb, t), ia, ib in couples:
+        # (parted: the pairs of axes that are two decks, step 5's second pass; None, the first pass: every pair whose heights differ)
+        if (parted is None or frozenset((ia, ib)) in parted) and abs(ref[nn] - ((1.0 - t) * ref[na] + t * ref[nb])) > CUT_DZ_M:
             continue
         r = np.zeros(n); r[nn] += 1.0; r[na] -= 1.0 - t; r[nb] -= t
         Q += W_COUPLE * np.outer(r, r)
@@ -893,7 +895,7 @@ def _approaches(P, axes, own):
     return out
 
 
-def _slits(poly, axes, own, step=0.25):
+def _slits(poly, axes, own, step=0.25, pairs_out=None):
     """Two decks where the heights part: a gap SLIT_M wide where two axes' decks meet and their heights there differ by more than
     CUT_DZ_M. Each deck keeps its own height; one blended surface made a wall between them (Larvotto: the ramp a2 beside a1). The gap is
     where the two strips' edges are equally near: each axis's distance is the distance to its line less its strip's mean half width. So
@@ -928,8 +930,10 @@ def _slits(poly, axes, own, step=0.25):
         xy = shapely.get_coordinates(pts[sel])
         bins = np.round(shapely.line_locate_point(la, pts[sel]) / (2 * step)).astype(int)
         cs = [tuple(xy[bins == b_].mean(axis=0)) for b_ in sorted(set(bins.tolist()))]
-        if len(cs) < 2:
-            continue
+        if len(cs) < 2 or shapely.LineString(cs).length < SLIT_MIN_M:
+            continue                                  # (side by side over less than SLIT_MIN_M: a junction, one deck there)
+        if pairs_out is not None:
+            pairs_out.add(frozenset((axes[p_[0]][1]["id"], axes[p_[1]][1]["id"])))
         for first in (True, False):
             e = shapely.Point(cs[0] if first else cs[-1])
             edge = shapely.MultiLineString([g.exterior for g in shapely.get_parts(poly) if g.geom_type == "Polygon"])   # (a level of several pieces)
@@ -1038,7 +1042,9 @@ def model(con, P, rank0=False, cover=True, gmns=None):
     _LANES.clear()    # (the profile's own lanes, as the old model: Kaveh 2026-10-18)
     a_lv = _axis_level(con, P)
     nodes, per_axis, pairs = _nodes(P, a_lv)
-    h, res = _solve(P, nodes, per_axis, pairs, _couplings(P, nodes, per_axis, a_lv))
+    couples = _couplings(P, nodes, per_axis, a_lv)
+    v_first = {a["id"]: copy.deepcopy(a["vertical"]) for a in P["axes"]}     # (the profile's own heights, for the second pass)
+    h, res = _solve(P, nodes, per_axis, pairs, couples)
     _write_back(P, nodes, per_axis, h)
     # the deck is what lies on it: the lanes, the junction lanes and the paths, plus the edge (bridge_cover, rule 6); each axis's own
     # lanes and paths set where its heights count (_Surface)
@@ -1054,7 +1060,17 @@ def model(con, P, rank0=False, cover=True, gmns=None):
             own[a_["id"]] = shapely.union_all(g_).buffer(EDGE_M) if g_ else ln_.buffer(1.0)
         # (where two axes' heights part: step 3b again, with no closing and no taper in the zone round the slit between them)
         by_id_ = {a["id"]: (ln, a) for ln, a in axes}
-        slit_of = {lv: _slits(pg, [by_id_[i] for i in [aid for aid, l_ in a_lv.items() if l_ == lv]], own) for lv, pg in outline.items()}
+        lv_ids = {lv: [by_id_[i] for i in [aid for aid, l_ in a_lv.items() if l_ == lv]] for lv in outline}
+        # (two passes: the first finds the pairs that run side by side at heights apart over SLIT_MIN_M; the second solves again with
+        # only those two decks, every other pair held at one height: short gaps at Avenue de France's junctions broke its deck in pieces)
+        parted = set()
+        for lv, pg in outline.items():
+            _slits(pg, lv_ids[lv], own, pairs_out=parted)
+        for a_ in P["axes"]:
+            a_["vertical"] = copy.deepcopy(v_first[a_["id"]])
+        h, res = _solve(P, nodes, per_axis, pairs, couples, parted=parted)
+        _write_back(P, nodes, per_axis, h)
+        slit_of = {lv: _slits(pg, lv_ids[lv], own) for lv, pg in outline.items()}
         zone = shapely.union_all([z.buffer(GORE_M) for z in slit_of.values() if not z.is_empty] or [shapely.Polygon()])
         if not zone.is_empty:
             from .bridge_forks import step3b

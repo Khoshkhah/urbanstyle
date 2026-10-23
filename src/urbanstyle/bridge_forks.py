@@ -1054,7 +1054,7 @@ def _pair_starts(B):
     return out
 
 
-def step3b(B, F, bands=None):
+def step3b(B, F, bands=None, parted=None):
     """Step 3b (docs/notes/bridge-steps.md): the outline of each bridge level made smooth, from the frozen branches and forks: their union,
     closed and opened by SMOOTH_M with round joins, so no notch or bump smaller than 2 SMOOTH_M stays (a jog at an OSM vertex, a step where
     two branches' widths meet at a branch point), and never smaller than the union: nothing of a branch is taken, so a bridge end stays
@@ -1089,6 +1089,10 @@ def step3b(B, F, bands=None):
             smooth = shapely.union_all([smooth] + add).buffer(0.3, join_style="mitre").buffer(-0.3, join_style="mitre")
             smooth = shapely.union_all([shapely.Polygon(p_.exterior, [r for r in p_.interiors if shapely.Polygon(r).area >= 2.0])
                                         for p_ in shapely.get_parts(smooth) if p_.geom_type == "Polygon"])   # (micro gaps where a taper meets an arc)
+        if parted is not None and not parted.is_empty:
+            # (where two axes' heights part, step 5: no closing and no taper there, the branches as they are: a taper from a ramp's
+            # square end to the main deck stayed as a corner of the main deck, a step in its edge, once the two were two decks)
+            smooth = shapely.make_valid(smooth.difference(parted).union(u.intersection(parted)))
         ends = [shapely.Point(b["line"].coords[0] if e == 0 else b["line"].coords[-1]) for b in B if b["level"] == lv
                 for e, nd in enumerate(b["ends"]) if nd is None]
         out[lv] = _fillet_corners(shapely.make_valid(smooth.simplify(0.02)), ends)

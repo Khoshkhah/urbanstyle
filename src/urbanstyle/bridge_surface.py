@@ -23,6 +23,7 @@ CUT_NEAR_M = 4.0      # rule 4: two roads of one level closer than this ...
 CUT_DZ_M = 1.0        # ... with heights more than this apart are two structures, a wall between (0.5 cut a loop's two carriageways apart on the curve)
 EDGE_M = 0.5          # the structure's edge beyond the outer band: the parapet stands on it
 SLIT_M = 0.3          # rule 4: the gap between a ramp's strip and its bridge's where a wall stands
+SLIT_END_M = 8.0      # ... an end of that gap this near the deck's edge goes on through it (two decks)
 PATH_NEAR_M = 3.0     # a path beside an axis belongs to its strip where it lies within this of the strip
 OWN_REACH_M = 2.5     # a walking or cycling way within this of an axis's lanes, ...
 OWN_W_M = 6.0         # an own way reaches at most this beyond the reach (a cycleway with its sidewalk)
@@ -214,9 +215,6 @@ def _solve(P, nodes, per_axis, pairs, couples=()):
             rows.append(r * math.sqrt((d0 + d1) / 2))      # (weighted by the length it stands for)
     D = np.array(rows) if rows else np.zeros((0, n))
     Q = D.T @ D
-    for nn, (na, nb, t) in couples:                     # one deck, one surface: the node at the other axis's height there
-        r = np.zeros(n); r[nn] += 1.0; r[na] -= 1.0 - t; r[nb] -= t
-        Q += W_COUPLE * np.outer(r, r)
     clear = np.array([nd["clear"] for nd in nodes])
     has_m = ~np.isnan(measured)
     # the agreed rule as the target where nothing else decides: GRADE up from the nearest ground node along the network, TOP_M at most
@@ -234,6 +232,15 @@ def _solve(P, nodes, per_axis, pairs, couples=()):
             if d0 + d < dist.get(j, np.inf):
                 dist[j] = d0 + d; heapq.heappush(heap, (d0 + d, j))
     target = np.array([min(TOP_M, GRADE * dist.get(i, 0.0)) for i in range(n)])
+    # one deck, one surface: a node held at the other axis's height there, but only where the two axes' rule heights agree (within
+    # CUT_DZ_M); where they part, the two are two decks side by side (Larvotto: the ramp a2 goes down to the ground beside a1, and the
+    # coupling pulled a1 down with it to 1.2 m)
+    ref = np.where(has_m, measured, target)          # (a measured height where there is one: LiDAR at Granville)
+    for nn, (na, nb, t) in couples:
+        if abs(ref[nn] - ((1.0 - t) * ref[na] + t * ref[nb])) > CUT_DZ_M:
+            continue
+        r = np.zeros(n); r[nn] += 1.0; r[na] -= 1.0 - t; r[nb] -= t
+        Q += W_COUPLE * np.outer(r, r)
     ei = np.array([e[0] for e in edges]); ej = np.array([e[1] for e in edges]); ed = np.array([e[2] for e in edges])
     pu = np.array([p[0] for p in pairs], dtype=int); pl = np.array([p[1] for p in pairs], dtype=int)
     GAP = LEVEL_M + DECK_M
@@ -886,14 +893,61 @@ def _approaches(P, axes, own):
     return out
 
 
+def _slits(poly, axes, own, step=0.25):
+    """Two decks where the heights part: a gap SLIT_M wide where two axes' decks meet and their heights there differ by more than
+    CUT_DZ_M. Each deck keeps its own height; one blended surface made a wall between them (Larvotto: the ramp a2 beside a1). The gap is
+    where the two strips' edges are equally near: each axis's distance is the distance to its line less its strip's mean half width. So
+    it lies in the middle of the gap between the strips, goes round a ramp's end, and runs out to the deck's edge by itself (a gap carried
+    to the nearest edge point left a corner of the ramp's end on the main deck, as a step in its edge). Returns a polygon."""
+    import numpy as np
+    import shapely
+    if len(axes) < 2:
+        return shapely.Polygon()
+    x0, y0, x1, y1 = poly.bounds
+    xs, ys = np.meshgrid(np.arange(x0, x1, step), np.arange(y0, y1, step))
+    pts = shapely.points(xs.ravel(), ys.ravel())
+    pts = pts[shapely.contains(poly, pts)]
+    if len(pts) == 0:
+        return shapely.Polygon()
+    half = [own[a["id"]].area / max(ln.length, 1.0) / 2.0 for ln, a in axes]
+    d = np.array([shapely.distance(ln, pts) - h for (ln, _), h in zip(axes, half)])          # (axes x points)
+    z = np.array([[max(0.0, height(a["vertical"], float(s_))) for s_ in shapely.line_locate_point(ln, pts)] for ln, a in axes])
+    o = np.argsort(d, axis=0)
+    i1, i2 = o[0], o[1]
+    k = np.arange(len(pts))
+    # (the points where the two are within 4 steps of equal, as one line per pair of axes: a point every 2 steps along the longer axis,
+    # the mean of those there; its ends within 2 m of the deck's edge go on to it, so the two decks part)
+    mid = (np.abs(d[i1, k] - d[i2, k]) <= 4 * step) & (np.abs(z[i1, k] - z[i2, k]) > CUT_DZ_M)
+    out = []
+    for p_ in {tuple(sorted(t)) for t in zip(i1[mid].tolist(), i2[mid].tolist())}:
+        sel = mid & (np.minimum(i1, i2) == p_[0]) & (np.maximum(i1, i2) == p_[1])
+        if sel.sum() < 4:
+            continue
+        la = max((axes[p_[0]][0], axes[p_[1]][0]), key=lambda g: g.length)
+        xy = shapely.get_coordinates(pts[sel])
+        bins = np.round(shapely.line_locate_point(la, pts[sel]) / (2 * step)).astype(int)
+        cs = [tuple(xy[bins == b_].mean(axis=0)) for b_ in sorted(set(bins.tolist()))]
+        if len(cs) < 2:
+            continue
+        for first in (True, False):
+            e = shapely.Point(cs[0] if first else cs[-1])
+            if poly.exterior.distance(e) <= 2.0:
+                q = poly.exterior.interpolate(poly.exterior.project(e))
+                far = (q.x + (q.x - e.x) * 0.5, q.y + (q.y - e.y) * 0.5)
+                cs = [far, (q.x, q.y)] + cs if first else cs + [(q.x, q.y), far]
+        out.append(shapely.LineString(cs).simplify(step).buffer(SLIT_M / 2, cap_style="flat"))
+    return shapely.union_all(out).intersection(poly) if out else shapely.Polygon()
+
+
 class _Surface:
     """h(x, y) of one structure: a point takes the heights of the axes whose own strip holds it, blended by nearness; outside every
     strip (the filled edge), the nearest strip's axis."""
 
-    def __init__(self, axes, own):
+    def __init__(self, axes, own, cut=None):
         self.lines = [ln for ln, _ in axes]
         self.axes = [a for _, a in axes]
         self.own = [own[a["id"]] for _, a in axes]
+        self.cut = cut if cut is not None and not cut.is_empty else None     # (the slits: no height is blended across one)
 
     def at(self, xs, ys):
         import numpy as np
@@ -908,8 +962,13 @@ class _Surface:
         # one continuous blend everywhere: each band pulls toward its own height by 1 / (distance to the band + NEAR_M)^2 (0 inside it);
         # no switch of rule at a band's edge, so no crease in the surface and no step along the deck's edge
         out = np.zeros(len(pts)); wsum = np.zeros(len(pts))
+        # (across a slit to the axis's line: blocked, even inside its strip, which can reach over the slit)
+        blocked = [shapely.intersects(shapely.shortest_line(pts, ln), self.cut) if self.cut is not None
+                   else np.zeros(len(pts), dtype=bool) for ln in self.lines]
+        free = ~np.all(blocked, axis=0)
         for q, (z_, d_) in enumerate(zs):
             w = 1.0 / (ds[q] + NEAR_M) ** 2
+            w = np.where(blocked[q] & free, 0.0, w)
             out += w * z_; wsum += w
         out = out / wsum
         return out
@@ -991,11 +1050,19 @@ def model(con, P, rank0=False, cover=True, gmns=None):
             g_ = [b_["poly"] for b_ in S4["bands"] if (b_["kind"] == "lane" and b_["props"].get("osm") in ways_)
                   or (b_["kind"] in ("sidewalk", "cycle lane") and b_["props"].get("axis") == a_["id"])]
             own[a_["id"]] = shapely.union_all(g_).buffer(EDGE_M) if g_ else ln_.buffer(1.0)
+        # (where two axes' heights part: step 3b again, with no closing and no taper in the zone round the slit between them)
+        by_id_ = {a["id"]: (ln, a) for ln, a in axes}
+        slit_of = {lv: _slits(pg, [by_id_[i] for i in [aid for aid, l_ in a_lv.items() if l_ == lv]], own) for lv, pg in outline.items()}
+        zone = shapely.union_all([z.buffer(GORE_M) for z in slit_of.values() if not z.is_empty] or [shapely.Polygon()])
+        if not zone.is_empty:
+            from .bridge_forks import step3b
+            outline = step3b(B_, F_, parted=zone)
         structs = [(lv, [aid for aid, l_ in a_lv.items() if l_ == lv], pg, own) for lv, pg in outline.items()]
         if cover and not rank0:           # step 6: step 4's bands on this structure
             from .bridge_forks import cover_items
             cov = {"items": cover_items(P_raw, s_axes, s_lv, S4, outline)}
     else:
+        slit_of = {}
         cov = layout(P, axes, a_lv)
         structs = [(lv, [aid for aid, l_ in a_lv.items() if l_ == lv], pg, cov["own"]) for lv, pg in cov["deck"].items()]
     by_id = {a["id"]: (ln, a) for ln, a in axes}
@@ -1030,11 +1097,19 @@ def model(con, P, rank0=False, cover=True, gmns=None):
     pieces = []        # (level, polygon, surface, axis ids, kind)
     for lv, ids, poly, own in structs:
         S = _Surface([by_id[i] for i in ids], own)
+        # (the slit found on step 3b's first outline: on the second the gap between the two decks is open, and no slit is found there)
+        slit = slit_of.get(lv) if slit_of.get(lv) is not None else _slits(poly, [by_id[i] for i in ids], own)
+        if not slit.is_empty:
+            poly = shapely.make_valid(poly.difference(slit))
         for pg in shapely.get_parts(poly):
             if pg.geom_type == "Polygon" and pg.area >= 1.0:
                 # no hole in a structure (Kaveh, 2026-10-17): a hole narrower than 2 GORE_M is filled; a real opening (a loop's middle) stays
                 keep_ = [r for r in pg.interiors if not shapely.Polygon(r).buffer(-GORE_M).is_empty]
-                pieces.append((lv, shapely.Polygon(pg.exterior, keep_), S, ids, "slab"))
+                S_ = S
+                if not slit.is_empty:          # (a piece cut by a slit: its heights from the axes on it only, none across the slit)
+                    on = [i for i in ids if own[i].intersection(pg).area > 0.25 * min(own[i].area, pg.area)] or ids
+                    S_ = _Surface([by_id[i] for i in on], own, cut=slit.buffer(-SLIT_M / 3))   # (its core: a point on its edge is on one side)
+                pieces.append((lv, shapely.Polygon(pg.exterior, keep_), S_, ids, "slab"))
     from shapely.geometry.polygon import orient
     pieces = [(lv, orient(pg), S, ids, kind) for lv, pg, S, ids, kind in pieces]      # (rings one way round: the sides face outward)
     for lv, pg, S, ids, kind in pieces:

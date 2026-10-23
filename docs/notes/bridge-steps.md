@@ -92,6 +92,18 @@ cycleway bands of step 4 lie inside it. It is the part of the deck that is neare
 30 m from the path), with its edge rounded over 1 m. A side of a road with no OSM path stays paved. A gore between a road with a path
 and a road without one is divided where the two distances are the same.
 
+## Step 5: two decks where the heights part
+
+- The heights are solved for all nodes of a bridge together, as before. Two axes side by side are held at one height only where
+  their heights by the rule (or the measured heights, if there are any) agree within 1 m. Where they differ more, they are two decks.
+- Between two such decks there is a gap, 0.3 m wide. It lies where the two strips' edges are equally near, measured from each
+  axis's line less its strip's mean half width. So it goes round a ramp's end and out to the deck's edge.
+- No height is blended across the gap.
+- Within 6 m of the gap, step 3b makes no closing and no taper: there the outline is the branches' own strips.
+
+Larvotto: the ramp a2 goes down to the ground beside the viaduct a1, which stays high. Before, one blended surface pulled a1
+down to 1.2 m. On Granville nothing changes.
+
 ## Step 6, the north fork rules
 
 - A barrier stands only along an OSM path (not along the pedestrian realm), ends 1 m before a crossing, and is never shorter than

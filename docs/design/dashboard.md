@@ -45,7 +45,7 @@ buildings, and in 3D the ground with its parts, kerbs and objects. Level 1 is th
 3D starts with all levels full. In 3D a tunnel's parts lie under the ground of level 0 and show when level 0 is faded or hidden.
 
 **G.** The last button of the level row has the same three states for everything that is not a road, on every level. A road is the
-carriageway: the road lines, and the parts lane, junction area, bus lane, ring, cycle lane, shoulder, parking, crosswalk and cycle
+carriageway: the road lines, and the parts lane, paved (the rest of the roadway), junction area, bus lane, ring, cycle lane, shoulder, parking, crosswalk and cycle
 crossing, with the painted lines on them. Everything else goes with G: the base map, buildings, ground, sidewalks, islands, kerbs,
 street objects, paths, the outlines of the spaces, and a bridge model's slab, sides, parapets, piers and truss. A thing gets the
 stronger of its level's state and G's. With G hidden, only the road network and its links from level to level are shown.

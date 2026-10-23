@@ -376,7 +376,7 @@ const LOOK=['full','fade','off'], LOOKS={'2d':{1:'fade'},'3d':{}}, FADE=0.2, ori
 // links from level to level stand alone (Kaveh, 2026-10-22). A road is the carriageway: the road lines, and the parts below with the
 // painted lines on them; the rest (base map, buildings, ground, sidewalks, islands, kerbs, objects, paths, the outlines of the spaces,
 // a bridge's slab, sides, parapets and piers) goes with G. A thing gets the stronger of its level's look and G's.
-const G_ROAD=['lane','junction area','bus lane','ring','cycle lane','shoulder','parking','crosswalk','cycle crossing'],
+const G_ROAD=['lane','paved','junction area','bus lane','ring','cycle lane','shoulder','parking','crosswalk','cycle crossing'],
   isRoad=['in',['get','type'],['literal',G_ROAD]], worst=(a,b)=>LOOK[Math.max(LOOK.indexOf(a||'full'),LOOK.indexOf(b||'full'))], gF={};
 const roadOv=(lab,p)=>['Parts','On the parts'].includes(lab)?G_ROAD.includes(p.type):lab.startsWith('Mark: ')&&lab!=='Mark: kerb';
 // (a parts layer with G hidden: its filter and the road test; the filter draw3d set is kept, and found again when nothing changed it)

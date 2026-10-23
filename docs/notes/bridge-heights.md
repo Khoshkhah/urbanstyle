@@ -66,35 +66,29 @@ The tools write into this section:
 
 Granville's profile has its section from its LiDAR fit; its model is the same as before (tests/test_bridge_step5.py).
 
-## A bridge on a hillside: the terrain (2026-10-22)
+## A bridge on a hillside: elevations from the few measured points (2026-10-22)
 
 The flat model puts the ground at 0 m everywhere. On a slope this is wrong: Avenue de la Costa's two road ends are 2 m apart in
 elevation, and the ground under its middle is 9 m lower than the deck. The flat model gave a deck 2 m high at its middle; IGN measures 9.2 m.
 
-A profile can name a terrain grid: `"terrain": "data/terrain-monaco/<bridge>.npz"` (arrays `z`, `x0`, `y0`, `step`, in the model's
-metres; elevation in IGN69). With it, `bridge_surface` works in elevations:
+LiDAR gives only the few points of the heights section: the deck at each junction and at each branch middle, the road at each ground
+end, each with `deck_elev` and `ground_elev` (elevations, IGN69). When a profile's heights section has a `ground_elev`, `bridge_surface`
+works in elevations:
 
-- The ground under each node is the grid's height there (bilinear). The deck stays between this ground and the ground plus `TOP_M`.
-- A ground end keeps its own road's elevation; the rule's target is the lowest ground end plus `GRADE` times the distance, and never
-  under the ground.
-- A heights entry with `deck_elev` (or a ground end's `ground_elev`) is a measured elevation and wins over `deck_m`.
-- The slab's bottom, its sides and the piers go down to the grid, not to 0 m. The viewer draws the grid as a terrain surface.
-- The model's z is the elevation: z = 0 is sea level, so all bridges of an area share one base on one page.
-- At a ground end with a measured road elevation, that elevation is the ground there, not the grid (a slope beside the road can be
-  higher than the road).
-- An edge at most `LAND_TERRAIN_M` (0.5 m) above the grid is on the ground: a landing, with no parapet. The grid has some decimetres of
-  error round a road; without a terrain the limit stays 0.05 m.
+- z = 0 is sea level, so all bridges of an area share one base on one page.
+- A ground end keeps its road's measured elevation. A measured `deck_elev` holds the deck at its junction or at its branch middle. The
+  rule fills in between: up from the lowest ground end at `GRADE`.
+- The ground under the bridge is known only at the measured points. Between them it is their mean, weighted by inverse distance
+  (`_Ground`). It sets where the slab's sides and the piers stop. It is not a lower limit for the deck.
+- An edge at most `LAND_GROUND_M` (0.5 m) above this ground is a landing, with no parapet. Without measured ground the limit is 0.05 m.
+- The slab's bottom is at least `UNDER_M` (0.1 m) under its top.
 
-The grid comes from `urbanstyle bridge-terrain PROFILE OUT.npz --lidar TILE.copc.laz ...` (`bridge_terrain.py`, the conda env
-`lidar`): the class-2 (ground) points 40 m round the axes, a 1 m grid in the profile's CRS, linear interpolation, holes (under a deck)
-from the nearest point. It writes the key `terrain` into the profile.
-IGN's MNT raster is not usable here: it keeps the decks in the ground.
+No ground grid is used. A trial with a grid of IGN's ground points (2026-10-22) was removed: IGN classes some decks and walls as ground,
+so the grid came up through the decks, and it needed three more rules to hide this.
 
-Avenue de la Costa, axis a1: the deck is at 33.13 m (IGN deck points: 33.15) at its start, 32.0 m at its middle (32.09), and 31.06 m at
-its end (the road: 31.08). A profile with no terrain is built as before (Granville: tests/test_bridge_step5.py).
-
-Monaco, all ten bridges with a terrain: the decks are within 0.5 m of IGN's measured heights, except Avenue de France's a6 (2.5 m
-above) and a10 (1.6 m above). All checks pass but Boulevard du Larvotto's D8 jogs (as before the terrain).
+Monaco, all ten bridges: the decks are within 0.5 m of IGN's points, except Avenue de France (junction n21927897 1.5 m above, a6 1.0 m,
+a3 and a10 0.7 m). All checks pass but Boulevard du Larvotto's D8 jogs (as before). A profile with no `ground_elev` is built as before
+(Granville: tests/test_bridge_step5.py).
 
 ## Sources
 

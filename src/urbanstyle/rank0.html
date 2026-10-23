@@ -9,11 +9,11 @@
 <label style="display:block;margin:4px 0"><input type="checkbox" id="cov"> the cover (ranks 1 to 6: lanes, sidewalks, marks)</label>
 <div class="k"><span style="background:#a8a29e"></span>slab (top and sides) &nbsp; <span style="background:#e5e1d8"></span>parapet &nbsp; <span style="background:#8f8b86"></span>pier, abutment</div>
 <div id="bl"></div>
-<small>viewer v11 · drag: move the map · right-drag or Ctrl-drag: turn · wheel: zoom · arrow keys: move · the grid is the ground (z = 0), 10 m squares</small></div>
+<small>viewer v12 · drag: move the map · right-drag or Ctrl-drag: turn · wheel: zoom · arrow keys: move · the grid is the ground (z = 0), 10 m squares</small></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 const q = new URLSearchParams(location.search), file = q.get('m') || 'cut-france.bridge3d.json', only = q.get('b');   // b: one bridge by name
-const COL = {terrain: 0xc9c2a3, deck: 0xa8a29e, side: 0x8f8b86, barrier: 0xe5e1d8, approach: 0xc8b89a, pier: 0x8f8b86, truss: 0x6b7280,
+const COL = {deck: 0xa8a29e, side: 0x8f8b86, barrier: 0xe5e1d8, approach: 0xc8b89a, pier: 0x8f8b86, truss: 0x6b7280,
   lane: 0x4b5260, shoulder: 0x5c6370, paved: 0x4b5260, 'junction': 0x4b5260, sidewalk: 0xd8d2c6, crosswalk: 0x6b7280, island: 0x8fbf6f,
   cycle: 0x2f855a, mark: 0xffffff};
 COL['barrier'] = 0xe5e1d8;

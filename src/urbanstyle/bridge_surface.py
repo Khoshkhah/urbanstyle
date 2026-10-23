@@ -230,7 +230,7 @@ def _solve(P, nodes, per_axis, pairs, couples=(), parted=None, terrain=None):
     clear = np.array([nd["clear"] for nd in nodes])
     gz = np.zeros(n)                  # (the ground under each node: 0, or the terrain's height in elevation mode)
     if terrain is not None:
-        gz = np.array([terrain.z(*nd["xy"]) for nd in nodes])
+        gz = np.array([terrain.z(*nd["xy"]) for nd in nodes])   # (the ground between the measured points is not known: no lower limit)
         clear = np.where(clear > 0, clear + gz, 0.0)
         measured[:] = np.nan          # (in elevation mode a known height is an elevation: deck_elev, not a height above a flat ground)
         e0 = terrain.e0
@@ -278,7 +278,7 @@ def _solve(P, nodes, per_axis, pairs, couples=(), parted=None, terrain=None):
                         dd[j] = d0 + d; heapq.heappush(hp, (d0 + d, j))
             for i, d0 in dd.items():
                 best[i] = min(best[i], zg + GRADE * d0)
-        target = np.maximum(np.where(np.isfinite(best), best, gz), gz)
+        target = np.where(np.isfinite(best), best, gz)
         for gi, zg in g0.items():
             target[gi] = zg               # (a ground end keeps its own road's elevation)
     # one deck, one surface: a node held at the other axis's height there, but only where the two axes' rule heights agree (within
@@ -334,13 +334,13 @@ def _solve(P, nodes, per_axis, pairs, couples=(), parted=None, terrain=None):
         A[2 * k + 1, i], A[2 * k + 1, j], b[2 * k + 1] = 1, -1, CLEAR_MAX_GRADE * d
     bounds = [(0.0, 0.0) if nd["ground"] else (0.0, TOP_M) for nd in nodes]
     if terrain is not None:           # (a ground end at its road's elevation; the deck never under the ground, at most TOP_M above it)
-        bounds = [((target[i], target[i]) if nd["ground"] else (gz[i], gz[i] + TOP_M)) for i, nd in enumerate(nodes)]
-    x0 = np.clip(x0, [lo for lo, _ in bounds], [hi for _, hi in bounds])
+        bounds = [((target[i], target[i]) if nd["ground"] else (None, gz[i] + TOP_M)) for i, nd in enumerate(nodes)]
+    x0 = np.clip(x0, [-np.inf if lo is None else lo for lo, _ in bounds], [hi for _, hi in bounds])
     cons = [{"type": "ineq", "fun": lambda x: A @ x + b, "jac": lambda x: A}] if len(edges) else []
     if not has_m.any():
-        x0 = np.clip(target, [lo for lo, _ in bounds], [hi for _, hi in bounds])     # (no survey: start from the rule's own line)
+        x0 = np.clip(target, [-np.inf if lo is None else lo for lo, _ in bounds], [hi for _, hi in bounds])     # (no survey: start from the rule's own line)
     res = minimize(f, x0, jac=jac, bounds=bounds, constraints=cons, method="SLSQP", options={"maxiter": 500, "ftol": 1e-7})
-    return (np.clip(res.x, gz, gz + TOP_M) if terrain is not None else np.clip(res.x, 0.0, TOP_M)), res
+    return (np.minimum(res.x, gz + TOP_M) if terrain is not None else np.clip(res.x, 0.0, TOP_M)), res
 
 
 def _write_back(P, nodes, per_axis, h):
@@ -1019,30 +1019,35 @@ def _slits(poly, axes, own, step=0.25, pairs_out=None):
     return shapely.union_all(out).intersection(poly) if out else shapely.Polygon()
 
 
-LAND_TERRAIN_M = 0.5    # with a terrain, an edge at most this far above the grid is on the ground (a landing, no parapet): the grid's error round a road
+UNDER_M = 0.1          # with measured ground, the slab's bottom at least this far under the top
+LAND_GROUND_M = 0.5    # with measured ground, an edge at most this far above it is on the ground (a landing, no parapet): the ground between the points is coarse
 
 
-class _Terrain:
-    """The ground under and round a bridge (profile key "terrain": an .npz grid made from LiDAR ground points, docs/notes/bridge-heights.md):
-    z(x, y), the elevation (e0 = 0: sea level is z = 0, so all bridges on one page share one base). With a terrain the model works in elevations: a
-    ground end at its road's elevation, the slab's bottom and the piers down to this ground, not to a flat 0 m."""
+class _Ground:
+    """The ground under a bridge from the few measured points of its heights section (docs/notes/bridge-heights.md): each entry's
+    `ground_elev` at its place (a node: the axes' ends there; an axis: its middle). z(x, y) is their inverse-distance mean, an elevation
+    (sea level is z = 0, so all bridges on one page share one base). With it the model works in elevations: a ground end at its road's
+    elevation, the slab's bottom and the piers down to this ground. No grid: LiDAR gives these few heights only."""
 
-    def __init__(self, path):
-        import numpy as np
-        d = np.load(path)
-        self.x0, self.y0, self.step = float(d["x0"]), float(d["y0"]), float(d["step"])
-        self.g = d["z"].astype(float)
+    def __init__(self, P):
+        import shapely
+        pts = []
+        for k, v in (P.get("heights") or {}).items():
+            if not isinstance(v, dict) or v.get("ground_elev") is None:
+                continue
+            for a in P["axes"]:
+                ln = shapely.LineString(a["line"]["value"])
+                if a["id"] == k:
+                    q = ln.interpolate(0.5, normalized=True); pts.append((q.x, q.y, v["ground_elev"]))
+                for n_, e in enumerate(a.get("ends", [])[:2]):
+                    if e.get("node") == k:
+                        q = ln.coords[0] if n_ == 0 else ln.coords[-1]; pts.append((q[0], q[1], v["ground_elev"]))
+        self.pts = pts
         self.e0 = 0.0
 
     def z(self, x, y):
-        import numpy as np
-        fx = np.clip((np.asarray(x, dtype=float) - self.x0) / self.step, 0, self.g.shape[1] - 1.001)
-        fy = np.clip((np.asarray(y, dtype=float) - self.y0) / self.step, 0, self.g.shape[0] - 1.001)
-        i, j = np.floor(fy).astype(int), np.floor(fx).astype(int)
-        ty, tx = fy - i, fx - j
-        g = self.g
-        v = (g[i, j] * (1 - tx) * (1 - ty) + g[i, j + 1] * tx * (1 - ty) + g[i + 1, j] * (1 - tx) * ty + g[i + 1, j + 1] * tx * ty) - self.e0
-        return float(v) if np.ndim(v) == 0 else v
+        w = [(1.0 / max((x - px) ** 2 + (y - py) ** 2, 0.01), pz) for px, py, pz in self.pts]
+        return sum(a * b for a, b in w) / sum(a for a, _ in w)
 
 
 class _Top:
@@ -1179,9 +1184,9 @@ def model(con, P, rank0=False, cover=True, gmns=None):
     a_lv = _axis_level(con, P)
     nodes, per_axis, pairs = _nodes(P, a_lv)
     couples = _couplings(P, nodes, per_axis, a_lv)
-    terr = _Terrain(P["terrain"]) if P.get("terrain") else None
-    gz_ = (lambda x, y: terr.z(x, y)) if terr is not None else (lambda x, y: 0.0)      # (the ground under a point: 0 without a terrain)
-    land_m = LAND_TERRAIN_M if terr is not None else 0.05     # (an edge this near the ground is a landing: the terrain grid's error is larger)
+    terr = _Ground(P) if any(isinstance(v, dict) and v.get("ground_elev") is not None for v in (P.get("heights") or {}).values()) else None
+    gz_ = (lambda x, y: terr.z(x, y)) if terr is not None else (lambda x, y: 0.0)      # (the ground under a point: 0 without measured ground)
+    land_m = LAND_GROUND_M if terr is not None else 0.05      # (an edge this near the ground is a landing: the ground between the points is coarse)
     v_first = {a["id"]: copy.deepcopy(a["vertical"]) for a in P["axes"]}     # (the profile's own heights, for the second pass)
     h, res = _solve(P, nodes, per_axis, pairs, couples, terrain=terr)
     _write_back(P, nodes, per_axis, h)
@@ -1296,7 +1301,7 @@ def model(con, P, rank0=False, cover=True, gmns=None):
                 fill_f.append([fv(x, y, z) for (x, y), z in zip(t, hz)])
             else:
                 slab.append(top)
-                slab.append([vid(x, y, max(gz_(x, y), z - DECK_M)) for (x, y), z in zip(t, hz)][::-1])
+                slab.append([vid(x, y, max(min(gz_(x, y), z - UNDER_M), z - DECK_M)) for (x, y), z in zip(t, hz)][::-1])   # (the ground never above the bottom)
             # D1: every edge of the top is shared, or lies on the piece's edge
             for p, q in ((t[0], t[1]), (t[1], t[2]), (t[2], t[0])):
                 k = tuple(sorted((tuple(round(v, 2) for v in p), tuple(round(v, 2) for v in q))))
@@ -1333,7 +1338,8 @@ def model(con, P, rank0=False, cover=True, gmns=None):
                 za, zb = S.one(ax, ay), S.one(bx, by)
                 ga, gb = gz_(ax, ay), gz_(bx, by)
                 if max(za - ga, zb - gb) > 0.05:
-                    a0, b0, a1, b1 = vid(ax, ay, max(ga, za - DECK_M)), vid(bx, by, max(gb, zb - DECK_M)), vid(ax, ay, za), vid(bx, by, zb)
+                    a0, b0 = vid(ax, ay, max(min(ga, za - UNDER_M), za - DECK_M)), vid(bx, by, max(min(gb, zb - UNDER_M), zb - DECK_M))
+                    a1, b1 = vid(ax, ay, za), vid(bx, by, zb)
                     sides += [[a0, b0, b1], [a0, b1, a1]]
                 mid = shapely.Point((ax + bx) / 2, (ay + by) / 2)
                 zm = (za + zb) / 2 - (ga + gb) / 2     # (above the ground there)
@@ -1399,26 +1405,11 @@ def model(con, P, rank0=False, cover=True, gmns=None):
         h_ = math.hypot(b_.x - a_.x, b_.y - a_.y) or 1
         return p_.x, p_.y, -(b_.y - a_.y) / h_, (b_.x - a_.x) / h_
     piers_p, truss_p = structure(P, axes, all_poly, frame, DECK_M) if not rank0 else ([], [])
-    if terr is not None:              # (a pier stands on the ground under it: its height is the deck's bottom less that ground)
+    if terr is not None:              # (a pier stands on the measured ground: its height is the deck's bottom less that ground)
         for q in piers_p:
-            q["z0"] = round(float(gz_((q["a"][0] + q["b"][0]) / 2, (q["a"][1] + q["b"][1]) / 2)), 2)
+            q["z0"] = round(min(float(gz_((q["a"][0] + q["b"][0]) / 2, (q["a"][1] + q["b"][1]) / 2)), q["h"]), 2)
             q["h"] = round(q["h"] - q["z0"], 2)
     piers = [{"a": tm(*q["a"], 0)[:2], "b": tm(*q["b"], 0)[:2], "t": q["t"], "h": q["h"], "z0": q.get("z0", 0.0)} for q in piers_p if q["h"] >= PIER_MIN_M]
-    if terr is not None:              # (the terrain itself, every 2 m, for the viewer: the ground the bridge stands on)
-        import numpy as np
-        st_ = 2
-        G_ = terr.g[::st_, ::st_] - terr.e0
-        tv, tf = [], []
-        for i_ in range(G_.shape[0]):
-            for j_ in range(G_.shape[1]):
-                tv.append(tm(terr.x0 + j_ * terr.step * st_, terr.y0 + i_ * terr.step * st_, float(G_[i_, j_])))
-        W_ = G_.shape[1]
-        for i_ in range(G_.shape[0] - 1):
-            for j_ in range(W_ - 1):
-                a_, b_, c_, d_ = i_ * W_ + j_, i_ * W_ + j_ + 1, (i_ + 1) * W_ + j_, (i_ + 1) * W_ + j_ + 1
-                tf += [[a_, b_, d_], [a_, d_, c_]]
-        surf.append({"key": "terrain", "props": {"type": "terrain", "layer": "ground", "elevation_m": round(terr.e0, 2),
-                                                 "source": "IGN LiDAR HD 2025, ground points (class 2)", "method": "measured"}, "v": tv, "f": tf})   # (none under a low deck: a half-metre pier at a landing looked like a disc)
     truss = [dict(q, a=tm(*q["a"]), b=tm(*q["b"])) for q in truss_p]
     unmet = [ll(*c["at"]) + [round(c["z"] - height(a["vertical"], ln.project(shapely.Point(c["at"]))), 2)]
              for ln, a in axes for c in a["vertical"].get("clearances", [])

@@ -49,10 +49,6 @@ def main(argv=None):
     bm.add_argument("out", help="the measured profile: a .json file or a directory")
     bm.add_argument("--lidar", nargs="+", required=True, help="ducklidar Parquet tiles that cover the bridge")
     bm.add_argument("--osm", help="the duckOSM .duckdb of the profile: a ramp that OSM ends in the air runs on along the road that continues it")
-    bt = sub.add_parser("bridge-terrain", help="the ground round a bridge from LiDAR ground points, as a grid the profile names (the conda env `lidar`)")
-    bt.add_argument("profile", help="a <name>.bridge.json: it gets the key terrain")
-    bt.add_argument("out", help="the grid, an .npz file")
-    bt.add_argument("--lidar", nargs="+", required=True, help="LiDAR tiles (.laz, .copc.laz) with classified ground points")
     bh = sub.add_parser("bridge-heights", help="set a bridge profile's heights from a small heights file, no LiDAR (docs/design/bridge-heights.md)")
     bh.add_argument("profile", help="a <name>.bridge.json (`urbanstyle bridge`)")
     bh.add_argument("heights", help="the heights file: {bridge name: {default: {grade, max_m, curve_m}, axis: [[s, height], ...] | {from, to_ground}}}")
@@ -121,9 +117,6 @@ def main(argv=None):
     elif a.cmd == "bridge-heights":
         from .bridge_heights import write as heights
         print(heights(a.profile, a.heights, a.out), "axes ->", a.out)
-    elif a.cmd == "bridge-terrain":
-        from .bridge_terrain import write as terrain
-        print(terrain(a.profile, a.out, a.lidar))
     elif a.cmd == "bridge-measure":
         from .bridge_lidar import write as measure
         print(measure(a.profile, a.out, a.lidar, a.osm))

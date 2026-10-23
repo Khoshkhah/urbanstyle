@@ -208,11 +208,25 @@ The rules that came from them:
   7.42009, 43.73305: W2 13 -> 10. Open: a short piece (6.3 m) between such a bend and a junction is cut on a slant at the junction
   (n25193892).
 
+- **A slit is roadway**: a piece of a space that no part covers (3 m² at most), with roadway of any space along half its outline or
+  more and walking side along 5 % at most, becomes paved roadway (junction area in an intersection). The crosswalks are cut from
+  the roadway, and the rest of a lane under 0.05 m² was dropped, or the cut and the crosswalk part were not the same shape. Monaco,
+  full build: W2 48 -> 35 (13 places gone, none new), W1 1 -> 0, no other check changed; 387 slits filled. A space whose parts GEOS
+  could not take from it (s0-w164338237/1) is skipped with a note in the build log.
+- **W2's mark** is at the step itself (the middle of the longest piece where the two sides differ), not the middle of the joint: the
+  mark lay up to 9 m from the step. With it, the 40 mouth places of the build before were 26 slits, 4 islands at the joint, 10
+  walking side at the mouth. After the slit rule, of 27 mouth places: 13 sorted as slits, of which 7 are a block's corner near the
+  mouth (walking side at the mouth) and 6 lie inside a space touching walking side or an island; 4 islands; 10 walking side.
+
+Tried and not kept: W2 with islands counted as carriageway (a median's nose at a joint would be no step): W2 went 48 -> 119, because
+an island at a joint beside a sidewalk counted as a step.
+
 Tried and reverted: no fillet within a lane width of an arm's stop line (the mouth of a junction as wide as the arm). On a cut W2
 went 9 -> 7; on Monaco it removed 24 shifts and made 27, because in a compact junction the corner between two arms lies in both
 arms' mouths, and without its fillet it was a sharp notch. A crumb (a small piece of walking side between roadways) in a mouth kept
 as walking side fixed one place but turned a crumb inside the roadway into furnishing. A mouth rule must keep the fillet where two
 arms' mouths meet; it is open.
 
-Open W2 causes: the junction's mouth wider or narrower than its arm (about 40); islands that do not line up at a cut; a road that
-meets the side of a short arm instead of its stop line.
+Open W2 causes (Monaco, 35): the junction's mouth wider or narrower than its arm, walking side there (about 17, with the 7 at a
+block's corner); median noses at a joint (4; probably correct); a road that meets the side of a short arm instead of its stop line;
+two sections, two subsections and two intersections (8).

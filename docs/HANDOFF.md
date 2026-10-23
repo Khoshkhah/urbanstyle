@@ -9,10 +9,11 @@ first, then this note, then `docs/notes/street-rules.md` and `docs/notes/section
 Branch network-first, pushed. The dashboard on port 8785 serves `data/monaco.duckdb` and `viz/monaco.html`: the Monaco build with
 all the rules below (its bridges from `structure --above-ground`; the page's own `bridge3d.json` from `dashboard` is the old deck3d
 model and is replaced by the flat solve after each page build: see step 7 below). Older builds are kept as `data/monaco-1022a`,
-`-1022b`, `-1023a`, `-1023b`, `-1023c` (`.duckdb`) and `viz/monaco-<same>.html`. The work tools of the last session are in `data/bg/`
+`-1022b`, `-1023a`, `-1023b`, `-1023c`, `-1023d` (`.duckdb`) and `viz/monaco-<same>.html`. The work tools of the last session are in `data/bg/`
 (not in git): `rebuild.sh` (Monaco from the division into `data/monaco-r.*`, its checks, the flat bridges and the page),
 `wcheck.py` / `wdiff.py` (W1, W2 by cause, and the places gone and new between two builds), `onejoint.py` (one place drawn),
-`hcompare.py` (a bridge model's heights against IGN's points).
+`hcompare.py` (a bridge model's heights against IGN's points), `rebuild2.sh` (the same into `data/monaco-r2.*`), `mouthsort.py`
+(W2's junction-mouth places by cause), `w2where.py` (where along a joint the two sides differ).
 
 Done on 2026-10-22/23 (the design is in `docs/design/levels.md`, `stretches.md`, `dashboard.md`; the history in
 `docs/notes/sections.md`, "The roadway meets", and `docs/notes/bridge-heights.md`):
@@ -25,14 +26,20 @@ Done on 2026-10-22/23 (the design is in `docs/design/levels.md`, `stretches.md`,
   piece (T junctions at short pieces); two sections that end at one node with no junction are cut on the bisector (bends).
 - Checks W1 (a gap in the roadway along a street) and W2 (a step or shift at a joint across a street); `work.dropped` (roads that
   lose all their roadway, and why).
-- Reverted: no fillet at an arm's mouth (Monaco: 24 shifts gone, 27 new; sharp corners in compact junctions).
+- Division: a slit (a piece of a space no part covers, roadway round it) is roadway (W2 48 -> 35, 13 places gone and none new;
+  W1 1 -> 0). W2 marks the step itself, not the middle of the joint.
+- Reverted: no fillet at an arm's mouth (Monaco: 24 shifts gone, 27 new; sharp corners in compact junctions). Not kept: W2 with
+  islands counted as carriageway (W2 48 -> 119).
 
-Monaco now: fails A1 35, BR11 1, J1 1, M1 4, U4 1, U5 1, U8 1, U9 1, W1 1, W2 48 (J1, U4, U5: one place, n25194212, the T of Rue de
+Monaco now: fails A1 35, J1 1, M1 4, U4 1, U5 1, U8 1, U9 1, W2 35, and the old deck3d model's bridge checks (BR2 4, BR5 1, BR7 2 + 1,
+BR9 2, BR11 40 + 1, the same as before; the step models: all D checks pass but Larvotto's D8, closed). (J1, U4, U5: one place, n25194212, the T of Rue de
 Millo's 2.6 m piece, Rue Saige and a parking entrance; the node lies 1 m outside its junction, where the street's edge cut it).
 
 Open, in order:
-1. W2 at junction mouths (40): the mouth wider or narrower than its arm. Two changes failed (the fillet rule, the crumb rule); the next
-   one needs Kaveh: a mouth rule must keep the fillet where two arms' mouths meet.
+1. W2 at junction mouths (27 of W2's 35): about 17 where the mouth is wider or narrower than its arm with walking side there (7 of
+   them at a block's corner near the mouth), 6 slits inside a space that touch walking side or an island (the slit rule rightly
+   leaves them), 4 median noses at a joint (probably correct). Four changes on the fillets did not help (the fillet rule, the crumb
+   rule, no fillet beside a lone arm, a fillet narrowing to 0 at the stop line); the next one needs Kaveh.
 2. W2: a 6.3 m piece between a bend and a junction is cut on a slant at the junction (n25193892); islands that do not line up at a cut.
 3. Bridges: Avenue de France's a1 middle 2.4 m under its IGN point (that point has no deck return: it may be the ground); Larvotto's
    D8 jogs are closed (Kaveh, 2026-10-23): notches of a few centimetres at the two ends of the slit between the two decks, not seen on

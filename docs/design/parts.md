@@ -14,7 +14,7 @@ bikeways and survey. SUMO's lane-to-lane moves through each intersection.
 | Part | What it is | Where it comes from |
 |---|---|---|
 | `lane` | one traffic lane: `forward` or `backward` along a subsection, `in` or `out` of an intersection; lane 1 is at the middle of the road | OSM's count; each lane 3.25 m (chosen) or OSM's width shared, narrowed where the room is less |
-| `paved` | the paved rest of the frame where no lane or strip is; also a strip narrower than 8 m between two roadways with nothing mapped on it | the frame less the lanes and the strips |
+| `paved` | the paved rest of the frame where no lane or strip is; also a strip narrower than 8 m between two roadways with nothing mapped on it; also a slit (below) | the frame less the lanes and the strips |
 | `parking`, `no parking`, `shoulder`, `bus lane`, `cycle lane` | a strip beside the lanes | only where OSM or a city maps it: `parking:*`, the city's meters where they stand, `cycleway*`, a bus lane tag; a strip of unknown use is a shoulder |
 | `junction area` | the roadway of a sub-intersection where the arms' roadways meet, with the turning corners and the connectors: one part per sub-intersection, in one or more pieces | the arms' roadways joined, less the crosswalks and the islands |
 | `crosswalk`, `cycle crossing` | the roadway under a crossing way, 3 m wide or OSM's width; a crossing node with no crossing way gets a band across its road | OSM's crossings that run across the road (30° or more to the road's line, or at most 40 m over a junction area); the lanes and the junction area give way to them; a crossing is one object in one space |
@@ -119,3 +119,9 @@ axis, its predecessors and its successors. `urban.mark`: one row per mark with i
 | R4 (INFO) | the lanes that meet no continuation at a joint |
 | U11 to U13 (INFO) | lanes with no move, approaches with no straight move at a four-arm junction, lanes with a move but no arrow |
 | K2 (INFO) | a kerb line that ends where no other kerb and no crosswalk is |
+
+## A slit
+
+A piece of a space that no part covers, at most 3 m², is a slit when roadway parts (of this space or of the next) lie along half its
+outline or more and walking side along 5 % at most. A slit is roadway: paved in a section, junction area in an intersection. So the
+roadway of a section and of its junction meet with no line between them where the crosswalk is cut from the lanes.

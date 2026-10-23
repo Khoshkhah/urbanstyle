@@ -54,7 +54,8 @@ The words of the model, the code and the dashboard, in one place. When a word is
 | **walking side** | the space less the roadway, kerb to block edge |
 | **part** | one piece of one side, of one type (`urban.part`, `<space>#<n>`); rank 5 |
 | **lane** | one traffic lane, OSM's count, centred on the way's line, 3.25 m or OSM's width, narrowed to 2.75 m at least where the room is less |
-| **paved** | the paved rest of the frame where no lane or strip is; a strip under 8 m between two roadways with nothing on it |
+| **paved** | the paved rest of the frame where no lane or strip is; a strip under 8 m between two roadways with nothing on it; a slit |
+| **slit** | a piece of a space no part covers, at most 3 m², with roadway along half its outline or more and almost no walking side: it is roadway |
 | **strip** | a band beside the lanes that a source gives: parking, no parking, shoulder, bus lane, cycle lane |
 | **junction area** | the roadway of a sub-intersection where the arms' roadways meet, with the corners and the connectors; one part per sub-intersection |
 | **crosswalk** | the roadway under a crossing way, 3 m or OSM's width; its paint from `crossing:markings` |

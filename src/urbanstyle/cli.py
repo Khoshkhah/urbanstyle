@@ -49,6 +49,10 @@ def main(argv=None):
     bm.add_argument("out", help="the measured profile: a .json file or a directory")
     bm.add_argument("--lidar", nargs="+", required=True, help="ducklidar Parquet tiles that cover the bridge")
     bm.add_argument("--osm", help="the duckOSM .duckdb of the profile: a ramp that OSM ends in the air runs on along the road that continues it")
+    bt = sub.add_parser("bridge-terrain", help="the ground round a bridge from LiDAR ground points, as a grid the profile names (the conda env `lidar`)")
+    bt.add_argument("profile", help="a <name>.bridge.json: it gets the key terrain")
+    bt.add_argument("out", help="the grid, an .npz file")
+    bt.add_argument("--lidar", nargs="+", required=True, help="LiDAR tiles (.laz, .copc.laz) with classified ground points")
     bh = sub.add_parser("bridge-heights", help="set a bridge profile's heights from a small heights file, no LiDAR (docs/design/bridge-heights.md)")
     bh.add_argument("profile", help="a <name>.bridge.json (`urbanstyle bridge`)")
     bh.add_argument("heights", help="the heights file: {bridge name: {default: {grade, max_m, curve_m}, axis: [[s, height], ...] | {from, to_ground}}}")
@@ -117,6 +121,9 @@ def main(argv=None):
     elif a.cmd == "bridge-heights":
         from .bridge_heights import write as heights
         print(heights(a.profile, a.heights, a.out), "axes ->", a.out)
+    elif a.cmd == "bridge-terrain":
+        from .bridge_terrain import write as terrain
+        print(terrain(a.profile, a.out, a.lidar))
     elif a.cmd == "bridge-measure":
         from .bridge_lidar import write as measure
         print(measure(a.profile, a.out, a.lidar, a.osm))
@@ -137,6 +144,20 @@ def main(argv=None):
         from .bridge_surface import models
         from .dashboard import write_bridge3d
         ms, _ = models(con, a.bridge, rank0=a.rank0, lidar=not a.no_lidar, gmns=a.gmns)
+        if len(ms) > 1:     # (an area's file: all bridges in the first one's frame, so the viewer shows them where they are)
+            import math as _m
+            def merc(lon, lat):
+                return _m.radians(lon) * 6378137.0, _m.log(_m.tan(_m.pi / 4 + _m.radians(lat) / 2)) * 6378137.0
+            (X0, Y0), k0 = merc(*ms[0]["origin"]), _m.cos(_m.radians(ms[0]["origin"][1]))
+            for m in ms[1:]:
+                X, Y = merc(*m["origin"]); dx, dy = (X - X0) * k0, (Y - Y0) * k0
+                mv = lambda v: [round(v[0] + dx, 2), round(v[1] + dy, 2)] + list(v[2:])
+                m["verts"] = [mv(v) for v in m["verts"]]
+                for s_ in m["surf"]:
+                    s_["v"] = [mv(v) for v in s_["v"]]
+                for q in m["piers"] + m.get("truss", []):
+                    q["a"], q["b"] = mv(q["a"]), mv(q["b"])
+                m["origin"] = ms[0]["origin"]
         for m in ms:
             print(m["name"], m["solve"], "structures:", m["structures"])
             for c in m["checks"]:

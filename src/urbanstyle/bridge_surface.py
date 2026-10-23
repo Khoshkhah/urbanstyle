@@ -245,6 +245,9 @@ def _solve(P, nodes, per_axis, pairs, couples=(), parted=None, terrain=None):
                 z_ = h_.get("deck_elev") if h_.get("deck_elev") is not None else (h_.get("ground_elev") if e.get("ground") else None)
                 if z_ is not None and seq:
                     measured[seq[0][1] if k == 0 else seq[-1][1]] = z_ - e0
+        for i, nd in enumerate(nodes):    # (at a ground end the road's own elevation is the ground, not the grid: a slope beside the road)
+            if nd["ground"] and not np.isnan(measured[i]):
+                gz[i] = measured[i]
     has_m = ~np.isnan(measured)
     # the agreed rule as the target where nothing else decides: GRADE up from the nearest ground node along the network, TOP_M at most
     import heapq
@@ -1016,9 +1019,12 @@ def _slits(poly, axes, own, step=0.25, pairs_out=None):
     return shapely.union_all(out).intersection(poly) if out else shapely.Polygon()
 
 
+LAND_TERRAIN_M = 0.5    # with a terrain, an edge at most this far above the grid is on the ground (a landing, no parapet): the grid's error round a road
+
+
 class _Terrain:
     """The ground under and round a bridge (profile key "terrain": an .npz grid made from LiDAR ground points, docs/notes/bridge-heights.md):
-    z(x, y) in metres above its lowest point (e0, the elevation that is z = 0 in the model). With a terrain the model works in elevations: a
+    z(x, y), the elevation (e0 = 0: sea level is z = 0, so all bridges on one page share one base). With a terrain the model works in elevations: a
     ground end at its road's elevation, the slab's bottom and the piers down to this ground, not to a flat 0 m."""
 
     def __init__(self, path):
@@ -1026,7 +1032,7 @@ class _Terrain:
         d = np.load(path)
         self.x0, self.y0, self.step = float(d["x0"]), float(d["y0"]), float(d["step"])
         self.g = d["z"].astype(float)
-        self.e0 = float(np.nanmin(self.g))
+        self.e0 = 0.0
 
     def z(self, x, y):
         import numpy as np
@@ -1175,6 +1181,7 @@ def model(con, P, rank0=False, cover=True, gmns=None):
     couples = _couplings(P, nodes, per_axis, a_lv)
     terr = _Terrain(P["terrain"]) if P.get("terrain") else None
     gz_ = (lambda x, y: terr.z(x, y)) if terr is not None else (lambda x, y: 0.0)      # (the ground under a point: 0 without a terrain)
+    land_m = LAND_TERRAIN_M if terr is not None else 0.05     # (an edge this near the ground is a landing: the terrain grid's error is larger)
     v_first = {a["id"]: copy.deepcopy(a["vertical"]) for a in P["axes"]}     # (the profile's own heights, for the second pass)
     h, res = _solve(P, nodes, per_axis, pairs, couples, terrain=terr)
     _write_back(P, nodes, per_axis, h)
@@ -1330,12 +1337,12 @@ def model(con, P, rank0=False, cover=True, gmns=None):
                     sides += [[a0, b0, b1], [a0, b1, a1]]
                 mid = shapely.Point((ax + bx) / 2, (ay + by) / 2)
                 zm = (za + zb) / 2 - (ga + gb) / 2     # (above the ground there)
-                if zm < 0.05:                       # the landing line itself, on the ground: open (the sides keep their parapet to it)
+                if zm < land_m:                     # the landing line itself, on the ground: open (the sides keep their parapet to it)
                     n_low += 1
                     continue
-                if ground_mp is not None and ground_mp.distance(mid) < 0.5 and zm > 0.1:
+                if ground_mp is not None and ground_mp.distance(mid) < 0.5 and zm > max(0.1, land_m):
                     d3.append(ll(mid.x, mid.y))
-                joint = any(pg2.distance(mid) < JOINT_M and abs(S2.one(mid.x, mid.y) - zm) <= CUT_DZ_M for pg2, S2 in others_S)
+                joint = any(pg2.distance(mid) < JOINT_M and abs(S2.one(mid.x, mid.y) - (za + zb) / 2) <= CUT_DZ_M for pg2, S2 in others_S)
                 if joint:
                     n_joint += 1
                     continue                        # the next structure of its level at the same height: the road goes on

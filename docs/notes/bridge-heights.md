@@ -66,7 +66,7 @@ The tools write into this section:
 
 Granville's profile has its section from its LiDAR fit; its model is the same as before (tests/test_bridge_step5.py).
 
-## A bridge on a hillside: the terrain (trial, 2026-10-22)
+## A bridge on a hillside: the terrain (2026-10-22)
 
 The flat model puts the ground at 0 m everywhere. On a slope this is wrong: Avenue de la Costa's two road ends are 2 m apart in
 elevation, and the ground under its middle is 9 m lower than the deck. The flat model gave a deck 2 m high at its middle; IGN measures 9.2 m.
@@ -79,15 +79,22 @@ metres; elevation in IGN69). With it, `bridge_surface` works in elevations:
   under the ground.
 - A heights entry with `deck_elev` (or a ground end's `ground_elev`) is a measured elevation and wins over `deck_m`.
 - The slab's bottom, its sides and the piers go down to the grid, not to 0 m. The viewer draws the grid as a terrain surface.
-- The model's z is the elevation less the grid's lowest point, so the viewer's grid at z = 0 is under the whole terrain.
+- The model's z is the elevation: z = 0 is sea level, so all bridges of an area share one base on one page.
+- At a ground end with a measured road elevation, that elevation is the ground there, not the grid (a slope beside the road can be
+  higher than the road).
+- An edge at most `LAND_TERRAIN_M` (0.5 m) above the grid is on the ground: a landing, with no parapet. The grid has some decimetres of
+  error round a road; without a terrain the limit stays 0.05 m.
 
-The grid comes from IGN LiDAR HD's point cloud: the class-2 (ground) points 40 m round the axes, a 1 m grid in the profile's CRS,
-linear interpolation, holes (under a deck) from the nearest point (the script is in the trial's scratch folder; it goes into the
-repository when the trial is accepted).
+The grid comes from `urbanstyle bridge-terrain PROFILE OUT.npz --lidar TILE.copc.laz ...` (`bridge_terrain.py`, the conda env
+`lidar`): the class-2 (ground) points 40 m round the axes, a 1 m grid in the profile's CRS, linear interpolation, holes (under a deck)
+from the nearest point. It writes the key `terrain` into the profile.
 IGN's MNT raster is not usable here: it keeps the decks in the ground.
 
 Avenue de la Costa, axis a1: the deck is at 33.13 m (IGN deck points: 33.15) at its start, 32.0 m at its middle (32.09), and 31.06 m at
 its end (the road: 31.08). A profile with no terrain is built as before (Granville: tests/test_bridge_step5.py).
+
+Monaco, all ten bridges with a terrain: the decks are within 0.5 m of IGN's measured heights, except Avenue de France's a6 (2.5 m
+above) and a10 (1.6 m above). All checks pass but Boulevard du Larvotto's D8 jogs (as before the terrain).
 
 ## Sources
 

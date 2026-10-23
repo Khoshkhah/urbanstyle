@@ -628,6 +628,27 @@ def build(con, epsg, bridges=(), level=0):
             else:
                 b.setdefault("trans", {})["start" if not b["flip"] else "end"] = a
     runs = runs2
+    # two sections that end at one node with no junction (a bend sharper than MERGE_DEG, so no chain): both frames cut on the bisector
+    # of their directions there, as at a joint inside a section; two square ends left a notch outside the bend and an overlap inside
+    # (W2; Kaveh 2026-10-23)
+    at_end = {}
+    for r in runs:
+        cs_ = list(r["line"].coords)
+        for where, p_, q_ in (("start", cs_[0], cs_[1]), ("end", cs_[-1], cs_[-2])):
+            if any(c_[3] == where for c_ in r["cuts"]):
+                continue                    # (a joint inside its section)
+            at_end.setdefault((round(p_[0], 1), round(p_[1], 1)), []).append((r, where, p_, q_))
+    for k_, es_ in at_end.items():
+        if len(es_) != 2 or es_[0][0]["sid"] == es_[1][0]["sid"]:
+            continue
+        if jtree is not None and any(jn[j].distance(shapely.Point(k_)) < 0.6 for j in jtree.query(shapely.Point(k_).buffer(0.6))):
+            continue
+        (ra, wa, pa, qa), (rb, wb, pb, qb) = es_
+        da = unit_v((pa[0] - qa[0], pa[1] - qa[1]))           # into the node along a
+        db = unit_v((qb[0] - pb[0], qb[1] - pb[1]))           # out of the node along b
+        n = unit_v((da[0] + db[0], da[1] + db[1])) if (da[0] + db[0], da[1] + db[1]) != (0.0, 0.0) else da
+        ra["cuts"].append((pa, n, -1, wa))
+        rb["cuts"].append((pb, n, 1, wb))
     tick("the sections chained (rank 2)")
     # ---- 6a''. connectors (docs/design/sections.md, rule 3): a section between two junction nodes shorter than CONNECTOR_M, or one of
     # `_link` ways only, is no section: it belongs to one intersection with both nodes (West 8th, Fir Street and the ramp foot are one).

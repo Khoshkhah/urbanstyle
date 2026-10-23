@@ -144,8 +144,11 @@ def build(con, epsg):
     ]
 
     # blocks first (docs/design/blocks.md): the street is exactly the street spaces, and every other kind only fills the blocks
-    blocks = [g(w) for (w,) in rows(f"SELECT {m()} FROM work.block WHERE level = 0")]
-    land_ = poly(shapely.union_all(blocks).intersection(area, grid_size=0.01)) if blocks else None
+    # (the polygonal parts only: a block that the area's edge leaves a line or a point made the union mixed and the overlay failed, a
+    # cut at 7.42009, 43.73305; 2026-10-23)
+    blocks = [q for (w,) in rows(f"SELECT {m()} FROM work.block WHERE level = 0") for q in shapely.get_parts(shapely.make_valid(g(w)))
+              if q.geom_type == "Polygon" and q.area > 0]
+    land_ = poly(shapely.union_all(blocks).intersection(poly(area), grid_size=0.01)) if blocks else None
     if land_ is not None:
         # inside the blocks: no plots (a city's parcels cut buildings into pieces; they set the block edges and find the alleys, and are
         # not shown). Each building whole, before every other kind; then the land by its own kind; the rest of the ground is yard

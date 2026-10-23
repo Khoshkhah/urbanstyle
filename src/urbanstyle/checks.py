@@ -616,7 +616,9 @@ def roadway_meets(c, epsg):
                 continue
             d = xa.difference(xb.buffer(W2_M / 2)).length + xb.difference(xa.buffer(W2_M / 2)).length
             if d >= W2_M:
-                p_ = (xa.union(xb)).representative_point()
+                dd_ = [q for g in (xa.difference(xb.buffer(W2_M / 2)), xb.difference(xa.buffer(W2_M / 2))) for q in shapely.get_parts(g) if not q.is_empty]
+                p_ = max(dd_, key=lambda q: q.length).interpolate(0.5, normalized=True) if dd_ else (xa.union(xb)).representative_point()
+                # (the mark at the step itself, the middle of its longest piece: the joint's middle lay up to 9 m from it)
                 w2.append(to_ll(p_.x, p_.y) + (f"shift at a joint between {pair(a, b)}",))
     return w1, w2
 

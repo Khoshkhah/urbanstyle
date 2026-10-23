@@ -47,6 +47,8 @@ CONNECTOR_M = 40.0      # a road between two junction nodes shorter than this (o
                         # intersection with both nodes (docs/design/sections.md, rule 3; chosen)
 CORE_MIN_M = 1.0        # a junction's core counts only where the arms' carriageways overlap at least this wide (chosen)
 JGAP_M = 2.0            # an island begins where the strip between two frames is this wide; a thinner tail with nothing on it is paved (chosen)
+MOUTH_M = 3.25          # no corner's fillet within this of an arm's stop line, beside the arm (a lane width: chosen)
+MOUTH_SIDE_M = 6.0      # the mouth's zone reaches this far beside the arm's band
 FILLET_MAX_M2 = 40.0    # a corner fillet of KERB_RADIUS_M is at most this big (a 30 degree corner: 2.4 R2); a bigger closing is a gap, no corner
 JUNC_ARM_M, CROSS_NEAR_M, CROSS_HALF_M = 3.0, 15.0, 1.5
 STOP_BACK_M = 1.0       # a stop line stands this far before the junction (chosen, as division.py)
@@ -1037,6 +1039,16 @@ def build(con, epsg, bridges=(), level=0):
     jshapes = []
     reach_at = {}       # (node index, id of the run) -> how far the node's junction reaches along that run: its core + JUNC_ARM_M
     arm_cuts = []       # (point, heading) where each arm's roadway is cut at its stop line: the sidewalk is cut on the same line
+    mouths = []         # beside each arm, MOUTH_M into the junction from its stop line: no corner's fillet there (the arm's kerb runs on)
+
+    def mouth(pc, hd, away, r, band_):
+        """The ground beside an arm's band from its stop line MOUTH_M towards its node: the junction's edge there is the arm's own kerb."""
+        tx, ty = -away * hd[0], -away * hd[1]
+        nx, ny = -ty, tx
+        w_ = max(abs(r["fkl"]), abs(r["fkr"])) + abs(r["mshift_f"]) + MOUTH_SIDE_M
+        box_ = shapely.Polygon([(pc.x + nx * w_, pc.y + ny * w_), (pc.x - nx * w_, pc.y - ny * w_),
+                                (pc.x - nx * w_ + tx * MOUTH_M, pc.y - ny * w_ + ty * MOUTH_M), (pc.x + nx * w_ + tx * MOUTH_M, pc.y + ny * w_ + ty * MOUTH_M)])
+        return poly(box_.difference(band_.buffer(0.01)))
     for ni, n in enumerate(jn):
         # the arms: the runs that end at the node (a run that only passes near it shares no node with it: not an arm)
         # (an end of the run's line within 1 m of the node, not the node's station on the line: a node beyond the line's end has
@@ -1090,6 +1102,7 @@ def build(con, epsg, bridges=(), level=0):
             cut = xdir if xdir is not None and abs(xdir[0] * hd[0] + xdir[1] * hd[1]) > 0.09 and abs(xdir[0] * hd[0] + xdir[1] * hd[1]) < 0.87 else None
             if cut is None:
                 out.append(band(substring(ln, a_, b_), r["fkr"] + r["mshift_f"], r["fkl"] + r["mshift_f"]))
+                mouths.append(mouth(pc, hd, away, r, out[-1]))
                 arm_cuts.append(((pc.x, pc.y), hd, None))
             else:
                 # the arm's roadway run on past the stop line, then cut along it on the node's side (a half-plane)
@@ -1102,6 +1115,7 @@ def build(con, epsg, bridges=(), level=0):
                 half = shapely.Polygon([(pc.x - cut[0] * L, pc.y - cut[1] * L), (pc.x + cut[0] * L, pc.y + cut[1] * L),
                                         (pc.x + cut[0] * L + nx * L, pc.y + cut[1] * L + ny * L), (pc.x - cut[0] * L + nx * L, pc.y - cut[1] * L + ny * L)])
                 out.append(poly(long_.intersection(half)))
+                mouths.append(mouth(pc, hd, away, r, out[-1]))
                 arm_cuts.append(((pc.x, pc.y), hd, cut))
         out += fills.get(ni, [])        # (the merging arm's band beside the through arm's: step 6c')
         if out:
@@ -1131,6 +1145,7 @@ def build(con, epsg, bridges=(), level=0):
     cw_all = shapely.union_all([r["cw"] for r in runs] + [J for _, J, _ in jshapes] or [shapely.Polygon()])
     corridors = shapely.union_all([g(w) for (w,) in rows(f"SELECT {m()} FROM work.corridor")] or [shapely.Polygon()])
     street = poly(area.difference(blocks).difference(corridors)) if not area.is_empty else shapely.Polygon()
+    mtree = shapely.STRtree(mouths) if mouths else None
     clusters = []       # [nodes, shape, connector ways]
     for n, J, oids_ in jshapes:
         hit = [c for c in clusters if c[1].intersects(J)]
@@ -1144,6 +1159,13 @@ def build(con, epsg, bridges=(), level=0):
         # strip between two arms that run side by side, i0-430951364's loop) is no corner and stays out (J2)
         C_ = U_.buffer(KERB_RADIUS_M, join_style="round").buffer(-KERB_RADIUS_M, join_style="round")
         fillets = [q for q in shapely.get_parts(poly(C_.difference(U_))) if q.area <= FILLET_MAX_M2]
+        # (no fillet reaches an arm's mouth: MOUTH_M in from each stop line the junction's edge is the arm's own kerb, so the mouth is
+        # as wide as the arm and the section's kerb runs straight into the corner; a fillet up to the stop line made a notch, W2;
+        # Kaveh 2026-10-23)
+        near_m = [mouths[k] for k in mtree.query(U_)] if mtree is not None else []
+        if near_m:
+            M_ = shapely.union_all(near_m)
+            fillets = [q for f_ in fillets for q in shapely.get_parts(poly(f_.difference(M_))) if q.area > 0.01]
         J = poly(shapely.union_all([U_] + fillets))
         # the roadway never passes the street's edge nor a sidewalk strip: at a corner the kerb is the strip's near side where OSM maps
         # the line, the KERB_RADIUS_M fillet only where it does not (Kaveh, 2026-10-16)

@@ -114,6 +114,9 @@ down to 1.2 m. On Granville nothing changes.
 - Where a road of one level goes on into a road of another level at the same height, the joint is open: no parapet across it.
 - Steps are a path. A bridge of steps alone is a footbridge and is not built (Monaco: three of 13).
 - No edge line is painted across a lane's end where it meets the deck's edge: the road goes on there.
+- A path lies on the deck of its own OSM level only. Steps lie on no deck: they go between levels or down to the ground (a
+  staircase of their own, later). Paths joined together that are shorter than 15 m in all are the end of a staircase or a
+  crossing, not walkway (Avenue de France: raised walkway islands in the roadway where its steps end).
 - A U-turn is a move that turns more than 150°, or back into the other direction of the same road; a bridge has none. A sharper
   corner is still a move (Avenue de France's hairpin at a2 turns 94°, and its lanes stopped when every turn over 90° was dropped).
 - A lane end with no move on the bridge goes on straight, in its own direction, as far as its uncut lane line reaches (its OSM node):

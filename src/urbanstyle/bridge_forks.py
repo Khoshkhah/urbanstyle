@@ -102,6 +102,23 @@ def forks(P, axes, a_lv, widths):
 _OSM_LINES = {}
 
 
+STUB_M = 15.0           # step 4: a path shorter than this that joins no other path on the deck is not walkway
+
+
+def _osm_tags(P, ways):
+    """{way id 'w..': its OSM tags} from the profile's OSM database ({} without one)."""
+    import duckdb
+    src = _input(P, gmns=False)
+    ids = sorted({int(str(w)[1:]) for w in ways if str(w).startswith("w")})
+    if not src or not ids:
+        return {}
+    o = duckdb.connect(src, read_only=True)
+    out = {f"w{w}": (dict(t) if not isinstance(t, dict) else t) for w, t in
+           o.execute("SELECT osm_id, tags FROM raw.ways WHERE osm_id IN (SELECT unnest(?::BIGINT[]))", [ids]).fetchall()}
+    o.close()
+    return out
+
+
 def _input(P, gmns):
     """The profile's OSM database (gmns False) or its GMNS database (gmns True), by what it is: a GMNS file has "gmns" in its name
     (Granville: granville-bridge.gmns.duckdb; Monaco: monaco-wide_gmns.duckdb), the OSM database is the other one."""
@@ -1016,8 +1033,40 @@ def step4(P, axes, B, F, gmns=None, smooth=True):
     if smooth:
         _smooth_moves(bands)
     crossing = lambda q: q.get("footway") == "crossing" or q.get("cycleway") == "crossing" or bool(q.get("crossing"))
-    pb, pj = _path_bands(dict(P, paths=[q for q in P.get("paths", []) if not crossing(q)]), axes)
-    for b_ in pb:
+    # (a path lies on the deck of its own OSM level only, and steps on none: steps go between levels or down to the ground. Avenue de France:
+    # steps of layer 2 lay flat on a1's level-1 deck, and the walkway filled round them, an island in the roadway)
+    lay = _osm_tags(P, [str(q.get("way")) for q in P.get("paths", [])] + [w for _, a in axes for w in a["ways"]])
+    lv_of_way = lambda w: max(1, int(float(lay.get(w, {}).get("layer") or 1))) if str(lay.get(w, {}).get("layer") or "1").lstrip("-").replace(".", "").isdigit() else 1
+    axis_lv = {}
+    for ln_, a in axes:
+        share = {}
+        for w in a["ways"]:
+            share[lv_of_way(w)] = share.get(lv_of_way(w), 0) + 1
+        axis_lv[a["id"]] = max(share, key=share.get) if share else 1
+    paths_on = [q for q in P.get("paths", []) if not crossing(q) and lay.get(str(q.get("way")), {}).get("highway") != "steps"]
+    pb, pj = _path_bands(dict(P, paths=paths_on), axes)
+    keep = [k for k, b_ in enumerate(pb) if lv_of_way(str(b_["way"])) == axis_lv.get(b_["axis"], 1)]
+    # (paths joined together on the deck that are shorter than STUB_M in all are the end of a staircase or a crossing, not walkway:
+    # Avenue de France's 5 m, 2 m and 12 m sidewalk pieces where its steps end were raised islands in the roadway)
+    group = list(range(len(pb)))
+    def root(i):
+        while group[i] != i:
+            group[i] = group[group[i]]; i = group[i]
+        return i
+    for k_, b_ in enumerate(pb):                      # (pieces of one OSM way are one path)
+        for j_ in range(k_):
+            if pb[j_]["way"] == b_["way"]:
+                group[root(k_)] = root(j_)
+    for jt in pj:
+        group[root(jt["bands"][0])] = root(jt["bands"][1])
+    glen = {}
+    for k_, b_ in enumerate(pb):
+        glen[root(k_)] = glen.get(root(k_), 0.0) + b_["line"].length
+    keep = [k for k in keep if glen[root(k)] >= STUB_M]
+    pj = [jt for jt in pj if jt["bands"][0] in keep and jt["bands"][1] in keep]
+    for k, b_ in enumerate(pb):
+        if k not in keep:
+            continue
         kind = "path link" if _is_link(b_["line"], next(ln for ln, a in axes if a["id"] == b_["axis"])) else b_["kind"]
         bands.append({"kind": kind, "line": b_["line"], "poly": b_["line"].buffer(b_["width"] / 2, cap_style="flat"),
                       "props": {"osm": b_["way"], "width_m": b_["width"], "axis": b_["axis"], "side": b_["side"], "source": "OSM"}})

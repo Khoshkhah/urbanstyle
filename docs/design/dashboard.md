@@ -44,6 +44,12 @@ lines, the objects that stand in it and the buildings that frame it keep their c
 buildings, and in 3D the ground with its parts, kerbs and objects. Level 1 is the bridge and the decks. 2D starts with level 1 faded;
 3D starts with all levels full. In 3D a tunnel's parts lie under the ground of level 0 and show when level 0 is faded or hidden.
 
+**G.** The last button of the level row has the same three states for everything that is not a road, on every level. A road is the
+carriageway: the road lines, and the parts lane, junction area, bus lane, ring, cycle lane, shoulder, parking, crosswalk and cycle
+crossing, with the painted lines on them. Everything else goes with G: the base map, buildings, ground, sidewalks, islands, kerbs,
+street objects, paths, the outlines of the spaces, and a bridge model's slab, sides, parapets, piers and truss. A thing gets the
+stronger of its level's state and G's. With G hidden, only the road network and its links from level to level are shown.
+
 **Low buildings** (3D): each building at most 3 m high, so it does not hide the streets.
 
 ## The layers

@@ -1061,7 +1061,7 @@ function brLayer(M){const o=maplibregl.MercatorCoordinate.fromLngLat(M.origin,0)
       M.surf.forEach(sf=>{const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(new Float32Array(sf.v.flat()),3));
         g.setIndex(sf.f.flat()); g.computeVertexNormals(); const c=BC.parts[sf.key]||BC.parts[sf.key.split(' ')[0]]||'#999999';
         const m=new THREE.Mesh(g,sf.props?new THREE.MeshLambertMaterial({color:hex(c),side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-8}):paint(c));
-        if(sf.props){m.userData=sf.props; m.baseHex=hex(c); pick.push(m)} scene.add(m)});
+        if(sf.props){m.userData=sf.props; m.baseHex=hex(c); pick.push(m)} if(/^(lane|mark)/.test(sf.key))m.isRoad=true; scene.add(m)});   // (a lane or its paint: a road; the rest goes with G)
       M.piers.forEach(q=>{const [ax,ay]=q.a,[bx,by]=q.b, m=new THREE.Mesh(new THREE.BoxGeometry(Math.hypot(bx-ax,by-ay),q.t,q.h),new THREE.MeshLambertMaterial({color:hex(BC.girder)}));
         m.position.set((ax+bx)/2,(ay+by)/2,q.h/2); m.rotation.z=Math.atan2(by-ay,bx-ax); scene.add(m)});
       // the steel truss under a span (bridge3d: truss): each member a box from a to b, in the photos' blue-grey, all one instanced mesh;
@@ -1118,6 +1118,11 @@ window.brDeselect=brDeselect;
 window.brOpacity=a=>{Object.values(LAYERS).forEach(L=>{if(!L.scene)return; L.scene.visible=a>0;
   L.scene.traverse(o=>{(Array.isArray(o.material)?o.material:o.material?[o.material]:[]).forEach(m=>{m.transparent=a<1; m.opacity=a;
     m.depthWrite=a>=1; m.needsUpdate=true})})}); map.triggerRepaint()};
+// (G, the Explore panel's last level button: everything but the roads full, faded or hidden; here the slab, sides, parapets, piers,
+// truss and paths, not the lanes and their paint; after brOpacity, which sets the level's look on the whole model)
+window.brGLook=g=>{if(g==='full')return; Object.values(LAYERS).forEach(L=>{if(!L.scene)return; L.scene.traverse(o=>{if(!(o.isMesh||o.isInstancedMesh)||o.isRoad)return;
+  o.visible=g!=='off'; (Array.isArray(o.material)?o.material:[o.material]).forEach(m=>{m.transparent=true; m.opacity=Math.min(m.opacity,0.15); m.depthWrite=false; m.needsUpdate=true})})});
+  map.triggerRepaint()};
 window.brPick=id=>{let hit=null; Object.values(LAYERS).forEach(L=>(L.pick||[]).forEach(m=>{if(m.userData.id===id)hit=m})); brSel=hit; brPaint(); return !!hit};
 map.on('click',e=>{const m=brOn()&&!objAt(e.point)?brHit(e.point):null; if(!m||m===brSel){brDeselect(); return}
   if(window.xpOnPick&&window.xpOnPick('bridge',m.userData,e))return;      // (the Explore panel selects it)

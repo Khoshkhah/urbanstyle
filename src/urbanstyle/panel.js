@@ -372,23 +372,34 @@ function combine(){
 // full. Level 0: the basemap and the buildings, and in 3D the ground with its parts, kerbs and objects; level 1: the bridge and decks.
 // In 2D every layer shows only the levels not hidden (levels2d); at first level 0, level 1 faded, the others (tunnels, upper decks) hidden.
 const LOOK=['full','fade','off'], LOOKS={'2d':{1:'fade'},'3d':{}}, FADE=0.2, orig={};
+// G, the last button of the level row: everything but the roads full, faded or hidden, on every level, so the road network and its
+// links from level to level stand alone (Kaveh, 2026-10-22). A road is the carriageway: the road lines, and the parts below with the
+// painted lines on them; the rest (base map, buildings, ground, sidewalks, islands, kerbs, objects, paths, the outlines of the spaces,
+// a bridge's slab, sides, parapets and piers) goes with G. A thing gets the stronger of its level's look and G's.
+const G_ROAD=['lane','junction area','bus lane','ring','cycle lane','shoulder','parking','crosswalk','cycle crossing'],
+  isRoad=['in',['get','type'],['literal',G_ROAD]], worst=(a,b)=>LOOK[Math.max(LOOK.indexOf(a||'full'),LOOK.indexOf(b||'full'))], gF={};
+const roadOv=(lab,p)=>['Parts','On the parts'].includes(lab)?G_ROAD.includes(p.type):lab.startsWith('Mark: ')&&lab!=='Mark: kerb';
+// (a parts layer with G hidden: its filter and the road test; the filter draw3d set is kept, and found again when nothing changed it)
+function gFilter(m,id,on){const s=JSON.stringify(m.getFilter(id)), base=gF[id]&&gF[id][1]===s?gF[id][0]:m.getFilter(id);
+  m.setFilter(id,on?(base?['all',base,isRoad]:isRoad):base); gF[id]=[base,JSON.stringify(m.getFilter(id))]}
 const d3=()=>typeof in3d!=='undefined'&&in3d, look=()=>LOOKS[d3()?'3d':'2d'];
 function views(){$('xp2d').classList.toggle('on',!d3()); $('xp3d').classList.toggle('on',d3());
   const ls=(meta&&meta.street_levels)||[0], L=look();
   $('xplk').innerHTML=ls.map(l=>{const st=L[l]||'full';
-    return `<button data-k="${l}" class="${st}" title="level ${l}: ${({full:'shown',fade:'faded',off:'hidden'})[st]} (a click: the next)">${l}</button>`}).join('')}
+    return `<button data-k="${l}" class="${st}" title="level ${l}: ${({full:'shown',fade:'faded',off:'hidden'})[st]} (a click: the next)">${l}</button>`}).join('')+
+    `<button data-k="G" class="${L.G||'full'}" title="G: everything but the roads, on every level: ${({full:'shown',fade:'faded',off:'hidden'})[L.G||'full']} (a click: the next)">G</button>`}
 $('xplk').onclick=e=>{const l=e.target.dataset.k; if(l===undefined)return; const L=look(); L[l]=LOOK[(LOOK.indexOf(L[l]||'full')+1)%3]; views(); applyLooks()};
 const OPA={fill:'fill-opacity','fill-extrusion':'fill-extrusion-opacity',line:'line-opacity',circle:'circle-opacity',raster:'raster-opacity'};
 // 2D: each layer's things on the levels not hidden: by `level`, a building by its floors (level_min..level_max), a link by its two ends
-function levels2d(){const m=M(); if(!m||d3()||typeof OVERLAYS==='undefined'||typeof rsFilter!=='function')return; const L=look(), on=l=>(L[l]||'full')!=='off';
+function levels2d(){const m=M(); if(!m||d3()||typeof OVERLAYS==='undefined'||typeof rsFilter!=='function')return; const L=look(), on=l=>(L[l]||'full')!=='off', G=L.G||'full';
   const keep=p=>p.level!=null?on(p.level):p.level_min!=null?Array.from({length:p.level_max-p.level_min+1},(_,i)=>p.level_min+i).some(on):p.level_a!=null?on(p.level_a)||on(p.level_b):true;
   // (a layer whose data is not in yet is left alone, and tried again: filtered while empty, it was hidden whole, and the map opened with
   // no data at all; Kaveh, 2026-10-13: "monaco-v8 not working at all")
   let waiting=rsQuery(()=>true).length===0;
-  if(!waiting)rsFilter(rsQuery(p=>p.level==null||on(p.level)));      // the road centre lines
+  if(!waiting)rsFilter(rsQuery(p=>(p.level==null||on(p.level))&&(G!=='off'||!p.type||p.type==='road')));      // the road centre lines (paths go with G)
   OVERLAYS.forEach(o=>{if(o.label==='Bridge 2D'||/3D/.test(o.label))return;
     if(!rsQuery(()=>true,o.label).length){waiting=true; return}
-    rsFilter(rsQuery(p=>keep(p)&&typeOn(o.label,p),o.label),o.label)});     // (and the kinds or types ticked in Layers)
+    rsFilter(rsQuery(p=>keep(p)&&typeOn(o.label,p)&&(G!=='off'||roadOv(o.label,p)),o.label),o.label)});     // (and the kinds or types ticked in Layers; G)
   // a faded level: its things at FADE in every layer, by their level (only show / hide was done here, so levels -1, -2, -3 never
   // faded; Kaveh, 2026-10-14). Level 0 fades the basemap and the buildings, level 1 the bridge (applyLooks)
   // and drawn on top of the others: under an opaque level 0 a faint level below it was not seen (Kaveh, 2026-10-14)
@@ -398,31 +409,38 @@ function levels2d(){const m=M(); if(!m||d3()||typeof OVERLAYS==='undefined'||typ
     (o.layers||[]).forEach(id=>{const ly=m2.getLayer(id), k=ly&&OPA[ly.type]; if(!k)return;
       if(!(id+k in orig))orig[id+k]=m2.getPaintProperty(id,k)??1;
       const fd=['in',['coalesce',['get','level'],0],['literal',faded]];
-      m2.setPaintProperty(id,k,faded.length?['case',fd,FADE,orig[id+k]]:orig[id+k]);
+      const v=faded.length?['case',fd,FADE,orig[id+k]]:orig[id+k], parts=['Parts','On the parts'].includes(o.label);
+      m2.setPaintProperty(id,k,G!=='fade'||roadOv(o.label,{})&&!parts?v:parts?['case',isRoad,v,FADE]:FADE);     // (G faded: all but the roads)
       if(SORT[ly.type])m2.setLayoutProperty(id,SORT[ly.type],faded.length?['case',fd,100,['coalesce',['get','level'],0]]:undefined)})});
   if(waiting&&lvTries++<60)setTimeout(levels2d,1000)}
 let lvTries=0;
 function applyLooks(){const m=M(); if(!m)return; if(!m.isStyleLoaded())return setTimeout(applyLooks,200); const L=look();
-  const g=L[0]||'full', up=L[1]||'full';
+  const g=L[0]||'full', up=L[1]||'full', G=L.G||'full';
   const keep=(id,k)=>{if(!(id+k in orig))orig[id+k]=m.getPaintProperty(id,k)??(k.endsWith('opacity')?1:null); return orig[id+k]};
   const set=(id,st,fadeTo)=>{const ly=m.getLayer(id); if(!ly)return; const k=OPA[ly.type]; const o=k&&keep(id,k);
     m.setLayoutProperty(id,'visibility',st==='off'?'none':'visible');
     if(k)m.setPaintProperty(id,k,st==='fade'?(fadeTo??FADE):o)};     // (painted lines, arrows and guide lines never fade in a focus: Kaveh, 2026-10-13)
   m.getStyle().layers.forEach(l=>{if(l.source==='bm'&&l.type==='raster'){const o=keep(l.id,'raster-opacity');
-    m.setPaintProperty(l.id,'raster-opacity',g==='full'?o:g==='fade'?0.35:0.08)}});
+    const gb=worst(g,G); m.setPaintProperty(l.id,'raster-opacity',gb==='full'?o:gb==='fade'?0.35:0.08)}});
   const ov=lab=>(typeof OVERLAYS!=='undefined'&&OVERLAYS.find(o=>o.label===lab)||{}).layers||[];
   if(d3()){const lv=id=>{const x=/^u3d-(deck|tun)(-?\d+)$/.exec(id); return x?+x[2]:null};     // (a deck or a tunnel: its own level's look)
+    const marks=new Set(OVERLAYS.filter(o=>o.label.startsWith('Mark: ')).map(o=>'u3d-'+o.layers[0]));     // (the paint: roads)
     m.getStyle().layers.forEach(l=>{if(!l.id.startsWith('u3d-')||['u3d-bld','u3d-bld-on'].includes(l.id))return;
-      const k=lv(l.id); set(l.id,k===null?g:(L[k]||'full'))});
+      const k=lv(l.id), lk=k===null?g:(L[k]||'full');
+      if(marks.has(l.id))return set(l.id,lk);
+      if(l.id!=='u3d-ground'&&!/^u3d-(deck|tun)-?\d+$/.test(l.id))return set(l.id,worst(lk,G));     // (ground, kerbs, sidewalks, objects: G)
+      set(l.id,lk); gFilter(m,l.id,G==='off');      // (a parts layer: its roads by the level, the rest by G too)
+      if(l.type==='fill'&&G==='fade')m.setPaintProperty(l.id,'fill-opacity',['case',isRoad,lk==='fade'?FADE:keep(l.id,'fill-opacity'),FADE]);
+      if(l.type==='fill-extrusion'){const c=keep(l.id,'fill-extrusion-color'); m.setPaintProperty(l.id,'fill-extrusion-color',G==='fade'?['case',isRoad,c,'#eef0f2']:c)}});
     // (a faded tunnel above the ground, so it shows through: on top of the ground's parts, under the kerbs; else back under the ground)
     m.getStyle().layers.map(l=>l.id).filter(id=>/^u3d-tun-\d+$/.test(id)).forEach(id=>{const top=(L[lv(id)]||'full')==='fade';
       const to=top?(m.getLayer('u3d-kerb')?'u3d-kerb':undefined):(m.getLayer('u3d-gnd')?'u3d-gnd':undefined); if(to)m.moveLayer(id,to)});
-    if(window.bldLook)window.bldLook(g);     // (the buildings: the 3D page fades them itself, by focus and selection too)
+    if(window.bldLook)window.bldLook(worst(g,G));     // (the buildings: the 3D page fades them itself, by focus and selection too)
     const F=eff(), onBr=focusU?/^\w1-/.test(focusU):F&&F.bridge>0;      // (a focus on the ground: the bridge faint)
     const upF=F&&!onBr&&up==='full'?'fade':up;
-    if(window.brOpacity)window.brOpacity(upF==='full'?1:upF==='fade'?0.25:0); return}
+    if(window.brOpacity)window.brOpacity(upF==='full'?1:upF==='fade'?0.25:0); if(window.brGLook)window.brGLook(G); return}
   levels2d();
-  if(allow.has('Buildings'))ov('Buildings').forEach(id=>set(id,g));
+  if(allow.has('Buildings'))ov('Buildings').forEach(id=>set(id,worst(g,G)));
   ov('Bridge 2D').forEach(id=>{const ly=m.getLayer(id); if(!ly)return;     // (faded: the light outline only)
     m.setLayoutProperty(id,'visibility',up==='off'||!allow.has('Bridge 2D')?'none':'visible');     // (its box in Layers, and the level)
     if(ly.type==='fill'){const o=keep(id,'fill-opacity'); m.setPaintProperty(id,'fill-opacity',up==='full'?o:0)}

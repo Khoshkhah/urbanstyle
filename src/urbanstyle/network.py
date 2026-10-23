@@ -401,8 +401,10 @@ def build(con, epsg, bridges=(), level=0):
             if ln.distance(p) > 0.5:
                 continue
             s_ = ln.project(p)
-            for a_, b_ in ((s_, s_ + 3.0), (s_, s_ - 3.0)):
-                if 0 <= b_ <= ln.length and not (b_ > s_ and s_ > ln.length - 0.5) and not (b_ < s_ and s_ < 0.5):
+            # (over 3 m of the line, or the whole piece where it is shorter: a 2.8 m piece of Avenue Albert II had no heading, and the
+            # T where Avenue des Papalins ends on it was no junction; Monaco 2026-10-23)
+            for a_, b_ in ((s_, min(s_ + 3.0, ln.length)), (s_, max(s_ - 3.0, 0.0))):
+                if not (b_ > s_ and s_ > ln.length - 0.5) and not (b_ < s_ and s_ < 0.5) and abs(b_ - s_) > 0.05:
                     q1, q2 = ln.interpolate(a_), ln.interpolate(b_)
                     out.append(unit_v((q2.x - q1.x, q2.y - q1.y)))
                     if flow is not None:

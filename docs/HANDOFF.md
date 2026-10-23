@@ -35,10 +35,11 @@ Open, in order:
    one needs Kaveh: a mouth rule must keep the fillet where two arms' mouths meet.
 2. W2: a 6.3 m piece between a bend and a junction is cut on a slant at the junction (n25193892); islands that do not line up at a cut.
 3. Bridges: Avenue de France's a1 middle 2.4 m under its IGN point (that point has no deck return: it may be the ground); Larvotto's
-   D8 jogs (where the two decks part; earlier outline rules made other places worse: agree an approach first).
+   D8 jogs are closed (Kaveh, 2026-10-23): notches of a few centimetres at the two ends of the slit between the two decks, not seen on
+   the dashboard; they stay as they are.
 4. Step 7 (the dashboard of the area with the step models): `dashboard`/`page.py` still take their bridges from deck3d, because its
-   2D bridge layer reads deck3d's flat parts; the step models have none. Kaveh decides: give the step models flat parts, or keep the
-   two models.
+   2D bridge layer reads deck3d's flat parts; the step models have none. Kept as it is for now (Kaveh, 2026-10-23): at
+   Larvotto the 2D outline of the old model and the 3D outline of the new one are almost the same.
 
 ## Bridges: the words and the order of the steps (2026-10-19, read this first)
 

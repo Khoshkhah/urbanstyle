@@ -510,6 +510,32 @@ W1_M = 0.1      # W1: a road line this long or more between two pieces of roadwa
 W2_M = 0.2      # W2: at a joint, the roadway's ends on the two sides differ by this or more
 
 
+def across(jl, lines, ltree, reach=15.0):
+    """The segments of a shared outline `jl` that run across a road: over 45 degrees to the road's line where it crosses the outline, and
+    within `reach` of that crossing (as R1's joints). Where the outline runs along a kerb, roadway on one side and a sidewalk on the other
+    is the kerb itself, not a step."""
+    import math
+    import shapely
+    out = []
+    for g in shapely.get_parts(jl):
+        if g.geom_type != "LineString" or ltree is None:
+            continue
+        for j in ltree.query(g):
+            ln = lines[j]
+            for x in shapely.get_parts(ln.intersection(g)):
+                if x.geom_type != "Point":
+                    continue
+                s_ = ln.project(x); a_, b_ = ln.interpolate(max(s_ - 1, 0)), ln.interpolate(min(s_ + 1, ln.length))
+                d = (b_.x - a_.x, b_.y - a_.y); h = math.hypot(*d) or 1.0
+                cs = list(g.coords)
+                for p0, p1 in zip(cs, cs[1:]):
+                    seg = shapely.LineString([p0, p1])
+                    e = (p1[0] - p0[0], p1[1] - p0[1]); he = math.hypot(*e) or 1.0
+                    if seg.distance(x) <= reach and abs(d[0] * e[0] + d[1] * e[1]) / (h * he) < math.cos(math.radians(45)):
+                        out.append(seg)
+    return shapely.line_merge(shapely.union_all(out)) if out else shapely.LineString()
+
+
 def roadway_meets(c, epsg):
     """W1, W2: the roadway is one connected surface along every road at level 0. W1: a stretch of a road's line (W1_M or more) with
     roadway on both sides but none under it: the pieces do not meet. W2: where two spaces meet across a road, the roadway reaches the
@@ -540,8 +566,9 @@ def roadway_meets(c, epsg):
             return "a section and an intersection" if ka != kb else "two intersections"
         return "two subsections of one section" if sa and sa == sb else "two sections"
     w1, w2 = [], []
-    for (w,) in c.execute(f"SELECT {m('geometry')} FROM work.element WHERE type = 'road' AND level_min = 0").fetchall():
-        ln = geo(w)
+    lines = [geo(w) for (w,) in c.execute(f"SELECT {m('geometry')} FROM work.element WHERE type = 'road' AND level_min = 0").fetchall()]
+    ltree = shapely.STRtree(lines) if lines else None
+    for ln in lines:
         for g in shapely.get_parts(ln.difference(rw)):
             if g.geom_type != "LineString" or g.length < W1_M or not area.contains(g):
                 continue
@@ -561,6 +588,9 @@ def roadway_meets(c, epsg):
                 continue
             sh = units[a][2].intersection(units[b][2])
             jl = shapely.line_merge(shapely.union_all([g for g in shapely.get_parts(sh) if g.geom_type in ("LineString", "MultiLineString")] or [shapely.LineString()]))
+            # (a joint is a piece of the shared outline that a road's line crosses: where the outline runs along a kerb, roadway on one
+            # side and a sidewalk on the other is the kerb itself, not a step)
+            jl = across(jl, lines, ltree)
             if jl.is_empty or jl.length < 0.3:
                 continue
             xa, xb = jl.intersection(rw_u.get(a, shapely.Polygon())), jl.intersection(rw_u.get(b, shapely.Polygon()))

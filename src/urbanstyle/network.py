@@ -1115,7 +1115,9 @@ def build(con, epsg, bridges=(), level=0):
                     r["connector"] = False
     # the connectors' whole carriageways are in the intersection too (sections.md rule 4); they are no sections
     jshapes += [(None, r["cw"], r["oids"]) for r in runs if r.get("connector")]
-    runs = [r for r in runs if not r.get("connector")]
+    dropped = {}        # (W3: a road whose runs all go: why, at the last place one went; written to work.dropped)
+    gone = lambda keep, why: [dropped.__setitem__(r["oid"], why) for r in runs if r not in keep]
+    conn_ = [r for r in runs if not r.get("connector")]; gone(conn_, "a connector: its carriageway is in the intersection"); runs = conn_
     for r in runs:
         r["trans"] = {w: q for w, q in r.get("trans", {}).items() if q in runs}
     area = shapely.union_all([g(w) for (w,) in rows(f"SELECT {m()} FROM work.area")] or [shapely.Polygon()])
@@ -1159,7 +1161,12 @@ def build(con, epsg, bridges=(), level=0):
         r["road_g"] = poly(r["cw"].difference(J_all))
         if not area.is_empty:
             r["road_g"] = poly(r["road_g"].intersection(area))
-    runs = [r for r in runs if not r["road_g"].is_empty and r["road_g"].area > 0.5]
+    keep_ = [r for r in runs if not r["road_g"].is_empty and r["road_g"].area > 0.5]
+    for r in runs:
+        if r not in keep_:
+            dropped[r["oid"]] = ("no room: the street's edges leave its frame 0 m (6a'', the room rule)" if r["fkl"] - r["fkr"] < 0.1
+                                 else "its frame lies inside the junctions or outside the area (6: road_g under 0.5 m2)")
+    runs = keep_
     # (a frame's paved rest never covers another road's own lanes: two parallel one-way ways of one street, one of them wider elsewhere
     # in its section, or the narrower one is eaten and goes into the junction as a sliver; Hemlock Street at West 7th, 2026-10-16)
     own_t = shapely.STRtree([r["own"] for r in runs]) if runs else None
@@ -1185,10 +1192,21 @@ def build(con, epsg, bridges=(), level=0):
         for r in runs:
             if r not in small:
                 r["road_g"] = poly(r["road_g"].difference(J_all))
-    runs = [r for r in runs if r not in small and not r["road_g"].is_empty and r["road_g"].area > 0.5]
+    for r in runs:
+        if r in small:
+            dropped[r["oid"]] = "a sliver under SLIVER_M2 after the wider roads took their part (6: joins the junction)"
+    keep_ = [r for r in runs if r not in small and not r["road_g"].is_empty and r["road_g"].area > 0.5]
+    gone(keep_, "nothing left after the junctions took the slivers (6)"); runs = keep_
     for r in runs:      # (a neighbour that went into the junction is no joint partner any more)
         r["trans"] = {w: q for w, q in r.get("trans", {}).items() if q in runs}
     roadway = shapely.union_all([r["road_g"] for r in runs] + [J_all])
+    # W3's record: every road of this level with no run left, and why (a road the edges never gave is not in it: W3 finds those itself)
+    left_ = {r["oid"] for r in runs}
+    con.execute("CREATE TABLE IF NOT EXISTS work.dropped (osm_id BIGINT, level INTEGER, reason VARCHAR)")
+    con.execute("DELETE FROM work.dropped WHERE level = ?", [LV])
+    rows_ = [(int(o), LV, why) for o, why in dropped.items() if o not in left_]
+    if rows_:
+        con.executemany("INSERT INTO work.dropped VALUES (?, ?, ?)", rows_)
 
     tick("the sections' roadways (rank 3)")
     # ---- barriers continued from a bridge landing: a bridge whose corrections name a median barrier keeps it on the ground along the

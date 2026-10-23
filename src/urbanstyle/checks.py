@@ -504,6 +504,75 @@ def roadway_joints(c, epsg, has_change=False):
     return len(bad), bad
 
 
+ROAD_PARTS = ("lane", "paved", "junction area", "ring", "bus lane", "bus zone", "cycle lane", "shoulder", "parking", "no parking",
+              "crosswalk", "cycle crossing", "bridge deck")   # the roadway: the carriageway's parts (as the dashboard's G keeps them)
+W1_M = 0.1      # W1: a road line this long or more between two pieces of roadway with no roadway under it
+W2_M = 0.2      # W2: at a joint, the roadway's ends on the two sides differ by this or more
+
+
+def roadway_meets(c, epsg):
+    """W1, W2: the roadway is one connected surface along every road at level 0. W1: a stretch of a road's line (W1_M or more) with
+    roadway on both sides but none under it: the pieces do not meet. W2: where two spaces meet across a road, the roadway reaches the
+    joint at different points on the two sides (W2_M or more): a step or a sideways shift. Each place has its cause: the spaces it lies
+    in (one space, two subsections of one section, two sections, a section and an intersection) and what covers a W1 gap (a part of
+    another kind, or nothing). Returns ([(lon, lat, cause)], [(lon, lat, cause)])."""
+    import shapely
+    import pyproj
+    m = lambda g: f"ST_AsWKB(ST_Transform({g}, 'EPSG:4326', '{epsg}', always_xy := true))"
+    geo = lambda w: shapely.make_valid(shapely.from_wkb(bytes(w)))
+    to_ll = pyproj.Transformer.from_crs(epsg, "EPSG:4326", always_xy=True).transform
+    parts = [(u, t, geo(w)) for u, t, w in c.execute(f"SELECT unit_id, type, {m('geometry')} FROM work.part WHERE level = 0").fetchall()]
+    rw_u = {}
+    for u, t, g in parts:
+        if t in ROAD_PARTS:
+            rw_u.setdefault(u, []).append(g.buffer(0.02))
+    rw_u = {u: shapely.union_all(v) for u, v in rw_u.items()}
+    rw = shapely.union_all(list(rw_u.values()) or [shapely.Polygon()])
+    units = {u: (k, sec, geo(w)) for u, k, sec, w in c.execute(f"""SELECT u.unit_id, u.kind, s.section_id, {m('u.geometry')} FROM work.unit u
+                 LEFT JOIN work.subsection s ON s.subsection_id = u.unit_id WHERE u.level = 0""").fetchall()}
+    uids = list(units); utree = shapely.STRtree([units[u][2] for u in uids])
+    other = [(t, g) for _, t, g in parts if t not in ROAD_PARTS]; otree = shapely.STRtree([g for _, g in other]) if other else None
+    area = shapely.union_all([geo(w) for (w,) in c.execute(f"SELECT {m('geometry')} FROM work.area").fetchall()] or [shapely.Polygon()]).buffer(-1.0)
+
+    def pair(a, b):
+        ka, sa = units[a][0], units[a][1]; kb, sb = units[b][0], units[b][1]
+        if ka == "intersection" or kb == "intersection":
+            return "a section and an intersection" if ka != kb else "two intersections"
+        return "two subsections of one section" if sa and sa == sb else "two sections"
+    w1, w2 = [], []
+    for (w,) in c.execute(f"SELECT {m('geometry')} FROM work.element WHERE type = 'road' AND level_min = 0").fetchall():
+        ln = geo(w)
+        for g in shapely.get_parts(ln.difference(rw)):
+            if g.geom_type != "LineString" or g.length < W1_M or not area.contains(g):
+                continue
+            a_, b_ = shapely.Point(g.coords[0]), shapely.Point(g.coords[-1])
+            if a_.distance(rw) > 0.05 or b_.distance(rw) > 0.05 or ln.boundary.distance(a_) < 0.05 or ln.boundary.distance(b_) < 0.05:
+                continue                    # (the road's own end, or a stretch off the roadway at one side: A3's)
+            mid = g.interpolate(0.5, normalized=True)
+            ins = [uids[k] for k in utree.query(g.buffer(0.3)) if units[uids[k]][2].distance(mid) < 0.3]
+            near = [uids[k] for k in utree.query(g) if units[uids[k]][2].intersects(g)]
+            where = "outside every space" if not ins else ("in one space" if len(set(near)) <= 1 else "between " + pair(*sorted(set(near))[:2]))
+            cover = sorted({other[k][0] for k in (otree.query(mid) if otree else []) if other[k][1].contains(mid)})
+            w1.append(to_ll(mid.x, mid.y) + (f"gap {where}, under it: " + (", ".join(cover) or "no part"),))
+    for i, a in enumerate(uids):
+        for k in utree.query(units[a][2]):
+            b = uids[k]
+            if b <= a:
+                continue
+            sh = units[a][2].intersection(units[b][2])
+            jl = shapely.line_merge(shapely.union_all([g for g in shapely.get_parts(sh) if g.geom_type in ("LineString", "MultiLineString")] or [shapely.LineString()]))
+            if jl.is_empty or jl.length < 0.3:
+                continue
+            xa, xb = jl.intersection(rw_u.get(a, shapely.Polygon())), jl.intersection(rw_u.get(b, shapely.Polygon()))
+            if xa.is_empty and xb.is_empty:
+                continue
+            d = xa.difference(xb.buffer(W2_M / 2)).length + xb.difference(xa.buffer(W2_M / 2)).length
+            if d >= W2_M:
+                p_ = (xa.union(xb)).representative_point()
+                w2.append(to_ll(p_.x, p_.y) + (f"shift at a joint between {pair(a, b)}",))
+    return w1, w2
+
+
 def run(path, out=None):
     """The checks of the database at `path`, printed; True when a hard check fails. `out`: a list the rows go to (urban.check)."""
     c = duckdb.connect(path, read_only=True)
@@ -552,6 +621,10 @@ def run(path, out=None):
     if q("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'work' AND table_name = 'unit'"):
         rows += unit_checks(c, q, epsg)
         rows += rule_checks(c, epsg)
+        if q("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'work' AND table_name = 'part'"):
+            w1, w2 = roadway_meets(c, epsg)
+            rows += [("W1", f"stretches of a road line ({W1_M} m or more) between two pieces of roadway with none under it: the pieces do not meet", len(w1), True, [p[:2] for p in w1]),
+                     ("W2", f"joints where the roadway reaches the two sides at points {W2_M} m or more apart (a step or a sideways shift)", len(w2), True, [p[:2] for p in w2])]
     total = q("SELECT count(*) FROM work.container")
     print(f"\n== {path}  ({total} containers, all levels)")
     failed = False

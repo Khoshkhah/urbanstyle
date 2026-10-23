@@ -47,6 +47,8 @@ CONNECTOR_M = 40.0      # a road between two junction nodes shorter than this (o
                         # intersection with both nodes (docs/design/sections.md, rule 3; chosen)
 CORE_MIN_M = 1.0        # a junction's core counts only where the arms' carriageways overlap at least this wide (chosen)
 JGAP_M = 2.0            # an island begins where the strip between two frames is this wide; a thinner tail with nothing on it is paved (chosen)
+SLIT_MAX_M2 = 3.0       # a piece of a space no part covers, roadway round it, at most this big, is roadway (a slit)
+ROAD_SLIT = ("lane", "paved", "junction area", "crosswalk", "cycle crossing", "cycle lane", "parking", "shoulder", "bus lane", "ring", "bridge deck")
 FILLET_MAX_M2 = 40.0    # a corner fillet of KERB_RADIUS_M is at most this big (a 30 degree corner: 2.4 R2); a bigger closing is a gap, no corner
 JUNC_ARM_M, CROSS_NEAR_M, CROSS_HALF_M = 3.0, 15.0, 1.5
 STOP_BACK_M = 1.0       # a stop line stands this far before the junction (chosen, as division.py)
@@ -2162,6 +2164,39 @@ def build(con, epsg, bridges=(), level=0):
         for q in shapely.get_parts(kerb_all.intersection(x.buffer(0.05))):
             if q.geom_type == "LineString" and q.length > 0.3:
                 marks.append((u, "kerb", q, "urbanstyle", "derived", "the roadway's outer edge"))
+    # a slit: a piece of a space that no part covers (SLIT_MAX_M2 at most), with roadway along its outline and no walking side, is
+    # roadway: paved. The crosswalks are cut from the roadway, and the rest of a lane under 0.05 m2 is dropped (add), or the cut and the
+    # crosswalk part are not the same shape: a white line no part covered where a section meets its junction (W2; Kaveh 2026-10-23)
+    by_u = {}
+    for pr in parts:
+        by_u.setdefault(pr["unit_id"], []).append(pr)
+    ptree_ = shapely.STRtree([pr["geom"] for pr in parts]) if parts else None      # (the parts of every space: a slit at a joint lies between two)
+    for u, k, s, x in units:
+        if x.is_empty or u not in by_u:
+            continue
+        cov_ = shapely.make_valid(shapely.union_all([pr["geom"] for pr in by_u[u]])).buffer(0.005)
+        try:
+            rest_ = shapely.make_valid(x).difference(cov_)
+        except shapely.errors.GEOSException:
+            try:        # (on a 1 mm grid: GEOS could not node the two at Monaco 372779, 4844122)
+                rest_ = shapely.set_precision(shapely.make_valid(x), 0.001).difference(shapely.set_precision(cov_, 0.001))
+            except shapely.errors.GEOSException as e_:
+                print(f"  slits: {u} skipped, GEOS could not take its parts from it ({e_})")
+                continue
+        if rest_.is_empty:
+            continue
+        near_ = [parts[j] for j in ptree_.query(rest_.buffer(0.05))]
+        road_ = shapely.union_all([pr["geom"] for pr in near_ if pr["type"] in ROAD_SLIT] or [shapely.Polygon()])
+        walk_ = shapely.union_all([pr["geom"] for pr in near_ if pr["type"] not in ROAD_SLIT] or [shapely.Polygon()])
+        for q in shapely.get_parts(rest_):
+            if q.geom_type != "Polygon" or q.area < 0.005 or q.area > SLIT_MAX_M2:
+                continue
+            ring_ = q.exterior
+            if ring_.intersection(road_.buffer(0.02)).length < 0.5 * ring_.length or ring_.intersection(walk_.buffer(0.02)).length > 0.05 * ring_.length:
+                continue
+            pid[u] = pid.get(u, 0) + 1
+            parts.append(dict(unit_id=u, part_id=f"{u}#{pid[u]}", type="junction area" if k == "intersection" else "paved", geom=q,
+                              source="urbanstyle", method="derived", ref="a slit between roadway parts that no part covered: roadway"))
     urows = [(u, k, s, COLORS[k], shapely.to_wkb(x)) for u, k, s, x in units if not x.is_empty]
     if urows:       # (a map with no street at level 0: nothing to write)
         con.executemany(f"INSERT INTO work.unit (unit_id, kind, section_id, level, color, geometry) VALUES (?, ?, ?, {LV}, ?, {to_ll})", urows)

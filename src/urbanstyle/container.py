@@ -71,6 +71,32 @@ LEFT JOIN osm.raw.ways rw ON rw.osm_id = e.osm_id
 WHERE coalesce(rw.tags['service'], '') NOT IN ('parking_aisle', 'driveway');   -- inside a car park (work.lot), into a property: no street
 """
 
+# A building passage (OSM tunnel=building_passage): its layer gives its place relative to the building, not a deck. Its level is the
+# lowest level above every way under it (a way at a lower level that crosses it or runs along it, PASSAGE_UNDER_M near for
+# PASSAGE_ALONG_M or more; one that only meets it at an end goes on from it): 0 when nothing at 0 or above lies under it (Avenue Pasteur,
+# Monaco: level 0 over its tunnel). A way that goes on from a lowered passage with the same layer tag and no bridge or tunnel tag
+# follows it. Runs after ROADS and RAIL, before CLAMP.
+PASSAGE_UNDER_M = 3.0
+PASSAGE_ALONG_M = 5.0
+PASSAGES = """
+CREATE OR REPLACE TEMP TABLE pass_g AS
+SELECT e.source_id, e.osm_id, e.level_min, e.src, e.dst, e.type, w.tags['layer'] AS layer, w.tags['tunnel'] AS tunnel, w.tags['bridge'] AS bridge,
+  ST_Transform(e.geometry, 'EPSG:4326', '{epsg}', always_xy := true) AS g
+FROM work.element e JOIN osm.raw.ways w ON w.osm_id = e.osm_id WHERE e.type <> 'building';
+UPDATE work.element e SET level_min = p.lvl, level_max = p.lvl, level_src = 'building passage'
+FROM (SELECT a.source_id, greatest(0, coalesce(max(b.level_min) + 1, 0)) AS lvl
+      FROM pass_g a LEFT JOIN pass_g b ON b.osm_id <> a.osm_id AND b.level_min < a.level_min
+        AND (ST_Crosses(a.g, b.g) OR ST_Length(ST_Intersection(b.g, ST_Buffer(a.g, {under}))) >= {along})
+      WHERE a.tunnel = 'building_passage' AND a.level_min > 0 GROUP BY a.source_id) p
+WHERE e.source_id = p.source_id AND p.lvl < e.level_min;
+"""
+PASSAGE_ON = """
+UPDATE work.element e SET level_min = p.level_min, level_max = p.level_min, level_src = 'building passage (goes on from it)'
+FROM pass_g c, (SELECT x.*, g.layer FROM work.element x JOIN pass_g g USING (source_id) WHERE x.level_src LIKE 'building passage%') p
+WHERE e.source_id = c.source_id AND e.level_src = 'layer' AND c.layer = p.layer AND c.bridge IS NULL AND c.tunnel IS NULL
+  AND e.level_min > p.level_min AND (e.src IN (p.src, p.dst) OR e.dst IN (p.src, p.dst));
+"""
+
 # Off-street car parks (OSM amenity=parking on the ground, not along the kerb): private ground beside the street, like a building's
 # plot. The street space stops at their edge (subsections.py and spaces.py read them with the buildings); each is one lot, whole.
 STREET_PARKING = ("lane", "street_side", "on_kerb", "half_on_kerb", "shoulder", "layby")
@@ -943,6 +969,11 @@ def build(osm, out, start=None, bridges=()):
     from . import buildings
     buildings.city(con)     # a city's footprints where OSM has none, and its LiDAR heights (docs/design/source-inventory.md)
     con.execute(RAIL)
+    lon = con.execute("SELECT avg(ST_X(ST_Centroid(geometry))) FROM work.element").fetchone()[0]
+    con.execute(PASSAGES.format(epsg=f"EPSG:{32600 + int((lon + 180) // 6) + 1}", under=PASSAGE_UNDER_M, along=PASSAGE_ALONG_M))
+    for _ in range(5):                  # (the ways that go on from a lowered passage, one after the other)
+        if not con.execute(PASSAGE_ON).fetchone()[0]:
+            break
     from . import ground
     ground.parcels(con)     # a city's property lines, where it has them: the street reaches them
     try:

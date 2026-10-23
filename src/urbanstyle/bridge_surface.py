@@ -901,6 +901,7 @@ def _slits(poly, axes, own, step=0.25):
     to the nearest edge point left a corner of the ramp's end on the main deck, as a step in its edge). Returns a polygon."""
     import numpy as np
     import shapely
+    import shapely.ops
     if len(axes) < 2:
         return shapely.Polygon()
     x0, y0, x1, y1 = poly.bounds
@@ -931,8 +932,9 @@ def _slits(poly, axes, own, step=0.25):
             continue
         for first in (True, False):
             e = shapely.Point(cs[0] if first else cs[-1])
-            if poly.exterior.distance(e) <= 2.0:
-                q = poly.exterior.interpolate(poly.exterior.project(e))
+            edge = shapely.MultiLineString([g.exterior for g in shapely.get_parts(poly) if g.geom_type == "Polygon"])   # (a level of several pieces)
+            if edge.distance(e) <= 2.0:
+                q = shapely.ops.nearest_points(edge, e)[0]
                 far = (q.x + (q.x - e.x) * 0.5, q.y + (q.y - e.y) * 0.5)
                 cs = [far, (q.x, q.y)] + cs if first else cs + [(q.x, q.y), far]
         out.append(shapely.LineString(cs).simplify(step).buffer(SLIT_M / 2, cap_style="flat"))
@@ -1149,7 +1151,7 @@ def model(con, P, rank0=False, cover=True, gmns=None):
                 d2.append(ll((x0_ + x1_ + x2_) / 3, (y0_ + y1_ + y2_) / 3))
                 if len(d2_dbg) < 40:
                     d2_dbg.append({"kind": kind, "run": round(run, 2), "hz": [round(float(z), 2) for z in hz], "xy": [round(x0_, 1), round(y0_, 1)],
-                                   "strips": [i for i in ids if S.own[[a["id"] for a in S.axes].index(i)].distance(shapely.Point(x0_, y0_)) < 0.05]})
+                                   "strips": [a["id"] for a, o in zip(S.axes, S.own) if o.distance(shapely.Point(x0_, y0_)) < 0.05]})
         for k, nuse in edge_use.items():
             if nuse == 1:
                 mid = shapely.Point((k[0][0] + k[1][0]) / 2, (k[0][1] + k[1][1]) / 2)

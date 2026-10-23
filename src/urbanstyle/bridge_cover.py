@@ -386,8 +386,19 @@ def _level_items(P, lv, deck_lv, out_l, junction, paths_lv, crossings, arrow_sha
             items.append((paint(shapely.union_all(segs), 0.12), "mark lane line", PAINT_M, 0.0, {"type": "lane line"}))
     centre = G[0].boundary.intersection(G[1].buffer(0.3))
     items.append((paint(centre, 0.15), "mark centre line", PAINT_M, 0.0, {"type": "centre line"}))
-    items.append((paint(drive.buffer(-0.25).boundary, 0.12).intersection(drive).difference(paint(centre, 1.0)), "mark edge line", PAINT_M, 0.0,
-                  {"type": "edge line"}))
+    # (no edge line across a lane's end where it meets the deck's edge: the road goes on there, onto the ground or the next deck; a
+    # line across every bridge end looked like a closed road)
+    open_ends = []
+    for q, props, c, aid in out_l:
+        w_ = float(props.get("width_m") or 3.25)
+        for end in (0, 1):
+            pt = shapely.Point(c.coords[0] if end == 0 else c.coords[-1])
+            if deck_lv.boundary.distance(pt) <= 1.0 and c.length > 1.0:
+                piece = shapely.ops.substring(c, 0.0, 0.6) if end == 0 else shapely.ops.substring(c, c.length - 0.6, c.length)
+                open_ends.append(piece.buffer(w_ / 2 + 0.1, cap_style="flat").union(pt.buffer(0.6)))
+    shut = shapely.union_all(open_ends) if open_ends else shapely.Polygon()
+    items.append((paint(drive.buffer(-0.25).boundary, 0.12).intersection(drive).difference(paint(centre, 1.0)).difference(shut), "mark edge line",
+                  PAINT_M, 0.0, {"type": "edge line"}))
     for q, props, cl, aid in junction:
         segs, d0 = [], 0.0
         while d0 < cl.length:

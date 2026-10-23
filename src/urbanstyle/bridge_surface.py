@@ -313,6 +313,30 @@ def _write_back(P, nodes, per_axis, h):
 
 # ---------------------------------------------------------------- 2. the structures
 def _axis_level(con, P):
+    """Each axis's level: OSM's layer tag of its ways, the one of the longest share of it; a bridge way with no layer (or 0) is level 1.
+    (The area's build gave Avenue de France's a2 and a4 level 1 where OSM says 2, and they crossed a1 at its own level, one slab with it.)
+    Without the profile's OSM database: the area's build, as before."""
+    import duckdb
+    from .bridge_forks import _input
+    src = _input(P, gmns=False)
+    ids = sorted({int(w[1:]) for a in P["axes"] for w in a["ways"]})
+    if src:
+        o = duckdb.connect(src, read_only=True)
+        lay = {w: (l_, n) for w, l_, n in o.execute("SELECT osm_id, tags['layer'], len(refs) FROM raw.ways WHERE osm_id IN (SELECT unnest(?::BIGINT[]))",
+                                                     [ids]).fetchall()}
+        o.close()
+        out = {}
+        for a in P["axes"]:
+            share = {}
+            for w in a["ways"]:
+                l_, n = lay.get(int(w[1:]), (None, 1))
+                try:
+                    v = max(1, int(float(l_))) if l_ is not None else 1
+                except ValueError:
+                    v = 1
+                share[v] = share.get(v, 0) + (n or 1)
+            out[a["id"]] = max(share, key=share.get) if share else 1
+        return out
     lv_of = dict(con.execute("SELECT osm_id, level_min FROM work.element WHERE type = 'road'").fetchall())
     out = {}
     for a in P["axes"]:
@@ -1218,7 +1242,9 @@ def model(con, P, rank0=False, cover=True, gmns=None):
         # the sides along the outer edge, and the parapet where the edge is not a landing and not a joint
         if rank0:
             continue
-        others_S = [(pg2, S2) for lv2, pg2, S2, _, _ in pieces if lv2 == lv and pg2 is not pg]
+        # (a joint with a piece of any level at the same height there: where a level-2 road goes on into a level-1 road, a parapet stood
+        # across it; two decks that cross are 5 m and more apart, never a joint)
+        others_S = [(pg2, S2) for lv2, pg2, S2, _, _ in pieces if pg2 is not pg]
         keep = []
         n_low = n_joint = 0
         for rg in [ring] + list(pg.interiors):

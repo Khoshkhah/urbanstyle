@@ -107,6 +107,14 @@ and a road without one is divided where the two distances are the same.
 Larvotto: the ramp a2 goes down to the ground beside the viaduct a1, which stays high. Before, one blended surface pulled a1
 down to 1.2 m. On Granville nothing changes.
 
+## Levels, steps, and road ends (Monaco, 2026-10-22)
+
+- An axis's level is OSM's layer tag of its ways, the one of the longest share; a bridge way with no layer is level 1. (The area's
+  build gave Avenue de France's a2 and a4 level 1 where OSM says 2, so they crossed a1 at its own level.)
+- Where a road of one level goes on into a road of another level at the same height, the joint is open: no parapet across it.
+- Steps are a path. A bridge of steps alone is a footbridge and is not built (Monaco: three of 13).
+- No edge line is painted across a lane's end where it meets the deck's edge: the road goes on there.
+
 ## Step 6, the north fork rules
 
 - A barrier stands only along an OSM path (not along the pedestrian realm), ends 1 m before a crossing, and is never shorter than

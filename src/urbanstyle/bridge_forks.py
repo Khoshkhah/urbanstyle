@@ -181,6 +181,8 @@ def step1(con, P):
 
 # ---------------------------------------------------------------- steps 2 and 3: branches and forks, centre lines and widths
 CLOSE_M = 1.5           # a gap narrower than twice this inside a fork is deck
+SHORT_ARM_M = 1.0       # step 2: an arm with less than this of its own beyond its branch points keeps its strip over its whole length
+LANE_W_M = 3.25         # band_widths: a lane's width where SUMO gives a way no lane (OSM's count times this; chosen, as gmns)
 FORK_TAPER_M = 20.0     # (band_widths: a branch's width is measured from this far into it from a fork, where the shared deck ends)
 
 
@@ -368,6 +370,10 @@ def partition(P, axes, a_lv, widths, R):
                             c0 = f["branch_m"][aid]
                         else:
                             c1 = f["branch_m"][aid]
+                # (a short arm, whose branch point lies at its far end or beyond, keeps its own strip over its whole length: the fork's hull
+                # alone stopped 2.5 m short of Avenue de France's a11 ground end, 7.35 m long into a fork of 8 m; Kaveh 2026-10-23)
+                if ln_a.length - c0 - c1 < SHORT_ARM_M:
+                    c0 = c1 = 0.0
                 seg = shapely.ops.substring(ln_a, c0, ln_a.length - c1)
                 osm_lines.append(seg)
                 wd = widths[aid]
@@ -706,7 +712,17 @@ def band_widths(P, axes, R, gmns=None, edge=0.5):
         ways = set(a["ways"])
         lanes = [b_["poly"] for b_ in bs if b_["kind"] == "lane" and b_["props"]["osm"] in ways] \
             or [b_["poly"] for b_ in bs if b_["props"].get("own_axis") == a["id"]]      # (steps or a footpath alone: its own band)
+        # (no lane band from SUMO on its ways, or one that gives it less than half a lane across its line: OSM's lane count times
+        # LANE_W_M, centred on its line, so the deck reaches its ends; a short ramp, Avenue de France's a11 of 7.35 m into a fork, got
+        # a 1 m width, and the deck stopped 2.5 m short of the ground road that goes on from it; Kaveh 2026-10-23)
+        def osm_half():
+            tg_ = _osm_tags(P, a["ways"])
+            n_ = max([int(str(t.get("lanes", "")).split(";")[0]) for t in tg_.values() if str(t.get("lanes", "")).split(";")[0].isdigit()] or [0])
+            return n_ * LANE_W_M / 2
         if not lanes:
+            h_ = osm_half()
+            if h_:
+                out[a["id"]] = (round(-h_ - edge, 2), round(h_ + edge, 2), [(0.0, 0.0), (ln0.length, 0.0)])
             continue
         # a path counts only over the stretch where it runs beside the lanes, its edge within BESIDE_M of them (Kaveh, 2026-10-20):
         # where it leaves the road (a sidewalk that turns away at a ramp) it is not this branch's width
@@ -741,6 +757,10 @@ def band_widths(P, axes, R, gmns=None, edge=0.5):
                 break
         own = list(lanes) + list(got.values())
         half, off = _one_width(ln, own)
+        if half < LANE_W_M / 2:
+            h_ = osm_half()
+            if h_ > half:
+                half, off = h_, 0.0
         mids = [(0.0, off), (ln0.length, off)]                         # (one offset along the whole line)
         out[a["id"]] = (round(-half - edge, 2), round(half + edge, 2), mids)
     return out

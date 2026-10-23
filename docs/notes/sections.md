@@ -195,7 +195,7 @@ With the dashboard's G button the ground and the sidewalks can be hidden, and th
 junction mouths. Two checks measure them: W1 (a street's line between two pieces of roadway with no roadway under it) and W2 (where
 two spaces meet across a street, the roadway reaches the joint at different points on the two sides). Each place has its cause.
 W2 at first also counted outline pieces along a kerb, the lines of roads that are no street (unnamed service roads), and dead ends;
-it reads only the outline segments across a street now. Monaco, the build of 2026-10-23: W1 16, W2 64.
+it reads only the outline segments across a street now, and W1 skips a street's line that runs along a kerb (roadway on one side only: A1's). Monaco, the build of 2026-10-23 with the rules below: W1 1, W2 48.
 
 The rules that came from them:
 

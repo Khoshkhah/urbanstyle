@@ -293,7 +293,20 @@ def _solve(P, nodes, per_axis, pairs, couples=(), parted=None, terrain=None):
         Q += W_COUPLE * np.outer(r, r)
     ei = np.array([e[0] for e in edges]); ej = np.array([e[1] for e in edges]); ed = np.array([e[2] for e in edges])
     pu = np.array([p[0] for p in pairs], dtype=int); pl = np.array([p[1] for p in pairs], dtype=int)
-    GAP = LEVEL_M + DECK_M
+    GAP = np.full(len(pairs), LEVEL_M + DECK_M)
+    if terrain is not None and len(pairs):
+        # (where both decks at a crossing are measured, the measured separation there is the gap: at most the chosen LEVEL_M + DECK_M,
+        # at least a slab. Avenue de France: a3 over a1, 5.7 m apart in IGN's points; the chosen 7.3 m lifted a3's junction 1.5 m)
+        pos = {nd_: (aid, s_) for aid, seq in per_axis.items() for s_, nd_ in seq}
+
+        def m_at(nd_):
+            aid, s_ = pos.get(nd_, (None, None))
+            pts = [(s2, measured[n2]) for s2, n2 in per_axis.get(aid, []) if not np.isnan(measured[n2])]
+            return float(np.interp(s_, [q[0] for q in pts], [q[1] for q in pts])) if pts else None
+        for k, (i, j) in enumerate(pairs):
+            mi, mj = m_at(i), m_at(j)
+            if mi is not None and mj is not None:
+                GAP[k] = min(LEVEL_M + DECK_M, max(mi - mj, DECK_M))
 
     def f(x):
         r = 0.5 * x @ Q @ x + W_RULE * ((x - target) ** 2).sum()

@@ -587,6 +587,11 @@ def roadway_meets(c, epsg):
             if a_.distance(rw) > 0.05 or b_.distance(rw) > 0.05 or ln.boundary.distance(a_) < 0.05 or ln.boundary.distance(b_) < 0.05:
                 continue                    # (the road's own end, or a stretch off the roadway at one side: A3's)
             mid = g.interpolate(0.5, normalized=True)
+            s_ = ln.project(mid); p0, p1 = ln.interpolate(max(s_ - 1, 0)), ln.interpolate(min(s_ + 1, ln.length))
+            dx, dy = p1.x - p0.x, p1.y - p0.y; h_ = (dx * dx + dy * dy) ** 0.5 or 1.0
+            sides = [shapely.LineString([(mid.x, mid.y), (mid.x - k * dy / h_ * 3.0, mid.y + k * dx / h_ * 3.0)]) for k in (1, -1)]
+            if sum(q.intersects(rw) for q in sides) == 1:
+                continue                    # (the line runs along a kerb, roadway on one side only: A1's, not a gap in the road)
             ins = [uids[k] for k in utree.query(g.buffer(0.3)) if units[uids[k]][2].distance(mid) < 0.3]
             near = [uids[k] for k in utree.query(g) if units[uids[k]][2].intersects(g)]
             where = "outside every space" if not ins else ("in one space" if len(set(near)) <= 1 else "between " + pair(*sorted(set(near))[:2]))

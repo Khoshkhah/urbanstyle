@@ -47,6 +47,13 @@ Open, in order:
 4. Step 7 (the dashboard of the area with the step models): `dashboard`/`page.py` still take their bridges from deck3d, because its
    2D bridge layer reads deck3d's flat parts; the step models have none. Kept as it is for now (Kaveh, 2026-10-23): at
    Larvotto the 2D outline of the old model and the 3D outline of the new one are almost the same.
+5. Tunnel entrances (2026-10-23 evening): a sweep of the whole roadway (G hidden) found a gap at 107 of 119 nodes where a road changes
+   level below the ground. Two ways failed and are kept as patches in the session's scratch: (1) building the tunnel levels with
+   network.py (as the decks) closes the gaps but drops short tunnel ways (sliver and junction rules made for the ground); (2) running
+   the older builder's tunnel roadway on to the node fills some gaps with odd shapes and splits spaces (U2). The gaps have three
+   causes: the older builder's tunnel spaces stop 1-3 m short; a short level-0 piece from a portal node to the ground road has no
+   roadway (dropped as a sliver); and nodes where three levels meet. Needs Kaveh's choice of approach.
+6. Narrow roads: 33 stretches inside the area whose roadway is under 2 m wide on average (probably lanes squeezed by the room rule).
 
 ## Bridges: the words and the order of the steps (2026-10-19, read this first)
 

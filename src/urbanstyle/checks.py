@@ -308,9 +308,17 @@ def rule_checks(c, epsg):
             noxw.append(at(x.difference(xw_u) if not x.difference(xw_u).is_empty else x))
     # M1: a lane line, or a centre line with a real source, where the lane count is chosen (no source maps the lanes, so none maps a
     # line between them; the centre line between the directions is drawn as urbanstyle's own there)
-    chosen = {u for u, t, ref, src, g in parts if t == "lane" and src == "urbanstyle"}
-    nolines = [at(geo(w)) for u, t, src, w in c.execute(f"""SELECT unit_id, type, source, {m('geometry')} FROM work.mark WHERE level = 0
-                 AND type IN ('centre line', 'lane line')""").fetchall() if u in chosen and (t == "lane line" or src != "urbanstyle")]
+    # (per road: a space can hold lanes of two roads, one with a mapped lane count and one without; the line between the mapped road's
+    # lanes names its way in its ref, and it is no fault of the other road's chosen count: Monaco's four M1 places, 2026-10-24)
+    import re as _re
+    ways_of = lambda ref: set(_re.findall(r"w(\d+)", (ref or "").split(":")[0].split(" lanes")[0].split(" has ")[0]))
+    chosen = {}
+    for u, t, ref, src, g in parts:
+        if t == "lane" and src == "urbanstyle":
+            chosen.setdefault(u, set()).update(ways_of(ref))
+    nolines = [at(geo(w)) for u, t, src, ref, w in c.execute(f"""SELECT unit_id, type, source, ref, {m('geometry')} FROM work.mark WHERE level = 0
+                 AND type IN ('centre line', 'lane line')""").fetchall()
+               if u in chosen and (t == "lane line" or src != "urbanstyle") and (not ways_of(ref) or ways_of(ref) & chosen[u])]
     # K1: the kerb against a city's kerb evidence: catch basins stand in the gutter at the kerb; a subsection whose kerb lies more than
     # 1.5 m from them (the median of 2 or more) has a kerb the data does not confirm: parking at the kerb that no source maps, or a wrong
     # lane width. A report, not a fault: the kerb is the lanes' edge by the agreed rule and never moves for evidence

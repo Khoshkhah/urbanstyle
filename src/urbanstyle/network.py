@@ -1212,7 +1212,14 @@ def build(con, epsg, bridges=(), level=0):
         # the roadway never passes the street's edge nor a sidewalk strip: at a corner the kerb is the strip's near side where OSM maps
         # the line, the KERB_RADIUS_M fillet only where it does not (Kaveh, 2026-10-16)
         if etree is not None:       # (the edge's pieces near the junction, from the index: not the whole union)
-            near_ = [etree.geometries[k] for k in etree.query(J)]
+            near_ = [htree.geometries[k] for k in htree.query(J)] if htree is not None else []
+            # (a footway's strip only where the footway runs beside the junction's roads, as in the room rule: one that crosses a road or
+            # ends on it inside the junction is no sidewalk of it; its strip's round end bit the junction and left the junction's node
+            # outside it, checks J1, U4 and U5 at n25194212, Monaco 2026-10-24)
+            rl_ = [r["line"] for r in runs if r["line"].intersects(J)]
+            for k in (sw_tree.query(J) if sw_tree is not None else []):
+                if not any(sw_items[k][0].distance(l_) < LANE_M / 2 for l_ in rl_):
+                    near_.append(sw_items[k][1])
             if near_:
                 J = poly(J.difference(shapely.make_valid(shapely.union_all(near_))))
         if J.is_empty:      # (all of it outside the street's edge: no junction there)

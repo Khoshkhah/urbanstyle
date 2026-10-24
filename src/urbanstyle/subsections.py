@@ -242,6 +242,7 @@ def junctions(con, epsg):
 
 def build(con, epsg):
     import pandas as pd
+    from .blocks import street_sql
     import shapely
     from shapely.ops import substring
     junctions(con, epsg)
@@ -251,6 +252,9 @@ def build(con, epsg):
                                    e.class, e.width_m, e.oneway, {to_m.replace('geometry', 'e.geometry')} AS g, e.osm_id
                             FROM work.element e LEFT JOIN (SELECT edge_id, min(section_id) AS section_id FROM work.arm GROUP BY 1) a ON a.edge_id = e.source_id
                             WHERE e.type = 'road' AND ST_Length(e.geometry) > 0
+                              -- streets only, as on the ground (network.py): an unnamed service road (a driveway, a garage ramp) has no
+                              -- roadway on any level; under the ground a garage ramp's piece floated alone beside the street (Monaco)
+                              AND {street_sql('e')}
                               -- a road between two nodes of one junction (a roundabout ring, a short link) is part of the intersection
                               AND NOT EXISTS (SELECT 1 FROM work.junction x JOIN work.junction y USING (intersection_id) WHERE x.node_id = e.src AND y.node_id = e.dst)""").fetchall()
     roads = [r for r in roads if r[0] is not None]

@@ -23,8 +23,12 @@ def unit_checks(c, q, epsg):
                                   AND ST_Intersects(a.g, b.g) WHERE ST_Area(ST_Intersection(a.g, b.g)) > 0.05"""), True),
         ("U2", "spaces invalid, empty or in more than one part", q("""SELECT count(*) FROM work.unit
                                   WHERE NOT ST_IsValid(geometry) OR ST_IsEmpty(geometry) OR ST_NumGeometries(geometry) > 1"""), True),
-        ("U3", "junctions with no intersection space", q("""SELECT count(DISTINCT intersection_id) FROM work.junction
-                                  WHERE intersection_id NOT IN (SELECT unit_id FROM work.unit)"""), True),
+        # (a junction of a node outside the area is no fault: a cut's OSM extract reaches past its area, and nothing is built there)
+        ("U3", "junctions inside the area with no intersection space", q("""SELECT count(DISTINCT j.intersection_id) FROM work.junction j
+                                  JOIN (SELECT src AS node, ST_StartPoint(geometry) AS p FROM work.element WHERE type = 'road'
+                                        UNION SELECT dst, ST_EndPoint(geometry) FROM work.element WHERE type = 'road') n ON n.node = j.node_id
+                                  WHERE j.intersection_id NOT IN (SELECT unit_id FROM work.unit)
+                                    AND ST_Within(n.p, (SELECT ST_Union_Agg(geometry) FROM work.area))"""), True),
         ("U4", "junction nodes outside their own intersection space (> 0.5 m)", q("""SELECT count(*) FROM jn
                                   JOIN u ON u.unit_id = jn.intersection_id WHERE ST_Distance(u.g, jn.p) > 0.5"""), True),
         ("U5", "junction nodes inside a road's space", q("""SELECT count(*) FROM jn JOIN u ON u.kind = 'subsection' AND u.level = jn.level
@@ -561,6 +565,11 @@ def roadway_meets(c, epsg, level=0):
         if t in ROAD_PARTS:
             rw_u.setdefault(u, []).append(g.buffer(0.02))
     rw_u = {u: shapely.union_all(v) for u, v in rw_u.items()}
+    isl_u = {}          # (each space's islands: a median that begins at a joint is no step in the roadway)
+    for u, t, g in parts:
+        if t == "island":
+            isl_u.setdefault(u, []).append(g.buffer(0.1))
+    isl_u = {u: shapely.union_all(v) for u, v in isl_u.items()}
     rw = shapely.union_all(list(rw_u.values()) or [shapely.Polygon()])
     units = {u: (k, sec, geo(w)) for u, k, sec, w in c.execute(f"""SELECT u.unit_id, u.kind, s.section_id, {m('u.geometry')} FROM work.unit u
                  LEFT JOIN work.subsection s ON s.subsection_id = u.unit_id WHERE u.level = {level}""").fetchall()}
@@ -622,9 +631,12 @@ def roadway_meets(c, epsg, level=0):
             xa, xb = jl.intersection(rw_u.get(a, shapely.Polygon())), jl.intersection(rw_u.get(b, shapely.Polygon()))
             if xa.is_empty and xb.is_empty:
                 continue
-            d = xa.difference(xb.buffer(W2_M / 2)).length + xb.difference(xa.buffer(W2_M / 2)).length
+            # (a stretch where one side has roadway and the other an island is a median's nose at the joint: the road divides round a
+            # real island there, no step in its edge; counting islands as roadway everywhere turned every island beside a sidewalk into a step)
+            dd_ = [q for g, other in ((xa.difference(xb.buffer(W2_M / 2)), b), (xb.difference(xa.buffer(W2_M / 2)), a)) for q in shapely.get_parts(g)
+                   if not q.is_empty and not (other in isl_u and q.difference(isl_u[other]).length < 0.1)]
+            d = sum(q.length for q in dd_)
             if d >= W2_M:
-                dd_ = [q for g in (xa.difference(xb.buffer(W2_M / 2)), xb.difference(xa.buffer(W2_M / 2))) for q in shapely.get_parts(g) if not q.is_empty]
                 p_ = max(dd_, key=lambda q: q.length).interpolate(0.5, normalized=True) if dd_ else (xa.union(xb)).representative_point()
                 # (the mark at the step itself, the middle of its longest piece: the joint's middle lay up to 9 m from it)
                 w2.append(to_ll(p_.x, p_.y) + (f"shift at a joint between {pair(a, b)}",))

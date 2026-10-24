@@ -950,7 +950,7 @@ def build(con, epsg):
                     votes.setdefault(j, []).append(roads[elem_of[edge]]["level"])
         # (a junction where roads of several levels meet, a tunnel's entrance or a ramp's end, is on each of them: on one level only, the
         # other level's roadway stopped short of the node by the junction's size, 1 to 8 m at Monaco's tunnel entrances, check W3. Each
-        # level takes the part its own lanes run into: each lane continued straight on from its end by MULTI_LEVEL_REACH_M at its width,
+        # level takes the part its own lanes run into: each lane continued straight on from its end through the shape at its width,
         # inside the junction's shape; the whole shape on each level drew the other level's arms as spikes and blobs)
         def own_part(j, xy, lv):
             J_ = area(shapely.Polygon(xy))
@@ -965,7 +965,8 @@ def build(con, epsg):
                         continue
                     dx, dy = b_[0] - a_[0], b_[1] - a_[1]
                     h = (dx * dx + dy * dy) ** 0.5 or 1.0
-                    far = (b_[0] + dx / h * MULTI_LEVEL_REACH_M, b_[1] + dy / h * MULTI_LEVEL_REACH_M)
+                    reach_ = max(MULTI_LEVEL_REACH_M, J_.length / 2)      # (through the whole shape: a merge's junction underground is long)
+                    far = (b_[0] + dx / h * reach_, b_[1] + dy / h * reach_)
                     pieces.append(shapely.LineString([b_, far]).buffer(x["w"] / 2, cap_style="flat"))
             return area(safe("intersection", J_, shapely.union_all(pieces))) if pieces else shapely.Polygon()
         juncs = [dict(id=j, poly=area(shapely.Polygon(xy)) if len(set(votes[j])) == 1 else own_part(j, xy, lv), level=lv)

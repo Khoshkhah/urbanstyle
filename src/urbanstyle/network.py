@@ -49,6 +49,7 @@ CORE_MIN_M = 1.0        # a junction's core counts only where the arms' carriage
 JGAP_M = 2.0            # an island begins where the strip between two frames is this wide; a thinner tail with nothing on it is paved (chosen)
 SLIT_MAX_M2 = 3.0       # a piece of a space no part covers, roadway round it, at most this big, is roadway (a slit)
 ROAD_SLIT = ("lane", "paved", "junction area", "crosswalk", "cycle crossing", "cycle lane", "parking", "shoulder", "bus lane", "ring", "bridge deck")
+NODE_KEEP_M = 2.0       # a junction keeps this much round each of its nodes, whatever the street's edge (checks J1, U4, U5)
 FILLET_MAX_M2 = 40.0    # a corner fillet of KERB_RADIUS_M is at most this big (a 30 degree corner: 2.4 R2); a bigger closing is a gap, no corner
 JUNC_ARM_M, CROSS_NEAR_M, CROSS_HALF_M = 3.0, 15.0, 1.5
 STOP_BACK_M = 1.0       # a stop line stands this far before the junction (chosen, as division.py)
@@ -1212,16 +1213,12 @@ def build(con, epsg, bridges=(), level=0):
         # the roadway never passes the street's edge nor a sidewalk strip: at a corner the kerb is the strip's near side where OSM maps
         # the line, the KERB_RADIUS_M fillet only where it does not (Kaveh, 2026-10-16)
         if etree is not None:       # (the edge's pieces near the junction, from the index: not the whole union)
-            near_ = [htree.geometries[k] for k in htree.query(J)] if htree is not None else []
-            # (a footway's strip only where the footway runs beside the junction's roads, as in the room rule: one that crosses a road or
-            # ends on it inside the junction is no sidewalk of it; its strip's round end bit the junction and left the junction's node
-            # outside it, checks J1, U4 and U5 at n25194212, Monaco 2026-10-24)
-            rl_ = [r["line"] for r in runs if r["line"].intersects(J)]
-            for k in (sw_tree.query(J) if sw_tree is not None else []):
-                if not any(sw_items[k][0].distance(l_) < LANE_M / 2 for l_ in rl_):
-                    near_.append(sw_items[k][1])
+            near_ = [etree.geometries[k] for k in etree.query(J)]
             if near_:
-                J = poly(J.difference(shapely.make_valid(shapely.union_all(near_))))
+                # (never round the junction's own nodes: a footway's strip that ends on the road there bit the junction and left its node
+                # outside it, checks J1, U4 and U5 at n25194212, Monaco 2026-10-24; elsewhere the strips cut it as before)
+                keep_ = shapely.union_all([p_.buffer(NODE_KEEP_M) for p_ in ns]) if ns else shapely.Polygon()
+                J = poly(J.difference(shapely.make_valid(shapely.union_all(near_)).difference(keep_)))
         if J.is_empty:      # (all of it outside the street's edge: no junction there)
             continue
         ids = sorted(node_id.get((round(p.x, 1), round(p.y, 1))) or 0 for p in ns)

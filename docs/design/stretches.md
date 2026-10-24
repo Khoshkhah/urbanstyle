@@ -126,6 +126,7 @@ both sides. `urban.street` and `urban.arm`: the named streets and their arms ([T
 | J2 | no intersection has a piece over 40 m² and over a tenth of its area outside its arms' bands |
 | J3 | every connector lies inside an intersection or on a bridge deck |
 | J4 (INFO) | the tag changes along the sections, with the count per class |
-| W1 | no street's line has a stretch of 0.1 m or more between two pieces of roadway with no roadway under it |
-| W2 | where two spaces meet across a street, the roadway reaches the joint at the same points on both sides (0.2 m); a street's dead end is no joint |
+| W1 | on every level, no street's line has a stretch of 0.1 m or more between two pieces of roadway with no roadway under it |
+| W2 | on every level, where two spaces meet across a street, the roadway reaches the joint at the same points on both sides (0.2 m); a street's dead end is no joint |
+| W3 | where streets of two levels meet at a node (a tunnel's entrance, a ramp onto a deck), the roadway of each level reaches the node (0.5 m) from each of its streets |
 | K1 (INFO) | the kerb of a subsection against the city's catch basins: a difference over 1.5 m |

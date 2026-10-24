@@ -17,7 +17,9 @@ def unit_checks(c, q, epsg):
     c.execute(f"""CREATE TEMP TABLE u AS SELECT unit_id, kind, level, ST_MakeValid(ST_Buffer({m('geometry')}, -0.01)) AS g FROM work.unit""")
     c.execute(f"""CREATE TEMP TABLE jn AS SELECT DISTINCT a.intersection_id, a.level, n.p FROM work.junction a
                   JOIN (SELECT src AS node, {m('ST_StartPoint(geometry)')} AS p FROM work.element WHERE type = 'road' AND src IS NOT NULL
-                        UNION SELECT dst, {m('ST_EndPoint(geometry)')} FROM work.element WHERE type = 'road' AND dst IS NOT NULL) n ON n.node = a.node_id""")
+                        UNION SELECT dst, {m('ST_EndPoint(geometry)')} FROM work.element WHERE type = 'road' AND dst IS NOT NULL) n ON n.node = a.node_id
+                  -- (nodes inside the area only: a cut's junction whose node lies past its edge is cut there, no fault)
+                  WHERE ST_Within(n.p, (SELECT ST_Union_Agg({m('geometry')}) FROM work.area))""")
     return [
         ("U1", "spaces overlapping by more than 0.05 m2 (rank 3 partitions the street; the lon/lat storage leaves hairlines under that)", q("""SELECT count(*) FROM u a JOIN u b ON a.level = b.level AND a.unit_id < b.unit_id
                                   AND ST_Intersects(a.g, b.g) WHERE ST_Area(ST_Intersection(a.g, b.g)) > 0.05"""), True),
@@ -266,8 +268,13 @@ def rule_checks(c, epsg):
             if q_.geom_type == "LineString" and q_.length > 2.0:
                 bare.append(at(q_))
     # J1: an intersection with no junction node in it
+    # (an intersection whose junction node lies past the area's edge is cut there: a cut's edge, no fault)
+    past = {i for (i,) in c.execute(f"""SELECT DISTINCT j.intersection_id FROM work.junction j
+                 JOIN (SELECT src AS node, ST_StartPoint(geometry) AS p FROM work.element WHERE type = 'road'
+                       UNION SELECT dst, ST_EndPoint(geometry) FROM work.element WHERE type = 'road') n ON n.node = j.node_id
+                 WHERE NOT ST_Within(n.p, (SELECT ST_Union_Agg(geometry) FROM work.area))""").fetchall()}
     nojn = [at(g) for u, g in ((u, geo(w)) for u, w in c.execute(f"""SELECT unit_id, {m('geometry')} FROM work.unit
-                 WHERE level = 0 AND kind = 'intersection'""").fetchall()) if jn.is_empty or g.buffer(0.5).disjoint(jn)]
+                 WHERE level = 0 AND kind = 'intersection'""").fetchall()) if u not in past and (jn.is_empty or g.buffer(0.5).disjoint(jn))]
     # J2: a junction area outside its arms: each subsection's line as drawn, as wide as its roadway (+2.5 m: parking on one side puts the
     # line off the middle), run on 25 m past its ends, is an arm's band; a piece of a junction area over 5 m2 outside every band (a 4 m
     # corner fillet is 3.4 m2) means the junction reaches where no arm is (a disc round the node did, 2026-10-15)

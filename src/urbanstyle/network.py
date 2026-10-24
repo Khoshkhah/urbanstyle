@@ -1877,7 +1877,7 @@ def build(con, epsg, bridges=(), level=0):
             ref=("the junction of " + ", ".join(f"n{i}" for i in j["nodes"]) if j["nodes"] else "the arms' carriageways where they meet")
             + (" with the connectors " + ", ".join(f"w{o}" for o in j["connectors"]) if j["connectors"] else ""))
         ped(j["id"], j["geom"], R)
-        junction_rows += [(j["id"], i, 0, j["id"]) for i in j["nodes"]]
+        junction_rows += [(j["id"], i, LV, j["id"]) for i in j["nodes"]]   # (its own level: a deck junction stored at 0 was compared with the ground spaces, U5)
 
     # (a divided road's two carriageways: one space, their units joined)
     if dual_pairs:

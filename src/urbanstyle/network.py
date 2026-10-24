@@ -175,6 +175,9 @@ def arrow_shape(tip, h, ways):
     return shapely.MultiLineString(pieces)
 
 
+GROUND_END_R_M = 25.0     # a deck's street past its ground end's line is cut off within this of the end
+
+
 def build(con, epsg, bridges=(), level=0):
     import duckdb
     import numpy as np
@@ -651,6 +654,26 @@ def build(con, epsg, bridges=(), level=0):
         n = unit_v((da[0] + db[0], da[1] + db[1])) if (da[0] + db[0], da[1] + db[1]) != (0.0, 0.0) else da
         ra["cuts"].append((pa, n, -1, wa))
         rb["cuts"].append((pb, n, 1, wb))
+    # a deck's section that ends where one ground road begins (a bridge's ground end): cut on the ground road's end line, square to the
+    # ground road, where the ground road's own section ends; two square ends at an angle left a triangle of gap and one of overlap
+    # between the deck and the ground (bridge w943188282, Kaveh 2026-10-23)
+    ground_cuts = []        # (each ground end of a deck: the point and the direction into the ground road)
+    if LV != 0:
+        g_ends = {}
+        for (w,) in rows(f"SELECT {m()} FROM work.element WHERE type = 'road' AND level_min = 0"):
+            gc_ = list(g(w).coords) if g(w).geom_type == "LineString" else []
+            for p_, q_ in ((gc_[0], gc_[1]), (gc_[-1], gc_[-2])) if len(gc_) >= 2 else ():
+                g_ends.setdefault((round(p_[0], 1), round(p_[1], 1)), []).append(unit_v((q_[0] - p_[0], q_[1] - p_[1])))
+        for k_, es_ in at_end.items():
+            if len(es_) != 1 or len(g_ends.get(k_, [])) != 1:
+                continue
+            (r_, w_, p_, q_), = es_
+            gd = g_ends[k_][0]                                    # out of the node along the ground road
+            ground_cuts.append((p_, gd, r_))
+            if w_ == "end":
+                r_["cuts"].append((p_, gd, -1, w_))
+            else:
+                r_["cuts"].append((p_, (-gd[0], -gd[1]), 1, w_))
     tick("the sections chained (rank 2)")
     # ---- 6a''. connectors (docs/design/sections.md, rule 3): a section between two junction nodes shorter than CONNECTOR_M, or one of
     # `_link` ways only, is no section: it belongs to one intersection with both nodes (West 8th, Fir Street and the ramp foot are one).
@@ -1156,6 +1179,14 @@ def build(con, epsg, bridges=(), level=0):
     cw_all = shapely.union_all([r["cw"] for r in runs] + [J for _, J, _ in jshapes] or [shapely.Polygon()])
     corridors = shapely.union_all([g(w) for (w,) in rows(f"SELECT {m()} FROM work.corridor")] or [shapely.Polygon()])
     street = poly(area.difference(blocks).difference(corridors)) if not area.is_empty else shapely.Polygon()
+    # (a deck's street stops at its ground ends' lines: the deck's outline ran on past them, a wedge of walking side over the ground
+    # junction; not where another road of this level goes on past the line)
+    for p_, gd, r_ in ground_cuts:
+        past = street.intersection(half_plane(p_, gd, 1).intersection(shapely.Point(p_).buffer(GROUND_END_R_M)))
+        others = shapely.union_all([q["line"].buffer(1.0) for q in runs if q is not r_ and q["line"].distance(shapely.Point(p_)) < GROUND_END_R_M]
+                                   or [shapely.Polygon()])
+        street = poly(street.difference(shapely.union_all([f_ for f_ in shapely.get_parts(past) if not f_.intersects(others)]
+                                                          or [shapely.Polygon()])))
     clusters = []       # [nodes, shape, connector ways]
     for n, J, oids_ in jshapes:
         hit = [c for c in clusters if c[1].intersects(J)]

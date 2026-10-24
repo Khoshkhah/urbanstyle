@@ -1202,6 +1202,65 @@ def _trim_to_osm(con, P):
     return P
 
 
+END_MATCH_M = 10.0      # a deck's ground end: the stretch whose outline the end line can change
+
+
+def _ground_ends(con, axes, a_lv, outline, epsg):
+    """At each ground end where one ground road begins, the deck's end lies on that road's end line (square to it at the node), at the
+    deck's own width: the deck's last cross-section runs on to the line, and nothing of the deck lies past it. Two square ends at an
+    angle (the deck's square to the bridge, the ground road's square to itself) left a triangle of gap and one of overlap (bridge
+    w943188282, 2026-10-23); the division ends the deck's street on the same line (network.py, ground_cuts). {level: polygon}."""
+    import shapely
+    import shapely.ops
+    m = f"ST_AsWKB(ST_Transform(geometry, 'EPSG:4326', '{epsg}', always_xy := true))"
+    unit = lambda x, y: (x / (math.hypot(x, y) or 1.0), y / (math.hypot(x, y) or 1.0))
+    try:
+        con.execute("SELECT 1 FROM work.element LIMIT 1")
+    except Exception:
+        return outline
+    for ln, a in axes:
+        lv = a_lv.get(a["id"])
+        if outline.get(lv) is None or outline[lv].is_empty:
+            continue
+        ways = {int(str(w)[1:]) for w in a.get("ways", []) if str(w).startswith("w")}
+        for e in a.get("ends", []):
+            if not e.get("ground") or not str(e.get("node") or "").startswith("n"):
+                continue
+            nid = int(e["node"][1:])
+            gr = [(shapely.from_wkb(bytes(w)), s_ == nid) for o, s_, w in con.execute(
+                f"SELECT osm_id, src, {m} FROM work.element WHERE type = 'road' AND level_min = 0 AND (src = ? OR dst = ?)", [nid, nid]).fetchall()
+                  if o not in ways]
+            if len(gr) != 1:
+                continue                  # (no ground road, or several: a junction there, the deck keeps its end)
+            gl, starts = gr[0]
+            k = 0 if e["s"] < 0.01 else 1
+            L = ln.length
+            node = shapely.Point(ln.coords[0] if k == 0 else ln.coords[-1])
+            q = gl.interpolate(min(3.0, gl.length)) if starts else gl.interpolate(max(gl.length - 3.0, 0.0))
+            gd = unit(q.x - node.x, q.y - node.y)                     # into the ground road
+            s1 = max(L - 1.0, 0.0) if k else min(1.0, L)
+            p1, p2 = ln.interpolate(max(s1 - 0.5, 0)), ln.interpolate(min(s1 + 0.5, L))
+            b = unit(p2.x - p1.x, p2.y - p1.y) if k else unit(p1.x - p2.x, p1.y - p2.y)   # along the bridge, towards this end
+            nb = (-b[1], b[0]); c = ln.interpolate(s1)
+            cut = shapely.LineString([(c.x - nb[0] * 25, c.y - nb[1] * 25), (c.x + nb[0] * 25, c.y + nb[1] * 25)]).intersection(outline[lv])
+            seg = [g_ for g_ in shapely.get_parts(cut) if g_.distance(c) < 0.5]
+            if not seg:
+                continue
+            (x0, y0), (x1, y1) = seg[0].coords[0], seg[0].coords[-1]
+            run = shapely.Polygon([(x0, y0), (x1, y1), (x1 + b[0] * 12, y1 + b[1] * 12), (x0 + b[0] * 12, y0 + b[1] * 12)])
+            w_ = seg[0].length / 2 + max(seg[0].distance(c), 0) + 2.0
+            stub = shapely.ops.substring(ln, max(L - END_MATCH_M, 0), L) if k else shapely.ops.substring(ln, 0, min(END_MATCH_M, L))
+            near_ = stub.buffer(w_ + 12.0)
+            t = (-gd[1], gd[0])
+            past = shapely.Polygon([(node.x + t[0] * 60, node.y + t[1] * 60), (node.x - t[0] * 60, node.y - t[1] * 60),
+                                    (node.x - t[0] * 60 + gd[0] * 60, node.y - t[1] * 60 + gd[1] * 60),
+                                    (node.x + t[0] * 60 + gd[0] * 60, node.y + t[1] * 60 + gd[1] * 60)]).intersection(near_)
+            pg = outline[lv].union(run.intersection(near_)).difference(past)
+            pg = shapely.make_valid(pg).buffer(0.02).buffer(-0.02)
+            outline[lv] = max(shapely.get_parts(pg), key=lambda g_: g_.area) if pg.geom_type != "Polygon" else pg
+    return outline
+
+
 # ---------------------------------------------------------------- 3. the model
 def model(con, P, rank0=False, cover=True, gmns=None, above_ground=False):
     """One bridge's 3D model. gmns (the bridge's SUMO via duckOSM GMNS): step 5 of docs/notes/bridge-steps.md, the structure (rank 0) on the
@@ -1260,6 +1319,7 @@ def model(con, P, rank0=False, cover=True, gmns=None, above_ground=False):
         if not zone.is_empty:
             from .bridge_forks import step3b
             outline = step3b(B_, F_, parted=zone)
+        outline = _ground_ends(con, axes, a_lv, outline, crs)     # (each ground end on its ground road's end line)
         structs = [(lv, [aid for aid, l_ in a_lv.items() if l_ == lv], pg, own) for lv, pg in outline.items()]
         if cover and not rank0:           # step 6: step 4's bands on this structure
             from .bridge_forks import cover_items

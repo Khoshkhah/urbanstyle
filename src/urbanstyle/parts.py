@@ -49,6 +49,7 @@ ARROW_M = 3.0          # a painted lane arrow's length
 ARROW_GAP_M = 1.5      # no two arrows closer than about this
 POCKET_MAX_M2 = 30.0   # a pocket of ground smaller than this, the roadway nearly all round it, is roadway (unless a refuge is mapped)
 ROADWAY_GAP_M = 1.2    # a gap narrower than this between two roadways is roadway too (a real island or median is wider)
+MULTI_LEVEL_REACH_M = 12.0   # a junction where roads of two levels meet: each level's lanes run on into it this far (clipped by its shape)
 OFF_GROUND_M = 1.5     # a tunnel's or a bridge's space reaches this far past its roadway (a narrow walkway), not out to open ground
 METER_M = 3.0          # a parking meter this close to a kerb strip makes it pay parking (a meter stands on the sidewalk by its bays)
 BAY_M = 3.0            # a mapped parking bay (accessible, motorcycle) this close to a kerb strip makes it parking
@@ -947,8 +948,29 @@ def build(con, epsg):
             for j in ends:
                 if edge in elem_of:
                     votes.setdefault(j, []).append(roads[elem_of[edge]]["level"])
-        juncs = [dict(id=j, poly=area(shapely.Polygon(xy)), level=max(set(votes[j]), key=votes[j].count))
-                 for j, xy in net["junctions"].items() if len(xy) >= 3 and j in votes]
+        # (a junction where roads of several levels meet, a tunnel's entrance or a ramp's end, is on each of them: on one level only, the
+        # other level's roadway stopped short of the node by the junction's size, 1 to 8 m at Monaco's tunnel entrances, check W3. Each
+        # level takes the part its own lanes run into: each lane continued straight on from its end by MULTI_LEVEL_REACH_M at its width,
+        # inside the junction's shape; the whole shape on each level drew the other level's arms as spikes and blobs)
+        def own_part(j, xy, lv):
+            J_ = area(shapely.Polygon(xy))
+            pieces = []
+            for x in lanes:
+                if x["level"] != lv:
+                    continue
+                fj, tj = net["ends"][x["edge"]]
+                cs = list(x["ln"].coords)
+                for hit, (a_, b_) in ((tj == j, (cs[-2], cs[-1])), (fj == j, (cs[1], cs[0]))):
+                    if not hit:
+                        continue
+                    dx, dy = b_[0] - a_[0], b_[1] - a_[1]
+                    h = (dx * dx + dy * dy) ** 0.5 or 1.0
+                    far = (b_[0] + dx / h * MULTI_LEVEL_REACH_M, b_[1] + dy / h * MULTI_LEVEL_REACH_M)
+                    pieces.append(shapely.LineString([b_, far]).buffer(x["w"] / 2, cap_style="flat"))
+            return area(safe("intersection", J_, shapely.union_all(pieces))) if pieces else shapely.Polygon()
+        juncs = [dict(id=j, poly=area(shapely.Polygon(xy)) if len(set(votes[j])) == 1 else own_part(j, xy, lv), level=lv)
+                 for j, xy in net["junctions"].items() if len(xy) >= 3 and j in votes
+                 for lv in (sorted(set(votes[j])) if len(set(votes[j])) > 1 else [votes[j][0]])]
         juncs = [j for j in juncs if not j["poly"].is_empty]
         # where a road only continues (its way is split there, no junction of ours), SUMO's shape is a blob: a clean join of the lane
         # ends meeting there instead

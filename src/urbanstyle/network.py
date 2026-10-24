@@ -1183,7 +1183,9 @@ def build(con, epsg, bridges=(), level=0):
     # (nor a path's corridor, a pedestrian way's own ground between the blocks, work.corridor: it ends at the street's sidewalk,
     # FURNISH_M + CLEAR_M from the roadway, so the sidewalk runs on past the path's mouth and the two touch; paths.md rule 5)
     cw_all = shapely.union_all([r["cw"] for r in runs] + [J for _, J, _ in jshapes] or [shapely.Polygon()])
-    corridors = shapely.union_all([g(w) for (w,) in rows(f"SELECT {m()} FROM work.corridor")] or [shapely.Polygon()])
+    # (the corridors are the ground's paths: they cut the ground's street only. On a deck they cut the deck's street across where a path
+    # runs under the bridge: Granville's main span in three pieces, checks W1 and U2, 2026-10-24)
+    corridors = shapely.union_all(([g(w) for (w,) in rows(f"SELECT {m()} FROM work.corridor")] if LV == 0 else []) or [shapely.Polygon()])
     street = poly(area.difference(blocks).difference(corridors)) if not area.is_empty else shapely.Polygon()
     # (a deck's street stops at its ground ends' lines: the deck's outline ran on past them, a wedge of walking side over the ground
     # junction; not where another road of this level goes on past the line)

@@ -53,15 +53,16 @@ Where no source gives a lane width and the city's catch basins lie beyond the ch
 on that side widens to them as a lane that holds parking.
 
 **The room.** The street's edge of rank 1 caps every kerb. For each run, the room on each side is the least distance from its line to
-the blocks, the corridors and the sidewalk strips, measured every 2.5 m out to 60 m. The frame's kerb on that side never passes it.
+the blocks, the corridors and the sidewalk strips, measured every 2.5 m out to 60 m. On a deck the street's edge is the deck's edge:
+the corridors of the paths on the ground under a bridge do not cut the deck's street. The frame's kerb on that side never passes it.
 Where the lanes and the strips do not fit between the two edges, the chosen lane width narrows on that piece, down to 2.75 m, the
 count as OSM maps it (`width_method` `narrowed`). A width OSM maps is not narrowed. What still does not fit is cut at the edge. A joint
 where the room changed the frame is the change class `room`.
 
 **The sidewalk strip.** Every walkway at level 0 that is no crossing and has no corridor is a sidewalk line. Its strip is OSM's `width`
 or 2 m, centred on the line. The near side of the strip is the kerb's limit; the far side is the block's edge. A sidewalk strip
-limits a road's room only where its line runs along that road, within 35°: a footway that ends at the road or crosses it does
-not. At a corner the kerb is
+limits a road's room, and cuts a junction, only where its line runs along that road, within 35° and half a lane width or more from
+the road's line: a footway that ends at the road or crosses it does neither. At a corner the kerb is
 the line's curve where OSM maps it, and a 4 m fillet only where it does not.
 
 **The driving side** is the part of the space inside the kerb: in a section the frame between the two stop lines, in a sub-intersection

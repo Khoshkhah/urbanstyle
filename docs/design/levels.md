@@ -133,7 +133,11 @@ a lane or a path opens its fields and the source and method of its count, its wi
 
 ## Tunnels
 
-A tunnel's lanes and the ground's lanes touch at the portal node, and a connection in `urban.link` joins the levels there. In 3D the
+A tunnel's lanes and the ground's lanes touch at the portal node, and a connection in `urban.link` joins the levels there. The
+junction that SUMO makes at a node where roads of two levels meet (a portal, a ramp's end) belongs to each of those levels: each level
+takes the part of the junction that its own lanes run into (each lane continued 12 m straight on from its end, inside the junction's
+shape). So the roadway of every level reaches the node, and no level draws the other level's arms. An unnamed service road (a
+driveway, a garage ramp) has no roadway on any level, as on the ground. In 3D the
 tube is drawn at its depth, 6 m a level below the ground, a chosen value; over the last 30 m before a portal the tube rises to the
 ground, so the tunnel lane meets the ground lane at the node in plan and in height. A ramp or stairs between two levels slope from the
 height of their upper end to the height of their lower end; an elevator is a vertical shaft.
@@ -148,3 +152,4 @@ height of their upper end to the height of their lower end; an elevator is a ver
 | BR11 | no step in the deck's height |
 | BR12 | no surveyed or mapped street object stands inside a lane near the ground |
 | T1 to T3 | a tunnel lane and the ground lane touch at the portal in plan and in height; no tunnel lane rises above the ground before its portal |
+| W3 | at every node where streets of two levels meet (a portal, a ramp's end), the roadway of each level reaches the node within 0.5 m |

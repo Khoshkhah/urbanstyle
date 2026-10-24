@@ -4,7 +4,48 @@ Status: written at the end of the 2026-10-15/16 session, updated in the night of
 data-structure design. Read `AGENTS.md`
 first, then this note, then `docs/notes/street-rules.md` and `docs/notes/sections.md`.
 
-## The state on 2026-10-23 (read this first)
+## 2026-10-24: Granville's landing and branch width (read this first)
+
+A background session did this work. It is on branch `bg/granville-landing-width` (worktree `.claude/worktrees/granville-lw`), not on
+network-first, and duckOSM's part is on duckOSM's branch `bg/gmns-pair-one-level` (0abfe47). Nothing is pushed. The shared checkouts
+still hold the same changes uncommitted (urbanstyle: `bridge_forks.py`, `bridge_surface.py`, `network.py`; duckOSM: `gmns.py`): merge
+the branches, then drop those copies.
+
+Done (for the faults Kaveh found on the Granville cut, port 8786; not accepted by him yet, so the design chapters are not changed):
+
+- duckOSM GMNS: one-way carriageways pair only on one level. A bridge way and a ground road under its edge were paired, and ramp a2's
+  lanes made an S of 2.8 m before its landing. Granville: 6 lanes move; Monaco wide: 39 lanes on 21 ways.
+- Bridge cover: no paved rest (the deck that no item covers is the bare slab).
+- Landing (a2 at n4846077906): a ground end that the profile names no node of takes the ground road's node at the axis end, so the
+  deck ends on the ground road's end line; a low edge across the bridge at a ground end is the landing (no parapet); the cover's
+  barriers and edge lines stop before it; lanes and sidewalks run on to the end line.
+- Division: the room rule does not narrow a run that goes on from a deck (w473319095: 2.75 -> 3.25 m, the same as a2's lanes).
+- Step 3: the edges follow the bands (`_edges_along`, EDGE_HOLD_M 20 m), not one width per branch at its widest cross-section,
+  which was always near a fork. Granville's deck 56,015 -> 50,820 m2. The references of steps 1-3 and 3b-4 are saved again.
+
+Checks (Granville cut, built again from the division): 39 pass, 13 fail, 12 info, as before; B8 41 -> 38, BR2 2 -> 1, K2 146 -> 148,
+R4 112 -> 114. Rank 0: all D checks pass. Deck under 2.5 m over a ground roadway: 787 -> 626 m2. Monaco's bridges: deck 9,039 ->
+8,286 m2; Avenue de France's D3 (1) is gone, Larvotto's D8 2 -> 1, Avenue de France's D8 2 stays.
+
+Open:
+
+1. `tests/reference/granville-bridge-step-5.json` is not saved again (the job stopped for low memory). Save it (`data/bg/tools/
+   saverefs.py`) once Kaveh accepts the new width; until then `tests/test_bridge_step5.py` fails (the deck's area).
+2. A thin seam at a2's landing: the ground road's lanes are 3.25 m but cut to 5.7 m by the street's edge on the left (B7), where the
+   ground road w48524379 runs close; the deck's lanes are 6.6 m. Fixing it moves a block edge (rank 1) or narrows the deck's lanes at
+   the landing: Kaveh's choice.
+3. Pacific Street (w117158492) runs under the north ramps (a5, a6, a8); the deck is 0.7 to 1.9 m above it there. That is the height
+   solve (step 5), not the width: Kaveh's choice.
+4. Monaco: only Avenue de France, Princesse Grace and Costa were looked at in 3D (the picture job stopped for low memory); the
+   Monaco division is not built again with the room-rule change.
+5. Tunnel entrances (item 5 below): a try of way (1) with "a way that joins two levels is never a sliver" closed some node gaps but
+   opened gaps inside the tunnels; kept as `data/bg/tools/tunnels-way1-keep-levels.patch`, not in the code.
+
+Tools in `data/bg/tools/` (not in git): `br3d.py` / `g3d.py` (3D pictures with the panel's own 3D button, G hidden), `landing.py`
+(the joint at a landing), `lowover.py` (deck under a clearance over ground roadway), `widthwhy.py` (where a branch is widest),
+`gaps.py` (W1, W2 on every level and W3, roadway at level-change nodes), `saverefs.py`.
+
+## The state on 2026-10-23
 
 Branch network-first, pushed. The dashboard on port 8785 serves `data/monaco.duckdb` and `viz/monaco.html`: the Monaco build with
 all the rules below (its bridges from `structure --above-ground`; the page's own `bridge3d.json` from `dashboard` is the old deck3d

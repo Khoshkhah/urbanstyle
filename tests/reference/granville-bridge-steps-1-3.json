@@ -112,7 +112,7 @@
      5457920.88
     ]
    ],
-   "area_m2": 17944.52
+   "area_m2": 17526.57
   },
   {
    "id": "b2",
@@ -125,8 +125,8 @@
    ],
    "s0": 30.0,
    "s1": 0.0,
-   "lo": -6.11,
-   "hi": 6.11,
+   "lo": -6.04,
+   "hi": 6.04,
    "line": [
     [
      489855.54,
@@ -185,7 +185,7 @@
      5456938.91
     ]
    ],
-   "area_m2": 4577.2
+   "area_m2": 3906.8
   },
   {
    "id": "b3",
@@ -302,7 +302,7 @@
      5457393.83
     ]
    ],
-   "area_m2": 4174.47
+   "area_m2": 3423.35
   },
   {
    "id": "b4",
@@ -367,7 +367,7 @@
      5457320.26
     ]
    ],
-   "area_m2": 3766.47
+   "area_m2": 2682.07
   },
   {
    "id": "b5",
@@ -432,7 +432,7 @@
      5458042.66
     ]
    ],
-   "area_m2": 3244.98
+   "area_m2": 2968.34
   },
   {
    "id": "b6",
@@ -501,7 +501,7 @@
      5457920.88
     ]
    ],
-   "area_m2": 3653.7
+   "area_m2": 2892.08
   },
   {
    "id": "b7",
@@ -574,7 +574,7 @@
      5457270.42
     ]
    ],
-   "area_m2": 1794.92
+   "area_m2": 1613.33
   },
   {
    "id": "b8",
@@ -603,7 +603,7 @@
      5458051.83
     ]
    ],
-   "area_m2": 3648.42
+   "area_m2": 3312.65
   },
   {
    "id": "b9",
@@ -652,7 +652,7 @@
      5457530.46
     ]
    ],
-   "area_m2": 2473.8
+   "area_m2": 1916.97
   },
   {
    "id": "b10",
@@ -1059,14 +1059,14 @@
      5457393.83
     ]
    ],
-   "area_m2": 4611.38
+   "area_m2": 4262.36
   }
  ],
  "fork_areas": {
-  "n13040317836": 2835.76,
-  "n266729860": 1500.26,
-  "n414553095": 532.66,
-  "n3488072817": 1447.78
+  "n13040317836": 2719.9,
+  "n266729860": 1407.56,
+  "n414553095": 428.48,
+  "n3488072817": 1375.55
  },
- "_note": "Steps 1 to 3 of Granville Bridge as Kaveh accepted them (2026-10-22: each axis on its smooth centre line, OSM's line averaged over 20 m with its ends held, one width and one constant offset from its bands, measured across the smooth line; a band counts where its nearest point on the axis is the station; a path counts only where this branch's lanes are its nearest lanes, beside them over 12 m or more; a short sideways path link not counted; a fork is the hull between the smooth cross-sections; a lane end with no move on the bridge straight on as far as its node; a U-turn is a move turning over 150 degrees or back into the same road; SUMO's lanes from duckOSM with the lane taper at plain joints and the carriageways straight through OSM's V; duckOSM's overrides #23 and #24, the lane-split rule, the V as one smooth curve, the two merge lanes that do not end). tests/test_bridge_steps.py fails when the code gives anything else; change this file only when Kaveh asks."
+ "_note": "Steps 1 to 3 of Granville Bridge as Kaveh accepted them (2026-10-22: each axis on its smooth centre line, OSM's line averaged over 20 m with its ends held, one width and one constant offset from its bands, measured across the smooth line; a band counts where its nearest point on the axis is the station; a path counts only where this branch's lanes are its nearest lanes, beside them over 12 m or more; a short sideways path link not counted; a fork is the hull between the smooth cross-sections; a lane end with no move on the bridge straight on as far as its node; a U-turn is a move turning over 150 degrees or back into the same road; SUMO's lanes from duckOSM with the lane taper at plain joints and the carriageways straight through OSM's V; duckOSM's overrides #23 and #24, the lane-split rule, the V as one smooth curve, the two merge lanes that do not end). tests/test_bridge_steps.py fails when the code gives anything else; change this file only when Kaveh asks. Saved again 2026-10-24: step 3's edges follow the bands (bridge_forks._edges_along: the outermost band within EDGE_HOLD_M, smoothed), not one width per branch at its widest cross-section, which is always near a fork (Kaveh: the deck must be as wide as its lanes and paths). The deck 56,015 -> 50,820 m2; one sidewalk (w871038539) goes from fork f4 to branch b9."
 }

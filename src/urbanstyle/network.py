@@ -876,12 +876,18 @@ def build(con, epsg, bridges=(), level=0):
                     best = min(best, q.distance(hit))
         return best
 
+    # (a run that goes on from a deck at a landing keeps its lanes' width: they are the deck's lanes, one road across the landing; the room
+    # rule narrowed Granville's w473319095, a trunk_link like the ramp a2 it continues, to 2.75 m against the deck's 3.25 m, a step at
+    # each side, Kaveh 2026-10-24)
+    lv_ends = {(round(p_[0], 1), round(p_[1], 1)) for (w_,) in rows(f"SELECT {m()} FROM work.element WHERE type = 'road' AND level_min <> {LV}")
+               for cs_ in [list(g(w_).coords)] for p_ in (cs_[0], cs_[-1])}
+    lands = lambda r: any((round(x_, 1), round(y_, 1)) in lv_ends for x_, y_ in (r["line"].coords[0], r["line"].coords[-1]))
     for r in runs:
         r["room"] = {1: room(r["line"], 1), -1: room(r["line"], -1)}
         r["room_cut"] = False
         strips_ = {s: r["wide"][s] + sum(w for _, w, _ in r["ex"][s]) for s in (1, -1)}
         avail = 2 * min(r["room"][s] - strips_[s] for s in (1, -1))
-        if avail < r["W"] - 0.01:
+        if avail < r["W"] - 0.01 and not lands(r):
             n_ = r["f"] + r["b"]
             W2 = max(avail, n_ * LANE_MIN_M)
             r["room_note"] = f"the street's edges leave {max(avail, 0):.2f} m for {n_} lanes: {r['lw']:.2f} m lanes narrowed to {W2 / n_:.2f} m"

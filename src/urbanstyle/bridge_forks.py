@@ -761,9 +761,46 @@ def band_widths(P, axes, R, gmns=None, edge=0.5):
             h_ = osm_half()
             if h_ > half:
                 half, off = h_, 0.0
-        mids = [(0.0, off), (ln0.length, off)]                         # (one offset along the whole line)
+            mids = [(0.0, off), (ln0.length, off)]                     # (one offset along the whole line)
+        else:
+            # the edges follow the bands (Kaveh, 2026-10-24: "the deck must be as wide as its lanes and paths"): one width for the whole
+            # branch, its widest cross-section, left 1 to 10 m of bare slab beside the bands, the widest always near a fork where a path
+            # spreads from the lanes (a2 10.5 m at 24 m for 9.1 m; a9 25.3 m at 4 m for 15.8 m). [(s on the smooth line, middle, half)]
+            sh = c0 if ln is not sm0 else 0.0
+            mids = [(s_ + sh, m_, h_ + edge) for s_, m_, h_ in _edges_along(ln, own)]
         out[a["id"]] = (round(-half - edge, 2), round(half + edge, 2), mids)
     return out
+
+
+EDGE_HOLD_M = 20.0      # step 3: an edge holds the outermost band within this window, then is smoothed over it (no wobble, never inside a band)
+
+
+def _edges_along(line, polys, reach=40.0, step=1.0, hold=EDGE_HOLD_M):
+    """Step 3's edges along an axis from its bands: at every station the bands' reach to the left and right (as _one_width), each edge
+    the outermost within hold / 2 on each side, smoothed over hold. Returns [(s, middle, half)] every 2 m."""
+    import numpy as np
+    import shapely
+    from .bridge_surface import _frame
+    g = shapely.union_all(polys)
+    ss = np.arange(0.0, line.length + 0.01, step)
+    lo, hi = [], []
+    for s_ in ss:
+        x0, y0, nx, ny = _frame(line, float(s_))
+        cut = shapely.LineString([(x0 - nx * reach, y0 - ny * reach), (x0 + nx * reach, y0 + ny * reach)]).intersection(g)
+        ts = [(cx - x0) * nx + (cy - y0) * ny for part in shapely.get_parts(cut) for cx, cy in getattr(part, "coords", [])
+              if abs(line.project(shapely.Point(cx, cy)) - float(s_)) <= HERE_M]
+        lo.append(min(ts) if ts else np.nan)
+        hi.append(max(ts) if ts else np.nan)
+    lo, hi = np.array(lo), np.array(hi)
+    have = ~np.isnan(lo)
+    idx = np.where(have)[0]
+    lo = np.interp(np.arange(len(ss)), idx, lo[idx]); hi = np.interp(np.arange(len(ss)), idx, hi[idx])
+    h = max(1, int(hold / 2 / step))
+    win = lambda a, f: np.array([f(a[max(0, i - h):i + h + 1]) for i in range(len(a))])
+    lo_s, hi_s = win(win(lo, np.min), np.mean), win(win(hi, np.max), np.mean)
+    lo_s, hi_s = np.minimum(lo_s, lo), np.maximum(hi_s, hi)          # (never inside a band)
+    keep = list(range(0, len(ss), max(1, int(2.0 / step)))) + [len(ss) - 1]
+    return [(float(ss[i]), float((lo_s[i] + hi_s[i]) / 2), float((hi_s[i] - lo_s[i]) / 2)) for i in sorted(set(keep))]
 
 
 MID_SMOOTH_M = 20.0     # the strip's middle follows the bands' middle, averaged over this (no kink where a path begins or ends)
@@ -839,9 +876,11 @@ def _strip_along(line, mids, half, s0=None, s1=None, step=1.0):
     if s1 - s0 < 0.1:
         return shapely.Polygon()
     xs = [p[0] for p in mids]; ys = [p[1] for p in mids]
+    hs = [p[2] if len(p) > 2 else half for p in mids]              # (a mid with its own half width: the edges follow the bands)
     left, right = [], []
     for s_ in list(np.arange(s0, s1, step)) + [s1]:
         m = float(np.interp(s_, xs, ys))
+        half = float(np.interp(s_, xs, hs))
         x0, y0, nx, ny = _frame(line, float(s_))
         left.append((x0 + nx * (m + half), y0 + ny * (m + half)))
         right.append((x0 + nx * (m - half), y0 + ny * (m - half)))
@@ -853,6 +892,7 @@ def _edges_at(line, mids, half, s_):
     import numpy as np
     from .bridge_surface import _frame
     m = float(np.interp(s_, [p[0] for p in mids], [p[1] for p in mids]))
+    half = float(np.interp(s_, [p[0] for p in mids], [p[2] if len(p) > 2 else half for p in mids]))
     x0, y0, nx, ny = _frame(line, float(s_))
     return [(x0 + nx * (m + half), y0 + ny * (m + half)), (x0 + nx * (m - half), y0 + ny * (m - half))]
 

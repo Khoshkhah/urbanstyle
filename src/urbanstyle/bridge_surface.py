@@ -1048,6 +1048,8 @@ def _slits(poly, axes, own, step=0.25, pairs_out=None):
 
 VC_PER_M = 0.02         # the deck's grade changes by at most this a metre along an axis (2 % a metre: a 36 % change needs 18 m)
 UNDER_M = 0.1          # with measured ground, the slab's bottom at least this far under the top
+LANDING_OPEN_M = 1.0   # a barrier of the cover ends this far before a landing's open edge
+LAND_REACH_M = 15.0    # a ground end: an edge this near its end point that runs across the bridge is the landing
 LAND_GROUND_M = 0.5    # with measured ground, an edge at most this far above it is on the ground (a landing, no parapet): the ground between the points is coarse
 
 
@@ -1218,15 +1220,27 @@ def _ground_ends(con, axes, a_lv, outline, epsg):
         con.execute("SELECT 1 FROM work.element LIMIT 1")
     except Exception:
         return outline
+    ground_nodes = None              # (a ground end the profile names no node of: the ground road's end node at the axis's end point)
     for ln, a in axes:
         lv = a_lv.get(a["id"])
         if outline.get(lv) is None or outline[lv].is_empty:
             continue
         ways = {int(str(w)[1:]) for w in a.get("ways", []) if str(w).startswith("w")}
         for e in a.get("ends", []):
-            if not e.get("ground") or not str(e.get("node") or "").startswith("n"):
+            if not e.get("ground"):
                 continue
-            nid = int(e["node"][1:])
+            if str(e.get("node") or "").startswith("n"):
+                nid = int(e["node"][1:])
+            else:                    # (Granville's measured profile has none: a2's landing kept a square end, a wedge of gap, 2026-10-24)
+                if ground_nodes is None:
+                    ground_nodes = [(n_, shapely.Point(g_.coords[k_])) for s_, d_, w in con.execute(
+                        f"SELECT src, dst, {m} FROM work.element WHERE type = 'road' AND level_min = 0").fetchall()
+                        for g_ in [shapely.from_wkb(bytes(w))] if g_.geom_type == "LineString" for n_, k_ in ((s_, 0), (d_, -1))]
+                end_p = shapely.Point(ln.coords[0] if e["s"] < 0.01 else ln.coords[-1])
+                near = sorted((p_.distance(end_p), n_) for n_, p_ in ground_nodes if p_.distance(end_p) < 1.0)
+                if not near:
+                    continue
+                nid = near[0][1]
             gr = [(shapely.from_wkb(bytes(w)), s_ == nid) for o, s_, w in con.execute(
                 f"SELECT osm_id, src, {m} FROM work.element WHERE type = 'road' AND level_min = 0 AND (src = ? OR dst = ?)", [nid, nid]).fetchall()
                   if o not in ways]
@@ -1351,10 +1365,27 @@ def model(con, P, rank0=False, cover=True, gmns=None, above_ground=False):
             verts.append(tm(x, y, zz))
         return vix[key]
     slab, sides, surf = [], [], []
+    landing_lines = []           # (the open edges at the landings: no barrier of the cover stands on them)
     d1, d2, d3, d6, d7, d2_dbg, parapet_dbg = [], [], [], [], [], [], []
     ll = lambda x, y: list(to_ll(x, y))
     ground_pts = [shapely.Point(nd["xy"]) for nd in nodes if nd["ground"]]
     ground_mp = shapely.MultiPoint(ground_pts) if ground_pts else None
+    # each ground end with the bridge's direction there (into the bridge): an edge near it that runs across the bridge and lies low is the
+    # landing, open; and the cover runs on to the deck's end line there
+    land_ends = []
+    for ln_, a_ in axes:
+        for e_ in a_.get("ends", []):
+            if e_.get("ground") and ln_.length > 1.0:
+                p0_, p1_ = ((ln_.interpolate(0.0), ln_.interpolate(min(3.0, ln_.length))) if e_["s"] < 0.01 else
+                            (ln_.interpolate(ln_.length), ln_.interpolate(max(ln_.length - 3.0, 0.0))))
+                n_ = math.hypot(p1_.x - p0_.x, p1_.y - p0_.y) or 1.0
+                land_ends.append((p0_, ((p1_.x - p0_.x) / n_, (p1_.y - p0_.y) / n_)))
+
+    def across_end(ax_, ay_, bx_, by_):
+        """The segment lies at a ground end (within LAND_REACH_M) and runs across the bridge there (over 60 degrees to it)."""
+        m_ = shapely.Point((ax_ + bx_) / 2, (ay_ + by_) / 2)
+        L_ = math.hypot(bx_ - ax_, by_ - ay_) or 1.0
+        return any(p_.distance(m_) < LAND_REACH_M and abs((bx_ - ax_) * d_[0] + (by_ - ay_) * d_[1]) / L_ < 0.5 for p_, d_ in land_ends)
     # one piece per polygon of a structure, from landing to landing: the slab's bottom is max(h - DECK_M, 0), so near a landing the
     # structure is solid to the ground (rule 6) with no seam, no separate fill (a separate fill piece showed every seam: 2026-10-17)
     pieces = []        # (level, polygon, surface, axis ids, kind)
@@ -1444,8 +1475,11 @@ def model(con, P, rank0=False, cover=True, gmns=None, above_ground=False):
                     sides += [[a0, b0, b1], [a0, b1, a1]]
                 mid = shapely.Point((ax + bx) / 2, (ay + by) / 2)
                 zm = (za + zb) / 2 - (ga + gb) / 2     # (above the ground there)
-                if zm < land_m:                     # the landing line itself, on the ground: open (the sides keep their parapet to it)
+                # the landing line itself, on the ground: open (the sides keep their parapet to it); also a low edge across the bridge at a
+                # ground end (a2's end at 0.1-0.2 m kept two parapet pieces across the road, Kaveh 2026-10-24)
+                if zm < land_m or (zm < LAND_GROUND_M and across_end(ax, ay, bx, by)):
                     n_low += 1
+                    landing_lines.append(shapely.LineString([(ax, ay), (bx, by)]))
                     continue
                 if ground_mp is not None and ground_mp.distance(mid) < 0.5 and zm > max(0.1, land_m):
                     d3.append(ll(mid.x, mid.y))
@@ -1479,19 +1513,28 @@ def model(con, P, rank0=False, cover=True, gmns=None, above_ground=False):
                 d8.append(ll(x1, y1))                 # (a step at a node where axes meet is a branch: the width changes there)
     # ---- the cover (ranks 1 to 6), made from the same profile as the structure so it fills the deck by construction
     if cover and not rank0:
+        import shapely.affinity
         for g, key, lift, rise, props in cov["items"]:
+            # (at a ground end a lane, sidewalk or cycle lane runs on to the deck's end line, which lies on the ground road's end line and
+            # not square to the lane: the lanes ended square and left a wedge of bare deck at a2's landing, Kaveh 2026-10-24)
+            # (a barrier of the cover ends LANDING_OPEN_M before a landing's open edge: the barrier between the lanes and the sidewalk
+            # ended in a block across a2's end, Kaveh 2026-10-24)
+            if key == "barrier" and landing_lines:
+                g = g.difference(shapely.union_all(landing_lines).buffer(LANDING_OPEN_M, cap_style="flat"))
+            # (... and no edge line runs along it: the edge line turned across a2's lanes at the deck's end, Kaveh 2026-10-24)
+            if key == "mark edge line" and landing_lines:
+                g = g.difference(shapely.union_all(landing_lines).buffer(0.4, cap_style="flat"))
+            if key.startswith("lane") or key in ("sidewalk", "cycle lane"):
+                for p_, d_ in land_ends:
+                    if g.distance(p_) < LAND_REACH_M:
+                        g = g.union(shapely.affinity.translate(g, -d_[0] * 6.0, -d_[1] * 6.0).intersection(p_.buffer(LAND_REACH_M)))
             for lv, pg, S, ids, kind in pieces:
                 if lv == props.get("level"):
                     q = shapely.make_valid(g.intersection(pg))
                     if not q.is_empty and q.area > 0.01:
                         _mesh_flat(q, key, dict(props, layer="cover"), top_of.get(id(pg), S), lift, rise, tm, surf, grid)
-        # the rest of each slab is paved: also where a hole of the deck was filled (no hole in a structure), which the cover has no piece of
-        for lv, pg, S, ids, kind in pieces:
-            on = shapely.union_all([g for g, key, *_r, props in cov["items"] if props.get("level") == lv and not key.startswith("mark")]
-                                   or [shapely.Polygon()])
-            q = shapely.make_valid(pg.difference(on))
-            if not q.is_empty and q.area > 0.01:
-                _mesh_flat(q, "paved", {"type": "paved", "bridge": P["name"], "layer": "cover"}, top_of.get(id(pg), S), 0.03, 0.0, tm, surf, grid)
+        # (no paved rest: the deck that no cover item covers stays the bare slab. A paved strip there had no source: it was the branch's one
+        # width less its lanes and paths, Kaveh 2026-10-23 "remove paved from bridge")
     # D6: two structures of one level overlapping
     for i, (lv, pg, _, _, _) in enumerate(pieces):
         for lv2, pg2, _, _, _ in pieces[i + 1:]:

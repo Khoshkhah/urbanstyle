@@ -9,7 +9,7 @@ first, then this note, then `docs/notes/street-rules.md` and `docs/notes/section
 Branch network-first, pushed. The dashboard on port 8785 serves `data/monaco.duckdb` and `viz/monaco.html`: the Monaco build with
 all the rules below (its bridges from `structure --above-ground`; the page's own `bridge3d.json` from `dashboard` is the old deck3d
 model and is replaced by the flat solve after each page build: see step 7 below). Older builds are kept as `data/monaco-1022a`,
-`-1022b`, `-1023a`, `-1023b`, `-1023c`, `-1023d` (`.duckdb`) and `viz/monaco-<same>.html`. The work tools of the last session are in `data/bg/`
+`-1022b`, `-1023a`, `-1023b`, `-1023c`, `-1023d`, `-1023e` (`.duckdb`) and `viz/monaco-<same>.html`. The work tools of the last session are in `data/bg/`
 (not in git): `rebuild.sh` (Monaco from the division into `data/monaco-r.*`, its checks, the flat bridges and the page),
 `wcheck.py` / `wdiff.py` (W1, W2 by cause, and the places gone and new between two builds), `onejoint.py` (one place drawn),
 `hcompare.py` (a bridge model's heights against IGN's points), `rebuild2.sh` (the same into `data/monaco-r2.*`), `mouthsort.py`
@@ -28,6 +28,12 @@ Done on 2026-10-22/23 (the design is in `docs/design/levels.md`, `stretches.md`,
   lose all their roadway, and why).
 - Division: a slit (a piece of a space no part covers, roadway round it) is roadway (W2 48 -> 35, 13 places gone and none new;
   W1 1 -> 0). W2 marks the step itself, not the middle of the joint.
+- Bridges: a deck's ground end lies on the ground road's end line (bridge w943188282). The division cuts the deck's section and its
+  street there (`ground_cuts`, no wedge of walking side past the end); the bridge model runs the deck's last cross-section on to
+  the line at the deck's own width (`_ground_ends`). Not kept: the deck narrowed to the ground road's kerbs (it cut off the deck's
+  walking strips), the deck cut by the ground's parts (roads pass under the arch 6 m before its west end), the deck as its level's
+  space over the last 10 m (a wing and a step). Monaco: W1 0 -> 0, W2 35 -> 35 (no place gone or new), all checks the same.
+  The Monaco page's area name reads `monaco-r2` (the build's file name before the swap).
 - Reverted: no fillet at an arm's mouth (Monaco: 24 shifts gone, 27 new; sharp corners in compact junctions). Not kept: W2 with
   islands counted as carriageway (W2 48 -> 119).
 

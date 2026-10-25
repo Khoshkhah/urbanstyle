@@ -1688,6 +1688,11 @@ def build(con, epsg, bridges=(), level=0):
     # every island of the level, whichever space holds it: a piece of the pedestrian side that touches no block (ped() reads it)
     isl_all = shapely.union_all([q for X in share.values() for q in shapely.get_parts(X)
                                  if q.area >= ISLAND_MIN_M2 and along_edge(q) < ISLAND_TOUCH_M and not q.buffer(-0.5).is_empty] or [shapely.Polygon()])
+    def own_line(ln_, U_):
+        """A subsection's line inside its own space (its longest piece there): a section chained over two ways ran its line on to the
+        junction node, 13.6 m into the intersection (check U6, Granville's Lamey's Mill Road)."""
+        q_ = [g_ for g_ in shapely.get_parts(ln_.intersection(U_.buffer(0.5))) if g_.geom_type == "LineString"] if not U_.is_empty else []
+        return max(q_, key=lambda g_: g_.length) if q_ else ln_
     for k, r in enumerate(runs):
         G, ln, uid = r["road_g"], r["line"], r["sub"]
         R = share.get(k, shapely.Polygon())
@@ -1706,7 +1711,7 @@ def build(con, epsg, bridges=(), level=0):
                 ref=f"w{r['oid']} bridge=yes: drawn by the bridge model", **common)
             ped(uid, G, R)
             if r.get("dual") is None:
-                subrows.append((uid, r["sid"], r["cl"], round(r.get("dual_w") or (r["fkl"] - r["fkr"]), 2), r["ow"], round(ln.length, 1), None, None, "section end", round(r["mshift"], 3), axis_out(ln)))
+                subrows.append((uid, r["sid"], r["cl"], round(r.get("dual_w") or (r["fkl"] - r["fkr"]), 2), r["ow"], round(own_line(ln, U).length, 1), None, None, "section end", round(r["mshift"], 3), axis_out(own_line(ln, U))))
             continue
         xl = r["xline"]
         trans = r.get("trans", {})
@@ -1866,7 +1871,7 @@ def build(con, epsg, bridges=(), level=0):
                  "urbanstyle", "derived", "where the lanes enter the junction")
         ped(uid, G, R)
         if r.get("dual") is None:
-            subrows.append((uid, r["sid"], r["cl"], round(r.get("dual_w") or (r["fkl"] - r["fkr"]), 2), r["ow"], round(ln.length, 1), None, None, "section end", round(r["mshift"], 3), axis_out(ln)))
+            subrows.append((uid, r["sid"], r["cl"], round(r.get("dual_w") or (r["fkl"] - r["fkr"]), 2), r["ow"], round(own_line(ln, U).length, 1), None, None, "section end", round(r["mshift"], 3), axis_out(own_line(ln, U))))
     for j in junctions:
         k = len(runs) + junctions.index(j)
         R = share.get(k, shapely.Polygon())

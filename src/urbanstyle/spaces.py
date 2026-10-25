@@ -362,18 +362,22 @@ def build(con, epsg):
             rib = shapely.union_all([line.buffer(ext[0], single_sided=True, cap_style="flat", join_style="mitre", mitre_limit=2.0),
                                      line.buffer(-ext[1], single_sided=True, cap_style="flat", join_style="mitre", mitre_limit=2.0)])
             # junction ends: the line runs on to the node; cut it at its own arm's cut (the arm leaving the node in its direction)
+            road = line.buffer(w / 2, cap_style="flat")
             for end, inner in ((line.coords[0], line.interpolate(min(5.0, line.length))), (line.coords[-1], line.interpolate(max(line.length - 5.0, 0)))):
                 cands = cut_at.get((round(end[0], 1), round(end[1], 1)), [])
                 if cands:
                     dx, dy = _unit(inner.x - end[0], inner.y - end[1])
                     iid, p, v, n, u = max(cands, key=lambda c: c[4][0] * dx + c[4][1] * dy)
                     # only the junction's side of the cut, near the junction: a long curving road must not lose its middle
-                    rib = rib.difference(_halfplane(p, v, (-n[0], -n[1]), along=CORNER_MAX_M + 25, depth=CORNER_MAX_M + 15))
+                    hp_ = _halfplane(p, v, (-n[0], -n[1]), along=CORNER_MAX_M + 25, depth=CORNER_MAX_M + 15)
+                    rib = rib.difference(hp_)
+                    road = road.difference(hp_)
             rib = rib.difference(bline)
             parts = [x for x in shapely.get_parts(rib) if x.intersection(line).length > 0.5]
-            road = line.buffer(w / 2, cap_style="flat")
-            if parts:   # the road's own surface belongs to its space even where it passes under a building: one connected piece
-                spaces.append([sid, sec, line, _clean(shapely.union_all(parts + [road.intersection(rib.envelope.buffer(1))])), color])
+            if parts:   # the road's own surface belongs to its space even where it passes under a building: one connected piece, along the
+                # whole line to its junctions' cuts (within the ribbon's box only, a ramp that runs under a building to a street at another
+                # level lost its last 6 m: the levels did not join, check W3, Monaco's Parking du Jardin Exotique)
+                spaces.append([sid, sec, line, _clean(shapely.union_all(parts + [road])), color])
             else:       # its ribbon is all cut away (its junctions' cuts reach past it, or the building line covers it): its road surface still
                 spaces.append([sid, sec, line, _clean(road), color])     # needs a space, unless the intersections hold all of it (below)
         # the intersection: the junction's core and its road pieces are its own; then everything inside its cuts that no arriving

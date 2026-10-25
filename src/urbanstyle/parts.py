@@ -954,7 +954,7 @@ def build(con, epsg):
         # inside the junction's shape; the whole shape on each level drew the other level's arms as spikes and blobs)
         def own_part(j, xy, lv):
             J_ = area(shapely.Polygon(xy))
-            pieces = []
+            pieces, ends_ = [], []
             for x in lanes:
                 if x["level"] != lv:
                     continue
@@ -965,10 +965,16 @@ def build(con, epsg):
                         continue
                     dx, dy = b_[0] - a_[0], b_[1] - a_[1]
                     h = (dx * dx + dy * dy) ** 0.5 or 1.0
-                    reach_ = max(MULTI_LEVEL_REACH_M, J_.length / 2)      # (through the whole shape: a merge's junction underground is long)
+                    # (through the whole shape, and across a gap between the lane's end and the shape: a merge's junction underground
+                    # is long, and a ramp's lanes ended 7 m before a small junction)
+                    reach_ = max(MULTI_LEVEL_REACH_M, J_.length / 2 + shapely.Point(b_).distance(J_))
                     far = (b_[0] + dx / h * reach_, b_[1] + dy / h * reach_)
                     pieces.append(shapely.LineString([b_, far]).buffer(x["w"] / 2, cap_style="flat"))
-            return area(safe("intersection", J_, shapely.union_all(pieces))) if pieces else shapely.Polygon()
+                    ends_.append(shapely.Point(b_).buffer(x["w"] / 2))
+            if not pieces:
+                return shapely.Polygon()
+            clip_ = shapely.union_all([J_] + ends_).convex_hull      # (the junction and the lane ends that reach it: no farther)
+            return area(safe("intersection", clip_, shapely.union_all(pieces)))
         juncs = [dict(id=j, poly=area(shapely.Polygon(xy)) if len(set(votes[j])) == 1 else own_part(j, xy, lv), level=lv)
                  for j, xy in net["junctions"].items() if len(xy) >= 3 and j in votes
                  for lv in (sorted(set(votes[j])) if len(set(votes[j])) > 1 else [votes[j][0]])]

@@ -1215,10 +1215,15 @@ def build(con, epsg, bridges=(), level=0):
         if etree is not None:       # (the edge's pieces near the junction, from the index: not the whole union)
             near_ = [etree.geometries[k] for k in etree.query(J)]
             if near_:
-                # (never round the junction's own nodes: a footway's strip that ends on the road there bit the junction and left its node
-                # outside it, checks J1, U4 and U5 at n25194212, Monaco 2026-10-24; elsewhere the strips cut it as before)
-                keep_ = shapely.union_all([p_.buffer(NODE_KEEP_M) for p_ in ns]) if ns else shapely.Polygon()
-                J = poly(J.difference(shapely.make_valid(shapely.union_all(near_)).difference(keep_)))
+                # (never round the junction's own nodes, and only where the cut would take one: a footway's strip that ends on the road
+                # there bit the junction and left its node outside it, checks J1, U4 and U5 at n25194212, Monaco 2026-10-24; everywhere
+                # else the strips cut it as before: a disc round every node changed other junctions' mouths, W2)
+                edge_ = shapely.make_valid(shapely.union_all(near_))
+                cut_ = poly(J.difference(edge_))
+                if ns and any(cut_.is_empty or cut_.distance(p_) > 0.5 for p_ in ns):
+                    keep_ = shapely.union_all([p_.buffer(NODE_KEEP_M) for p_ in ns])
+                    cut_ = poly(J.difference(edge_.difference(keep_)))
+                J = cut_
         if J.is_empty:      # (all of it outside the street's edge: no junction there)
             continue
         ids = sorted(node_id.get((round(p.x, 1), round(p.y, 1))) or 0 for p in ns)

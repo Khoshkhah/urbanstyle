@@ -21,8 +21,9 @@ moves.
 2. **Merges and forks are junction nodes.** A Y, a ramp joining a road, a slip lane leaving a road: roads meet there, whatever
    the angle. (Until 2026-10-16 a Y was a joint inside a section; the connector became a section of its own, with a walking wedge
    beside it: the bump at West 8th and the slip lane.)
-3. **Connectors.** A road piece between two junction nodes that is shorter than `CONNECTOR_M` (40 m), or any `_link` piece between
-   them, belongs to one intersection together with both nodes. An intersection can hold several nodes and connectors (West 8th,
+3. **Connectors.** A road piece between two junction nodes that is shorter than `CONNECTOR_M` (40 m), or a `_link` piece under 40 m between
+   them, belongs to one intersection together with both nodes. (2026-10-27: a longer `_link` is a section. As a connector its roadway was only a part
+   of the intersection's shape, which the street's edge cut away: a 92 m link in the Portier tunnel lay in three pieces with bare gaps.) An intersection can hold several nodes and connectors (West 8th,
    Fir Street and the ramp foot are one).
 4. **The intersection's area.** The union of its arms' frames from each node to the arm's stop line (the far edge of OSM's crosswalk
    within 15 m, else 3 m past where the arms' frames overlap), with the connectors' frames, and corners rounded by 4 m.

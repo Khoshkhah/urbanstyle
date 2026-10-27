@@ -711,12 +711,15 @@ def build(con, epsg, bridges=(), level=0):
         p1 = shapely.Point(rs[-1]["line"].coords[0 if rs[-1]["flip"] else -1])
         L_ = sum(r_["line"].length for r_ in rs)
         if at_jn(p0) and at_jn(p1) and not any(o in bridge_ways for r_ in rs for o in r_["oids"]) \
-                and (L_ < CONNECTOR_M or all((r_["cl"] or "").endswith("_link") for r_ in rs)
-                     or all(o in rb_ways for r_ in rs for o in r_["oids"])):
+                and (L_ < CONNECTOR_M or all(o in rb_ways for r_ in rs for o in r_["oids"])):
+            # (a `_link` is no connector by its class alone: a long ramp is a section with its own roadway. As a connector its carriageway was
+            # only a part of the intersection's shape, which the street's edge cut away along its length: a 92 m link in the Portier tunnel
+            # lay in three pieces with bare gaps between, Kaveh 2026-10-27)
             for r_ in rs:
                 r_["connector"] = True
                 # (a short piece stays a connector only where its two stop lines meet: checked at step 5, once the cores are known)
-                r_["conn_by_length"] = not (all((x["cl"] or "").endswith("_link") for x in rs) or all(o in rb_ways for x in rs for o in x["oids"]))
+                r_["conn_by_length"] = not (all((x["cl"] or "").endswith("_link") for x in rs) and L_ < CONNECTOR_M
+                                            or all(o in rb_ways for x in rs for o in x["oids"]))
     tick("the connectors (rank 2)")
     # ---- 6b. the change classes (docs/design/sections.md, section 3): every joint of a section, where OSM's tags change, is classified
     # before it touches the frame. The lanes here (the classes read the lane counts, `turn:lanes` and the junction nodes); the strips

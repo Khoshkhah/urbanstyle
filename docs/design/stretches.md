@@ -29,8 +29,8 @@ is there. Two roads that share no OSM node stay apart, also where they touch.
 
 A road piece between two junction nodes is a connector where the two junctions' cores overlap on it: the stop line of each node on
 that piece lies at or beyond the other node's stop line, so no section fits between them. Each node's stop line on the piece lies
-at its core, how far the other arms' roadways overlap the piece from the node, plus 3 m. A `_link` piece between two junction nodes
-and every piece of a roundabout's ring are connectors too. A connector belongs to one intersection together with both nodes. An
+at its core, how far the other arms' roadways overlap the piece from the node, plus 3 m. A `_link` piece under 40 m between two junction
+nodes and every piece of a roundabout's ring are connectors too. A longer `_link` piece is a section. A connector belongs to one intersection together with both nodes. An
 intersection can hold several nodes and connectors. A short piece whose stop lines do not meet is a short section between two
 intersections. A section whose roadway outside the intersections is under 20 m² is no section: that roadway joins the
 intersection it touches, and only that roadway.

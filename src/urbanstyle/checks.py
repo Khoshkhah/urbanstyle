@@ -386,7 +386,7 @@ def rule_checks(c, epsg):
                 if pc.length < 0.5 or not (at_n(shapely.Point(pc.coords[0])) and at_n(shapely.Point(pc.coords[-1]))):
                     continue
                 link_ = str(cls_of.get(o) or "").endswith("_link")
-                if (pc.length < CONNECTOR_M or link_) and area.contains(pc):
+                if pc.length < CONNECTOR_M and area.contains(pc):
                     rest_ = pc.difference(cover_c if link_ else cover_cs)
                     if rest_.length > 1.0:
                         conn_out.append(at(rest_))
@@ -398,7 +398,8 @@ def rule_checks(c, epsg):
         by_cls[cl_] = by_cls.get(cl_, 0) + 1
     return [
         ("A1", f"roads whose lanes, taken together, are off the road's OSM line (their middle more than {A1_M} m from it, median along the road)", len(off), True, off),
-        ("J3", "roads between two junction nodes outside the spaces: a `_link` not inside an intersection, a road under "
+        ("J3", "roads between two junction nodes outside the spaces: a `_link` under "
+               f"{CONNECTOR_M:.0f} m not inside an intersection, a road under "
                f"{CONNECTOR_M:.0f} m inside neither an intersection nor a section", len(conn_out), True, conn_out),
         ("J4", "tag changes along a section, each with its class" + (" (" + ", ".join(f"{k} {v}" for k, v in sorted(by_cls.items())) + ")" if by_cls else ""),
          len(chg), False, [at(geo(w)) for _, w in chg]),

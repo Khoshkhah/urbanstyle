@@ -47,6 +47,23 @@ shape is fixed only in SUMO's input or settings. The rules, the inputs and the o
 
 In order; each item is a general rule, checked on Broadway x Granville before and after.
 
+Added 2026-10-27 (Kaveh checked the model against Google 3D: it needs updates in many parts; he chose not to do them now):
+- [ ] **Review the model against Google 3D** (Kaveh, 2026-10-27). Many parts differ from the real streets. Collect the places with a
+      part id and a picture each, then rank them. Nothing is changed until Kaveh says.
+- [ ] **A sidewalk link to a crossing** (`i0-3438718321/3438718321#12`, Vancouver, West 7th Avenue side of the Granville Bridge ramp).
+      OSM way 688270767 has a 3.5 m piece from the sidewalk corner to the start of the crossing way 870987918. It is drawn as a 2.0 m
+      sidewalk stub with a round end that touches nothing. Plan A (agreed by Kaveh): the link is its own kind, a crossing approach,
+      that runs on to the crosswalk, and the sidewalk is the strips along the street only. Plan B (not chosen): cut the link.
+- [ ] **Islands at corners** (Kaveh, 2026-10-27: "you put island in some of those places"). A corner of the pedestrian side that no
+      block reaches is classed `island` (`ped()` in `network.py`, `ISLAND_TOUCH_M`; `i0-3438718321` parts 9 and 10, a green corner
+      between two crosswalks). A pedestrian corner, a curb ramp landing or a crossing approach is not an island. An island is a
+      median or a refuge with roadway on every side. Change this together with the crossing approach above.
+- [ ] **Green strip at Granville Bridge's south landing** (lane `1211493292939381263_1`, axis a2, -123.140915, 49.265124). A raised
+      median of Fir Street under the deck covers the first metres of the deck lanes. The fix is in the working tree of
+      `network.py` (the landing band cuts islands out), not committed and not checked: `vfinal5` is built with it, `vwide` too.
+- [ ] **Vancouver, the whole area** (Kaveh, 2026-10-27: "no roads here"). The page covered only 820 m round Broadway x Granville and
+      the bridge. `vwide` (2.8 km square) is built from `wtools/final-vwide.sh`; check it, then install.
+
 - [x] **City building footprints where OSM has none** (built 2026-10-10: 15 added, LiDAR heights for 321; the row in the example is the
       South Granville Station construction site, its buildings demolished: see the next item).
 - [x] **Sizes from the data** (built 2026-10-10): every part's width with its source and method (lanes measured from OSM's sidewalks or

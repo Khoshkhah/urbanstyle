@@ -1046,7 +1046,10 @@ if(typeof draw3d==='function'&&document.body.classList.contains('u3d'))draw3d();
 window.brAxes=BR.flatMap(M=>M.axes.map(cs=>({cs,name:M.name})));     // the bridges' roads, for Street View (svHere)
 const hex=c=>parseInt(c.slice(1),16);
 function brLayer(M){const o=maplibregl.MercatorCoordinate.fromLngLat(M.origin,0), s=o.meterInMercatorCoordinateUnits();
-  const T=new THREE.Matrix4().makeTranslation(o.x,o.y,o.z).scale(new THREE.Vector3(s,-s,s)); let renderer,scene,camera; const pick=[];
+  // (the model's x and y are Web Mercator metres times cos(latitude of the origin), on the earth of radius 6378137; MapLibre's metre is on 6371008.8,
+  // 0.11 % shorter: with the origin 2 km from a bridge (Monaco's file has one for all) the deck stood 2.4 m off the ground road. Heights stay MapLibre's.)
+  const sx=1/(2*Math.PI*6378137*Math.cos(M.origin[1]*Math.PI/180));
+  const T=new THREE.Matrix4().makeTranslation(o.x,o.y,o.z).scale(new THREE.Vector3(sx,-sx,s)); let renderer,scene,camera; const pick=[];
   const L={id:'br3d-'+M.name, type:'custom', renderingMode:'3d', pick,
     onAdd(map,gl){camera=new THREE.Camera(); scene=new THREE.Scene(); L.camera=camera; L.scene=scene;
       scene.add(new THREE.AmbientLight(0xffffff,0.7)); const d=new THREE.DirectionalLight(0xffffff,0.45); d.position.set(-0.5,-1,2); scene.add(d);

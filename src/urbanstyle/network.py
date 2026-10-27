@@ -255,6 +255,7 @@ def build(con, epsg, bridges=(), level=0):
         from .bridge_profile import _strip
         lv_ = dict(rows("SELECT osm_id, level_min FROM work.element WHERE type = 'road'"))
         decks = []
+        covered_ = set()        # (the ways whose deck at this level a profile's axis gives)
         for pf in bridges:
             P_ = json.load(open(pf))
             dk_ = []
@@ -263,6 +264,7 @@ def build(con, epsg, bridges=(), level=0):
                 if not ls_ or max(set(ls_), key=ls_.count) != lv:
                     continue
                 ax_ = shapely.LineString([q[:2] for q in a_["line"]["value"]])
+                covered_ |= {int(w[1:]) for w in a_.get("ways", [])}
                 for sec_ in a_.get("sections", []):
                     bs_ = sec_.get("bands") or []
                     if not bs_ or sec_["s1"] - sec_["s0"] < 0.1:
@@ -285,12 +287,15 @@ def build(con, epsg, bridges=(), level=0):
             decks.append(dk)
         roads_ = [(o, g(w), wd, ln_) for o, w, wd, ln_ in rows(f"""SELECT osm_id, {m()}, width_m, NULL
                                                                  FROM work.element WHERE type = 'road' AND level_min = {lv}""")]
+        # (a road of this level that no profile axis of this level covers: a profile's axis whose main level is another one takes the
+        # first metres of the next level's road with it, and that road had no street there: a 2.7 m stub with no room, w93209287 at
+        # n1080509835, Monaco 2026-10-27)
         # (a deck road with no profile: as wide as the road, flat at its ends; 6 m round ends made a half-circle of walking side where
         # the road meets the ground road, Kaveh 2026-10-17)
         # (below the ground, a tunnel level: one tube round all its roads, round at the ends and the joints, so its junctions stay inside
         # it; flat ends cut a tunnel junction away and the short ways in it lost their roadway, Kaveh 2026-10-23)
         decks += [r_.buffer((wd_ or LANE_M * max(nl_ or 2, 1)) / 2 + DECK_EDGE_M, cap_style="round" if lv < 0 else "flat")
-                  for o, r_, wd_, nl_ in roads_ if o not in profile_ways]
+                  for o, r_, wd_, nl_ in roads_ if o not in covered_]
         roads_ = [(o, r_) for o, r_, _, _ in roads_]
         deck_ = shapely.union_all(decks or [shapely.Polygon()])
         box_ = shapely.union_all([r_ for _, r_ in roads_] + [deck_]).envelope.buffer(200.0)

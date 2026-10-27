@@ -15,6 +15,20 @@ Done:
 - a53fb72: a `_link` is a connector only under 40 m. A 92 m link in the Portier tunnel (w176085754) lay in three pieces with bare gaps
   (U2, W1). J3 and `docs/design/stretches.md` follow.
 
+Added later on 2026-10-27 (commits c8202a4, 1042fda), found at Kaveh's place `i0-25238712` (Pont Sainte-Devote, deck s1-w95449780/1):
+- c8202a4: the 3D page placed the bridge models with MapLibre's metre (earth radius 6371008.8 m). The model's metre is Web Mercator's
+  (6378137 m). Monaco's `bridge3d.json` has one origin for all bridges, 1.5 to 3 km away, so a deck stood up to 2.4 m off the ground
+  road. The data were right. `brLayer` in `dashboard.py` now has its own horizontal scale. Heights keep MapLibre's. Vancouver was not
+  affected: its origin is at the bridge.
+- 1042fda: no kerb across the end of a roadway where a road of another level goes on (`LANDING_KERB_M`, `network.py`), and
+  `network.landing_seams` (after every level) fills a wedge of at most 1.5 m x 3 m2 between two levels' roadways as roadway (242 on
+  Monaco). `product.py` reads a part as a polygon.
+- Monaco build `data/monaco-t.duckdb` + `viz/monaco-t.html` (port 8790; `wtools/final-monaco-t.sh`, then `final-monaco-t2.sh` from the
+  ground step): the same checks as monaco-s. The cut for this place: `scripts/cut.sh monaco pk 7.41937 43.73812 120`.
+- `tests/test_bridge_step5.py::test_rank0_is_as_accepted` fails (area 50822.7, reference 56015.3) on 64db1c3 too: it is older than these
+  changes. The reference in `tests/reference/` needs a review. Not changed.
+- Not done: Vancouver's page `viz/cut-vfinal2.html` has the page fix but not the kerb and seam rules (its data are the old build).
+
 Builds (not installed on 8785/8786): Monaco `data/monaco-s.duckdb` + `viz/monaco-s.html` (port 8790); Vancouver `data/cuts/vfinal2.urban.duckdb` +
 `viz/cut-vfinal2.html` (port 8791; the page's bridge model is `urbanstyle structure ... --gmns data/granville-bridge.gmns.duckdb`, the step
 model: the page's own deck3d model has decks that end in the air). Scripts: `wtools/final-monaco-s.sh`, `wtools/final-vancouver2.sh`

@@ -283,8 +283,10 @@ def build(con, epsg, bridges=(), level=0):
                                                                  FROM work.element WHERE type = 'road' AND level_min = {lv}""")]
         # (a deck road with no profile: as wide as the road, flat at its ends; 6 m round ends made a half-circle of walking side where
         # the road meets the ground road, Kaveh 2026-10-17)
-        decks += [r_.buffer((wd_ or LANE_M * max(nl_ or 2, 1)) / 2 + DECK_EDGE_M, cap_style="flat") for o, r_, wd_, nl_ in roads_
-                  if o not in profile_ways]
+        # (below the ground, a tunnel level: one tube round all its roads, round at the ends and the joints, so its junctions stay inside
+        # it; flat ends cut a tunnel junction away and the short ways in it lost their roadway, Kaveh 2026-10-23)
+        decks += [r_.buffer((wd_ or LANE_M * max(nl_ or 2, 1)) / 2 + DECK_EDGE_M, cap_style="round" if lv < 0 else "flat")
+                  for o, r_, wd_, nl_ in roads_ if o not in profile_ways]
         roads_ = [(o, r_) for o, r_, _, _ in roads_]
         deck_ = shapely.union_all(decks or [shapely.Polygon()])
         box_ = shapely.union_all([r_ for _, r_ in roads_] + [deck_]).envelope.buffer(200.0)
@@ -644,7 +646,22 @@ def build(con, epsg, bridges=(), level=0):
             if any(c_[3] == where for c_ in r["cuts"]):
                 continue                    # (a joint inside its section)
             at_end.setdefault((round(p_[0], 1), round(p_[1], 1)), []).append((r, where, p_, q_))
+    # (a section that ends where its road goes on at another level, a tunnel's entrance or a ramp onto a deck: cut on the bisector of
+    # its direction and that road's, so the two levels' roadways meet on one line; Kaveh 2026-10-23: 107 of 119 tunnel joints had a gap)
+    other_lv = {}
+    for o_, w_ in rows(f"SELECT osm_id, {m()} FROM work.element WHERE type = 'road' AND level_min <> {LV}"):
+        cs_ = list(g(w_).coords)
+        for p_, q_ in ((cs_[0], cs_[1]), (cs_[-1], cs_[-2])):
+            other_lv.setdefault((round(p_[0], 1), round(p_[1], 1)), []).append((p_, q_))
     for k_, es_ in at_end.items():
+        if len(es_) == 1 and len(other_lv.get(k_, [])) == 1 and (jtree is None or not any(jn[j].distance(shapely.Point(k_)) < 0.6
+                                                                                         for j in jtree.query(shapely.Point(k_).buffer(0.6)))):
+            (ra, wa, pa, qa), (pb, qb) = es_[0], other_lv[k_][0]
+            da = unit_v((pa[0] - qa[0], pa[1] - qa[1]))       # into the node along this section
+            db = unit_v((qb[0] - pb[0], qb[1] - pb[1]))       # out of the node along the other level's road
+            n = unit_v((da[0] + db[0], da[1] + db[1])) if (da[0] + db[0], da[1] + db[1]) != (0.0, 0.0) else da
+            ra["cuts"].append((pa, n, -1, wa))
+            continue
         if len(es_) != 2 or es_[0][0]["sid"] == es_[1][0]["sid"]:
             continue
         if jtree is not None and any(jn[j].distance(shapely.Point(k_)) < 0.6 for j in jtree.query(shapely.Point(k_).buffer(0.6))):
@@ -1256,7 +1273,10 @@ def build(con, epsg, bridges=(), level=0):
         r["road_g"] = poly(r["road_g"].difference(taken))
         taken = shapely.union_all([taken, r["road_g"]])
     # (a run whose roadway the junctions leave under SLIVER_M2 is a sliver between a junction and a crossing node: it joins the junction)
-    small = [r for r in runs if r["road_g"].is_empty or r["road_g"].area < SLIVER_M2]
+    # A run that ends where its road goes on at another level (a tunnel's entrance, a ramp) is never a sliver: it joins two levels, and
+    # without it their roadways do not meet (Kaveh 2026-10-23: 49 of 133 level-change nodes with no roadway at the node)
+    portal = lambda r: any((round(x_, 1), round(y_, 1)) in other_lv for x_, y_ in (r["line"].coords[0], r["line"].coords[-1]))
+    small = [r for r in runs if (r["road_g"].is_empty or r["road_g"].area < SLIVER_M2) and (r["road_g"].is_empty or not portal(r))]
     for r in small:
         for j in junctions:
             if not r["road_g"].is_empty and j["geom"].distance(r["road_g"]) < 0.1:

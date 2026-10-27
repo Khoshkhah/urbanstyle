@@ -25,6 +25,14 @@ Added later on 2026-10-27 (commits c8202a4, 1042fda), found at Kaveh's place `i0
   Monaco). `product.py` reads a part as a polygon.
 - Monaco build `data/monaco-t.duckdb` + `viz/monaco-t.html` (port 8790; `wtools/final-monaco-t.sh`, then `final-monaco-t2.sh` from the
   ground step): the same checks as monaco-s. The cut for this place: `scripts/cut.sh monaco pk 7.41937 43.73812 120`.
+- 19e7a3c: a road of a level that no profile axis of that level covers gets its own street (`deck_outside`, `covered_`). A profile's axis
+  whose main level is another one took the first 2.7 m of w93209287 (level 2) with it, and the room rule dropped the road: n1080509835
+  (levels 1 and 2) had a break in the roadway and W3. Monaco `data/monaco-u.duckdb` + `viz/monaco-u.html`: W3 0, the connection test 1
+  node not connected (1079751263, on the area's edge: the roads run out of the Monaco area, nothing to join). Vancouver
+  `data/cuts/vfinal4.urban.duckdb` + `viz/cut-vfinal4.html`: 0 nodes not connected; W2 9 (vfinal3: 8). The new W2 place
+  (-123.138185, 49.266732, West 5th Avenue and the trunk links) is at level 0, which the rule cannot touch; two identical small cuts
+  of it agree, so the cause of the change between the two big builds is not known.
+- The Portier hole of open item 2 could not be found at the coordinate given there; the connection test finds no node there.
 - `tests/test_bridge_step5.py::test_rank0_is_as_accepted` fails (area 50822.7, reference 56015.3) on 64db1c3 too: it is older than these
   changes. The reference in `tests/reference/` needs a review. Not changed.
 - Not done: Vancouver's page `viz/cut-vfinal2.html` has the page fix but not the kerb and seam rules (its data are the old build).

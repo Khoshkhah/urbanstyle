@@ -1,5 +1,36 @@
 # Handoff: the street at level 0, 2026-10-23
 
+## 2026-10-27: the road issues (branch bg/road-issues-zero, commits 5351c1d, cde1151, 96491b6, a53fb72)
+
+Not pushed. Kaveh's test of "disconnected roads" is what the dashboard shows in 3D with G hidden (the carriageway of every level
+together): where two roads share an OSM node, their roadways must be one connected piece, whatever the shape. My own W1, W2 and W3
+checks did not measure this. `wtools/connect3.py DB EPSG OUT.json [NECK]` does (every node with 2 or more roads, all levels, a
+connection narrower than 2 x NECK does not count): the build of 2026-10-24 had 18 nodes not connected, the build now 3.
+
+Done:
+- 5351c1d: a junction keeps its nodes only where the street's edge would cut one off (J1, U4, U5, M1 on Monaco).
+- cde1151: the levels below the ground are built by network.py, as the decks (a section that ends where its road goes on at another
+  level is cut on the bisector and is never a sliver). W3 26 -> 1. The patch was an old try kept in `data/bg/tools/tunnels-way1-keep-levels.patch`.
+- 96491b6: a run with no space has no subsection (U7 7 -> 0; the 7 ways were short links inside junctions, nothing was lost).
+- a53fb72: a `_link` is a connector only under 40 m. A 92 m link in the Portier tunnel (w176085754) lay in three pieces with bare gaps
+  (U2, W1). J3 and `docs/design/stretches.md` follow.
+
+Builds (not installed on 8785/8786): Monaco `data/monaco-s.duckdb` + `viz/monaco-s.html` (port 8790); Vancouver `data/cuts/vfinal2.urban.duckdb` +
+`viz/cut-vfinal2.html` (port 8791; the page's bridge model is `urbanstyle structure ... --gmns data/granville-bridge.gmns.duckdb`, the step
+model: the page's own deck3d model has decks that end in the air). Scripts: `wtools/final-monaco-s.sh`, `wtools/final-vancouver2.sh`
+(in the road-zero worktree, not in git).
+
+Checks, Monaco: A1 37, W2 35, W3 1, U8 1, U9 1 and the old bridge model's BR2, BR5, BR7, BR9, BR11. Vancouver: A1 5, BR2 1, BR3 1, BR12 1,
+I3 3, U2 1 (s1-w1316244490/2, a deck section in two pieces), U9 6, W2 8, W3 2.
+
+Open:
+1. The 3 nodes not connected (connect3.py, neck 0.6): 1079751263 (7.43847, 43.74943, a ground link at a roundabout), 5895918124
+   (7.43761, 43.75168, levels 0 and 1) and 1080509835 (7.43815, 43.75131, levels 1 and 2, the Boulevard d'Italie ramps, jagged joints).
+2. A hole of about 3 x 3 m at the top end of the Portier link (s-1-w176085754/1, 7.43005, 43.74129), outside every unit.
+3. Kaveh's places: level 0 notch at the Jardin Exotique tunnel portal (0.9 m2 of bare ground, the roadways touch); the level -4 piece at
+   7.42041, 43.73818 still has about 1 m of gap. Not checked in his browser after the last build (the browser tool was down).
+4. Vancouver: all bridge ends but a2, a3, a5, a7 are not looked at; the older notes below still hold.
+
 Status: written at the end of the 2026-10-15/16 session, updated in the night of 2026-10-16 after the Monaco fails and after the
 data-structure design. Read `AGENTS.md`
 first, then this note, then `docs/notes/street-rules.md` and `docs/notes/sections.md`.

@@ -8,7 +8,8 @@ member), and writes the faces (OUT, a Parquet file) that SimReady's `import-kerb
 - `bridge`, `tunnel`: one face per structure group and level, the members' reference lines widened by half their
   width (`width_m`) to each side, with flat ends;
 - `roundabout`: one face per ring: the ground face within `reach_m` + 1 m of the ring, less the central island
-  (the ring's centre line moved inwards by half the ring's width, the inner lane border);
+  (the ring's centre line moved inwards by half the ring's width, the inner lane border); the edge of the reach is a
+  cut through open ground, not a bound;
 - `twin`: the line along which the ground face of a twin pair is split (the midline of the two reference lines; on
   a shared reference line, the line itself). It is a line, not a polygon, and is not a bound.
 
@@ -75,6 +76,13 @@ def _bounds(face, cuts):
         b = b.difference(unary_union([c.buffer(LAND_EPS, cap_style="flat") for c in cuts]))
     parts = [g for g in getattr(b, "geoms", [b]) if isinstance(g, LineString) and not g.is_empty]
     return MultiLineString(parts)
+
+
+def _bounds_less(edges, cut):
+    """The bounds less the parts that lie on a cut line (within LAND_EPS)."""
+    from shapely.geometry import LineString, MultiLineString
+    b = edges.difference(cut.buffer(LAND_EPS))
+    return MultiLineString([g for g in getattr(b, "geoms", [b]) if isinstance(g, LineString) and not g.is_empty])
 
 
 def _midline(a, b, step=2.0):
@@ -159,17 +167,21 @@ def build(db, groups, out, crs, reach_m=25.0):
             ring = unary_union([m["line"] for m in members])
             inner = max(polygonize(ring), key=lambda g: g.area, default=None)
             w = max(m["width_m"] for m in members) / 2
-            face = ground.intersection(ring.buffer(reach_m + 1.0, cap_style="flat"))
+            reach = ring.buffer(reach_m + 1.0, cap_style="flat")
+            face = ground.intersection(reach)
             if inner is not None:
                 face = unary_union([face, inner.intersection(ground)])
                 island = inner.buffer(-w)
                 if not island.is_empty:
                     face = face.difference(island)
+            # the edge of the reach is a cut through open ground, not a bound
+            edges = _bounds(face, [])
+            edges = _bounds_less(edges, reach.boundary)
             out_rows.append(dict(face_id=f"r{level}-{gid}", group_id=gid, kind=kind, level=level, carriageway_id=None,
-                                 method=METHOD[kind], geometry=face, edges=_bounds(face, [])))
+                                 method=METHOD[kind], geometry=face, edges=edges))
         elif kind == "twin":
             a, b = sorted(members, key=lambda m: m["carriageway_id"])[:2] if len(members) > 1 else (members[0], members[0])
-            out_rows.append(dict(face_id=f"t{level}-{gid}", group_id=gid, kind=kind, level=level,
+            out_rows.append(dict(face_id=f"p{level}-{gid}", group_id=gid, kind=kind, level=level,
                                  carriageway_id=a["carriageway_id"], method=None,
                                  geometry=_midline(a["line"], b["line"]), edges=None))
 

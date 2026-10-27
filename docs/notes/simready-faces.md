@@ -13,7 +13,8 @@ level. The step is `src/urbanstyle/faces.py`, run as `urbanstyle faces DB GROUPS
   `width_m`, `landing_start`, `landing_end`, `geometry` (the member's reference line, WKB, in the CRS of `--crs`). The
   columns are SimReady's decision of its item `P7.urbanstyle-groups`.
 - OUT: the faces, one Parquet row per face: `face_id`, `group_id`, `kind`, `level`, `carriageway_id`, `method`,
-  `geometry`, `edges` (the bounds). The key-value metadata holds the version of the step and of the build it read.
+  `geometry`, `edges` (the bounds). The `face_id` is `g0` for the ground, else a letter (`b` bridge, `t` tunnel, `r` ring,
+  `p` twin pair), the level and the group id. The key-value metadata holds the version of the step and of the build it read.
 
 ## The faces
 
@@ -21,7 +22,7 @@ level. The step is `src/urbanstyle/faces.py`, run as `urbanstyle faces DB GROUPS
 - `bridge` (`deck_edge`), `tunnel` (`tunnel_edge`): one face per group and level: each member's line widened by half its
   width to each side, flat at a landing, round at a joint.
 - `roundabout` (`ring_edge`): the ground within the reach of the ring (25 m and 1 m more), less the central island (the
-  ring's centre line moved inwards by half the ring's width).
+  ring's centre line moved inwards by half the ring's width). The edge of the reach is a cut through open ground, so it is not a bound.
 - `twin`: the line along which the ground face of a twin pair is split (the midline; on a shared reference line, the
   line itself). It is not a bound: SimReady's midline rule gives the same line ray by ray.
 
@@ -34,6 +35,5 @@ landings meet; the 12 others are tubes that start at one node in two directions,
 
 ## What is left
 
-- The ground face is the build's own (its OSM extract and its date). A build of the area with the groups from the
-  start would make the ground faces of the groups in the same partition.
+- The ground face is the build's own (its OSM extract and its date). A build that starts with the groups puts the ground faces of the groups in the same partition.
 - A measured deck (a bridge profile from LiDAR) is not read yet; every chain face is from the width.

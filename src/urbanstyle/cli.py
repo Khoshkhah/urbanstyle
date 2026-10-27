@@ -79,6 +79,12 @@ def main(argv=None):
     pb.add_argument("db", help="the unit's space db")
     pb.add_argument("out_dir", help="the folder to write: index.html, static.js, bridge3d.json, data/")
     pb.add_argument("--bridge", action="extend", nargs="+", default=[], help="a bridge profile, as for the dashboard")
+    fc = sub.add_parser("faces", help="rank 1 with the groups of a SimReady build: one face per group and level (src/urbanstyle/faces.py)")
+    fc.add_argument("db", help="an urbanstyle build: its street ground at level 0 is read")
+    fc.add_argument("groups", help="the groups file of the SimReady build (Parquet)")
+    fc.add_argument("out", help="the faces file to write (Parquet)")
+    fc.add_argument("--crs", required=True, help="the CRS of the groups and of the faces, e.g. EPSG:32632")
+    fc.add_argument("--reach", type=float, default=25.0, help="how far a landing and a ring reach, m (SimReady's kerb_ray_max_m)")
     a = p.parse_args(argv)
     for key in ('db', 'dbs', 'out'):     # (an old database: its schema renamed first)
         for path in ([getattr(a, key)] if isinstance(getattr(a, key, None), str) else (getattr(a, key, None) or [])):
@@ -105,6 +111,9 @@ def main(argv=None):
                     failed |= bridge(b, x, rows)
             write_checks(x, rows)
         return 1 if failed else 0
+    elif a.cmd == "faces":
+        from .faces import build as faces
+        print(faces(a.db, a.groups, a.out, a.crs, a.reach))
     elif a.cmd == "quality":
         from .quality import run
         for x in a.db:

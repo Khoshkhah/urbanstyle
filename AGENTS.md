@@ -119,7 +119,10 @@ starting work). The agreed model of sections, intersections and the frame, which
   placeholders that `.github/workflows/docs.yml` fills from the repository's secrets, from the release `demo-data` (`demo.tar.gz`).
 - The format and the standards: `docs/design/standards-comparison.md` (research), `docs/design/format.md` (requirements: a CityGML 3.0
   profile as a CityJSON Extension; ids from profiles).
-- `src/urbanstyle/cli.py`: the `urbanstyle build | check | quality | dashboard | layers | mapillary | unit | bridge | bridge-measure | bridge-heights | bridge3d | serve` command.
+- `src/urbanstyle/faces.py`: `urbanstyle faces DB GROUPS OUT --crs EPSG`, rank 1 with the groups of a SimReady build (SimReady's
+  decision D24): one face per group and level (the ground, each bridge and tunnel chain, each roundabout ring, the split line of
+  each twin pair), and the landings where the ground face and a chain's face meet on one line (`docs/notes/simready-faces.md`).
+- `src/urbanstyle/cli.py`: the `urbanstyle build | check | quality | dashboard | layers | mapillary | unit | bridge | bridge-measure | bridge-heights | bridge3d | serve | faces` command.
 - `docs/`: the MkDocs site (`mkdocs.yml`); `docs/design/` the design chapters (the design as it is: no history, no names, no dates); `docs/notes/` the working notes with the decisions and their history (not on the site). `docs/img/sodermalm.jpg` and `section.jpg` are screenshots of the dashboard
   (`viz/sodermalm-rs0.18.1.html` and `#c=s0-1277220079715399641`, 1600 × 1000): pictures in the docs come from the
   dashboard, never from a separate drawing script.

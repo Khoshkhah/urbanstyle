@@ -39,6 +39,10 @@ DUAL_M = 30.0           # the two one-way carriageways of one street are one sec
 PARK_EXTRA_M = 3.0      # an outer lane widens to the city's kerb evidence by at most this (a parking strip and the gutter; chosen)
 ALLEY_W_M = 5.0         # a service road's width where OSM gives none (chosen): its driveway across the sidewalk
 ALLEY_HALF_M = 2.5      # the kerb is dropped this far either side of where a service road (an alley, a driveway) joins the roadway (chosen)
+LANDING_KERB_M = 6.0    # no kerb across the end of a roadway this near a node where a road of another level goes on (chosen: about the roadway's width)
+SEAM_R_M = 4.0         # a seam where two levels' roadways meet: within this of the node they share (chosen)
+SEAM_W_M = 1.5         # ... a gap at most this wide between them (chosen: the two end lines differ by 0.2 to 0.5 m)
+SEAM_MAX_M2 = 3.0      # ... and at most this big (chosen)
 SLIVER_M2 = 20.0        # a subsection whose roadway outside the junctions is smaller than this joins the junction it touches (chosen)
 CUT_M = 60.0            # a roadway cut (stop line, joint) runs this far to each side across the sidewalks to the blocks
 MERGE_DEG = 45.0        # a road continues into another at a node when their headings are within this angle (chosen)
@@ -2232,6 +2236,31 @@ def build(con, epsg, bridges=(), level=0):
             along_ = [q_ for q_ in shapely.get_parts(kerb_all.intersection(shapely.union_all(shared).buffer(0.1))) if q_.length >= 0.5]
             if along_:
                 kerb_all = kerb_all.difference(shapely.union_all(along_).buffer(0.01))
+    # no kerb across the end of a roadway where a road of another level goes on from it (a ramp's landing, a tunnel's portal): the roadway
+    # does not end there. The kerb along the road's sides stays (Kaveh 2026-10-27, Pont Sainte-Devote: a kerb across the join, from both levels)
+    if not kerb_all.is_empty:
+        other_ = {n_ for r_ in rows(f"SELECT src, dst FROM work.element WHERE type = 'road' AND level_min <> {LV}") for n_ in r_}
+        ends_ = []
+        for w_, s_, d_ in rows(f"SELECT {m()}, src, dst FROM work.element WHERE type = 'road' AND level_min = {LV} AND level_max = {LV}"):
+            ln_ = g(w_)
+            if ln_.geom_type != "LineString" or ln_.length < 1.0:
+                continue
+            for n_, at_ in ((s_, 0.0), (d_, ln_.length)):
+                if n_ in other_:
+                    p0_, p1_ = ln_.interpolate(at_), ln_.interpolate(min(3.0, ln_.length) if at_ == 0.0 else ln_.length - min(3.0, ln_.length))
+                    h_ = math.hypot(p1_.x - p0_.x, p1_.y - p0_.y) or 1.0
+                    ends_.append((p0_, ((p1_.x - p0_.x) / h_, (p1_.y - p0_.y) / h_)))
+        if ends_:
+            keep_ = []
+            for q_ in shapely.get_parts(kerb_all):
+                cs_ = list(q_.coords)
+                for (x0_, y0_), (x1_, y1_) in zip(cs_, cs_[1:]):
+                    l_ = math.hypot(x1_ - x0_, y1_ - y0_) or 1.0
+                    mid_ = shapely.Point((x0_ + x1_) / 2, (y0_ + y1_) / 2)
+                    # (a piece across the road's heading, over 60 degrees to it, within LANDING_KERB_M of the node)
+                    if not any(p_.distance(mid_) < LANDING_KERB_M and abs((x1_ - x0_) * h_[0] + (y1_ - y0_) * h_[1]) / l_ < 0.5 for p_, h_ in ends_):
+                        keep_.append(shapely.LineString([(x0_, y0_), (x1_, y1_)]))
+            kerb_all = shapely.line_merge(shapely.union_all(keep_)) if keep_ else shapely.LineString()
     kerb_all = shapely.line_merge(kerb_all).simplify(0.03) if not kerb_all.is_empty else kerb_all     # (no arc crumbs: 4 vertices a metre read as a sawtooth in 3D)
     marks = [m_ for m_ in marks if m_[1] != "kerb"]
     for u, k, s_, x in units:
@@ -2315,3 +2344,76 @@ def build(con, epsg, bridges=(), level=0):
                       AND ST_Area(ST_Intersection(o.geometry, p.geometry)) > 0.9 * ST_Area(p.geometry)))""")
     tick("the kerb line and the end (rank 6)")
     return dict(sections=len(runs), intersections=len(junctions), parts=len(parts), marks=len(marks))
+
+
+def landing_seams(con, epsg):
+    """After every level is built: where a road of one level goes on as a road of another (a ramp's landing, a tunnel's portal), the two
+    levels' roadways meet along two end lines that differ by a few tenths of a metre, and a thin wedge between them is walking side or
+    nothing. A wedge within SEAM_R_M of the node, at most SEAM_W_M wide and SEAM_MAX_M2 big, touching the roadway of both levels, is
+    roadway: paved in a section, junction area in an intersection, and the walking side gives way to it (Pont Sainte-Devote,
+    i0-25238712, Kaveh 2026-10-27 "a little gap"). Returns the number of wedges filled."""
+    import shapely
+    m = f"ST_AsWKB(ST_Transform(geometry, 'EPSG:4326', '{epsg}', always_xy := true))"
+    to_ll = f"ST_Transform(ST_GeomFromWKB(?), '{epsg}', 'EPSG:4326', always_xy := true)"
+    g = lambda w: shapely.make_valid(shapely.from_wkb(bytes(w)))
+    poly = lambda x: shapely.union_all([p for q in shapely.get_parts(x) for p in shapely.get_parts(q) if p.geom_type == "Polygon"]
+                                       or [shapely.Polygon()])
+    at = {}         # node: {level: its point}
+    for lv, s_, d_, w in con.execute(f"SELECT level_min, src, dst, {m} FROM work.element WHERE type = 'road' AND level_min = level_max").fetchall():
+        ln = g(w)
+        if ln.geom_type == "LineString":
+            at.setdefault(s_, {})[lv] = shapely.Point(ln.coords[0])
+            at.setdefault(d_, {})[lv] = shapely.Point(ln.coords[-1])
+    nodes = [next(iter(v.values())) for v in at.values() if len(v) > 1]
+    if not nodes:
+        return 0
+    road_t = ROAD_T + ("crosswalk", "cycle crossing")
+    parts = [(u, pid, lv, t, g(w)) for u, pid, lv, t, w in con.execute(f"SELECT unit_id, part_id, level, type, {m} FROM work.part").fetchall()]
+    units = [(u, lv, g(w)) for u, lv, w in con.execute(f"SELECT unit_id, level, {m} FROM work.unit").fetchall()]
+    ptree = shapely.STRtree([p[4] for p in parts])
+    n_fill = 0
+    filled = []         # (the wedges already filled: two nodes near each other find the same wedge)
+    for p0 in nodes:
+        by_lv = {}
+        for i in ptree.query(p0.buffer(SEAM_R_M + 6.0)):
+            u, pid, lv, t, x = parts[i]
+            if t in road_t:
+                by_lv.setdefault(lv, []).append(x)
+        if len(by_lv) < 2:
+            continue
+        rw = {lv: shapely.union_all(xs) for lv, xs in by_lv.items()}
+        both = shapely.union_all(list(rw.values()))
+        seam = both.buffer(SEAM_W_M / 2).buffer(-SEAM_W_M / 2).difference(both)
+        for q in shapely.get_parts(seam):
+            if q.geom_type != "Polygon" or q.area < 0.02 or q.area > SEAM_MAX_M2 or q.distance(p0) > SEAM_R_M:
+                continue
+            if filled and q.intersection(shapely.union_all(filled).buffer(0.05)).area > 0.5 * q.area:
+                continue
+            filled.append(q)
+            touch = {lv_ for lv_, r_ in rw.items() if q.buffer(0.1).intersects(r_)}
+            if len(touch) < 2:
+                continue
+            for u, lv, ux in units:
+                if lv not in touch:         # (a space of a level whose roadway does not reach the wedge: a deck passing over)
+                    continue
+                piece = poly(q.intersection(ux))
+                if piece.area < 0.02:
+                    continue
+                for k, (u2, pid, lv2, t, x) in enumerate(parts):
+                    if u2 == u and t not in road_t and x.intersects(piece):
+                        parts[k] = (u2, pid, lv2, t, poly(x.difference(piece)))
+                        if parts[k][4].is_empty:
+                            con.execute("DELETE FROM work.part WHERE unit_id = ? AND part_id = ?", [u2, pid])
+                        else:
+                            con.execute(f"UPDATE work.part SET geometry = {to_ll} WHERE unit_id = ? AND part_id = ?",
+                                        [shapely.to_wkb(parts[k][4]), u2, pid])
+                n = max([int(pid.rsplit("#", 1)[1]) for u2, pid, *_ in parts if u2 == u and "#" in pid] or [0]) + 1
+                kind = con.execute("SELECT kind FROM work.unit WHERE unit_id = ?", [u]).fetchone()[0]
+                pid = f"{u}#{n}"
+                con.execute(f"""INSERT INTO work.part (unit_id, part_id, level, type, width_source, source, method, ref, geometry)
+                                VALUES (?, ?, ?, ?, 'urbanstyle', 'urbanstyle', 'derived', ?, {to_ll})""",
+                            [u, pid, lv, "junction area" if kind == "intersection" else "paved",
+                             "the seam where a road of another level goes on: roadway", shapely.to_wkb(piece)])
+                parts.append((u, pid, lv, "junction area" if kind == "intersection" else "paved", piece))
+                n_fill += 1
+    return n_fill

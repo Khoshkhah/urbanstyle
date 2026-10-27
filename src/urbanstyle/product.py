@@ -141,7 +141,7 @@ def q(c):
 def _st(axis, geom):
     """(s_from, s_to, t_from, t_to) of `geom` on `axis`: s along, t across, left positive (docs/design/tables.md, "The axes")."""
     import shapely
-    pts = [shapely.Point(c) for p in shapely.get_parts(geom) for c in (p.exterior.coords if p.geom_type == "Polygon" else p.coords)]
+    pts = [shapely.Point(c) for c in shapely.get_coordinates(geom)]       # (any geometry, a collection with a multi-part in it too)
     if not pts or axis is None or axis.length == 0:
         return None, None, None, None
     ss, ts = [], []
@@ -239,7 +239,10 @@ def write(con, epsg, out=None):
             W.rows(f"SELECT subsection_id, section_id, level, class, width_m, oneway, length_m, left_extra, {W.m()} FROM work.subsection")}
     pcols = [c for c, _ in W.rows("SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = 'work' "
                                   "AND table_name = 'part' ORDER BY ordinal_position") if c != "geometry"]
-    parts = [dict(zip(pcols, r[:-1]), geom=g(r[-1])) for r in W.rows(f"SELECT {', '.join(q(c) for c in pcols)}, {W.m()} FROM work.part")]
+    # (a part's shape made valid can come back as a collection: a sliver that touches itself after the round trip to metres. A part is a polygon.)
+    polygonal = lambda x: x if x is None or x.geom_type in ("Polygon", "MultiPolygon") else shapely.union_all(
+        [p_ for q_ in shapely.get_parts(x) for p_ in shapely.get_parts(q_) if p_.geom_type == "Polygon"] or [shapely.Polygon()])
+    parts = [dict(zip(pcols, r[:-1]), geom=polygonal(g(r[-1]))) for r in W.rows(f"SELECT {', '.join(q(c) for c in pcols)}, {W.m()} FROM work.part")]
     mcols = [c for c, _ in W.rows("SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = 'work' "
                                   "AND table_name = 'mark' ORDER BY ordinal_position") if c != "geometry"]
     marks = [dict(zip(mcols, r[:-1]), geom=g(r[-1])) for r in W.rows(f"SELECT {', '.join(q(c) for c in mcols)}, {W.m()} FROM work.mark")]

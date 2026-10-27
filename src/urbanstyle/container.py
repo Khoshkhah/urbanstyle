@@ -1047,6 +1047,7 @@ def _from_division(con, epsg, done, bridges=(), out=None, start="division"):
         # their entrances, 107 of 119 joints)
         for (lv,) in con.execute("SELECT DISTINCT level_min FROM work.element WHERE type = 'road' AND level_min <> 0 ORDER BY 1").fetchall():
             network.build(con, epsg, bridges, level=lv)
+        network.landing_seams(con, epsg)       # the thin wedges between two levels' roadways where a road goes on at another level
         turns.build(con, epsg)                 # SUMO's moves through each junction: turns, guide lines, turn arrows (step 8)
         done("division")
         if out:

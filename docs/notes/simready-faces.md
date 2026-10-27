@@ -21,8 +21,12 @@ level. The step is `src/urbanstyle/faces.py`, run as `urbanstyle faces DB GROUPS
 - `ground` (`street_edge`): the street ground at level 0, cut at each landing.
 - `bridge` (`deck_edge`), `tunnel` (`tunnel_edge`): one face per group and level: each member's line widened by half its
   width to each side, flat at a landing, round at a joint.
-- `roundabout` (`ring_edge`): the ground within the reach of the ring (25 m and 1 m more), less the central island (the
-  ring's centre line moved inwards by half the ring's width). The edge of the reach is a cut through open ground, so it is not a bound.
+- `roundabout` (`ring_edge`): one face per ring and level, one polygon that holds the ring: the annulus of the ring's
+  lanes (the centre line widened by half the ring's width to each side, less the central island, the ring's centre line
+  moved inwards by half its width), and at level 0 also the ground within the ring's reach (half the ring's width
+  beyond the outer lane border). A fragment that holds no piece of the ring is not part of the face. Below or above
+  the ground the face is the annulus alone: the street ground of level 0 is not the ring's. The edge of the reach is a
+  cut, so it is not a bound.
 - `twin`: the line along which the ground face of a twin pair is split (the midline; on a shared reference line, the
   line itself). It is not a bound: SimReady's midline rule gives the same line ray by ray.
 

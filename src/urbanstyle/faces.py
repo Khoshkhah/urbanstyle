@@ -7,9 +7,9 @@ member), and writes the faces (OUT, a Parquet file) that SimReady's `import-kerb
 - `ground`: the street face between the buildings at level 0, cut at each landing (below);
 - `bridge`, `tunnel`: one face per structure group and level, the members' reference lines widened by half their
   width (`width_m`) to each side, with flat ends;
-- `roundabout`: one face per ring: the ground face within `reach_m` + 1 m of the ring, less the central island
-  (the ring's centre line moved inwards by half the ring's width, the inner lane border); the edge of the reach is a
-  cut through open ground, not a bound;
+- `roundabout`: one face per ring and level, one polygon that holds the ring: the annulus of the ring's lanes (the
+  centre line widened by half the ring's width to each side, less the central island), and at level 0 also the ground
+  within the ring's reach (half the ring's width beyond the outer lane border); the edge of the reach is not a bound;
 - `twin`: the line along which the ground face of a twin pair is split (the midline of the two reference lines; on
   a shared reference line, the line itself). It is a line, not a polygon, and is not a bound.
 
@@ -76,6 +76,38 @@ def _bounds(face, cuts):
         b = b.difference(unary_union([c.buffer(LAND_EPS, cap_style="flat") for c in cuts]))
     parts = [g for g in getattr(b, "geoms", [b]) if isinstance(g, LineString) and not g.is_empty]
     return MultiLineString(parts)
+
+
+def _ring_face(gid, level, members, ring_members, ground):
+    """The face of a ring at one level: the annulus of the ring's lanes (the centre line widened by half the ring's
+    width to each side, less the central island); at level 0 also the ground within the ring's reach (half the ring's
+    width beyond the outer lane border), as one polygon that holds the ring. The edge of the reach is not a bound."""
+    from shapely.geometry import Polygon
+    from shapely.ops import polygonize, unary_union
+    ring = unary_union([m["line"] for m in ring_members])
+    here = unary_union([m["line"] for m in members])
+    w = max(m["width_m"] for m in ring_members)
+    inner = max(polygonize(ring), key=lambda g: g.area, default=None)
+    if inner is not None:
+        island = inner.buffer(-w / 2)
+        lanes = inner.buffer(w / 2).difference(island)
+        reach = inner.buffer(w)
+    else:
+        island = Polygon()
+        lanes = ring.buffer(w / 2)
+        reach = ring.buffer(w)
+    if len(members) < len(ring_members):          # the ring is on two levels: this level's part of it
+        lanes = lanes.intersection(here.buffer(w))
+        reach = reach.intersection(here.buffer(w * 1.5))
+    face = lanes
+    if level == 0:
+        face = unary_union([lanes, ground.intersection(reach)]).difference(island)
+    # one polygon: the parts that hold a piece of the ring; a fragment beside it is not the ring's
+    parts = [g for g in getattr(face, "geoms", [face]) if g.geom_type == "Polygon" and g.intersects(here)]
+    face = unary_union(parts) if parts else face
+    edges = _bounds_less(_bounds(face, []), reach.boundary)
+    return dict(face_id=f"r{level}-{gid}", group_id=gid, kind="roundabout", level=level, carriageway_id=None,
+                method=METHOD["roundabout"], geometry=face, edges=edges)
 
 
 def _bounds_less(edges, cut):
@@ -164,21 +196,7 @@ def build(db, groups, out, crs, reach_m=25.0):
             out_rows.append(dict(face_id=f"{kind[0]}{level}-{gid}", group_id=gid, kind=kind, level=level, carriageway_id=None,
                                  method=METHOD[kind], geometry=face, edges=_bounds(face, caps)))
         elif kind == "roundabout":
-            ring = unary_union([m["line"] for m in members])
-            inner = max(polygonize(ring), key=lambda g: g.area, default=None)
-            w = max(m["width_m"] for m in members) / 2
-            reach = ring.buffer(reach_m + 1.0, cap_style="flat")
-            face = ground.intersection(reach)
-            if inner is not None:
-                face = unary_union([face, inner.intersection(ground)])
-                island = inner.buffer(-w)
-                if not island.is_empty:
-                    face = face.difference(island)
-            # the edge of the reach is a cut through open ground, not a bound
-            edges = _bounds(face, [])
-            edges = _bounds_less(edges, reach.boundary)
-            out_rows.append(dict(face_id=f"r{level}-{gid}", group_id=gid, kind=kind, level=level, carriageway_id=None,
-                                 method=METHOD[kind], geometry=face, edges=edges))
+            out_rows.append(_ring_face(gid, level, members, [r for r in rows if r["group_id"] == gid], ground))
         elif kind == "twin":
             a, b = sorted(members, key=lambda m: m["carriageway_id"])[:2] if len(members) > 1 else (members[0], members[0])
             out_rows.append(dict(face_id=f"p{level}-{gid}", group_id=gid, kind=kind, level=level,
@@ -215,6 +233,16 @@ def demo():
     assert edges.distance(Point(0, 4)) < 1e-5 and edges.distance(Point(0, -4)) < 1e-5
     assert not edges.intersects(LineString([(-1, 0), (1, 0)]))     # the road passes the landing line
     assert _midline(line, LineString([(100, 10), (0, 10)])).distance(Point(50, 5)) < 1e-9
+    # a ring of four pieces: its face holds every piece at each level, as one polygon, within half a width of the lanes
+    sq = [(0, 0), (20, 0), (20, 20), (0, 20), (0, 0)]
+    pieces = [dict(line=LineString([sq[i], sq[i + 1]]), width_m=3.25) for i in range(4)]
+    big = Polygon([(-100, -100), (100, -100), (100, 100), (-100, 100)])
+    for level in (0, -1):
+        f = _ring_face(1, level, pieces, pieces, big)["geometry"]
+        assert f.geom_type == "Polygon" and all(f.buffer(1e-6).covers(p["line"]) for p in pieces)
+        x0, y0, x1, y1 = f.bounds
+        assert x1 - x0 <= 20 + 2 * 3.25 + 1e-6
+    assert _ring_face(1, -1, pieces, pieces, big)["geometry"].area < 20 * 20     # no ground below the ground
 
 
 if __name__ == "__main__":

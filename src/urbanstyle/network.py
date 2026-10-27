@@ -2275,6 +2275,9 @@ def build(con, epsg, bridges=(), level=0):
         con.executemany(f"INSERT INTO work.unit (unit_id, kind, section_id, level, color, geometry) VALUES (?, ?, ?, {LV}, ?, {to_ll})", urows)
     if junction_rows:
         con.executemany("INSERT INTO work.junction (intersection_id, node_id, level, cluster_id) VALUES (?, ?, ?, ?)", junction_rows)
+    # (a run whose space the street's edge and the junctions left empty has no unit: it has no subsection either, check U7)
+    written_ = {u for u, _, _, _, _ in urows}
+    subrows = [s_ for s_ in subrows if s_[0] in written_]
     if subrows:     # (width_m: the section's frame)
         con.executemany(f"""INSERT INTO work.subsection (subsection_id, section_id, level, class, width_m, oneway, length_m, "left", "right",
                             starts_at, left_extra, color, geometry) VALUES (?, ?, {LV}, ?, ?, ?, ?, ?, ?, ?, ?, '#e6194b', {to_ll})""",

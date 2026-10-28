@@ -165,6 +165,8 @@ def _chain(lines):
     coords, ranges, turned = [], [], []
     for ln in lines:
         c = list(ln.coords)
+        if not c:        # an empty line (a sliver the build cut away) has no length and no place on the chain
+            turned.append(ln); ranges.append((0.0, 0.0)); continue
         if coords and shapely.Point(c[-1]).distance(shapely.Point(coords[-1])) < shapely.Point(c[0]).distance(shapely.Point(coords[-1])):
             c = c[::-1]
         turned.append(shapely.LineString(c))

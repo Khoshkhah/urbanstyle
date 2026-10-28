@@ -65,7 +65,7 @@ for pf in near:
 keep = shapely.union_all([small] + decks)
 con = duckdb.connect(base + ".osm.duckdb"); con.execute("LOAD spatial")
 con.execute("UPDATE main.boundary SET geometry = ST_Intersection(geometry, ST_GeomFromText(?))", [keep.wkt])
-if area == "vancouver":        # (and only where the unit has its city data: its own edge, or a bridge's deck)
+if area == "vancouver" and not os.environ.get("WIDE"):        # (and only where the unit has its city data: its own edge, or a bridge's deck; WIDE=1: the whole square, with no city data outside the unit)
     con.execute(f"ATTACH '{src}' AS s (READ_ONLY)")
     con.execute("UPDATE main.boundary SET geometry = ST_Intersection(geometry, ST_Union((SELECT geometry FROM s.main.boundary), ST_GeomFromText(?)))",
                 [shapely.union_all(decks).wkt if decks else "POLYGON EMPTY"])

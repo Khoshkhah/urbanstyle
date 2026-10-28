@@ -2024,7 +2024,7 @@ def build(con, epsg, bridges=(), level=0):
                 v = ul_[k]
                 if v == u:
                     continue
-                l_ = U_[v][2].boundary.intersection(q.boundary.buffer(0.05)).length
+                l_ = shapely.make_valid(U_[v][2]).boundary.intersection(shapely.make_valid(q.boundary.buffer(0.05))).length
                 if l_ > bl:
                     best, bl = v, l_
             if best is None and q.area < 5.0:

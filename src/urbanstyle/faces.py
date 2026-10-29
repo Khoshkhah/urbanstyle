@@ -16,7 +16,8 @@ member), and writes the faces (OUT, a Parquet file) that SimReady's `import-kerb
 A landing is a member end that the build marks (`landing_start`, `landing_end`: the chain meets the ground there).
 At a landing the chain's face ends on the cross-section line square to the member's end, between the two points at
 half the width; the ground face gets a piece of the same width behind that line and loses what lies ahead of it
-within `reach_m` (and within the member's length). The cuts come first and the pieces after, so that the cut of
+within `reach_m` (and within the member's length), except the ground within `keep_m` of the axis of a road on the ground
+(a level-0 stretch; not the road that leads to the landing from behind): a cut never reaches across a road that is not the chain's own. The cuts come first and the pieces after, so that the cut of
 one landing never removes the piece of another on a short chain. So the two faces meet on one line with the same two edge points, and the bound runs on across the
 landing (D24). That line is not a bound: the road passes it. `edges` holds each face's bounds, the boundary less
 those lines.
@@ -35,6 +36,7 @@ import pathlib
 import subprocess
 
 LANDING_BACK_M = 5.0      # ponytail: the ground piece behind a landing is 5 m long; the approach's own width if it matters
+KEEP_M = 5.0             # a road on the ground keeps this much ground to each side of its axis inside a landing's cut (SimReady's ground_keep_m)
 LAND_EPS = 1e-6           # the landing line's half-thickness when it is cut out of a boundary
 METHOD = {"bridge": "deck_edge", "tunnel": "tunnel_edge", "roundabout": "ring_edge"}
 
@@ -60,6 +62,24 @@ def _frame(line, at_start):
     p, q = (c[0], c[1]) if at_start else (c[-1], c[-2])
     u = (q - p) / np.hypot(*(q - p))
     return p, u, np.array([-u[1], u[0]])
+
+
+def _keep(axes, p, u, k):
+    """The ground that a landing's cut leaves: k to each side of the axes of the roads on the ground, less the road that
+    leads to the landing from behind (an axis that ends at p and leaves it against u). So the cut never reaches across
+    a road that is not the chain's own."""
+    import numpy as np
+    from shapely.geometry import Point
+    from shapely.ops import unary_union
+    keep = []
+    for a in axes:
+        s = a.project(Point(p))
+        if a.distance(Point(p)) < 0.5 and min(s, a.length - s) < 0.5:      # the axis ends at the landing
+            q = a.interpolate(min(3.0, a.length) if s < 0.5 else max(a.length - 3.0, 0))
+            if float(np.dot(np.array([q.x, q.y]) - p, u)) < 0:
+                continue
+        keep.append(a.buffer(k))
+    return unary_union(keep)
 
 
 def _rect(p, u, n, a0, a1, b0, b1):
@@ -132,7 +152,7 @@ def _midline(a, b, step=2.0):
     return LineString(mids) if len(mids) > 1 else a
 
 
-def build(db, groups, out, crs, reach_m=25.0):
+def build(db, groups, out, crs, reach_m=25.0, keep_m=KEEP_M):
     """Write the faces file. Returns the number of faces of each kind."""
     import duckdb
     import pyarrow as pa
@@ -149,9 +169,13 @@ def build(db, groups, out, crs, reach_m=25.0):
         con.execute("SELECT value FROM urban.meta WHERE key = 'built'").fetchone()[0]
     pieces = [wkb.loads(bytes(r[0])) for r in con.execute(
         "SELECT ST_AsWKB(geometry) FROM urban.ground WHERE kind = 'street' AND level = 0 ORDER BY ground_id").fetchall()]
+    axes = [wkb.loads(bytes(r[0])) for r in con.execute(
+        "SELECT ST_AsWKB(axis) FROM urban.stretch WHERE level = 0 AND kind IN ('section', 'intersection', 'roundabout') "
+        "AND axis IS NOT NULL ORDER BY stretch_id").fetchall() if r[0] is not None]
     con.close()
     to_crs = Transformer.from_crs("EPSG:4326", crs, always_xy=True).transform
     ground = unary_union([transform(to_crs, g) for g in pieces])
+    axes = [g for g in (transform(to_crs, a) for a in axes) if g.geom_type == "LineString" and not g.is_empty]
 
     rows = pq.read_table(groups).to_pylist()
     for r in rows:
@@ -170,7 +194,8 @@ def build(db, groups, out, crs, reach_m=25.0):
             w = r["width_m"] / 2
             adds.append(_rect(p, u, n, -LANDING_BACK_M, 0.0, -w, w))
             # ahead of the line, over the member's length at most: a short chain keeps the far landing's ground
-            cuts.append(_rect(p, u, n, 0.0, min(reach_m, r["line"].length), -reach_m, reach_m))
+            cuts.append(_rect(p, u, n, 0.0, min(reach_m, r["line"].length), -reach_m, reach_m).difference(
+                _keep(axes, p, u, keep_m)))
             lines.append(LineString([p - w * n, p + w * n]))
     # cut first, then add the pieces behind the lines, so that no cut removes another landing's piece
     ground = unary_union([ground.difference(unary_union(cuts))] + adds) if adds else ground
@@ -233,6 +258,9 @@ def demo():
     assert edges.distance(Point(0, 4)) < 1e-5 and edges.distance(Point(0, -4)) < 1e-5
     assert not edges.intersects(LineString([(-1, 0), (1, 0)]))     # the road passes the landing line
     assert _midline(line, LineString([(100, 10), (0, 10)])).distance(Point(50, 5)) < 1e-9
+    # a landing's cut leaves the ground beside a road that crosses it, and cuts the ground beside the road that leads to it
+    keep = _keep([LineString([(5, -30), (5, 30)]), LineString([(-40, 0), (0, 0)])], p, u, 5.0)
+    assert keep.contains(Point(5, 20)) and not keep.intersects(Point(-20, 0))
     # a ring of four pieces: its face holds every piece at each level, as one polygon, within half a width of the lanes
     sq = [(0, 0), (20, 0), (20, 20), (0, 20), (0, 0)]
     pieces = [dict(line=LineString([sq[i], sq[i + 1]]), width_m=3.25) for i in range(4)]

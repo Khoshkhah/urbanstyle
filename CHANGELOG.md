@@ -9,6 +9,7 @@ Network-first partition, preview (docs/design/network-first.md, space-parts.md; 
 - `space.part` / `space.mark` / `space.width`: lanes, junction box, roundabout island, crosswalks, cycle and bus lanes, sidewalks;
   markings at real size; widths with their source (measured from sidewalks or crossings, tagged, estimated).
 - Checks U1-U10. Dashboard: the new spaces, their parts and markings, `?c=` links, clicks on spaces.
+- `faces`: a landing's cut keeps the ground within `--keep` (5 m) of the axis of a road on the ground, so it never reaches across a road that is not the chain's own.
 - Fixed: the halfway-to-a-parallel-street rule applied even with a building between the two streets.
 
 

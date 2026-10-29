@@ -84,6 +84,7 @@ def main(argv=None):
     fc.add_argument("groups", help="the groups file of the SimReady build (Parquet)")
     fc.add_argument("out", help="the faces file to write (Parquet)")
     fc.add_argument("--crs", required=True, help="the CRS of the groups and of the faces, e.g. EPSG:32632")
+    fc.add_argument("--keep", type=float, default=5.0, help="ground kept beside a road on the ground inside a landing's cut, m (SimReady's ground_keep_m)")
     fc.add_argument("--reach", type=float, default=25.0, help="how far a landing and a ring reach, m (SimReady's kerb_ray_max_m)")
     a = p.parse_args(argv)
     for key in ('db', 'dbs', 'out'):     # (an old database: its schema renamed first)
@@ -113,7 +114,7 @@ def main(argv=None):
         return 1 if failed else 0
     elif a.cmd == "faces":
         from .faces import build as faces
-        print(faces(a.db, a.groups, a.out, a.crs, a.reach))
+        print(faces(a.db, a.groups, a.out, a.crs, a.reach, a.keep))
     elif a.cmd == "quality":
         from .quality import run
         for x in a.db:

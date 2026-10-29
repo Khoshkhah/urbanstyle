@@ -63,6 +63,15 @@ Added 2026-10-27 (Kaveh checked the model against Google 3D: it needs updates in
       `network.py` (the landing band cuts islands out), not committed and not checked: `vfinal5` is built with it, `vwide` too.
 - [ ] **Vancouver, the whole area** (Kaveh, 2026-10-27: "no roads here"). The page covered only 820 m round Broadway x Granville and
       the bridge. `vwide` (2.8 km square) is built from `wtools/final-vwide.sh`; check it, then install.
+      2026-10-29: `vwide2` (the square, `WIDE=1`) is built and served on 8791; roads cover both of Kaveh's places. Its checks show
+      16 fails (W2 32, A1 22, U9 12, W1 8, W3 7), not yet looked at place by place. Not installed on 8786.
+- [ ] **Places Kaveh reported on `vwide2`, 2026-10-29** (a picture and a part id each; no cause found yet, no code changed):
+      `s1-w1316244490/2#3` (a deck's end: a wide deck piece ends in the air with a curved edge over a narrower road, near
+      -123.1297, 49.2748); `s0-w74094190/1#4` (Burrard Street's 6-lane roadway ends square at a deck edge, a gap, then the 2-lane road
+      of way 48525804 begins, near -123.1333, 49.2766); `s1-w615537608/1#1` (two deck pieces in line with a beige strip between them,
+      near -123.1146, 49.2736); `s1-w46906477/1#1` (a 248 m deck lane ends flat in the air, a brown strip, then a short ground stub with a
+      crosswalk, near -123.1151, 49.2677). The checks already mark all four places: W2 at -123.1306,49.2744 / -123.1330,49.2765 /
+      -123.1147,49.2736 and W1 at -123.1150,49.2698 / -123.1147,49.2677. One class: a deck's end does not meet the ground road.
 
 - [x] **City building footprints where OSM has none** (built 2026-10-10: 15 added, LiDAR heights for 321; the row in the example is the
       South Granville Station construction site, its buildings demolished: see the next item).

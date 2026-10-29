@@ -501,6 +501,8 @@ def roadway_joints(c, epsg, has_change=False):
                     continue
                 la, lb, half = subs[a][1], subs[b][1], (max(subs[a][2] or 0, subs[b][2] or 0) or 8.0) / 2 + 1.5
                 ca = list(la.coords)
+                if len(ca) < 2 or lb.is_empty:
+                    continue                # (an empty line has no end to join)
                 p, q = (ca[0], ca[1]) if shapely.Point(ca[0]).distance(lb) <= shapely.Point(ca[-1]).distance(lb) else (ca[-1], ca[-2])
                 jp = shapely.Point(p)
                 if jp.distance(lb) > 1.0 or real.distance(jp) <= 1.0:

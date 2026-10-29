@@ -12,7 +12,7 @@ area=$1 name=$2 lon=$3 lat=$4 radius=${5:-250} port=${PORT:-8784}
 P=/home/kaveh/projects/duckOSM/.venv/bin/python
 case $area in
   monaco)    src=../duckOSM/data/monaco-wide/monaco-wide.duckdb; bridges="data/bridges-monaco/*.bridge.json" ;;
-  vancouver) src=data/units/broadway-granville.osm.duckdb; bridges=data/bridges-measured/granville-bridge.bridge.json ;;
+  vancouver) src=data/units/broadway-granville.osm.duckdb; bridges="${BRIDGES:-data/bridges-measured/granville-bridge.bridge.json}" ;;
   *) echo "AREA: monaco or vancouver"; exit 2 ;;
 esac
 mkdir -p data/cuts

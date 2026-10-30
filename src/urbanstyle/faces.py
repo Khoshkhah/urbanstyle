@@ -1,0 +1,278 @@
+"""Rank 1 with the groups of a SimReady build: one face per group and level (SimReady decision D24).
+
+`urbanstyle faces DB GROUPS OUT --crs EPSG` reads the street ground of an urbanstyle build (`urban.ground`, kind
+`street`, level 0) and the groups that SimReady's `grouping` step writes (GROUPS, a Parquet file, one row per
+member), and writes the faces (OUT, a Parquet file) that SimReady's `import-kerb` reads as bounds:
+
+- `ground`: the street face between the buildings at level 0, cut at each landing (below);
+- `bridge`, `tunnel`: one face per structure group and level, the members' reference lines widened by half their
+  width (`width_m`) to each side, with flat ends;
+- `roundabout`: one face per ring and level, one polygon that holds the ring: the annulus of the ring's lanes (the
+  centre line widened by half the ring's width to each side, less the central island), and at level 0 also the ground
+  within the ring's reach (half the ring's width beyond the outer lane border); the edge of the reach is not a bound;
+- `twin`: the line along which the ground face of a twin pair is split (the midline of the two reference lines; on
+  a shared reference line, the line itself). It is a line, not a polygon, and is not a bound.
+
+A landing is a member end that the build marks (`landing_start`, `landing_end`: the chain meets the ground there).
+At a landing the chain's face ends on the cross-section line square to the member's end, between the two points at
+half the width; the ground face gets a piece of the same width behind that line and loses what lies ahead of it
+within `reach_m` (and within the member's length), except the ground within `keep_m` of the axis of a road on the ground
+(a level-0 stretch; not the road that leads to the landing from behind): a cut never reaches across a road that is not the chain's own. The cuts come first and the pieces after, so that the cut of
+one landing never removes the piece of another on a short chain. So the two faces meet on one line with the same two edge points, and the bound runs on across the
+landing (D24). That line is not a bound: the road passes it. `edges` holds each face's bounds, the boundary less
+those lines.
+
+The groups file (GROUPS), one row per member: `group_id` BIGINT, `kind` (`bridge`, `tunnel`, `roundabout`,
+`twin`), `level` INTEGER, `carriageway_id` BIGINT, `edge_ids` BIGINT[] (the duckOSM edges of the member),
+`twin_carriageway_id` BIGINT, `width_m` DOUBLE, `landing_start`, `landing_end` BOOLEAN, `geometry` (WKB
+LINESTRING in the CRS of `--crs`, the member's reference line in its travel direction).
+
+The faces file (OUT): `face_id` VARCHAR, `group_id` BIGINT (NULL for the ground), `kind`, `level`, `carriageway_id`
+(NULL but on a twin line), `method` (`street_edge`, `deck_edge`, `tunnel_edge`, `ring_edge`, NULL for a twin line),
+`geometry` (WKB, in the CRS of `--crs`), `edges` (WKB MULTILINESTRING, the bounds). The Parquet key-value metadata
+holds `urbanstyle_faces` (the version of this step) and `urbanstyle_ground` (the version of the build it read).
+"""
+import pathlib
+import subprocess
+
+LANDING_BACK_M = 5.0      # ponytail: the ground piece behind a landing is 5 m long; the approach's own width if it matters
+KEEP_M = 5.0             # a road on the ground keeps this much ground to each side of its axis inside a landing's cut (SimReady's ground_keep_m)
+LAND_EPS = 1e-6           # the landing line's half-thickness when it is cut out of a boundary
+METHOD = {"bridge": "deck_edge", "tunnel": "tunnel_edge", "roundabout": "ring_edge"}
+
+
+def version():
+    """urbanstyle's version with the last commit of this file (`.dirty` when the file has changes)."""
+    from . import __version__
+    here = pathlib.Path(__file__)
+    try:
+        sha = subprocess.run(["git", "-C", here.parent, "log", "-1", "--format=%h", "--", here.name],
+                             capture_output=True, text=True, timeout=5).stdout.strip()
+        dirty = subprocess.run(["git", "-C", here.parent, "status", "--porcelain", "--", here.name],
+                               capture_output=True, text=True, timeout=5).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        sha = dirty = ""
+    return __version__ + (f"+{sha}" if sha else "") + (".dirty" if dirty else "")
+
+
+def _frame(line, at_start):
+    """The landing point, the unit vector into the chain and the left normal at one end of a member."""
+    import numpy as np
+    c = np.asarray(line.coords)
+    p, q = (c[0], c[1]) if at_start else (c[-1], c[-2])
+    u = (q - p) / np.hypot(*(q - p))
+    return p, u, np.array([-u[1], u[0]])
+
+
+def _keep(axes, p, u, k):
+    """The ground that a landing's cut leaves: k to each side of the axes of the roads on the ground, less the road that
+    leads to the landing from behind (an axis that ends at p and leaves it against u). So the cut never reaches across
+    a road that is not the chain's own."""
+    import numpy as np
+    from shapely.geometry import Point
+    from shapely.ops import unary_union
+    keep = []
+    for a in axes:
+        s = a.project(Point(p))
+        if a.distance(Point(p)) < 0.5 and min(s, a.length - s) < 0.5:      # the axis ends at the landing
+            q = a.interpolate(min(3.0, a.length) if s < 0.5 else max(a.length - 3.0, 0))
+            if float(np.dot(np.array([q.x, q.y]) - p, u)) < 0:
+                continue
+        keep.append(a.buffer(k))
+    return unary_union(keep)
+
+
+def _rect(p, u, n, a0, a1, b0, b1):
+    from shapely.geometry import Polygon
+    return Polygon([p + a * u + b * n for a, b in ((a0, b0), (a1, b0), (a1, b1), (a0, b1))])
+
+
+def _bounds(face, cuts):
+    """The boundary of a face less the landing lines: a MULTILINESTRING."""
+    from shapely.geometry import LineString, MultiLineString
+    b = face.boundary
+    if cuts:
+        from shapely.ops import unary_union
+        b = b.difference(unary_union([c.buffer(LAND_EPS, cap_style="flat") for c in cuts]))
+    parts = [g for g in getattr(b, "geoms", [b]) if isinstance(g, LineString) and not g.is_empty]
+    return MultiLineString(parts)
+
+
+def _ring_face(gid, level, members, ring_members, ground):
+    """The face of a ring at one level: the annulus of the ring's lanes (the centre line widened by half the ring's
+    width to each side, less the central island); at level 0 also the ground within the ring's reach (half the ring's
+    width beyond the outer lane border), as one polygon that holds the ring. The edge of the reach is not a bound."""
+    from shapely.geometry import Polygon
+    from shapely.ops import polygonize, unary_union
+    ring = unary_union([m["line"] for m in ring_members])
+    here = unary_union([m["line"] for m in members])
+    w = max(m["width_m"] for m in ring_members)
+    inner = max(polygonize(ring), key=lambda g: g.area, default=None)
+    if inner is not None:
+        island = inner.buffer(-w / 2)
+        lanes = inner.buffer(w / 2).difference(island)
+        reach = inner.buffer(w)
+    else:
+        island = Polygon()
+        lanes = ring.buffer(w / 2)
+        reach = ring.buffer(w)
+    if len(members) < len(ring_members):          # the ring is on two levels: this level's part of it
+        lanes = lanes.intersection(here.buffer(w))
+        reach = reach.intersection(here.buffer(w * 1.5))
+    face = lanes
+    if level == 0:
+        face = unary_union([lanes, ground.intersection(reach)]).difference(island)
+    # one polygon: the parts that hold a piece of the ring; a fragment beside it is not the ring's
+    parts = [g for g in getattr(face, "geoms", [face]) if g.geom_type == "Polygon" and g.intersects(here)]
+    face = unary_union(parts) if parts else face
+    edges = _bounds_less(_bounds(face, []), reach.boundary)
+    return dict(face_id=f"r{level}-{gid}", group_id=gid, kind="roundabout", level=level, carriageway_id=None,
+                method=METHOD["roundabout"], geometry=face, edges=edges)
+
+
+def _bounds_less(edges, cut):
+    """The bounds less the parts that lie on a cut line (within LAND_EPS)."""
+    from shapely.geometry import LineString, MultiLineString
+    b = edges.difference(cut.buffer(LAND_EPS))
+    return MultiLineString([g for g in getattr(b, "geoms", [b]) if isinstance(g, LineString) and not g.is_empty])
+
+
+def _midline(a, b, step=2.0):
+    """The midline of two reference lines: the midpoints of a's points and their nearest points on b."""
+    from shapely.geometry import LineString
+    if a.equals(LineString(b.coords[::-1])) or a.equals(b):
+        return a
+    pts = [a.interpolate(min(i * step, a.length)) for i in range(int(a.length // step) + 2)]
+    mids = []
+    for p in pts:
+        q = b.interpolate(b.project(p))
+        m = ((p.x + q.x) / 2, (p.y + q.y) / 2)
+        if not mids or mids[-1] != m:
+            mids.append(m)
+    return LineString(mids) if len(mids) > 1 else a
+
+
+def build(db, groups, out, crs, reach_m=25.0, keep_m=KEEP_M):
+    """Write the faces file. Returns the number of faces of each kind."""
+    import duckdb
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    import shapely
+    from pyproj import Transformer
+    from shapely import wkb
+    from shapely.geometry import LineString, Point
+    from shapely.ops import polygonize, transform, unary_union
+
+    con = duckdb.connect(str(db), read_only=True)
+    con.execute("LOAD spatial")
+    ground_build = con.execute("SELECT value FROM urban.meta WHERE key = 'version'").fetchone()[0] + " built " + \
+        con.execute("SELECT value FROM urban.meta WHERE key = 'built'").fetchone()[0]
+    pieces = [wkb.loads(bytes(r[0])) for r in con.execute(
+        "SELECT ST_AsWKB(geometry) FROM urban.ground WHERE kind = 'street' AND level = 0 ORDER BY ground_id").fetchall()]
+    axes = [wkb.loads(bytes(r[0])) for r in con.execute(
+        "SELECT ST_AsWKB(axis) FROM urban.stretch WHERE level = 0 AND kind IN ('section', 'intersection', 'roundabout') "
+        "AND axis IS NOT NULL ORDER BY stretch_id").fetchall() if r[0] is not None]
+    con.close()
+    to_crs = Transformer.from_crs("EPSG:4326", crs, always_xy=True).transform
+    ground = unary_union([transform(to_crs, g) for g in pieces])
+    axes = [g for g in (transform(to_crs, a) for a in axes) if g.geom_type == "LineString" and not g.is_empty]
+
+    rows = pq.read_table(groups).to_pylist()
+    for r in rows:
+        r["line"] = wkb.loads(bytes(r["geometry"]))
+    out_rows = []
+
+    # the landings: a piece of the chain's width behind the line, and the ground ahead of it removed
+    adds, cuts, lines = [], [], []
+    for r in rows:
+        if r["kind"] not in ("bridge", "tunnel"):
+            continue
+        for at_start, flag in ((True, r["landing_start"]), (False, r["landing_end"])):
+            if not flag:
+                continue
+            p, u, n = _frame(r["line"], at_start)
+            w = r["width_m"] / 2
+            adds.append(_rect(p, u, n, -LANDING_BACK_M, 0.0, -w, w))
+            # ahead of the line, over the member's length at most: a short chain keeps the far landing's ground
+            cuts.append(_rect(p, u, n, 0.0, min(reach_m, r["line"].length), -reach_m, reach_m).difference(
+                _keep(axes, p, u, keep_m)))
+            lines.append(LineString([p - w * n, p + w * n]))
+    # cut first, then add the pieces behind the lines, so that no cut removes another landing's piece
+    ground = unary_union([ground.difference(unary_union(cuts))] + adds) if adds else ground
+    out_rows.append(dict(face_id="g0", group_id=None, kind="ground", level=0, carriageway_id=None, method="street_edge",
+                         geometry=ground, edges=_bounds(ground, lines)))
+
+    by_group = {}
+    for r in rows:
+        by_group.setdefault((r["group_id"], r["kind"], r["level"]), []).append(r)
+    for (gid, kind, level), members in sorted(by_group.items(), key=lambda kv: (kv[0][1], kv[0][0], kv[0][2])):
+        if kind in ("bridge", "tunnel"):
+            parts, caps = [], []
+            for m in members:
+                w = m["width_m"] / 2
+                parts.append(m["line"].buffer(w, cap_style="flat", join_style="mitre", mitre_limit=2.0))
+                for at_start, flag in ((True, m["landing_start"]), (False, m["landing_end"])):
+                    p, u, n = _frame(m["line"], at_start)
+                    if flag:
+                        caps.append(LineString([p - w * n, p + w * n]))
+                    else:      # a joint with another member, or a free end: round, so no wedge is missing
+                        parts.append(Point(p).buffer(w, quad_segs=8))
+            face = unary_union(parts)
+            out_rows.append(dict(face_id=f"{kind[0]}{level}-{gid}", group_id=gid, kind=kind, level=level, carriageway_id=None,
+                                 method=METHOD[kind], geometry=face, edges=_bounds(face, caps)))
+        elif kind == "roundabout":
+            out_rows.append(_ring_face(gid, level, members, [r for r in rows if r["group_id"] == gid], ground))
+        elif kind == "twin":
+            a, b = sorted(members, key=lambda m: m["carriageway_id"])[:2] if len(members) > 1 else (members[0], members[0])
+            out_rows.append(dict(face_id=f"p{level}-{gid}", group_id=gid, kind=kind, level=level,
+                                 carriageway_id=a["carriageway_id"], method=None,
+                                 geometry=_midline(a["line"], b["line"]), edges=None))
+
+    def blob(g):
+        return None if g is None else shapely.to_wkb(g)
+    table = pa.Table.from_pylist([{**r, "geometry": blob(r["geometry"]), "edges": blob(r["edges"])} for r in out_rows],
+                                 schema=pa.schema([("face_id", pa.string()), ("group_id", pa.int64()), ("kind", pa.string()),
+                                                   ("level", pa.int32()), ("carriageway_id", pa.int64()),
+                                                   ("method", pa.string()), ("geometry", pa.binary()), ("edges", pa.binary())]))
+    table = table.replace_schema_metadata({"urbanstyle_faces": version(), "urbanstyle_ground": ground_build, "crs": crs})
+    pq.write_table(table, out)
+    counts = {}
+    for r in out_rows:
+        counts[r["kind"]] = counts.get(r["kind"], 0) + 1
+    return counts
+
+
+def demo():
+    """A self-check on one bridge with a landing at each end: the two faces meet on the landing line."""
+    import numpy as np
+    from shapely.geometry import LineString, Point, Polygon
+    line = LineString([(0, 0), (100, 0)])
+    p, u, n = _frame(line, True)
+    assert np.allclose(p, (0, 0)) and np.allclose(u, (1, 0)) and np.allclose(n, (0, 1))
+    ground = Polygon([(-50, -20), (150, -20), (150, 20), (-50, 20)])
+    piece = _rect(p, u, n, -LANDING_BACK_M, 0, -4, 4)
+    cut = _rect(p, u, n, 0, 25, -25, 25)
+    g = ground.difference(cut).union(piece)
+    cap = LineString([(0, -4), (0, 4)])
+    edges = _bounds(g, [cap])
+    assert edges.distance(Point(0, 4)) < 1e-5 and edges.distance(Point(0, -4)) < 1e-5
+    assert not edges.intersects(LineString([(-1, 0), (1, 0)]))     # the road passes the landing line
+    assert _midline(line, LineString([(100, 10), (0, 10)])).distance(Point(50, 5)) < 1e-9
+    # a landing's cut leaves the ground beside a road that crosses it, and cuts the ground beside the road that leads to it
+    keep = _keep([LineString([(5, -30), (5, 30)]), LineString([(-40, 0), (0, 0)])], p, u, 5.0)
+    assert keep.contains(Point(5, 20)) and not keep.intersects(Point(-20, 0))
+    # a ring of four pieces: its face holds every piece at each level, as one polygon, within half a width of the lanes
+    sq = [(0, 0), (20, 0), (20, 20), (0, 20), (0, 0)]
+    pieces = [dict(line=LineString([sq[i], sq[i + 1]]), width_m=3.25) for i in range(4)]
+    big = Polygon([(-100, -100), (100, -100), (100, 100), (-100, 100)])
+    for level in (0, -1):
+        f = _ring_face(1, level, pieces, pieces, big)["geometry"]
+        assert f.geom_type == "Polygon" and all(f.buffer(1e-6).covers(p["line"]) for p in pieces)
+        x0, y0, x1, y1 = f.bounds
+        assert x1 - x0 <= 20 + 2 * 3.25 + 1e-6
+    assert _ring_face(1, -1, pieces, pieces, big)["geometry"].area < 20 * 20     # no ground below the ground
+
+
+if __name__ == "__main__":
+    demo()
+    print("faces: demo ok")

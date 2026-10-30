@@ -20,7 +20,8 @@
   <a href="https://khoshkhah.github.io/urbanstyle/get-started/">Get started</a> ·
   <a href="https://khoshkhah.github.io/urbanstyle/demo/"><b>Try the dashboard online</b></a> ·
   <a href="https://khoshkhah.github.io/urbanstyle/dashboard/">The dashboard</a> ·
-  <a href="https://khoshkhah.github.io/urbanstyle/gallery/">Gallery</a>
+  <a href="https://khoshkhah.github.io/urbanstyle/gallery/">Gallery</a> ·
+  <a href="https://github.com/Khoshkhah/urbanstyle/releases/tag/vancouver-wide-data">Download the Vancouver wide area (DuckDB)</a>
 </p>
 
 <p align="center">

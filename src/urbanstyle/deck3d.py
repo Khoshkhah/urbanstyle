@@ -27,6 +27,9 @@ STEP_M = 5.0            # the slab and the parts are cut by this grid, so they f
 PAINT_M = 0.12          # a painted line's width where the mark has none (chosen)
 LIFT_M = 0.03           # a part above the slab's top, so the two never fight for the same depth
 PAINT_LIFT_M = 0.06     # a painted line above its part
+EASE_M = 12.0           # where a deck meets a ground road low down, its heights come down to the road's over this length: no wall, no step
+SLAB_DROP_M = 0.2      # where a deck eases to the road, its slab's top lies this far under its parts: the grid's coarse triangles came through them
+EASE_MAX_M = 2.5        # (a deck higher than this where it meets the ground is a bridge ending on an abutment: it keeps its wall)
 OFF_GROUND_M = 0.3      # a deck lower than this is on the ground: no guard
 END_ANGLE = 45.0        # an edge more than this across its axis, where a roadway part reaches it, is a road end: no guard
 ROADWAY = ("lane", "junction area", "paved", "parking", "no parking", "bus lane", "cycle lane", "shoulder", "bridge deck")
@@ -136,7 +139,7 @@ def model(con, P):
             return a_lv[a["id"]]
         return lv_of.get(min(ws_, key=lambda o_: way_g[o_].distance(p)), a_lv[a["id"]])
 
-    def z_at(u, x, y):
+    def z_raw(u, x, y):
         """The height at (x, y) of a space of level L: the axes of level L whose strip holds the point, blended by nearness (two
         meet at a fork); else the nearest axis of level L. (Blending any near axis tilted junctions by up to 2.9 m: an axis that only
         passes by at another height pulled the deck; Monaco i2-21927897, Kaveh 2026-10-17.)"""
@@ -151,6 +154,36 @@ def model(con, P):
             return max(0.0, height(a["vertical"], ln.project(p)))
         ws = [(1.0 / (ln.distance(p) + 0.5) ** 2, max(0.0, height(a["vertical"], ln.project(p)))) for ln, a in holds]
         return sum(w * z for w, z in ws) / sum(w for w, _ in ws)
+
+    # ---- where a space meets a ground road low down (a ramp's foot: Howe Street, 1 m up where OSM's bridge way begins, the road below it at
+    # 0), its heights come down to the road's over EASE_M, so the deck and the road meet flush and no wall stands between them
+    ground = [g(w) for w, in con.execute(f"SELECT ST_AsWKB({to_utm}) FROM work.unit WHERE level = 0 AND geometry IS NOT NULL").fetchall()]
+    ground = shapely.union_all([x for x in ground if x.intersects(deck)] or [shapely.Polygon()]).buffer(JOINT_M)
+    foot = {}
+    for u, (k, lv, ug) in units.items():
+        pts = []
+        for ring in shapely.get_parts(shapely.boundary(ug)):
+            ring = ring.intersection(ground)
+            for part in shapely.get_parts(ring):
+                if part.geom_type != "LineString" or part.length <= 1.0:
+                    continue
+                # (only an edge across the road, a ramp's foot: an edge along it, a deck beside a ground road, keeps its heights)
+                ln_, _ = min(own[u], key=lambda la: la[0].distance(part))
+                a_, b_ = ln_.interpolate(ln_.project(part.centroid) - 0.5), ln_.interpolate(ln_.project(part.centroid) + 0.5)
+                (px, py), (qx, qy) = part.coords[0], part.coords[-1]
+                dx, dy, ex, ey = b_.x - a_.x, b_.y - a_.y, qx - px, qy - py
+                if abs(dx * ex + dy * ey) / (math.hypot(dx, dy) * math.hypot(ex, ey) + 1e-9) < math.cos(math.radians(END_ANGLE)):
+                    pts += [shapely.Point(c) for c in part.segmentize(2.0).coords]
+        pts = [q for q in pts if z_raw(u, q.x, q.y) <= EASE_MAX_M]
+        if pts:
+            foot[u] = shapely.MultiPoint(pts)
+            shapely.prepare(foot[u])
+
+    def z_at(u, x, y):
+        z = z_raw(u, x, y)
+        if u in foot and z > 0.0:
+            z *= min(1.0, foot[u].distance(shapely.Point(x, y)) / EASE_M)
+        return z
 
     # ---- the frame: the map's metres around the deck's middle, as bridge3d (Web Mercator scaled to true metres at the origin)
     c0 = deck.centroid
@@ -183,7 +216,7 @@ def model(con, P):
     for u, (k, lv, ug) in units.items():
         for t in _grid_tris(ug):
             c = t.exterior.coords[:3]
-            top = [vid(x, y, z_at(u, x, y)) for x, y in c]
+            top = [vid(x, y, max(0.0, z_at(u, x, y) - (SLAB_DROP_M if u in foot else 0.0))) for x, y in c]
             bot = [vid(x, y, max(0.0, z_at(u, x, y) - DECK_M)) for x, y in c]
             slab += [top, bot[::-1]]
         others = shapely.union_all([g_ for u2, (k2, lv2, g_) in units.items() if u2 != u and lv2 == lv] or [shapely.Polygon()])

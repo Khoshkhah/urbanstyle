@@ -1,0 +1,13 @@
+[package]
+name = "urbanstyle-blocks"
+description = "The blocks of a street space from SimReady's street face: the Rust port of urbanstyle's sr_blocks.py"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+geo.workspace = true
+urbanstyle-geo = { path = "../urbanstyle-geo" }
+
+[dev-dependencies]
+serde_json.workspace = true

@@ -1,0 +1,12 @@
+[package]
+name = "urbanstyle-geo"
+description = "The geometry helpers of urbanstyle's Rust code: the same operations as the Python helpers of simready.py and sr_blocks.py"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+geo.workspace = true
+rstar.workspace = true
+i_overlay.workspace = true
+serde_json.workspace = true

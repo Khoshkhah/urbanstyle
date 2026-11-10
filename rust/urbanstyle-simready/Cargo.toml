@@ -1,0 +1,24 @@
+[package]
+name = "urbanstyle-simready"
+description = "Readers of SimReady's Parquet files and duckOSM's, into the inputs of the steps (in place of the Python fixtures)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+geo.workspace = true
+urbanstyle-geo = { path = "../urbanstyle-geo" }
+urbanstyle-division = { path = "../urbanstyle-division" }
+urbanstyle-blocks = { path = "../urbanstyle-blocks" }
+urbanstyle-model = { path = "../urbanstyle-model" }
+urbanstyle-ground = { path = "../urbanstyle-ground" }
+arrow-array = { version = "=60.0.0", default-features = false }
+parquet = { version = "=60.0.0", default-features = false, features = ["arrow", "snap"] }
+bytes = "1"
+
+# duckOSM's files are Zstandard: the C library does not build for the browser, so there the reader takes Snappy files only (docs/notes/rust-browser.md)
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+parquet = { version = "=60.0.0", default-features = false, features = ["arrow", "snap", "zstd"] }
+
+[dev-dependencies]
+serde_json.workspace = true

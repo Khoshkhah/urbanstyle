@@ -1,0 +1,13 @@
+[package]
+name = "urbanstyle-division"
+description = "The street spaces of a SimReady build: spaces, roadway parts, walking side, crosswalks, marks. The Rust port of urbanstyle's simready.py"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+geo.workspace = true
+urbanstyle-geo = { path = "../urbanstyle-geo" }
+
+[dev-dependencies]
+serde_json.workspace = true

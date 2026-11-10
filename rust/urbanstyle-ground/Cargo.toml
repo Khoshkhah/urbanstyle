@@ -1,0 +1,13 @@
+[package]
+name = "urbanstyle-ground"
+description = "Layer 0, the ground: every piece of the area is one kind (water, rail, street, path, square, structure, green, plot, ...). The Rust port of urbanstyle's ground.assemble"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+geo.workspace = true
+urbanstyle-geo = { path = "../urbanstyle-geo" }
+
+[dev-dependencies]
+serde_json.workspace = true

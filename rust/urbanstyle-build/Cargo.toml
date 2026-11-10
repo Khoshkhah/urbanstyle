@@ -1,0 +1,19 @@
+[package]
+name = "urbanstyle-build"
+description = "The whole build in one chain: blocks, division, ground, paths, model, elements, objects, checks, registry and the tables of the page"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+geo.workspace = true
+serde_json.workspace = true
+urbanstyle-geo = { path = "../urbanstyle-geo" }
+urbanstyle-blocks = { path = "../urbanstyle-blocks" }
+urbanstyle-division = { path = "../urbanstyle-division" }
+urbanstyle-ground = { path = "../urbanstyle-ground" }
+urbanstyle-paths = { path = "../urbanstyle-paths" }
+urbanstyle-model = { path = "../urbanstyle-model" }
+urbanstyle-checks = { path = "../urbanstyle-checks" }
+urbanstyle-tables = { path = "../urbanstyle-tables" }
+urbanstyle-simready = { path = "../urbanstyle-simready" }

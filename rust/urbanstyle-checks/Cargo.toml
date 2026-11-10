@@ -1,0 +1,13 @@
+[package]
+name = "urbanstyle-checks"
+description = "The conformance checks of a built model: the partitions (spaces, parts, ground, surfaces, blocks) and the rules. The Rust port of urbanstyle's checks.py"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+geo.workspace = true
+urbanstyle-geo = { path = "../urbanstyle-geo" }
+
+[dev-dependencies]
+serde_json.workspace = true

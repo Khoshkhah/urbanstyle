@@ -1,0 +1,17 @@
+[package]
+name = "urbanstyle-tables"
+description = "The tables of the model as Parquet files for the page (DuckDB-WASM reads them), from the rows of the Rust model"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+geo.workspace = true
+urbanstyle-geo = { path = "../urbanstyle-geo" }
+urbanstyle-model = { path = "../urbanstyle-model" }
+urbanstyle-checks = { path = "../urbanstyle-checks" }
+urbanstyle-ground = { path = "../urbanstyle-ground" }
+arrow-array = { version = "=60.0.0", default-features = false }
+arrow-schema = { version = "=60.0.0", default-features = false }
+parquet = { version = "=60.0.0", default-features = false, features = ["arrow"] }
+serde_json.workspace = true

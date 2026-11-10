@@ -1,0 +1,13 @@
+[package]
+name = "urbanstyle-model"
+description = "The model: the tables of the schema urban, made from the steps' rows (docs/design/tables.md). The Rust port of urbanstyle's product.py"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+geo.workspace = true
+urbanstyle-geo = { path = "../urbanstyle-geo" }
+
+[dev-dependencies]
+serde_json.workspace = true

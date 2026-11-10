@@ -1,0 +1,13 @@
+[package]
+name = "urbanstyle-paths"
+description = "The paths at ranks 2 and 3: each path item of the ground cut at its junction nodes into path sections and path intersections. The Rust port of urbanstyle's paths.assemble"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+geo.workspace = true
+urbanstyle-geo = { path = "../urbanstyle-geo" }
+
+[dev-dependencies]
+serde_json.workspace = true

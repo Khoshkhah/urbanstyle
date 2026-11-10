@@ -1,0 +1,22 @@
+# urbanstyle's Rust code: its own workspace (docs/notes/rust-browser.md, decision 1; as SimReady's, its decision D35). Everything here
+# must build for wasm32-unknown-unknown: geo, rstar and i_overlay (which geo brings), no GEOS. The versions are SimReady's.
+[workspace]
+resolver = "2"
+members = ["urbanstyle-geo", "urbanstyle-blocks", "urbanstyle-division", "urbanstyle-ground", "urbanstyle-paths", "urbanstyle-model", "urbanstyle-checks", "urbanstyle-tables", "urbanstyle-simready", "urbanstyle-build"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+geo = { version = "=0.33.1", default-features = false }
+rstar = "=0.12.2"
+i_overlay = "=4.5.2"
+serde_json = { version = "1", features = ["float_roundtrip"] }
+
+[profile.release]
+opt-level = 3
+debug = false
+lto = "thin"
+codegen-units = 16

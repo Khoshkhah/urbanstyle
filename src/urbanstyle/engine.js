@@ -120,8 +120,8 @@ function paint3d(){Object.entries(L3D).forEach(([id,[prop,key,base]])=>{if(!map.
 // second layer over the same buildings
 // (the level's look from the panel: full, fade or off)
 const LOW_M=3;
-let selObj=false, bldG='full'; window.bldLook=g=>{bldG=g; bldFade()};
-function bldFade(){const b=map.getLayer('u3d-bld'); if(!b)return; const fade=bldG==='fade'||!!xpFocus, on=in3d&&bldG!=='off';
+let selObj=false, bldG='full', bldRow=window.rsBuildings?window.rsBuildings():true, bldOp=window.rsBuildingsOpacity?window.rsBuildingsOpacity():1; window.bldLook=g=>{bldG=g; bldFade()};
+function bldFade(){const b=map.getLayer('u3d-bld'); if(!b)return; const fade=bldG==='fade'||!!xpFocus, on=in3d&&bldG!=='off'&&bldRow;
   if(!map.getLayer('u3d-bld-on'))map.addLayer({id:'u3d-bld-on',type:'fill-extrusion',source:b.source,paint:{'fill-extrusion-opacity':0.92,
     'fill-extrusion-vertical-gradient':false,'fill-extrusion-height':['get','height_m'],'fill-extrusion-base':map.getPaintProperty('u3d-bld','fill-extrusion-base')}},map.getLayer('u3d-furn')?'u3d-furn':undefined);
   if(!U3D.includes('u3d-bld-on'))U3D.push('u3d-bld-on');     // (a 3D layer: setView hides it in 2D)
@@ -129,7 +129,7 @@ function bldFade(){const b=map.getLayer('u3d-bld'); if(!b)return; const fade=bld
   map.setFilter('u3d-bld-on',['all',map.getFilter('u3d-bld')||true,keep]);
   map.setPaintProperty('u3d-bld-on','fill-extrusion-color',map.getPaintProperty('u3d-bld','fill-extrusion-color'));
   map.setLayoutProperty('u3d-bld','visibility',on?'visible':'none'); map.setLayoutProperty('u3d-bld-on','visibility',on&&fade?'visible':'none');
-  map.setPaintProperty('u3d-bld','fill-extrusion-opacity',fade?0.25:0.92);
+  map.setPaintProperty('u3d-bld','fill-extrusion-opacity',fade?0.25*bldOp:bldOp); map.setPaintProperty('u3d-bld-on','fill-extrusion-opacity',bldOp);
   // low buildings, LOW_M high at most, to see the streets: the panel's option "low buildings", and while a street object is selected
   // (a building can stand between it and the camera; Kaveh, 2026-10-13)
   const low=!!(document.getElementById('lowbld')||{}).checked||(sel3d!==null&&selObj),
@@ -159,6 +159,17 @@ function bind3d(){if(bound3d||!map.getLayer('u3d-furn'))return; bound3d=true;
     if(!hit.length)deselect3d();
     svHere()})}       // 3D hides the road lines roadstyle's Street View follows: any click moves an open window to the nearest road
 map.on('pitchend',()=>setView());   // the view follows the tilt: 3D's own layers, or 2D's
+// the base map's own buildings never drawn: the page draws the area's buildings itself (u3d-bld, the Buildings overlay), and roadstyle
+// (0.28) hides its base map's buildings only for an overlay that extrudes, so its 3D buildings stood in ours (stripes on the roofs and
+// walls, a second tower over a garden; Kaveh, 2026-11-06). Their layers get a filter that keeps nothing, so roadstyle's switch and slider
+// stay: the base-map box's "3D buildings" row and its opacity slider work on OUR buildings (bldRow, bldOp; Kaveh, 2026-11-06: "change
+// transparency of building is missed in base map and layer part of toolbox")
+const NONE=['==',['get','__urbanstyle_none'],'x'];
+function noBaseBuildings(){(map.getStyle().layers||[]).forEach(l=>{if(/^vbm-/.test(l.id)&&(l.type==='fill-extrusion'||(l.type==='fill'&&/building/.test(l.id))))map.setFilter(l.id,NONE)})}
+['rs:basemapchange','rs:stylechange'].forEach(ev=>document.addEventListener(ev,()=>setTimeout(noBaseBuildings,0)));
+if(map.isStyleLoaded())noBaseBuildings(); map.on('load',noBaseBuildings); map.on('styledata',()=>setTimeout(noBaseBuildings,0));
+document.addEventListener('rs:buildingschange',e=>{bldRow=!!e.detail.on; bldFade()});
+document.addEventListener('rs:buildingsopacitychange',e=>{bldOp=e.detail.opacity; bldFade()});
 // Street View: roadstyle's window follows clicks on a road's centre line only; in a space most clicks land on its parts, lines or
 // Mapillary points (overlays). While the window is open such a click moves it too: to the road nearest the spot, looking along it.
 let downAt=null; map.on('mousedown',e=>downAt=e.lngLat); map.on('touchstart',e=>downAt=e.lngLat);

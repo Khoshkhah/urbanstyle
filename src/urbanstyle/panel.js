@@ -4,31 +4,42 @@
 (()=>{
 const B=document.body, resize=()=>setTimeout(()=>M()&&M().resize(),0);
 B.classList.add('xp');
-B.insertAdjacentHTML('beforeend',`<button id=xpfold title="hide the panel">&laquo;</button>
-<div id=xp>
-  <header><b>urbanstyle <span id=xparea style="font-weight:400;color:#64748b"></span></b></header>
-  <div id=xpview>level <span id=xplk></span><span class=sp></span><button id=xp2d>2D</button><button id=xp3d>3D</button></div>
-  <details id=xpchecks><summary>Checks</summary><div id=xpchk></div></details>
-  <details id=xplayers><summary>Layers <span class=xp3dl>(2D only)</span></summary><h5>Options</h5><div id=xpopts><label title="3D view only: each building at most 3 m high, so the streets are not hidden (also while a street object is selected)"><input type=checkbox id=lowbld> low buildings</label><label title="2D is a map: roads as lines, objects as dots. Tick to draw the real-size road surface in 2D too (lanes, crosswalks, sidewalks, markings), as 3D always does"><input type=checkbox id=allparts> road surface in 2D</label><label title="Mapillary's detections, for validation only: their positions are too rough to make an object. Green: it confirms a surveyed or mapped object; orange: nothing confirms it"><input type=checkbox id=mlybox> Mapillary detections (validation)</label></div><div id=xplys></div></details>
-  <div id=xptabs><button data-t=s class=on>Find</button><button data-t=f>Filter</button><button data-t=a>Ask</button></div>
-  <div class="xptab on" id=xp-s><div class=xprow><input id=xpq style="flex:1" placeholder="a street, a type, an OSM way, or an id (s0-…, i0-…)"><button class=xpgo id=xpqgo>Find</button></div>
-    <div id=xpbr title="browse: a group lists its things, one thing is selected"></div></div>
-  <div class=xptab id=xp-f>
+// the panel's blocks: made here (hidden) so that every handler below finds its element; when roadstyle's dashboard is ready they move
+// into its panel as cards (mount): View, the Find / Filter / Ask tabs, Results, Layers and Checks (docs/notes/dashboard-roadstyle-0.28.md)
+B.insertAdjacentHTML('beforeend',`<div id=xp hidden>
+  <div id=xpview><div class=xprow><span id=xplk></span><span style="flex:1"></span><div class=rs-seg id=xpmode title="the view: 2D, the plan; 3D, the street tilted"><button data-v=2d>2D</button><button data-v=3d>3D</button></div></div><div class=sb-note id=xparea></div></div>
+  <div id=xpchecks><div class=rs-scroll><table class=rs-table id=xpchk></table></div></div>
+  <div id=xplayers><div class=sb-note>Options <span class=xp3dl>(the layers: 2D only)</span></div><div id=xpopts><label title="3D view only: each building at most 3 m high, so the streets are not hidden (also while a street object is selected)"><input type=checkbox id=lowbld> low buildings</label><label title="2D is a map: roads as lines, objects as dots. Tick to draw the real-size road surface in 2D too (lanes, crosswalks, sidewalks, markings), as 3D always does"><input type=checkbox id=allparts> road surface in 2D</label><label title="Mapillary's detections, for validation only: their positions are too rough to make an object. Green: it confirms a surveyed or mapped object; orange: nothing confirms it"><input type=checkbox id=mlybox> Mapillary detections (validation)</label></div><div class=rs-scroll id=xplys></div></div>
+  <div id=xpfind><nav class=rs-tabs id=xptabs><button class="rs-tab on" data-tab=s>Find</button><button class=rs-tab data-tab=f>Filter</button><button class=rs-tab data-tab=a>Ask</button></nav>
+  <div data-pane=s id=xp-s><div class=xprow><input id=xpq style="flex:1" placeholder="a street, a type, an OSM way, or an id (s0-…, i0-…)"><button class="xpgo sb-primary" id=xpqgo>Find</button></div>
+    <div class=rs-scroll id=xpbr title="browse: a group lists its things, one thing is selected"></div></div>
+  <div data-pane=f id=xp-f hidden>
     <div class=xprow><select id=xplayer style="flex:1"></select></div>
     <div id=xpconds></div>
-    <div class=xprow><button class=xplink id=xpadd>+ condition</button><label style="flex:1;text-align:right"><input type=checkbox id=xpinview> only in the map view</label></div>
-    <div class=xprow><button class=xpgo id=xpfgo>Show</button></div>
+    <div class=xprow><button id=xpadd>+ condition</button><label style="flex:1;text-align:right"><input type=checkbox id=xpinview> only in the map view</label></div>
+    <div class=xprow><button class="xpgo sb-primary" id=xpfgo>Show</button></div>
   </div>
-  <div class=xptab id=xp-a>
+  <div data-pane=a id=xp-a hidden>
     <div id=xpchat></div>
     <div id=xpexs></div>
-    <div class=xprow style="justify-content:flex-end"><button class=xplink id=xpnew title="forget the questions so far: the next one starts afresh">New conversation</button></div>
-    <div class=xprow><textarea id=xpask rows=2 style="flex:1;resize:vertical" placeholder="Ask about the street, e.g. where are the sidewalks narrower than 1.8 m?"></textarea><button class=xpgo id=xpaskgo>Ask</button></div>
-  </div>
-  <div id=xpres><div id=xpcard></div><div id=xpsum style="color:#64748b;font-weight:400">Find (type, or browse the tree), filter or ask: the results show here (orange) and on the map.</div><div id=xpkinds></div>
-    <div class=xprow id=xpacts style="display:none"><button class=xplink id=xpcsv>CSV</button><button class=xplink id=xpgeo>GeoJSON</button><button class=xplink id=xpclr>Clear</button><button class=xplink id=xpfocus title="3D: the things of the list in their own colors, everything else faint">Focus</button></div>
-    <div id=xplist></div></div>
+    <div class=xprow style="justify-content:flex-end"><button id=xpnew title="forget the questions so far: the next one starts afresh">New conversation</button></div>
+    <div class=xprow><textarea id=xpask rows=2 style="flex:1;resize:vertical" placeholder="Ask about the street, e.g. where are the sidewalks narrower than 1.8 m?"></textarea><button class="xpgo sb-primary" id=xpaskgo>Ask</button></div>
+  </div></div>
+  <div id=xpres><div id=xpcard></div><div id=xpsum class=sb-note>Find (type, or browse the tree), filter or ask: the results show here (orange) and on the map.</div><div id=xpkinds></div>
+    <div class=xprow id=xpacts style="display:none"><button id=xpcsv>CSV</button><button id=xpgeo>GeoJSON</button><button id=xpclr>Clear</button><button id=xpfocus title="3D: the things of the list in their own colors, everything else faint">Focus</button></div>
+    <div class=rs-scroll><table class=rs-table id=xplist></table></div></div>
 </div>`);
+// (roadstyle's dashboard: the cards, in this order; Layers and Checks folded the first time; the dashboard keeps each card's state after)
+const SECS=[['xpview','View',0],['xpfind',null,0],['xpres','Results',0],['xplayers','Layers',1],['xpchecks','Checks',1]], later=[];
+let mounted=false;
+const whenRs=fn=>mounted?fn():later.push(fn);
+function mount(){if(!window.rs||!rs.sections||!rs.sections.add)return setTimeout(mount,100);
+  SECS.forEach(([id,label,fold])=>{const el=document.getElementById(id), sid='xps-'+id,
+      first=(()=>{try{return localStorage.getItem('rs-fold:'+location.pathname+':'+sid)===null}catch(e){return true}})();
+    if(label)rs.sections.add({id:sid,label,el,fold:!!fold});
+    else{const box=document.createElement('div'); box.className='rs-sec-box'; box.appendChild(el); rs.sections.add({id:sid,el:box})}
+    if(fold&&first)rs.sections.fold(sid,true)});
+  document.getElementById('xp').remove(); mounted=true; later.splice(0).forEach(f=>f())}
 const M=()=>typeof map!=="undefined"?map:null;
 // (the Ask conversation: its id and its chat kept in this browser, so a reload goes on with it; the server keeps its memory)
 const store={get:k=>{try{return localStorage.getItem(k)}catch(e){return null}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}}};
@@ -108,7 +119,7 @@ let selF=null;
 // where it was clicked; from the panel the map flies to it). No popup: it held only the name and the id, and it covered the thing; a
 // hidden panel opens for the card (Kaveh, 2026-10-13). The card's ×, Esc or a second click deselects
 function select(f,at){shut(); if(!f)return; selF=f; const p=f.properties; pick(p); selSrc(f); if(!at)fly([f]); card(f);
-  if(B.classList.contains('xp-off'))$('xpfold').click()}
+  const sh=$('sb-show'); if(sh&&sh.offsetParent)sh.click()}     // (a hidden panel opens for the card)
 // a click on the map in 3D (the 3D page's own handlers ask first: xpOnPick): its layer and id, then select as above
 const PICK3D={'u3d-furn':['Street objects','refs','id'],'u3d-bld':['Buildings','id','source_id'],'u3d-gnd':['Ground','ground_id','ground_id'],
   'u3d-lot':['Car parks','id','lot_id'],'u3d-ground':['Street parts','part_id','part_id'],'u3d-raised':['Street parts','part_id','part_id'],
@@ -128,10 +139,10 @@ function card(f){const p=f.properties, rows=Object.entries(p).filter(([k,v])=>!k
   if(p._layer==='Street spaces'&&p.section_id)go.push(`<button data-res="Street spaces|section_id|${esc(p.section_id)}">its section</button>`);
   if(p._layer==='Bridge parts'&&p.axis)go.push(`<button data-res="Bridge parts|axis|${esc(p.axis)}">all of axis ${esc(p.axis)}</button>`);
   if(p._layer==='Street objects'&&p.class)go.push(`<button data-res="Street objects|class|${esc(p.class)}">all ${esc(String(p.class).split('.').pop().replace(/_/g,' '))}</button>`);
-  $('xpcard').innerHTML=`<div class=h><b>${esc(p._label)}</b><small>${esc(p._layer)}</small><button title="deselect">&times;</button></div>`+
-    `<table>${rows}</table>`+(go.length?`<div class=go>${go.join('')}</div>`:'');
+  $('xpcard').innerHTML=`<div class="rs-callout" style="--rs-callout:#7c4dff"><div class=h><b>${esc(p._label)}</b><span class=rs-chip>${esc(p._layer)}</span><button class=xpx title="deselect">&times;</button></div>`+
+    `<table class=rs-table><tbody>${rows}</tbody></table>`+(go.length?`<div class=go>${go.join('')}</div>`:'')+'</div>';
   $('xpcard').classList.add('on'); $('xpres').scrollTop=0}
-$('xpcard').onclick=e=>{if(e.target.matches('.h button')){shut(); return}
+$('xpcard').onclick=e=>{if(e.target.closest('.xpx')){shut(); return}
   const b=e.target.closest('button'); if(!b)return; const [layer,field,value]=(b.dataset.sel||b.dataset.res||'').split('|'); if(!layer)return;
   (b.dataset.sel?post:(u,x)=>latest(post(u,x)))('/api/query',{layer,where:[{field,op:'=',value}]}).then(fc=>{if(b.dataset.sel){if(fc.features[0])select(fc.features[0])}
     else{show(fc,b.textContent); if(selF)card(selF)}}).catch(stale)};
@@ -148,9 +159,10 @@ function show(fc,title){
   onMap(fc); const n=fc.total, s=fc.features.length;
   $('xpsum').style.cssText=''; $('xpsum').textContent=(title?title+': ':'')+n+(n===1?' thing':' things')+(s<n?` (first ${s} shown)`:'')+
     (fc.length_m?' · '+km(fc.length_m):'')+(fc.area_m2?' · '+Math.round(fc.area_m2).toLocaleString()+' m²':'');
-  $('xpkinds').innerHTML=(fc.kinds||[]).slice(0,12).map(([k,v])=>`<span>${esc(k||'other')} ${v}</span>`).join('');
+  $('xpkinds').innerHTML=(fc.kinds||[]).slice(0,12).map(([k,v])=>`<span class=rs-chip>${esc(k||'other')} ${v}</span>`).join(' ');
   $('xpacts').style.display=s?'flex':'none';
-  $('xplist').innerHTML=fc.features.slice(0,300).map((f,i)=>`<div data-i=${i}>${esc(f.properties._label)}<small>${esc(f.properties._layer)} · ${esc(f.properties._id??'')}</small></div>`).join('');
+  // (two columns: the panel's width holds no third; the id is the name's second line, roadstyle's rule "drop a column")
+  $('xplist').innerHTML=s?'<thead><tr><th>Name</th><th>Layer</th></tr></thead><tbody>'+fc.features.slice(0,300).map((f,i)=>`<tr data-i=${i}><td>${esc(f.properties._label)}<div class=sb-note>${esc(f.properties._id??'')}</div></td><td>${esc(f.properties._layer)}</td></tr>`).join('')+'</tbody>':'';
   if(s)fly(fc.features)}
 $('xplist').onclick=e=>{const d=e.target.closest('[data-i]'); if(!d||!last)return; const f=last.features[+d.dataset.i];
   if(f&&f.properties._check){const [x,y]=f.geometry.coordinates; goPlace(x,y); return}      // (a check's place: the marker and the thing there)
@@ -158,10 +170,10 @@ $('xplist').onclick=e=>{const d=e.target.closest('[data-i]'); if(!d||!last)retur
 // (on a web site with no server, the page's own /api/: XP_STATIC, urbanstyle publish)
 const S=window.XP_STATIC;
 // the checks that do not pass (urban.check, `urbanstyle check`): each with its places as links that move the map there
-function checksBox(cs){const box=$('xpchecks'); if(!cs.length){box.style.display='none'; return}
-  const nf=cs.filter(c=>c.status==='fail').length; box.querySelector('summary').textContent=`Checks: ${nf} fail, ${cs.length-nf} info`;
-  $('xpchk').innerHTML=cs.map((c,k)=>`<div class="xpck ${c.status}" data-k=${k} title="click: every place of this check in the result list"><b>${esc(c.id)}</b> ${esc(c.status)} ${c.count}<small>${esc(c.what)}</small>`+
-    c.at.map((p,k)=>`<button class=xplink data-at="${p[0]},${p[1]}">${k+1}</button>`).join('')+'</div>').join('');
+function checksBox(cs){if(!cs.length){whenRs(()=>rs.sections.hide('xps-xpchecks')); return}
+  const nf=cs.filter(c=>c.status==='fail').length; whenRs(()=>rs.sections.note('xps-xpchecks',`${nf} fail, ${cs.length-nf} info`));
+  $('xpchk').innerHTML='<thead><tr><th>Check</th><th>Places</th></tr></thead><tbody>'+cs.map((c,k)=>`<tr class="xpck ${c.status}" data-k=${k} title="click: every place of this check in the result list"><td><b>${esc(c.id)}</b> <span class="rs-chip${c.status==='fail'?' xpfail':''}">${esc(c.status)} ${c.count}</span><div class=sb-note>${esc(c.what)}</div></td><td>`+
+    c.at.map((p,k)=>`<button data-at="${p[0]},${p[1]}">${k+1}</button>`).join(' ')+'</td></tr>').join('')+'</tbody>';
   // a place of a fault: the map flies there, a red marker stays on the exact point, and the thing at it is selected with its card
   // (Kaveh, 2026-10-17: "it only zooms on the issue location without selecting it, so it is hard to find what is the exact issue")
   // a click on a check (its id or its text): every place of it in the result list, one row each (Kaveh, 2026-10-17: "put them into
@@ -192,7 +204,7 @@ $('xpqgo').onclick=find; window.xpFind=q=>{$('xpq').value=q; find()}; $('xpq').o
 // filter: one layer, conditions on its fields
 const ops={number:['>=','<=','=','!='],choice:['=','!=','contains'],text:['contains','=','!=']};
 function cond(){const L=meta.layers[$('xplayer').value]; if(!L)return; const d=document.createElement('div'); d.className='xprow';
-  d.innerHTML=`<select class=xpfield>${L.fields.map(f=>`<option>${esc(f.name)}</option>`).join('')}</select><select class=xpop></select><span class=xpval style="display:flex"></span><button class=xplink title=remove>&times;</button>`;
+  d.innerHTML=`<select class=xpfield>${L.fields.map(f=>`<option>${esc(f.name)}</option>`).join('')}</select><select class=xpop></select><span class=xpval style="display:flex"></span><button title=remove>&times;</button>`;
   const fld=d.querySelector('.xpfield'), op=d.querySelector('.xpop'), val=d.querySelector('.xpval');
   const set=()=>{const f=L.fields.find(x=>x.name===fld.value); op.innerHTML=ops[f.kind].map(o=>`<option>${o}</option>`).join('');
     val.innerHTML=f.kind==='choice'?`<select style="flex:1;width:100%">${f.values.map(([v,n])=>`<option value="${esc(v)}">${esc(v)} (${n})</option>`).join('')}</select>`
@@ -206,7 +218,7 @@ $('xpfgo').onclick=()=>{const where=[...$('xpconds').children].map(d=>({field:d.
 // ask: the AI agent answers from the tables, shows what it found and the queries it used
 const EX=['Where are the sidewalks narrower than 1.8 m?','How much of Granville Street is for cars, and how much for people?',
   'Which crossings are not marked?','How many street lights are on the bridge?','Which parts of the bridge have chosen widths, not mapped ones?'];
-$('xpexs').innerHTML=EX.map(q=>`<span class=xpex>${esc(q)}</span>`).join('');
+$('xpexs').innerHTML=EX.map(q=>`<button class="rs-chip accent xpex">${esc(q)}</button>`).join(' ');
 $('xpexs').onclick=e=>{if(e.target.classList.contains('xpex')){$('xpask').value=e.target.textContent; ask()}};
 function ask(){const q=$('xpask').value.trim(); if(!q)return; $('xpask').value='';
   const chat=$('xpchat'); chat.insertAdjacentHTML('beforeend',`<div class=xpq>${esc(q)}</div><div class=xpa><span class=xpwait>Looking at the data...</span></div>`);
@@ -230,11 +242,7 @@ $('xpcsv').onclick=()=>{if(!last)return; const ks=[...new Set(last.features.flat
   save('urbanstyle-results.csv',[ks.join(','),...last.features.map(f=>ks.map(k=>q(f.properties[k])).join(','))].join('\n'),'text/csv')};
 $('xpfocus').onclick=()=>listFocus(!groupF);
 $('xpclr').onclick=()=>{shut(); selF=null; listSpec=null; listFocus(false); untick(); onMap({type:'FeatureCollection',features:[]}); $('xpsum').textContent=''; $('xpkinds').innerHTML=''; $('xplist').innerHTML=''; $('xpacts').style.display='none'};
-$('xptabs').onclick=e=>{const t=e.target.dataset.t; if(!t)return; [...$('xptabs').children].forEach(b=>b.classList.toggle('on',b.dataset.t===t));
-  document.querySelectorAll('.xptab').forEach(d=>d.classList.toggle('on',d.id==='xp-'+t))};
-// the panel, folded (xp-off) or not; the map fills what is left
-$('xpfold').onclick=()=>{const off=!B.classList.toggle('xp-off'); $('xpfold').innerHTML=off?'&laquo;':'&raquo;';
-  $('xpfold').title=off?'hide the panel':'show the panel'; resize()};
+whenRs(()=>rs.tabs.use($('xptabs'),()=>{}));     // (roadstyle's tabs: the pane of each tab, data-pane)
 // the layers on the map: the panel's own set (allow); at first the blocks, the buildings (grey: page.py), the sections, the intersections,
 // the subsections and the bridge (Kaveh, 2026-10-13). The road centre lines are roadstyle's own layers (roads-*), the rest overlays.
 const allow=new Set(['Blocks','Buildings','Sections','Intersections','Bridge 2D']);
@@ -284,9 +292,7 @@ const LYTREE=[
   ['Rank 6: the marks',null,'',[['Painted lines','Mark: ','']]],
   ['On top',null,'lying on the tree, in no rank',[
     ['Street objects','Street objects','lamps, trees, signs'],['Crossings and driveways, drawn over the parts','On the parts',''],
-    ['Bridges','Bridge 2D',''],['Links','Link: ','ramps, stairs, elevators'],['Mapillary','Mapillary','']]],
-  ['Base map',null,'not the model',[['Positron','Positron',''],['Voyager','Voyager',''],['Light Gray','Light Gray',''],['Dark Matter','Dark Matter',''],
-    ['OpenStreetMap','OpenStreetMap',''],['Satellite','Satellite',''],['Blank','Blank','']]]];
+    ['Bridges','Bridge 2D',''],['Links','Link: ','ramps, stairs, elevators'],['Mapillary','Mapillary','']]]];     // (the base map: the toolbox's base map tool)
 function layersList(){if(typeof OVERLAYS==='undefined')return; const all=['Roads',...OVERLAYS.map(o=>o.label)].filter(l=>!HIDE_LY(l)), used=new Set();
   const take=k=>k.endsWith(': ')?all.filter(l=>l.startsWith(k)):all.filter(l=>l===k);
   const sm=note=>note?`<small>${esc(note)}</small>`:'';
@@ -383,11 +389,11 @@ const roadOv=(lab,p)=>['Parts','On the parts'].includes(lab)?G_ROAD.includes(p.t
 function gFilter(m,id,on){const s=JSON.stringify(m.getFilter(id)), base=gF[id]&&gF[id][1]===s?gF[id][0]:m.getFilter(id);
   m.setFilter(id,on?(base?['all',base,isRoad]:isRoad):base); gF[id]=[base,JSON.stringify(m.getFilter(id))]}
 const d3=()=>typeof in3d!=='undefined'&&in3d, look=()=>LOOKS[d3()?'3d':'2d'];
-function views(){$('xp2d').classList.toggle('on',!d3()); $('xp3d').classList.toggle('on',d3());
+function views(){[...$('xpmode').children].forEach(b=>b.classList.toggle('on',(b.dataset.v==='3d')===d3()));     // (2D / 3D: the View card's switch; the toolbox's navigate tool tilts too)
   const ls=(meta&&meta.street_levels)||[0], L=look();
-  $('xplk').innerHTML=ls.map(l=>{const st=L[l]||'full';
-    return `<button data-k="${l}" class="${st}" title="level ${l}: ${({full:'shown',fade:'faded',off:'hidden'})[st]} (a click: the next)">${l}</button>`}).join('')+
-    `<button data-k="G" class="${L.G||'full'}" title="G: everything but the roads, on every level: ${({full:'shown',fade:'faded',off:'hidden'})[L.G||'full']} (a click: the next)">G</button>`}
+  $('xplk').innerHTML='<span class=sb-note>Level</span> '+ls.map(l=>{const st=L[l]||'full';
+    return `<button data-k="${l}" class="xplv ${st}${st==='full'?' sb-primary':''}" title="level ${l}: ${({full:'shown',fade:'faded',off:'hidden'})[st]} (a click: the next)">${l}</button>`}).join('')+
+    `<button data-k="G" class="xplv ${L.G||'full'}${(L.G||'full')==='full'?' sb-primary':''}" title="G: everything but the roads, on every level: ${({full:'shown',fade:'faded',off:'hidden'})[L.G||'full']} (a click: the next)">G</button>`}
 $('xplk').onclick=e=>{const l=e.target.dataset.k; if(l===undefined)return; const L=look(); L[l]=LOOK[(LOOK.indexOf(L[l]||'full')+1)%3]; views(); applyLooks()};
 const OPA={fill:'fill-opacity','fill-extrusion':'fill-extrusion-opacity',line:'line-opacity',circle:'circle-opacity',raster:'raster-opacity'};
 // 2D: each layer's things on the levels not hidden: by `level`, a building by its floors (level_min..level_max), a link by its two ends
@@ -414,6 +420,7 @@ function levels2d(){const m=M(); if(!m||d3()||typeof OVERLAYS==='undefined'||typ
       if(SORT[ly.type])m2.setLayoutProperty(id,SORT[ly.type],faded.length?['case',fd,100,['coalesce',['get','level'],0]]:undefined)})});
   if(waiting&&lvTries++<60)setTimeout(levels2d,1000)}
 let lvTries=0;
+whenRs(()=>rs.tabs.use($('xpmode'),v=>{if(M()&&(v==='3d')!==d3())M().easeTo({pitch:v==='3d'?60:0,duration:600})}));     // (roadstyle's two-way switch)
 function applyLooks(){const m=M(); if(!m)return; if(!m.isStyleLoaded())return setTimeout(applyLooks,200); const L=look();
   const g=L[0]||'full', up=L[1]||'full', G=L.G||'full';
   const keep=(id,k)=>{if(!(id+k in orig))orig[id+k]=m.getPaintProperty(id,k)??(k.endsWith('opacity')?1:null); return orig[id+k]};
@@ -447,7 +454,6 @@ function applyLooks(){const m=M(); if(!m)return; if(!m.isStyleLoaded())return se
     if(ly.type==='line'){const o=keep(id,'line-color'); m.setPaintProperty(id,'line-color',up==='full'?o:'#94a3b8')}})}
 // (3D redraws its layers, draw3d, on every view change: the looks again after it)
 if(typeof draw3d==='function'){const d3o=draw3d; draw3d=function(){d3o.apply(this,arguments); setTimeout(()=>{paintFocus(); selSrc(selF&&$('xpcard').classList.contains('on')?selF:null)},0)}}
-$('xp2d').onclick=()=>M()&&M().easeTo({pitch:0,duration:600}); $('xp3d').onclick=()=>M()&&M().easeTo({pitch:60,duration:600});
 // 2D: hover and click on the plan, as in 3D: the mouse resting HOVER2D ms on a thing of any layer shown lights the whole thing (light
 // purple); a click selects it (deep purple) and opens its card in the panel; roadstyle's own popup and tooltip never show (Kaveh,
 // 2026-10-13: "hover doesn't work", "the popup shows on the map instead of the side panel"). A layer the panel knows (OVMAP) gives its
@@ -524,10 +530,13 @@ function start(){const m=M(), data=typeof OVERLAYS!=='undefined'&&typeof rsQuery
   m.on('pitchend',()=>setTimeout(()=>{vis(); views(); applyLooks(); selSrc(selF&&$('xpcard').classList.contains('on')?selF:null)},50));
   m.once('idle',lift); setTimeout(lift,3000)}
 get('/api/meta').then(mt=>{meta=mt; (mt.street_levels||[]).forEach(l=>{if(l!==0&&l!==1&&!(l in LOOKS['2d']))LOOKS['2d'][l]='off'});
-  $('xparea').textContent='· '+mt.area; branch($('xpbr'),''); checksBox(mt.checks||[]);
-  $('xplayer').innerHTML=Object.entries(mt.layers).map(([k,v])=>`<option value="${esc(k)}">${esc(k)} (${v.count})</option>`).join(''); cond(); start()})
+  $('xparea').textContent='Area: '+mt.area; branch($('xpbr'),''); checksBox(mt.checks||[]);
+  $('xplayer').innerHTML=Object.entries(mt.layers).map(([k,v])=>`<option value="${esc(k)}">${esc(k)} (${v.count})</option>`).join('');
+  whenRs(()=>{const x=$('xplayer'); x.value=x.options[0]?x.options[0].value:''});     // (roadstyle's select button shows the value only when it is set)
+  cond(); start()})
   // (no server, the page as plain files: the panel stays for the layers, the view and the levels, read from the page's data (start);
   // the search, the tree, the filter and the agent need the server and are hidden; Kaveh, 2026-10-16: "it shows only level 0 and 1")
-  .catch(()=>{offline=true; meta={area:'',layers:{},street_levels:null}; $('xparea').textContent='· no server: layers, view and levels only';
+  .catch(()=>{offline=true; meta={area:'',layers:{},street_levels:null}; $('xparea').textContent='No server: layers, view and levels only';
     ['xpq','xpbr','xpsum','xplayer','xpcond','xpask','xpcard'].forEach(id=>{const e=$(id); if(e)e.style.display='none'}); start()});
+mount();
 })();

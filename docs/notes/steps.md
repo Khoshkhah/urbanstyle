@@ -293,6 +293,61 @@ The bridge profiles (`urbanstyle bridge`) come before a build of an area with br
 *Step 10, the ground: every piece of the area at level 0 is street, plot, green, water or structure.*
 
 
+## 2a. The build with `--simready` (2026-11-07)
+
+`urbanstyle build ... --simready SIMREADY/out/<area>-rust/build.duckdb` makes the roadway from SimReady's build and not from the code of
+steps 6, 8 and 9 (`docs/notes/simready-input.md`). The order is the same, with these changes:
+
+| # | Step | What changes |
+|---|---|---|
+| 6 | The old partition | not run (it made the preview partition with SUMO) |
+| 7 | **Blocks** (`sr_blocks.build`) | the blocks are the area less SimReady's street face; the sides and the corridors from the same face |
+| 8 | **Division** (`simready.build`, printed as `division (simready)`) | see below |
+| 9 | Turns | not run: the moves are SimReady's (`sim.movement`) |
+| 10 | Ground | as before |
+
+**What the division step does** (`src/urbanstyle/simready.py`):
+
+1. It attaches SimReady's build read-only and checks that every driving edge of the area is one of SimReady's. If one is not, the build
+   stops: both projects must read the same duckOSM database (`simready-input.md`, "The edge ids").
+2. It reads the streets only (`is_street`, the rule of `blocks.street_sql`): the carriageways, the lanes (each lane is a polygon between
+   its two boundary lines), the junctions that a street ends at or runs inside, the islands, the stop lines, the moves, and the street
+   faces of the other levels. A drive (an unnamed service way) has no space.
+3. It makes the spaces: a section (a carriageway and its twin, `s<level>-w<way>/1`) and a junction (`i<level>-<node>`) each is one space.
+4. It puts the parts of the roadway into each space: the lanes, the islands, and the junction area less the lanes.
+5. It makes the walking side. The street is the area less the blocks and the corridors (level 0), or SimReady's face of the level. The
+   walking side is the street less the roadway, cut across at each section end, and each piece goes to the space whose roadway it
+   touches most. A piece becomes a furnishing strip (`FURNISH_M` from the kerb), a sidewalk (`CLEAR_M`) and the frontage (the rest). A
+   piece that touches no edge of the street is an island.
+6. It makes the crosswalks from OSM's crossing ways and crossing nodes (`network.py`'s rules, 8a), cut from the lanes and the junction
+   area, with the paint from `crossing:markings` (zebra bars or crossing lines).
+7. It makes the marks: the kerb, the lane lines, the centre line, the stop line (signals or a stop sign), the give-way line (a yield
+   sign) and one guide line for each move.
+8. It writes the level rows of `unit`, `part`, `mark`, `subsection`, `junction`, `turn` and `approach`, each part with SimReady's
+   method (`ev_method`) and source `simready`, or `osm` for a crosswalk, or `urbanstyle` for the walking side.
+
+Not in it yet: the turn arrows, and a subsection for each change of the lanes along a section (a section is one subsection).
+
+**What comes from SimReady and what is urbanstyle's own.** SimReady has no step called division (that is urbanstyle's name, from the
+old pipeline). The division step reads SimReady's results, each described on a page of SimReady's site (`http://localhost:8801/`,
+`docs/3-modules/` in `../simready`):
+
+| The division step uses | SimReady table | SimReady page |
+|---|---|---|
+| the carriageways, their twins, their levels | `carriageway` | `3-modules/reference-line`, `3-modules/grouping` (the levels) |
+| the lanes: number, role, width, the two boundary lines | `lane`, `lane_section` | `3-modules/width-profiles`, `3-modules/lane-boundaries` |
+| the junctions and their areas, the islands | `junction`, `island` | `3-modules/junction-cut`, `3-modules/junction-area` |
+| the stop lines, the control (signal, stop, yield) | `stop_line`, `junction.control` | `3-modules/junction-cut`, `3-modules/import-signals` |
+| the moves from lane to lane | `movement` | `3-modules/connectors`, `3-modules/turn-rules` |
+| the street face (the blocks, in `sr_blocks.py`) | `street_face` | `3-modules/import-kerb`, `3-modules/street-space` |
+
+urbanstyle's own, with no SimReady page: the assembly of the spaces (a section and its twin, a junction), the walking side (the
+furnishing strip, the sidewalk, the frontage, the islands between roadways), the crosswalks (from OSM's crossing ways and nodes), and
+the drawing of the marks (the lane lines, the centre line, the kerb, the guide lines) from SimReady's lines.
+
+Time (a 1 km square of Monaco, 2026-11-07, with the profiler on): the division took 257 s; after the fixes of the loops that repeated a
+large operation for each item, and of DuckDB's one-row insert (`bulk.py`), 13 s.
+
 ## 3. Inside the network step (`network.build`), in the order the code runs
 
 The numbers in the code's comments (2, 3-4, 6a, 6a'', 6b, 6a', 6c, 6c', 5, 6, 7, 8a) are the numbers of `pipeline.md`'s steps,

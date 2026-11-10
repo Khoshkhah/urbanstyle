@@ -8,6 +8,7 @@ the things it knows, the style `urban.style`, the codes `urban.code` and the che
     urban.code      kind, citygml, opendrive, opensidewalks, ifc: our kinds in the standards
     urban.check     check_id, kind (fault, info), status (pass, fail, info), count, what, items, checked: `urbanstyle check` writes it
 """
+from . import bulk
 import ast
 import datetime
 import glob
@@ -278,11 +279,11 @@ def write_registry(con, old, built):
     con.execute("""CREATE OR REPLACE TABLE urban.registry (profile VARCHAR, uid VARCHAR, kind VARCHAR, first_seen TIMESTAMP,
                    last_seen TIMESTAMP)""")
     if old:
-        con.executemany("INSERT INTO urban.registry VALUES (?, ?, ?, ?, ?)", old)
+        bulk.executemany(con, "INSERT INTO urban.registry VALUES (?, ?, ?, ?, ?)", old)
     con.execute("CREATE OR REPLACE TEMP TABLE _thing (kind VARCHAR, tbl VARCHAR, col VARCHAR, id VARCHAR, profile VARCHAR)")
     rows = profiles(con)
     if rows:
-        con.executemany("INSERT INTO _thing VALUES (?, ?, ?, ?, ?)", rows)
+        bulk.executemany(con, "INSERT INTO _thing VALUES (?, ?, ?, ?, ?)", rows)
     con.execute("""INSERT INTO urban.registry SELECT DISTINCT t.profile, NULL, t.kind, ?, ? FROM _thing t
                    WHERE NOT EXISTS (SELECT 1 FROM urban.registry r WHERE r.kind = t.kind AND r.profile = t.profile)""", [built, built])
     con.execute("UPDATE urban.registry SET uid = uuid()::VARCHAR WHERE uid IS NULL")

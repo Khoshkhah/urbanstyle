@@ -273,8 +273,10 @@ def build(db, out, bridges=None):
     ovs = _overlays(F)
     for o in ovs:
         o.visible = False      # (every layer hidden at first: the panel sets the first look, then lifts the veil)
-    m = rs.render_edges(
-        F["edges"], palette="mono", basemap="voyager", name="urbanstyle", filter_control=False,
+    # roadstyle's dashboard (0.28; docs/notes/dashboard-roadstyle-0.28.md): its panel at the left with urbanstyle's cards (panel.js puts them
+    # in), its toolbox at the right edge (navigate, Street View, Google 3D, base map, 3D buildings, legend, the light or dark theme)
+    m = rs.render_dashboard(
+        F["edges"], palette="mono", basemap="ofm_positron", name="urbanstyle", dashboard={"panel": {"width_px": 400}},
         street_view_key=os.environ.get("GOOGLE_MAPS_KEY"),        # Street View's panorama (the key is in the page: restrict it in Google Cloud)
         google_3d=bool(os.environ.get("GOOGLE_MAPS_KEY")),         # roadstyle's Google 3D window, its camera linked with the map's (the same key)
         settings={"config": {"fill_opacity": 0.35, "casing_opacity": 0.2}},

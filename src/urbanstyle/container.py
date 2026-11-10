@@ -931,10 +931,11 @@ FROM = ("blocks", "division", "ground")     # where `build --from` can start: th
                                             # (blocks: from OUT.before-division too; the blocks' tables are rebuilt whole)
 
 
-def build(osm, out, start=None, bridges=()):
+def build(osm, out, start=None, bridges=(), simready=None):
     """The space container of `osm` in `out`. start="division": the street division and the steps after it only, from the copy the
     last full build kept before it (OUT.before-division): a fix in division.py or ground.py takes minutes, not a full build (Monaco 27
-    min; Kaveh, 2026-10-13: "consider I want to fix 100 issues"). Each step prints its time."""
+    min; Kaveh, 2026-10-13: "consider I want to fix 100 issues"). Each step prints its time. simready: SimReady's build
+    (build.duckdb), the roadway at every level from it (simready.py, docs/notes/simready-input.md), not from network.py and turns.py."""
     import shutil
     import time
     from . import meta
@@ -962,13 +963,14 @@ def build(osm, out, start=None, bridges=()):
         con.execute(f"CREATE OR REPLACE TEMP VIEW osm_boundary AS SELECT {'geometry' if 'geometry' in cols else 'geom'} AS geometry FROM osm.main.boundary")
     if start is not None:
         lon = con.execute("SELECT avg(ST_X(ST_Centroid(geometry))) FROM work.element").fetchone()[0]
-        _from_division(con, f"EPSG:{32600 + int((lon + 180) // 6) + 1}", done, bridges, out, start)
+        _from_division(con, f"EPSG:{32600 + int((lon + 180) // 6) + 1}", done, bridges, out, start, simready)
         return _finish(con, osm, out, bridges, old, done)
     con.execute(BUILD)
     con.execute(ROADS)
     from . import buildings
     buildings.city(con)     # a city's footprints where OSM has none, and its LiDAR heights (docs/design/source-inventory.md)
     con.execute(RAIL)
+    done("  elements: buildings, roads, rail")
     lon = con.execute("SELECT avg(ST_X(ST_Centroid(geometry))) FROM work.element").fetchone()[0]
     con.execute(PASSAGES.format(epsg=f"EPSG:{32600 + int((lon + 180) // 6) + 1}", under=PASSAGE_UNDER_M, along=PASSAGE_ALONG_M))
     for _ in range(5):                  # (the ways that go on from a lowered passage, one after the other)
@@ -980,19 +982,27 @@ def build(osm, out, start=None, bridges=()):
         con.execute(LOTS)
     except duckdb.CatalogException:     # a database without duckOSM's features: no car parks known
         con.execute("CREATE OR REPLACE TABLE work.lot (lot_id VARCHAR, type VARCHAR, name VARCHAR, parking VARCHAR, access VARCHAR, fee VARCHAR, operator VARCHAR, level INT, geometry GEOMETRY)")
+    done("  levels: passages, lots, parcels")
     con.execute(CLAMP)
     lon = con.execute("SELECT avg(ST_X(ST_Centroid(geometry))) FROM work.element").fetchone()[0]
     epsg = f"EPSG:{32600 + int((lon + 180) // 6) + 1}"  # northern-hemisphere UTM, metres
     fmt = dict(epsg=epsg, near=NEAR_M, along=ALONG_MIN, step=STEP_M, cap_max=CAP_MAX_M, parapet=PARAPET_M, bound_tol=BOUND_TOL_M, parallel=PARALLEL_COS, plaza_core=PLAZA_CORE_M, plaza_open=PLAZA_OPEN_M, plaza_min=PLAZA_MIN_M2, plaza_built=PLAZA_BUILT, int_margin=INTERSECTION_M, sw_half=SIDEWALK_HALF_M, setback=ARM_SETBACK_M, cross_margin=CROSS_MARGIN_M, smooth=SMOOTH_SAMPLES, bline=BLINE_M, slack=FACADE_SLACK_M)
     p1, rest = CONTAINER.split("-- STREETS-SPLIT")
     p2a, p2b = rest.split("-- INTERSECTIONS-SPLIT")
+    done("  levels: clamp")
     con.execute(p1.format(**fmt))
+    done("  containers: streets (SQL)")
     street_owner(con)
+    done("  containers: street_owner (python)")
     con.execute(p2a.split("\n", 1)[1].format(**fmt))
+    done("  containers: intersections (SQL)")
     intersection_shapes(con)
+    done("  containers: intersection_shapes (python)")
     con.execute(p2b.split("\n", 1)[1].format(**fmt))
+    done("  containers: zones (SQL)")
     con.execute(STATIONS)
     con.execute(LINKS.format(name_m=ENTRANCE_NAME_M, near_m=ENTRANCE_NEAR_M))
+    done("  stations and links")
     con.execute(OBJECTS.format(lo=LEVELS[0], hi=LEVELS[1], epsg=epsg, near_m=OBJECT_NEAR_M, attrs=list(OBJECT_ATTRS)))
     done("containers")
     from . import buildings, parts, spaces, strips, subsections  # lazy: shapely
@@ -1000,21 +1010,27 @@ def build(osm, out, start=None, bridges=()):
     done("strips")
     buildings.build(con, epsg)     # what each building is used for, its ground floor too
     done("buildings")
-    subsections.build(con, epsg)   # the network-first partition (preview): roads divided into subsections, then one space each
-    done("subsections")
-    spaces.build(con, epsg)
-    done("spaces")
+    if not simready:                # (with SimReady's roadway the preview partition and SUMO's lanes are not made)
+        subsections.build(con, epsg)   # the network-first partition (preview): roads divided into subsections, then one space each
+        done("subsections")
+        spaces.build(con, epsg)
+        done("spaces")
     if os.path.exists(out + ".mapillary.json"):     # street-level observations fetched earlier (`urbanstyle mapillary`)
         from . import mapillary
         mapillary.load(con, out + ".mapillary.json")
-    parts.build(con, epsg)         # ... and the inside of each space: parts, marks, widths
-    done("parts")
+    if not simready:
+        parts.build(con, epsg)     # ... and the inside of each space: parts, marks, widths
+        done("parts")
     from . import blocks
-    blocks.build(con, epsg)        # the blocks: the land between the streets (docs/design/blocks.md, step 1)
+    if simready:                   # the blocks from SimReady's street face (docs/notes/simready-input.md), else by blocks.py's own rays
+        from . import sr_blocks
+        sr_blocks.build(con, epsg, simready)
+    else:
+        blocks.build(con, epsg)    # the blocks: the land between the streets (docs/design/blocks.md, step 1)
     done("blocks")
     con.execute("CHECKPOINT")      # (the file as it is before the division, for `build --from division`)
     shutil.copy(out, out + ".before-division")
-    _from_division(con, epsg, done, bridges, out)
+    _from_division(con, epsg, done, bridges, out, simready=simready)
     return _finish(con, osm, out, bridges, old, done)
 
 
@@ -1028,19 +1044,30 @@ def _finish(con, osm, out, bridges, old, done):
     return con
 
 
-def _from_division(con, epsg, done, bridges=(), out=None, start="division"):
+def _from_division(con, epsg, done, bridges=(), out=None, start="division", simready=None):
     """The steps from the street division on: they rewrite the level-0 rows the steps before them made, so they start from those.
     start="ground": the ground steps only, from OUT.before-ground (a fix in ground.py: Monaco 7 min, not 36)."""
     import shutil
     from . import ground, network, turns
     if start == "blocks":
         from . import blocks
-        blocks.build(con, epsg)
+        if simready:
+            from . import sr_blocks
+            sr_blocks.build(con, epsg, simready)
+        else:
+            blocks.build(con, epsg)
         done("blocks")
         if out:         # (the copy a later `--from division` starts from: with these blocks, not the last full build's)
             con.execute("CHECKPOINT")
             shutil.copy(out, out + ".before-division")
-    if start in ("blocks", "division"):
+    if start in ("blocks", "division") and simready:
+        from . import simready as sr
+        sr.build(con, epsg, simready)          # SimReady's roadway at every level, urbanstyle's pedestrian side (docs/notes/simready-input.md)
+        done("division (simready)")
+        if out:
+            con.execute("CHECKPOINT")
+            shutil.copy(out, out + ".before-ground")
+    elif start in ("blocks", "division"):
         network.build(con, epsg, bridges)      # the street at level 0 from the road network (docs/design/pipeline.md, steps 2-7)
         # ... and on every deck level by the same rules (docs/notes/bridges-street-model.md): the deck's edge is the street's edge
         for (lv,) in con.execute("SELECT DISTINCT level_min FROM work.element WHERE type = 'road' AND level_min >= 1 ORDER BY 1").fetchall():

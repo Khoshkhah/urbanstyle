@@ -536,8 +536,8 @@ def across(jl, lines, ltree, reach=15.0):
     return shapely.line_merge(shapely.union_all(out)) if out else shapely.LineString()
 
 
-def roadway_meets(c, epsg):
-    """W1, W2: the roadway is one connected surface along every road at level 0. W1: a stretch of a road's line (W1_M or more) with
+def roadway_meets(c, epsg, level=0):
+    """W1, W2: the roadway is one connected surface along every road of one level (`level`; the check runs it on every level). W1: a stretch of a road's line (W1_M or more) with
     roadway on both sides but none under it: the pieces do not meet. W2: where two spaces meet across a road, the roadway reaches the
     joint at different points on the two sides (W2_M or more): a step or a sideways shift. Each place has its cause: the spaces it lies
     in (one space, two subsections of one section, two sections, a section and an intersection) and what covers a W1 gap (a part of
@@ -547,7 +547,7 @@ def roadway_meets(c, epsg):
     m = lambda g: f"ST_AsWKB(ST_Transform({g}, 'EPSG:4326', '{epsg}', always_xy := true))"
     geo = lambda w: shapely.make_valid(shapely.from_wkb(bytes(w)))
     to_ll = pyproj.Transformer.from_crs(epsg, "EPSG:4326", always_xy=True).transform
-    parts = [(u, t, geo(w)) for u, t, w in c.execute(f"SELECT unit_id, type, {m('geometry')} FROM work.part WHERE level = 0").fetchall()]
+    parts = [(u, t, geo(w)) for u, t, w in c.execute(f"SELECT unit_id, type, {m('geometry')} FROM work.part WHERE level = {level}").fetchall()]
     rw_u = {}
     for u, t, g in parts:
         if t in ROAD_PARTS:
@@ -555,7 +555,7 @@ def roadway_meets(c, epsg):
     rw_u = {u: shapely.union_all(v) for u, v in rw_u.items()}
     rw = shapely.union_all(list(rw_u.values()) or [shapely.Polygon()])
     units = {u: (k, sec, geo(w)) for u, k, sec, w in c.execute(f"""SELECT u.unit_id, u.kind, s.section_id, {m('u.geometry')} FROM work.unit u
-                 LEFT JOIN work.subsection s ON s.subsection_id = u.unit_id WHERE u.level = 0""").fetchall()}
+                 LEFT JOIN work.subsection s ON s.subsection_id = u.unit_id WHERE u.level = {level}""").fetchall()}
     uids = list(units); utree = shapely.STRtree([units[u][2] for u in uids])
     other = [(t, g) for _, t, g in parts if t not in ROAD_PARTS]; otree = shapely.STRtree([g for _, g in other]) if other else None
     area = shapely.union_all([geo(w) for (w,) in c.execute(f"SELECT {m('geometry')} FROM work.area").fetchall()] or [shapely.Polygon()]).buffer(-1.0)
@@ -569,15 +569,15 @@ def roadway_meets(c, epsg):
     from .blocks import street_sql
     # (the streets' lines only: a road that is no street, an unnamed service road, has no roadway, and its line crosses the outline
     # between two carriageways side by side without a joint there)
-    lines = [geo(w) for (w,) in c.execute(f"SELECT {m('geometry')} FROM work.element e WHERE type = 'road' AND level_min = 0 AND {street_sql('e')}").fetchall()]
+    lines = [geo(w) for (w,) in c.execute(f"SELECT {m('geometry')} FROM work.element e WHERE type = 'road' AND level_min = {level} AND {street_sql('e')}").fetchall()]
     ltree = shapely.STRtree(lines) if lines else None
     # (a road's dead end: the end node of a road line that no other road or walkway meets; there the roadway stops, no step)
     deg = {}
-    for s_, d_ in c.execute("SELECT src, dst FROM work.element WHERE type IN ('road', 'walkway') AND level_min = 0").fetchall():
+    for s_, d_ in c.execute(f"SELECT src, dst FROM work.element WHERE type IN ('road', 'walkway') AND level_min = {level}").fetchall():
         for n_ in (s_, d_):
             deg[n_] = deg.get(n_, 0) + 1
     dead = [shapely.Point(geo(w).coords[0 if k == 0 else -1]) for s_, d_, w in c.execute(f"""SELECT src, dst, {m('geometry')} FROM work.element
-            WHERE type = 'road' AND level_min = 0""").fetchall() for k, n_ in ((0, s_), (1, d_)) if deg.get(n_) == 1]
+            WHERE type = 'road' AND level_min = {level}""").fetchall() for k, n_ in ((0, s_), (1, d_)) if deg.get(n_) == 1]
     dtree = shapely.STRtree(dead) if dead else None
     for ln in lines:
         for g in shapely.get_parts(ln.difference(rw)):
@@ -622,6 +622,44 @@ def roadway_meets(c, epsg):
                 w2.append(to_ll(p_.x, p_.y) + (f"shift at a joint between {pair(a, b)}",))
     return w1, w2
 
+
+
+W3_M = 0.5      # W3: at a node where roads of two levels meet, each level's roadway comes this near the node
+
+
+def level_reach(c, epsg):
+    """W3: at each node inside the area where streets of two or more levels meet (a tunnel's entrance, a ramp onto a deck), the roadway of
+    every level reaches the node (within W3_M) from each of its streets there: else the levels do not join (Monaco, 2026-10-23: 49 of 133
+    such nodes, most at tunnel entrances, a gap of 1 to 14 m). Returns [(lon, lat, what)]."""
+    import shapely
+    import pyproj
+    m = lambda g: f"ST_AsWKB(ST_Transform({g}, 'EPSG:4326', '{epsg}', always_xy := true))"
+    geo = lambda w: shapely.make_valid(shapely.from_wkb(bytes(w)))
+    to_ll = pyproj.Transformer.from_crs(epsg, "EPSG:4326", always_xy=True).transform
+    from .blocks import street_sql
+    ends = {}
+    # (streets only, as W1: a road that is no street, an unnamed service road such as a garage ramp, has no roadway by design)
+    for oid, s_, d_, lv, w in c.execute(f"SELECT osm_id, src, dst, level_min, {m('geometry')} FROM work.element e WHERE type = 'road' AND {street_sql('e')}").fetchall():
+        g = geo(w)
+        if g.geom_type != "LineString":
+            continue
+        ends.setdefault(s_, []).append((lv, oid, shapely.Point(g.coords[0])))
+        ends.setdefault(d_, []).append((lv, oid, shapely.Point(g.coords[-1])))
+    rw = {}
+    for lv, w in c.execute(f"SELECT level, {m('geometry')} FROM work.part WHERE type IN (SELECT unnest(?::VARCHAR[]))", [list(ROAD_PARTS)]).fetchall():
+        rw.setdefault(lv, []).append(geo(w))
+    rw = {lv: shapely.union_all(v) for lv, v in rw.items()}
+    area = shapely.union_all([geo(w) for (w,) in c.execute(f"SELECT {m('geometry')} FROM work.area").fetchall()] or [shapely.Polygon()]).buffer(-5.0)
+    out = []
+    for n, es in ends.items():
+        lvs = sorted({e[0] for e in es})
+        if len(lvs) < 2 or not area.contains(es[0][2]):
+            continue
+        miss = sorted({(lv, oid) for lv, oid, p in es if lv not in rw or rw[lv].distance(p) > W3_M})
+        if miss:
+            p = es[0][2]
+            out.append(to_ll(p.x, p.y) + (f"node n{n}, levels {lvs}: no roadway at the node for " + ", ".join(f"w{o} (level {l})" for l, o in miss),))
+    return out
 
 def run(path, out=None):
     """The checks of the database at `path`, printed; True when a hard check fails. `out`: a list the rows go to (urban.check)."""
@@ -672,9 +710,14 @@ def run(path, out=None):
         rows += unit_checks(c, q, epsg)
         rows += rule_checks(c, epsg)
         if q("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'work' AND table_name = 'part'"):
-            w1, w2 = roadway_meets(c, epsg)
-            rows += [("W1", f"stretches of a road line ({W1_M} m or more) between two pieces of roadway with none under it: the pieces do not meet", len(w1), True, [p[:2] for p in w1]),
-                     ("W2", f"joints where the roadway reaches the two sides at points {W2_M} m or more apart (a step or a sideways shift)", len(w2), True, [p[:2] for p in w2])]
+            w1, w2 = [], []
+            for (lv,) in c.execute("SELECT DISTINCT level FROM work.part ORDER BY 1").fetchall():      # (every level: tunnels and decks too)
+                a_, b_ = roadway_meets(c, epsg, lv)
+                w1 += a_; w2 += b_
+            w3 = level_reach(c, epsg)
+            rows += [("W1", f"stretches of a road line ({W1_M} m or more) between two pieces of roadway with none under it, on any level: the pieces do not meet", len(w1), True, [p[:2] for p in w1]),
+                     ("W2", f"joints where the roadway reaches the two sides at points {W2_M} m or more apart, on any level (a step or a sideways shift)", len(w2), True, [p[:2] for p in w2]),
+                     ("W3", f"nodes where streets of two levels meet (a tunnel's entrance, a ramp) and one level's roadway stops more than {W3_M} m short: the levels do not join", len(w3), True, [p[:2] for p in w3])]
     total = q("SELECT count(*) FROM work.container")
     print(f"\n== {path}  ({total} containers, all levels)")
     failed = False

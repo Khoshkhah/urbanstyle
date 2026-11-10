@@ -14,6 +14,8 @@ def main(argv=None):
     b.add_argument("out", help="output .duckdb")
     b.add_argument("--bridge", action="extend", nargs="+", default=[], metavar="PROFILE",
                    help="a bridge profile (<name>.bridge.json): its ways are the bridge model's, the ground draws none of them")
+    b.add_argument("--simready", metavar="BUILD", help="SimReady's build.duckdb: the roadway at every level from it, not from network.py "
+                   "(docs/notes/simready-input.md); the input database must have SimReady's edge ids")
     b.add_argument("--from", dest="start", choices=["blocks", "division", "ground"], help="only the street division and the steps after it, from the copy "
                    "the last full build kept (OUT.before-division): for a fix in network.py; `ground`: the ground steps only, from OUT.before-ground")
     ck = sub.add_parser("check", help="conformance checks; exit 1 if a hard check fails")
@@ -94,7 +96,7 @@ def main(argv=None):
 
     if a.cmd == "build":
         from .container import build, counts, with_features
-        c = build(with_features(a.osm, a.out.replace(".duckdb", ".osm.duckdb")), a.out, a.start, a.bridge)
+        c = build(with_features(a.osm, a.out.replace(".duckdb", ".osm.duckdb")), a.out, a.start, a.bridge, a.simready)
         print("level  type       n")
         for l, t, n in counts(c):
             print(f"{l:>5}  {t:<9} {n}")

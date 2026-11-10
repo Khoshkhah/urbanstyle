@@ -24,6 +24,8 @@ import re
 
 import duckdb
 
+from . import bulk
+
 # the parts of the walking side (rank 4); every other part is on the driving side
 WALKING = ("sidewalk", "furnishing", "frontage", "driveway", "island", "verge", "bus stop", "tree pit", "steps", "ramp", "handrail",
            "bollard", "open")
@@ -124,10 +126,11 @@ class Writer:
         self.con.execute(f'CREATE OR REPLACE TABLE urban."{name}" ({", ".join(f"{q(c)} {t}" for c, t in cols)})')
         if not rows:
             return 0
-        marks = ", ".join("ST_GeomFromWKB(?)" if t == G else "?" for _, t in cols)
-        conv = [(lambda v: self.ll(v)) if t == G else ((lambda v: None if v is None else (v if isinstance(v, str) else json.dumps(v)))
-                                                       if t == J else (lambda v: v)) for _, t in cols]
-        self.con.executemany(f'INSERT INTO urban."{name}" VALUES ({marks})', [[f(v) for f, v in zip(conv, r)] for r in rows])
+        # (the geometry goes in as WKB in metres and DuckDB makes the lon/lat: one statement for all rows, no shapely transform of each)
+        marks = ", ".join(f"ST_Transform(ST_GeomFromWKB(?), '{self.epsg}', 'EPSG:4326', always_xy := true)" if t == G else "?" for _, t in cols)
+        conv = [(lambda v: None if v is None or v.is_empty else self.shapely.to_wkb(v)) if t == G else
+                ((lambda v: None if v is None else (v if isinstance(v, str) else json.dumps(v))) if t == J else (lambda v: v)) for _, t in cols]
+        bulk.executemany(self.con, f'INSERT INTO urban."{name}" VALUES ({marks})', [[f(v) for f, v in zip(conv, r)] for r in rows])
         for c, t in cols:       # (ST_GeomFromWKB(NULL) gives a geometry that is not NULL and has no shape: make it NULL)
             if t == G:
                 self.con.execute(f'UPDATE urban."{name}" SET {q(c)} = NULL WHERE {q(c)} IS NOT NULL AND ST_AsWKB({q(c)}) IS NULL')
@@ -139,19 +142,25 @@ def q(c):
 
 
 def _st(axis, geom):
-    """(s_from, s_to, t_from, t_to) of `geom` on `axis`: s along, t across, left positive (docs/design/tables.md, "The axes")."""
+    """(s_from, s_to, t_from, t_to) of `geom` on `axis`: s along, t across, left positive (docs/design/tables.md, "The axes"). Every vertex
+    at once (shapely's array functions: a call for each vertex took 29 s on Monaco's 12,000 spaces)."""
+    import numpy as np
     import shapely
-    pts = [shapely.Point(c) for p in shapely.get_parts(geom) for c in (p.exterior.coords if p.geom_type == "Polygon" else p.coords)]
-    if not pts or axis is None or axis.length == 0:
+    xy = [np.asarray((p.exterior.coords if p.geom_type == "Polygon" else p.coords), dtype=float)[:, :2] for p in shapely.get_parts(geom)]
+    xy = [c for c in xy if len(c)]
+    if not xy or axis is None or axis.length == 0:
         return None, None, None, None
-    ss, ts = [], []
-    for pt in pts:
-        s = axis.project(pt)
-        a, b = axis.interpolate(max(s - 0.5, 0)), axis.interpolate(min(s + 0.5, axis.length))
-        side = (b.x - a.x) * (pt.y - a.y) - (b.y - a.y) * (pt.x - a.x)
-        ss.append(s)
-        ts.append((1 if side >= 0 else -1) * pt.distance(axis.interpolate(s)))
-    return min(ss), max(ss), min(ts), max(ts)
+    xy = np.concatenate(xy)
+    px, py = xy[:, 0], xy[:, 1]
+    pts = shapely.points(xy)
+    s = shapely.line_locate_point(axis, pts)
+    a = shapely.line_interpolate_point(axis, np.maximum(s - 0.5, 0))
+    b = shapely.line_interpolate_point(axis, np.minimum(s + 0.5, axis.length))
+    c = shapely.line_interpolate_point(axis, s)
+    ax, ay, bx, by = shapely.get_x(a), shapely.get_y(a), shapely.get_x(b), shapely.get_y(b)
+    side = (bx - ax) * (py - ay) - (by - ay) * (px - ax)
+    t = np.where(side >= 0, 1.0, -1.0) * np.hypot(px - shapely.get_x(c), py - shapely.get_y(c))
+    return float(s.min()), float(s.max()), float(t.min()), float(t.max())
 
 
 def _touch(a, b):
@@ -677,19 +686,28 @@ def _objects(W, con, epsg, out, units, parts):
     from .unit import SIZE
     osm = {o: (nm, at) for o, nm, at in W.rows("SELECT object_id, name, attrs::VARCHAR FROM work.object")}
     ulist = [(u, d["level"], d["geom"]) for u, d in units.items()]
-    plist = [(p["part_id"], p["unit_id"], p["geom"]) for p in parts]
+    # (each thing against the spaces and parts near it, from indexes by level and by space: against all of them it took 38 s on Monaco)
+    ubl = {}
+    for u, l_, gm in ulist:
+        ubl.setdefault(l_, []).append((u, gm))
+    utree = {l_: shapely.STRtree([gm for _, gm in v]) for l_, v in ubl.items()}
+    pbu = {}
+    for p_ in parts:
+        pbu.setdefault(p_["unit_id"], []).append((p_["part_id"], p_["geom"]))
     rows = []
     for oid, cls, lv, grp, p, refs, sources, h, details, methods, wd in matched_objects(con, epsg, out or ""):
         if sources == "mapillary":
             continue
-        inside = [u for u, l_, gm in ulist if l_ == lv and gm.covers(p)]
+        lvl, tr_ = ubl.get(lv, []), utree.get(lv)
+        inside = [lvl[k][0] for k in sorted(tr_.query(p)) if lvl[k][1].covers(p)] if tr_ is not None else []
         near_m = None
         if inside:
             space = inside[0]
         else:
-            cand = [(gm.distance(p), u) for u, l_, gm in ulist if l_ == lv and gm.distance(p) <= NEAR_M]
+            cand = [(lvl[k][1].distance(p), lvl[k][0]) for k in (tr_.query(p.buffer(NEAR_M)) if tr_ is not None else [])]
+            cand = [c for c in cand if c[0] <= NEAR_M]
             space, near_m = (min(cand)[1], round(min(cand)[0], 2)) if cand else (None, None)
-        part = next((pid for pid, u, gm in plist if u == space and gm.covers(p)), None) if inside else None
+        part = next((pid for pid, gm in pbu.get(space, []) if gm.covers(p)), None) if inside else None
         w0, h0 = SIZE.get(cls, (None, None))
         meas = lambda x: (x[1].split(" (")[0], x[1].split(" (")[1].rstrip(")")) if x and " (" in x[1] else ("urbanstyle", "chosen")
         ws, wm = meas(wd) if wd else ("urbanstyle", "chosen")

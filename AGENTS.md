@@ -89,7 +89,7 @@ starting work). The agreed model of sections, intersections and the frame, which
   G1-G3 the ground (`urban.ground`: no unknown piece, no overlap, no gap: rank 1 partitions the area), L1-L2 the surfaces (`urban.surface`), B1 and B6 the blocks (`urban.block`), B7 no space reaching into a block (rank 3 is cut from rank 1's street), B8 the spaces whose lanes narrowed to fit between the street's edges (`sections.md`, "The room rule"); A1-A3, J1-J2, X1, M1, K1 the
   agreed street rules (`docs/notes/street-rules.md`); R1-R4 the roadway at
   level 0: R1 its edges at the joints (a step only at a `real` change), R4 the lanes that meet their continuation there (tapers); J3 every connector
-  inside an intersection, J4 (INFO) the tag changes along the sections with their classes.
+  inside an intersection, J4 (INFO) the tag changes along the sections with their classes; W1-W3 the roadway on every level: no gap (W1), no step at a joint (W2), and each level reaches every node where streets of two levels meet (W3).
   `urbanstyle check DB --bridge PROFILE` adds BR1-BR8, the bridge model's own checks (`bridge3d.model_checks`: guard on a lane,
   holes, guard gaps, paths on paths, slivers, lanes of two axes overlapping, lanes with no arrow, steps at landings) and BR9-BR11 (deck no
   part covers, a lane meeting a path with no barrier but at a crosswalk, steps in the deck's height) and BR12 (a surveyed or OSM street object standing inside a lane near the ground: the lane is wrong there), each with `?at=` links.

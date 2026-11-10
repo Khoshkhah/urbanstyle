@@ -20,6 +20,7 @@ kind, its sources in the order listed. What is left is `unknown`: check G1 repor
 
 Level 0 only: a bridge's or a tunnel's level has no ground of its own but its structure.
 """
+from . import bulk
 import json
 import os
 
@@ -36,6 +37,60 @@ ALLEY_MIN_W_M = 2.0  # an alley (ground between parcels a road runs through) is 
 MIN_M2 = 0.5        # a piece of ground smaller than this is left to its neighbours (a sliver between two sources' edges)
 
 
+
+class _Taken:
+    """The pieces taken so far, with an index by 50 m cells: a new piece is cut only by the pieces near it. The union of every piece so
+    far, made again for each new piece, took Monaco's ground 200 minutes (a union of the street and 5,000 pieces, 5,000 times)."""
+    CELL_M = 50.0
+
+    TILE_M = 200.0      # a piece wider than two tiles (the street: one polygon the size of the area) is indexed in tiles: a difference with
+                        # the whole of it, for each of 18,000 pieces, took 20 s on Monaco
+
+    def __init__(self):
+        self.pieces, self.grid, self.originals = [], {}, []
+
+    def _cells(self, g):
+        if g.is_empty:
+            return []
+        x0, y0, x1, y1 = g.bounds
+        c = self.CELL_M
+        return [(i, j) for i in range(int(x0 // c), int(x1 // c) + 1) for j in range(int(y0 // c), int(y1 // c) + 1)]
+
+    def cut(self, geom):
+        """geom less the pieces taken (one at a time, the nearest cells only)."""
+        import shapely
+        idx = set()
+        for key in self._cells(geom):
+            idx.update(self.grid.get(key, ()))
+        for k in sorted(idx):
+            if geom.is_empty:
+                break
+            geom = shapely.union_all([q for q in shapely.get_parts(geom.difference(self.pieces[k], grid_size=0.01)) if q.geom_type == "Polygon"] or [shapely.Polygon()])
+        return geom
+
+    def _add_one(self, piece):
+        self.pieces.append(piece)
+        for key in self._cells(piece):
+            self.grid.setdefault(key, []).append(len(self.pieces) - 1)
+
+    def add(self, piece):
+        import shapely
+        self.originals.append(piece)
+        x0, y0, x1, y1 = piece.bounds
+        t = self.TILE_M
+        if x1 - x0 > 2 * t or y1 - y0 > 2 * t:
+            for i in range(int(x0 // t), int(x1 // t) + 1):
+                for j in range(int(y0 // t), int(y1 // t) + 1):
+                    for q in shapely.get_parts(shapely.clip_by_rect(piece, i * t, j * t, (i + 1) * t, (j + 1) * t)):
+                        if q.geom_type == "Polygon" and not q.is_empty:
+                            self._add_one(q)
+        else:
+            self._add_one(piece)
+
+    def union(self):
+        import shapely
+        return shapely.union_all(self.originals, grid_size=0.01) if self.originals else shapely.Polygon()
+
 def parcels(con):
     """work.parcel: a city's parcels, the property lines (Vancouver `property-parcel-polygons`, from the unit's city file next to the space
     database; "much of the land base at survey accuracy"), read by the partition (the street reaches them) and by the ground (plots).
@@ -50,16 +105,18 @@ def parcels(con):
              " ".join(str(x) for x in ((f["properties"] or {}).get("civic_number"), (f["properties"] or {}).get("streetname")) if x),
              json.dumps(f["geometry"])) for i, f in enumerate(fc) if f.get("geometry")]
     if rows:
-        con.executemany("INSERT INTO work.parcel VALUES (?, ?, ST_MakeValid(ST_GeomFromGeoJSON(?)))", rows)
+        bulk.executemany(con, "INSERT INTO work.parcel VALUES (?, ?, ST_MakeValid(ST_GeomFromGeoJSON(?)))", rows)
     return len(rows)
 
 
-def build(con, epsg):
+def gather(con, epsg):
+    """What the ground reads: the area, the kinds in the order they take the ground (each a list of items with its geometry), the blocks'
+    land, the lines of the roads and paths, and whether the city has parcels. The SQL is here."""
     import duckdb
     import shapely
     m = lambda col="geometry": f"ST_AsWKB(ST_Transform({col}, 'EPSG:4326', '{epsg}', always_xy := true))"
     g = lambda w: shapely.make_valid(shapely.from_wkb(bytes(w)))
-    poly = lambda x: shapely.union_all([p for p in shapely.get_parts(x) if p.geom_type == "Polygon"] or [shapely.Polygon()])
+    poly = lambda x: x if x.geom_type == "Polygon" else shapely.union_all([p for p in shapely.get_parts(x) if p.geom_type == "Polygon"] or [shapely.Polygon()])
 
     def rows(sql):
         try:
@@ -162,28 +219,41 @@ def build(con, epsg):
                  + greens[1:] + order[-2:-1])     # the structures; (footpaths are not ground: they lie on it, whole, in work.path)
     else:
         order = [o for o in order if o[0] != "driveway"]
-    taken, out = shapely.Polygon(), []
+    # (what the geometry below reads: the lines the left-over pieces are traced to, and whether a city has parcels)
+    lines = [(t, f"w{o}", n, g(w), wd) for t, o, n, w, wd in rows(f"""SELECT e.type, e.osm_id, e.name, {m('e.geometry')},
+                    try_cast(w.tags['width'] AS DOUBLE) FROM work.element e LEFT JOIN osm.raw.ways w USING (osm_id)
+                    WHERE e.type IN ('road', 'walkway', 'cycleway') AND e.level_min = 0""")]
+    has_parcels = bool(rows("SELECT 1 FROM work.parcel LIMIT 1"))
+    return dict(area=area, order=order, land_=land_, lines=lines, has_parcels=has_parcels)
+
+
+def assemble(inp):
+    """The geometry of the ground, from what `gather` read: every kind takes the ground the earlier kinds left, then what is left is
+    traced to a line, a sliver joins its neighbour, and the pieces become one planar partition. Returns [(ground_id, type, name, source,
+    method, ref, polygon)]. No database: this is the part that the Rust port (rust/urbanstyle-ground) does."""
+    import shapely
+    poly = lambda x: x if x.geom_type == "Polygon" else shapely.union_all([p for p in shapely.get_parts(x) if p.geom_type == "Polygon"] or [shapely.Polygon()])
+    area, order, land_, lines, has_parcels = (inp[k] for k in ("area", "order", "land_", "lines", "has_parcels"))
+    taken, out = _Taken(), []
     for typ, items, src, meth in order:
         within = land_ if land_ is not None and typ != "street" and not (typ == "path" and src == "urbanstyle" and meth == "derived") else area
         for ref, name, geom in items:
             try:
-                piece = poly(poly(geom.intersection(within, grid_size=0.01)).difference(taken, grid_size=0.01))
+                piece = poly(taken.cut(poly(geom.intersection(within, grid_size=0.01))))
             except shapely.errors.GEOSException:
                 continue
             if piece.area < MIN_M2:
                 continue
-            taken = shapely.union_all([taken, piece], grid_size=0.01)
+            taken.add(piece)
             # a building's own source: a city's outline (vb...) is the city's
             out.append((f"g0-{typ}-{ref}", typ, name, "vancouver" if ref.startswith("vb") else src, meth, ref, piece))
     # (every piece of what is left, whatever its size: the kinds partition the area exactly, rank 1 of steps.md; a sliver dropped here
     # was a gap, 32 m2 of them on Monaco, 2026-10-16)
+    taken = taken.union()
     rest = [p for p in shapely.get_parts(poly(area.difference(taken, grid_size=0.01))) if p.area > 0]
     left = []
     # what is left that a path or a road runs through is that path's or that street's ground (a greenway's corridor, a road under a
     # bridge's ramp): by the line with the most length in it
-    lines = [(t, f"w{o}", n, g(w), wd) for t, o, n, w, wd in rows(f"""SELECT e.type, e.osm_id, e.name, {m('e.geometry')},
-                    try_cast(w.tags['width'] AS DOUBLE) FROM work.element e LEFT JOIN osm.raw.ways w USING (osm_id)
-                    WHERE e.type IN ('road', 'walkway', 'cycleway') AND e.level_min = 0""")]
     ltree = shapely.STRtree([x[3] for x in lines]) if lines else None
     kept = []
     for p in rest:
@@ -217,10 +287,15 @@ def build(con, epsg):
             kept.append(p)
     rest = kept
     tree = shapely.STRtree([x[6] for x in out]) if out else None
-    has_parcels = bool(rows("SELECT 1 FROM work.parcel LIMIT 1"))
+    _ob = {}
+
+    def ob(k):      # (the buffer of an item, made once: for each sliver it was made again for every neighbour, the street's too)
+        if k not in _ob:
+            _ob[k] = out[k][6].buffer(0.05)
+        return _ob[k]
     for p in rest:      # a sliver joins the neighbour it shares the most edge with; where a city's parcels exist, ground outside them that
         #                 touches a street is right-of-way: it joins that street (a junction's cut or a ramp's edge stopped short of it)
-        near = sorted(((p.boundary.intersection(out[k][6].buffer(0.05)).length, k) for k in (tree.query(p.buffer(0.05)) if tree is not None else [])),
+        near = sorted(((p.boundary.intersection(ob(k)).length, k) for k in (tree.query(p.buffer(0.05)) if tree is not None else [])),
                       reverse=True)
         streets = [(L, k) for L, k in near if out[k][1] == "street" and L > 0.5]
         row = has_parcels and streets and land_ is None     # blocks first: land never joins the street
@@ -231,6 +306,7 @@ def build(con, epsg):
         if ((p.area < SLIVER_M2 or 2 * p.area / p.length < SLIVER_W_M) and near and near[0][0] > 0.1) or row:
             k = streets[0][1] if row else near[0][1]
             out[k] = out[k][:6] + (poly(shapely.union_all([out[k][6], p], grid_size=0.01)),)     # (on the grid, no buffer: a buffer overlapped the neighbours)
+            _ob.pop(k, None)
         else:
             left.append(p)
     for p in sorted(left, key=lambda p: (round(p.centroid.x), round(p.centroid.y))):     # stable for the same data
@@ -271,10 +347,16 @@ def build(con, epsg):
         pieces = [q for q in shapely.get_parts(poly(shapely.unary_union(fs))) if q.geom_type == "Polygon" and not q.is_empty]
         merged += [o[:6] + (pieces[0],)] if len(pieces) == 1 else [(f"{o[0]}/{k_ + 1}",) + o[1:6] + (q,) for k_, q in enumerate(pieces)]
     out = merged
+    return out
+
+
+def build(con, epsg):
+    import shapely
+    out = assemble(gather(con, epsg))
     con.execute("""CREATE OR REPLACE TABLE work.ground (ground_id VARCHAR, level INT, type VARCHAR, name VARCHAR, source VARCHAR,
                    method VARCHAR, ref VARCHAR, geometry GEOMETRY)""")
     if out:
-        con.executemany(f"""INSERT INTO work.ground VALUES (?, 0, ?, ?, ?, ?, ?,
+        bulk.executemany(con, f"""INSERT INTO work.ground VALUES (?, 0, ?, ?, ?, ?, ?,
                             ST_Transform(ST_GeomFromWKB(?), '{epsg}', 'EPSG:4326', always_xy := true))""",
                         [(i, t, n, s, me, r, shapely.to_wkb(p)) for i, t, n, s, me, r, p in out])
     return len(out)
@@ -301,7 +383,7 @@ def surfaces(con, epsg):
     import shapely
     m = lambda col="geometry": f"ST_AsWKB(ST_Transform({col}, 'EPSG:4326', '{epsg}', always_xy := true))"
     g = lambda w: shapely.make_valid(shapely.from_wkb(bytes(w)))
-    poly = lambda x: shapely.union_all([p for p in shapely.get_parts(x) if p.geom_type == "Polygon"] or [shapely.Polygon()])
+    poly = lambda x: x if x.geom_type == "Polygon" else shapely.union_all([p for p in shapely.get_parts(x) if p.geom_type == "Polygon"] or [shapely.Polygon()])
 
     def rows(sql):
         try:
@@ -362,17 +444,17 @@ def surfaces(con, epsg):
             claims.append(("lawn", G, "urbanstyle", "derived", None))
         else:
             claims.append((ONE_SURFACE.get(typ, typ), G, g_src or "urbanstyle", g_meth or "derived", ref))      # the ground item's own
-        taken, mine = shapely.Polygon(), []
+        taken, mine = _Taken(), []
         for kind, geom, s, me, r in claims:
             try:
-                piece = poly(poly(geom.intersection(G, grid_size=0.01)).difference(taken, grid_size=0.01))
+                piece = poly(taken.cut(poly(geom.intersection(G, grid_size=0.01))))
             except shapely.errors.GEOSException:
                 continue
             if piece.area < MIN_M2:
                 continue
-            taken = shapely.union_all([taken, piece], grid_size=0.01)
+            taken.add(piece)
             mine.append([f"{gid}:{kind}", gid, kind, s, me, r, piece])
-        rest = poly(G.difference(taken, grid_size=0.01)) if mine else shapely.Polygon()
+        rest = poly(G.difference(taken.union(), grid_size=0.01)) if mine else shapely.Polygon()
         for p in (shapely.get_parts(rest) if not rest.is_empty else []):     # what no source names joins its neighbour in this item
             if p.area < 0.01:
                 continue
@@ -384,7 +466,7 @@ def surfaces(con, epsg):
     con.execute("""CREATE OR REPLACE TABLE work.surface (surface_id VARCHAR, ground_id VARCHAR, level INT, type VARCHAR, source VARCHAR,
                    method VARCHAR, ref VARCHAR, geometry GEOMETRY)""")
     if out:
-        con.executemany(f"""INSERT INTO work.surface VALUES (?, ?, 0, ?, ?, ?, ?,
+        bulk.executemany(con, f"""INSERT INTO work.surface VALUES (?, ?, 0, ?, ?, ?, ?,
                             ST_Transform(ST_GeomFromWKB(?), '{epsg}', 'EPSG:4326', always_xy := true))""",
                         [(i, gi, k, s, me, r, shapely.to_wkb(p)) for i, gi, k, s, me, r, p in out])
     return len(out)
@@ -416,6 +498,6 @@ def paths(con, epsg):
     con.execute("""CREATE OR REPLACE TABLE work.path (path_id VARCHAR, kind VARCHAR, name VARCHAR, width_m DOUBLE, width_source VARCHAR,
                    width_method VARCHAR, "on" VARCHAR, geometry GEOMETRY)""")
     if rows:
-        con.executemany(f"""INSERT INTO work.path VALUES (?, ?, ?, ?, ?, ?, ?,
+        bulk.executemany(con, f"""INSERT INTO work.path VALUES (?, ?, ?, ?, ?, ?, ?,
                             ST_Transform(ST_GeomFromWKB(?), '{epsg}', 'EPSG:4326', always_xy := true))""", rows)
     return len(rows)

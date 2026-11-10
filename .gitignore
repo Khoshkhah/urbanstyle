@@ -11,3 +11,4 @@ site/
 *.duckdb
 *.duckdb.wal
 /scratch/
+rust/target/

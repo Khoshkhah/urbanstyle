@@ -6,6 +6,8 @@
 # The cut has the full area's code and rules. Only its edges differ: roads that leave the square end there.
 # Every bridge profile that comes near the square goes with it, whole, and the square grows to hold it and the roads that join it.
 # Monaco's cut comes from duckOSM's wide database (the region round Monaco), so the roads past the border are there too.
+# SIMREADY=../simready/out/monaco-rust/build.duckdb scripts/cut.sh monaco ...: the roadway from SimReady's build (simready.py,
+# docs/notes/simready-input.md), from the wide database with SimReady's overrides, and no bridge profiles (SimReady gives the levels).
 set -e
 cd "$(dirname "$0")/.."
 area=$1 name=$2 lon=$3 lat=$4 radius=${5:-250} port=${PORT:-8784}
@@ -15,6 +17,10 @@ case $area in
   vancouver) src=data/units/broadway-granville.osm.duckdb; bridges=data/bridges-measured/granville-bridge.bridge.json ;;
   *) echo "AREA: monaco or vancouver"; exit 2 ;;
 esac
+if [ -n "$SIMREADY" ]; then
+  [ $area = monaco ] && src=../duckOSM/data/monaco-wide/monaco-wide.simready.duckdb
+  bridges=""; export SIMREADY=$(realpath "$SIMREADY")
+fi
 mkdir -p data/cuts
 export CARTO_API_KEY="${CARTO_API_KEY:-$(grep -o 'CARTO_API_KEY="[^"]*"' ~/.bashrc | cut -d'"' -f2)}"
 k=~/miniconda3/envs/roadstyle/etc/conda/activate.d/google_maps_key.sh; [ -f $k ] && source $k
@@ -79,7 +85,7 @@ out = base + ".urban.duckdb"
 for f in (out, out + ".before-division", out + ".before-ground"):
     if os.path.exists(f):
         os.remove(f)
-container.build(base + ".osm.duckdb", out, bridges=near).close()
+container.build(base + ".osm.duckdb", out, bridges=near, simready=os.environ.get("SIMREADY") or None).close()
 try:                           # the checks, with the bridges' own (BR1-BR12), into urban.check: the page's check list
     cli.main(["check", out] + (["--bridge"] + near if near else []))
 except SystemExit:

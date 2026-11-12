@@ -6,8 +6,9 @@ urbanstyle gives its input as elevations (``parameters.z_reference = "elevation"
 
 - a free end of a group: the area's ground there (duckOSM's grid, interpolated as the page draws it);
 - a junction: urbanstyle's deck there, base + height (``data/bridges-*/<name>.bridge.json``, ``urbanstyle bridge-ground``);
-- no interior points: roadstyle's engine draws each chain from node to node (Kaveh, 2026-11-12: a group needs a height at its
-  junctions only).
+- interior points only where a deck must clear something (urbanstyle's clearances: 5.5 m over a road, a lower deck's height and the
+  gap over a deck): one at the start and one at the end of each clearance, at the base plus the clearance; elsewhere roadstyle's engine
+  draws each chain from node to node (Kaveh, 2026-11-12: a group needs heights at its junctions, and points only where it must clear).
 
 Writes OUT.html and OUT.profile.json (the input given to roadstyle)."""
 import glob
@@ -26,6 +27,7 @@ import roadstyle.duckosm as d
 DB, OUT = sys.argv[1], sys.argv[2]
 FILES = sys.argv[3:] or sorted(glob.glob("data/bridges-monaco/*.bridge.json"))
 AXIS_M = 15.0           # a node belongs to an axis that passes this near it
+JOIN_M = 10.0           # two clearances this near each other are one
 
 roads, _, _ = d.read(DB, "driving", levels="auto")
 df = roads.to_pandas()
@@ -62,7 +64,20 @@ for f in FILES:
         line = shapely.LineString(a["line"]["value"])
         v, b = np.array(a["vertical"]["points"]), np.array(a["base"]["points"])
         elev = lambda s, v=v, b=b: float(np.interp(s, b[:, 0], b[:, 1]) + np.interp(s, v[:, 0], v[:, 1]))
-        axes.append({"id": f"{f.split('/')[-1][:-12]}:{a['id']}", "line": line, "to_m": to_m, "elev": elev})
+        base = lambda s, b=b: float(np.interp(s, b[:, 0], b[:, 1]))
+        runs = {}           # what the deck must clear: {what: [s from, s to, height above the base]}
+        for c in a["vertical"].get("clearances", []):
+            s_ = line.project(shapely.Point(c["at"]))
+            r = runs.setdefault(c["over"], [s_, s_, c["z"]])
+            r[0], r[1], r[2] = min(r[0], s_), max(r[1], s_), max(r[2], c["z"])
+        joined = []         # (clearances that overlap or lie within JOIN_M of each other are one thing to clear: one start, one end)
+        for r in sorted(runs.values()):
+            if joined and r[0] <= joined[-1][1] + JOIN_M:
+                joined[-1] = [joined[-1][0], max(joined[-1][1], r[1]), max(joined[-1][2], r[2])]
+            else:
+                joined.append(list(r))
+        axes.append({"id": f"{f.split('/')[-1][:-12]}:{a['id']}", "line": line, "to_m": to_m, "elev": elev, "base": base,
+                     "runs": joined})
 
 
 def nearest_axis(*lonlats):
@@ -94,11 +109,34 @@ for grp in prof["groups"]:
                 notes.append(f"{n['id']}: no urbanstyle axis within {AXIS_M} m: roadstyle's rule fills it")
                 continue
             nodes.append({"id": n["id"], "z_m": round(hit[0]["elev"](hit[1][0]), 2), "source": "urbanstyle", "method": "derived"})
-    groups.append({"nodes": nodes})
+    chains = []
+    for c in grp["chains"]:
+        hit = nearest_axis(where[c["from"]], where[c["to"]])
+        if hit is None:
+            continue
+        ax, (a0, a1) = hit
+        lo, hi = sorted((a0, a1))
+        at = {}
+        for s_lo, s_hi, zc in ax["runs"]:
+            for s in (s_lo, s_hi):
+                sc = abs(s - a0)
+                if lo + 1.0 < s < hi - 1.0 and 1.0 < sc < c["length_m"] - 1.0:
+                    k = round(sc)
+                    # (a clearance that no allowed grade reaches, "met": false in the profile: the height urbanstyle's deck reaches there)
+                    z = min(ax["base"](s) + zc, ax["elev"](s))
+                    at[k] = max(at.get(k, (0, -1e9)), (round(sc, 2), round(z, 2)), key=lambda q: q[1])
+        pts = [{"s": s, "z_m": z, "source": "urbanstyle", "method": "derived"} for s, z in sorted(at.values())]
+        # each point rounded by a vertical curve, urbanstyle's rule (bridge_profile.fit_alignment): 0.9 of the shorter grade beside it
+        ss = [0.0] + [q["s"] for q in pts] + [c["length_m"]]
+        for k, q in enumerate(pts, start=1):
+            q["curve_m"] = round(min(80.0, 0.9 * min(ss[k] - ss[k - 1], ss[k + 1] - ss[k])), 1)
+        if pts:
+            chains.append({"id": c["id"], "points": pts})
+    groups.append({"nodes": nodes, "chains": chains})
 given = {"parameters": {"curve": "design", "z_reference": "elevation"},
          "ground": {k: ground_facts[k] for k in ("id", "source", "product", "vertical_datum")}, "groups": groups}
 json.dump(given, open(OUT.replace(".html", "") + ".profile.json", "w"), indent=1)
-print(f"{len(groups)} groups, {sum(len(x['nodes']) for x in groups)} nodes")
+print(f"{len(groups)} groups, {sum(len(x['nodes']) for x in groups)} nodes, {sum(len(c['points']) for x in groups for c in x['chains'])} points where a deck must clear")
 print("\n".join(notes) or "no notes")
 with warnings.catch_warnings(record=True) as w:
     warnings.simplefilter("always")

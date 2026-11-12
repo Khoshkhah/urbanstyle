@@ -391,12 +391,20 @@ Boulevard du Larvotto: ground ends at 16.1 m, 17.1 m and 20.4 m, the junction of
 
 **The test page (2026-11-12).** `scripts/bridge_roadstyle_page.py` (roadstyle-current env) makes `viz/monaco-bridges-ground.html`:
 roadstyle's 3D map with the area's ground as terrain (toolbox: "3D terrain"). roadstyle's own engine makes the profile of each bridge group
-(`rs.bridge_profile`); urbanstyle gives its input as elevations (`parameters.z_reference = "elevation"`, roadstyle PR 179): each free end
-the ground there, each junction urbanstyle's deck (base + height), each chain urbanstyle's grade points between its nodes. The input is
-written beside the page (`.profile.json`). Monaco: 7 groups, 22 nodes, 28 interior points; the page draws every group (no
-`rsBridgeProblems()`). Two nodes of Avenue de France are free ends for roadstyle but junctions for urbanstyle (n3: our deck 9.3 m up, n1:
-1.9 m): roadstyle sees 7 of our 22 axes as no 3D bridge (their roads have no level 1 in the area's file), so the decks drop to the ground
-there. roadstyle warns of grades above its design grade (12.5 %) on 10 chains.
+(`rs.bridge_profile`); urbanstyle gives its input as elevations (`parameters.z_reference = "elevation"`, roadstyle PR 179), as few values as
+the group needs (Kaveh, 2026-11-12):
+
+- each free end: the ground there;
+- each junction: urbanstyle's deck there (base + height);
+- interior points only where a deck must clear something: one at the start and one at the end of each clearance (joined when two lie
+  within 10 m), at the base plus the clearance, or at urbanstyle's deck where no allowed grade reaches the clearance; each rounded by
+  urbanstyle's vertical curve rule. Our 6 % rule's other grade points are not given: they made the deck climb where nothing is crossed
+  (Boulevard du Larvotto climbed twice, with a dip at its junction).
+
+The input is written beside the page (`.profile.json`). Monaco: 7 groups, 22 nodes, 12 points; the page draws every group. Larvotto: one
+climb to its junction (24.6 m), level over the four roads it crosses, down to its free end. Open: two nodes of Avenue de France are free
+ends for roadstyle but junctions for urbanstyle (n3: our deck 9.3 m up, n1: 1.9 m; 7 of our 22 axes have no level 1 in the area's file),
+and roadstyle finds two decks there (c3 over c10) 4.9 m apart, under its 5 m.
 
 **Not done:** the 3D model (`bridge_surface`) still draws the flat model or IGN's elevations and does not read the base; Granville's
 profile has no base (Granville's pass-0 build has no ground id yet); w448186718 needs the z of its ends from a ground file of the wide region.

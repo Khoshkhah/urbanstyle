@@ -8,7 +8,6 @@ use geo::{Coord, LineString};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::time::Instant;
 use urbanstyle_geo::{io, ops, ops::Mp};
 
 /// The grid the parts are snapped to (`simready.py`'s `clean`), and the smallest part kept.
@@ -40,8 +39,8 @@ fn os(v: &Value) -> Option<String> {
 
 fn load(dir: &Path, prefix: &str, name: &str) -> Value {
     let path = dir.join(format!("{prefix}{name}-fixture.json"));
-    let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
-    serde_json::from_str(&text).unwrap_or_else(|e| panic!("cannot parse {}: {e}", path.display()))
+    let text = urbanstyle_geo::files::take(&path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
+    serde_json::from_slice(&text).unwrap_or_else(|e| panic!("cannot parse {}: {e}", path.display()))
 }
 
 /// Where the tables are: SimReady's Parquet files and duckOSM's pass-0 folder. With them the blocks and the division read their inputs
@@ -95,10 +94,11 @@ fn from_tables(s: &Sources) -> Result<(urbanstyle_blocks::Input, urbanstyle_divi
 /// check, surface). `with_checks` false skips the checks: the `check` table is empty. The uids are new ones (`new-1`, ...): a build that keeps them gives the registry of the last build to `assign`.
 pub fn run(dir: &Path, prefix: &str, out_dir: Option<&Path>, with_checks: bool, sources: Option<&Sources>) -> Built {
     let mut timings: Vec<(String, f64)> = Vec::new();
-    let mut t = Instant::now();
-    let mut lap = |name: &str, t: &mut Instant| {
-        timings.push((name.to_string(), t.elapsed().as_secs_f64()));
-        *t = Instant::now();
+    let mut t = urbanstyle_geo::timing::now_s();
+    let mut lap = |name: &str, t: &mut f64| {
+        let now = urbanstyle_geo::timing::now_s();
+        timings.push((name.to_string(), now - *t));
+        *t = now;
     };
 
     // ---- read the raw inputs

@@ -5,6 +5,7 @@
 //! nothing here calls GEOS, so the crate builds for `wasm32-unknown-unknown`. A rule written with these helpers does not need
 //! `make_valid`, `set_precision` or a `grid_size`: `i_overlay` returns valid polygons.
 
+pub mod files;
 pub mod index;
 pub mod io;
 pub mod lines;

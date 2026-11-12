@@ -2,7 +2,7 @@
 # must build for wasm32-unknown-unknown: geo, rstar and i_overlay (which geo brings), no GEOS. The versions are SimReady's.
 [workspace]
 resolver = "2"
-members = ["urbanstyle-geo", "urbanstyle-blocks", "urbanstyle-division", "urbanstyle-ground", "urbanstyle-paths", "urbanstyle-model", "urbanstyle-checks", "urbanstyle-tables", "urbanstyle-simready", "urbanstyle-build"]
+members = ["urbanstyle-geo", "urbanstyle-blocks", "urbanstyle-division", "urbanstyle-ground", "urbanstyle-paths", "urbanstyle-model", "urbanstyle-checks", "urbanstyle-tables", "urbanstyle-simready", "urbanstyle-build", "urbanstyle-wasm"]
 
 [workspace.package]
 version = "0.1.0"

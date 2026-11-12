@@ -1,0 +1,3 @@
+# The browser build: a stack of 16 MB (the default 1 MB is small for the deep calls of the overlays and of serde_json).
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "link-arg=-zstack-size=16777216"]

@@ -1,0 +1,14 @@
+[package]
+name = "urbanstyle-wasm"
+description = "The whole build in the browser: the page puts the input files in, runs the chain and reads the times and the counts"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+serde_json.workspace = true
+urbanstyle-geo = { path = "../urbanstyle-geo" }
+urbanstyle-build = { path = "../urbanstyle-build" }

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>urbanstyle in the browser</title>
+<style>
+  :root { --bg: #fff; --fg: #1d1d1f; --muted: #6e6e73; --line: #d2d2d7; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #1c1c1e; --fg: #f2f2f7; --muted: #a1a1a6; --line: #3a3a3c; } }
+  body { background: var(--bg); color: var(--fg); font: 15px/1.45 system-ui, sans-serif; margin: 0 auto; max-width: 820px; padding: 24px 16px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  p { color: var(--muted); margin: 0 0 16px; }
+  button { font: inherit; padding: 6px 14px; margin-right: 8px; }
+  #status { margin: 16px 0; font-weight: 600; }
+  table { border-collapse: collapse; width: 100%; margin: 8px 0 20px; }
+  td { border-bottom: 1px solid var(--line); padding: 3px 6px; }
+  td.n { text-align: right; font-variant-numeric: tabular-nums; }
+  pre { white-space: pre-wrap; color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<h1>urbanstyle in the browser</h1>
+<p>The whole Rust build of Monaco, compiled to WebAssembly, on one thread in a worker. The page loads the input files, runs the chain and shows the time of each step.</p>
+<button id="run1">Run with checks</button><button id="run0">Run without checks</button>
+<div id="status">Not started.</div>
+<div id="out"></div>
+<script>
+const status = document.getElementById("status"), out = document.getElementById("out");
+function go(checks) {
+  out.innerHTML = "";
+  const w = new Worker("worker.js");
+  w.onmessage = (e) => {
+    const m = e.data;
+    if (m.status) status.textContent = m.status;
+    if (m.error) { status.textContent = "Error: " + m.error; w.terminate(); }
+    if (m.result) { show(m.result, m.load_s, m.memory_mb); w.terminate(); }
+  };
+  w.postMessage({ checks });
+}
+function show(r, load_s, memory_mb) {
+  window.US_RESULT = r;
+  status.textContent = `Done: the chain took ${r.all.toFixed(2)} s (loading the files ${load_s.toFixed(2)} s; WebAssembly memory ${memory_mb} MB).`;
+  const rows = r.steps.map(([n, s]) => `<tr><td>${n}</td><td class="n">${s.toFixed(2)} s</td></tr>`).join("");
+  const counts = Object.entries(r.counts).map(([k, v]) => `<tr><td>${k}</td><td class="n">${v}</td></tr>`).join("");
+  out.innerHTML = `<table>${rows}</table><table>${counts}</table><pre>${r.checks.join("\n")}</pre><pre>${r.laps.join("\n")}</pre>`;
+}
+document.getElementById("run1").onclick = () => go(1);
+document.getElementById("run0").onclick = () => go(0);
+if (location.hash === "#auto") go(1);
+</script>
+</body>
+</html>

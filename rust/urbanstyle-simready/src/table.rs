@@ -24,7 +24,7 @@ impl Table {
     }
 
     pub fn open(path: &Path) -> Result<Table, String> {
-        Table::from_bytes(Bytes::from(std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?))
+        Table::from_bytes(Bytes::from(urbanstyle_geo::files::read(path).map_err(|e| format!("{}: {e}", path.display()))?))
     }
 
     pub fn rows(&self) -> usize {

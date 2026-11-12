@@ -6,7 +6,8 @@ urbanstyle gives its input as elevations (``parameters.z_reference = "elevation"
 
 - a free end of a group: the area's ground there (duckOSM's grid, interpolated as the page draws it);
 - a junction: urbanstyle's deck there, base + height (``data/bridges-*/<name>.bridge.json``, ``urbanstyle bridge-ground``);
-- each chain: urbanstyle's grade points between its two nodes, as interior points.
+- no interior points: roadstyle's engine draws each chain from node to node (Kaveh, 2026-11-12: a group needs a height at its
+  junctions only).
 
 Writes OUT.html and OUT.profile.json (the input given to roadstyle)."""
 import glob
@@ -25,7 +26,6 @@ import roadstyle.duckosm as d
 DB, OUT = sys.argv[1], sys.argv[2]
 FILES = sys.argv[3:] or sorted(glob.glob("data/bridges-monaco/*.bridge.json"))
 AXIS_M = 15.0           # a node belongs to an axis that passes this near it
-CURVE_MAX_M = 80.0      # the longest vertical curve (bridge_profile.fit_alignment's curve_max)
 
 roads, _, _ = d.read(DB, "driving", levels="auto")
 df = roads.to_pandas()
@@ -62,7 +62,7 @@ for f in FILES:
         line = shapely.LineString(a["line"]["value"])
         v, b = np.array(a["vertical"]["points"]), np.array(a["base"]["points"])
         elev = lambda s, v=v, b=b: float(np.interp(s, b[:, 0], b[:, 1]) + np.interp(s, v[:, 0], v[:, 1]))
-        axes.append({"id": f"{f.split('/')[-1][:-12]}:{a['id']}", "line": line, "to_m": to_m, "elev": elev, "grade_s": v[:, 0].tolist()})
+        axes.append({"id": f"{f.split('/')[-1][:-12]}:{a['id']}", "line": line, "to_m": to_m, "elev": elev})
 
 
 def nearest_axis(*lonlats):
@@ -94,27 +94,11 @@ for grp in prof["groups"]:
                 notes.append(f"{n['id']}: no urbanstyle axis within {AXIS_M} m: roadstyle's rule fills it")
                 continue
             nodes.append({"id": n["id"], "z_m": round(hit[0]["elev"](hit[1][0]), 2), "source": "urbanstyle", "method": "derived"})
-    chains = []
-    for c in grp["chains"]:
-        hit = nearest_axis(where[c["from"]], where[c["to"]])
-        if hit is None:
-            notes.append(f"{c['id']}: no urbanstyle axis through both of its nodes: no interior points")
-            continue
-        ax, (a0, a1) = hit
-        lo, hi = sorted((a0, a1))
-        pts = sorted(({"s": round(abs(s - a0), 2), "z_m": round(ax["elev"](s), 2), "source": "urbanstyle", "method": "derived"}
-                      for s in ax["grade_s"] if lo + 1.0 < s < hi - 1.0 and abs(s - a0) < c["length_m"] - 1.0), key=lambda q: q["s"])
-        # each grade point rounded by a vertical curve, urbanstyle's rule (bridge_profile.fit_alignment): 0.9 of the shorter grade beside
-        # it, at most CURVE_MAX_M; with 0 the grades meet at a corner (a deck that rises "in two steps")
-        ss = [0.0] + [q["s"] for q in pts] + [c["length_m"]]
-        for k, q in enumerate(pts, start=1):
-            q["curve_m"] = round(min(CURVE_MAX_M, 0.9 * min(ss[k] - ss[k - 1], ss[k + 1] - ss[k])), 1)
-        chains.append({"id": c["id"], "points": pts})
-    groups.append({"nodes": nodes, "chains": chains})
+    groups.append({"nodes": nodes})
 given = {"parameters": {"curve": "design", "z_reference": "elevation"},
          "ground": {k: ground_facts[k] for k in ("id", "source", "product", "vertical_datum")}, "groups": groups}
 json.dump(given, open(OUT.replace(".html", "") + ".profile.json", "w"), indent=1)
-print(f"{len(groups)} groups, {sum(len(x['nodes']) for x in groups)} nodes, {sum(len(c['points']) for x in groups for c in x['chains'])} interior points")
+print(f"{len(groups)} groups, {sum(len(x['nodes']) for x in groups)} nodes")
 print("\n".join(notes) or "no notes")
 with warnings.catch_warnings(record=True) as w:
     warnings.simplefilter("always")

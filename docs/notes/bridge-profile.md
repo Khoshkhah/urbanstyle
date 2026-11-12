@@ -360,7 +360,6 @@ OSM bridge is shorter than the real one: fix the roads (duckOSM's overrides) or 
 2. **One set of height rules.** Ours (`bridge-heights`): a 6 % grade, 5.5 m clearance, a 27 m top. roadstyle's fallback (`height_rule
    "design"`): 5 %, 5.0 m, no top, and no obstacles. Heights from rules must come only from urbanstyle, so that the two views never
    disagree; our solver knows the crossings over roads, buildings and lower decks.
-3. **Hillsides.** 19 of 23 clearances on Avenue de France (Monaco) cannot be reached because the flat model has no terrain
-   ([the Saint-Roman hairpin is real ground](#heights-with-no-measurement)). With the area's real ground this can change.
+3. **Hillsides.** 19 of 23 clearances on Avenue de France (Monaco) cannot be reached because the flat model has no terrain. With the area's real ground this can change.
 
 If roadstyle lacks something that urbanstyle needs, tell the roadstyle session; urbanstyle does not change roadstyle.

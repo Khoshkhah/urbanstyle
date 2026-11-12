@@ -40,9 +40,11 @@ def _slug(name):
     return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
 
 
-def profiles(osm_db, gmns_db, name=None):
+def profiles(osm_db, gmns_db, name=None, ground_from=None):
     """The profiles of the bridge called ``name`` (``man_made=bridge`` with that name), or of every road bridge when ``name`` is None:
-    each outline with road ways on it, and each connected group of road ways with ``bridge=*`` outside every outline."""
+    each outline with road ways on it, and each connected group of road ways with ``bridge=*`` outside every outline. With
+    ``ground_from`` (a duckOSM database or pass-0 folder with the area's ground), each axis gets its base (``_base``) and the profile
+    names its ground."""
     import duckdb
     import pyproj
     import shapely
@@ -53,23 +55,14 @@ def profiles(osm_db, gmns_db, name=None):
     lon0, lat0 = o.execute("SELECT avg(lon), avg(lat) FROM raw.nodes").fetchone()
     epsg = (32600 if lat0 >= 0 else 32700) + int((lon0 + 180) // 6) + 1
     tr = pyproj.Transformer.from_crs("EPSG:4326", f"EPSG:{epsg}", always_xy=True).transform
-    ways = o.execute("""SELECT osm_id, refs, tags FROM raw.ways WHERE tags['highway'] IS NOT NULL
-                        AND coalesce(tags['bridge'], 'no') <> 'no'""").fetchall()
     outl = o.execute("SELECT osm_id, refs, tags FROM raw.ways WHERE tags['man_made'] = 'bridge'"
                      + (" AND tags['name'] = ?" if name else ""), [name] if name else []).fetchall()
     if name and not outl:
         raise ValueError(f"no man_made=bridge named {name!r} in {osm_db}")
-    refs = {r for _, rs, _ in ways + outl for r in rs}
-    pts = {i: tr(x, y) for i, y, x in o.execute(f"SELECT osm_id, lat, lon FROM raw.nodes WHERE osm_id IN "
-                                                 f"(SELECT unnest(?::BIGINT[]))", [sorted(refs)]).fetchall()}
-    # the nodes on the ground: the nodes of the roads that are not bridges. A path is not one: a crossing or a sidewalk mapped on a
-    # deck with no layer tag lies on the deck (Avenue de France, w939530781: it put axis a2 on the ground at 57.6 m)
-    ground = {r for (r,) in o.execute("""SELECT DISTINCT unnest(refs) FROM raw.ways WHERE tags['highway'] IS NOT NULL
-                                         AND coalesce(tags['bridge'], 'no') = 'no'
-                                         AND tags['highway'] NOT IN (SELECT unnest(?::VARCHAR[]))""", [list(PATHS)]).fetchall()}
-    lines = {oid: (shapely.LineString([pts[r] for r in rs]), rs, dict(t)) for oid, rs, t in ways
-             if len(rs) >= 2 and all(r in pts for r in rs)}
+    lines, pts, ground = _graph(o, tr, outl)
     to_ground = _to_ground(lines, pts, ground)
+    ground_z, ground_meta = _ground_z(ground_from) if ground_from else ({}, None)
+    base = _base(lines, pts, {n: ground_z[n] for n in ground if n in ground_z}) if ground_from else {}
     lifts = _clearances(o, tr, lines, pts, to_ground)
     found, used = [], set()
     for oid, rs, t in sorted(outl, key=lambda r: -len(r[1])):
@@ -110,7 +103,7 @@ def profiles(osm_db, gmns_db, name=None):
         for nm, deck, outline, on in found:
             n = names[nm] = names.get(nm, 0) + 1
             out_.append(_profile(g, tr, nm if n == 1 else f"{nm} {n}", epsg, deck, outline, on, lines, pts, ground, osm_db, gmns_db,
-                                 to_ground, lifts_, dips_))
+                                 to_ground, lifts_, dips_, base, ground_meta, ground_from))
         return out_
     out = build(lifts)
     # again, each clearance over a lower deck at that deck's final height (its dips filled after its clearances: 5.1 m, not 6 m, between
@@ -258,6 +251,135 @@ def _clearances(o, tr, lines, pts, to_ground, lower_z=None):
     return res
 
 
+def _graph(o, tr, outl=()):
+    """The bridge road ways of the duckOSM database ``o`` ({osm id: (line, node ids, tags)}), the places of their nodes (and of the
+    outlines ``outl``) in metres, and the nodes on the ground."""
+    import shapely
+    ways = o.execute("""SELECT osm_id, refs, tags FROM raw.ways WHERE tags['highway'] IS NOT NULL
+                        AND coalesce(tags['bridge'], 'no') <> 'no'""").fetchall()
+    refs = {r for _, rs, _ in list(ways) + list(outl) for r in rs}
+    pts = {i: tr(x, y) for i, y, x in o.execute(f"SELECT osm_id, lat, lon FROM raw.nodes WHERE osm_id IN "
+                                                 f"(SELECT unnest(?::BIGINT[]))", [sorted(refs)]).fetchall()}
+    # the nodes on the ground: the nodes of the roads that are not bridges. A path is not one: a crossing or a sidewalk mapped on a
+    # deck with no layer tag lies on the deck (Avenue de France, w939530781: it put axis a2 on the ground at 57.6 m)
+    ground = {r for (r,) in o.execute("""SELECT DISTINCT unnest(refs) FROM raw.ways WHERE tags['highway'] IS NOT NULL
+                                         AND coalesce(tags['bridge'], 'no') = 'no'
+                                         AND tags['highway'] NOT IN (SELECT unnest(?::VARCHAR[]))""", [list(PATHS)]).fetchall()}
+    lines = {oid: (shapely.LineString([pts[r] for r in rs]), rs, dict(t)) for oid, rs, t in ways
+             if len(rs) >= 2 and all(r in pts for r in rs)}
+    return lines, pts, ground
+
+
+def _axis_base(ax, ways, lines, pts, base, ground_meta):
+    """The base under one axis (``_base``): its nodes' base at their place along the axis, straight between them; None when none has one."""
+    import shapely
+    bs = sorted({(round(ax.project(shapely.Point(pts[r])), 2), round(base[r], 2)) for w in ways if w in lines for r in lines[w][1] if r in base})
+    if not bs:
+        return None
+    return {"points": [list(q) for q in bs], "source": (ground_meta or {}).get("from", "duckOSM"), "method": "derived",
+            "rule": "the area's ground at each ground end of the group; between the ends a straight line along each bridge road, each "
+                    "junction the mean of its neighbours (by 1/length)"}
+
+
+def add_ground(profile_paths, osm_db, ground_from, out_dir):
+    """Give existing profiles the area's ground (``bridge-ground``): each axis its base (``_base``), the profile its ground id. The
+    heights and every other value stay as they are. Writes one file per profile into out_dir; returns the paths."""
+    import os
+
+    import duckdb
+    import pyproj
+    import shapely
+    o = duckdb.connect(osm_db, read_only=True)
+    ground_z, meta = _ground_z(ground_from)
+    os.makedirs(out_dir, exist_ok=True)
+    tr_cache, out = {}, []
+    for path in profile_paths:
+        with open(path) as f:
+            P = json.load(f)
+        if P["crs"] not in tr_cache:
+            tr = pyproj.Transformer.from_crs("EPSG:4326", P["crs"], always_xy=True).transform
+            lines, pts, ground = _graph(o, tr)
+            tr_cache[P["crs"]] = (lines, pts, _base(lines, pts, {n: ground_z[n] for n in ground if n in ground_z}))
+        lines, pts, base = tr_cache[P["crs"]]
+        for a in P["axes"]:
+            line = a["line"]["value"] if isinstance(a["line"], dict) else a["line"]
+            b = _axis_base(shapely.LineString([q[:2] for q in line]), [int(w[1:]) for w in a["ways"]], lines, pts, base, meta)
+            a.pop("base", None)
+            if b:
+                a["base"] = b
+        P["ground"] = {k: v for k, v in meta.items() if k != "from"}
+        P["made"]["ground"] = {"by": "urbanstyle bridge-ground", "inputs": [osm_db, ground_from]}
+        dst = os.path.join(out_dir, os.path.basename(path))
+        with open(dst, "w") as f:
+            json.dump(P, f, indent=1)
+        out.append(dst)
+    return out
+
+
+def _ground_z(path):
+    """The area's ground at the road nodes, from duckOSM: {OSM node id: ele} (``elevation_nodes_driving``) and the reference's row of
+    ``elevation_metadata`` (its ground id, source, product and datum). ``path`` is a duckOSM database or a pass-0 folder of Parquet files."""
+    import os
+
+    import duckdb
+    c = duckdb.connect(path, read_only=True) if path.endswith(".duckdb") else duckdb.connect()
+    src = (lambda n: f"main.{n}") if path.endswith(".duckdb") else (lambda n: f"'{os.path.join(path, n + ('_main' if n == 'elevation_metadata' else '') + '.parquet')}'")
+    z = dict(c.execute(f"SELECT node_id, ele FROM {src('elevation_nodes_driving')} WHERE ele IS NOT NULL").fetchall())
+    row = c.execute(f"SELECT * FROM {src('elevation_metadata')} LIMIT 1").fetchdf().to_dict("records")[0]
+    meta = {"id": row.get("sha256"), "source": row.get("source"), "product": row.get("product"),
+            "vertical_datum": row.get("vertical_datum"), "from": "duckOSM elevation_nodes_driving"}
+    return z, meta
+
+
+def _base(lines, pts, fixed):
+    """The base of each bridge node: the area's ground at each ground end of its group (``fixed``: {node: ele}), and between them a
+    straight line along each bridge road, each junction the mean of its neighbours weighted by 1/length (the harmonic interpolation on
+    the road network). Only the ground ends are read from the ground: under a deck it can be water, a valley or another road. A group
+    with no ground end that has a ground z gets none."""
+    adj = {}
+    for ln, rs, tg in lines.values():
+        if tg.get("highway") in PATHS:
+            continue
+        for a, b in zip(rs, rs[1:]):
+            d = max(math.dist(pts[a], pts[b]), 0.01)
+            adj.setdefault(a, []).append((b, d))
+            adj.setdefault(b, []).append((a, d))
+    b_ = {n: z for n, z in fixed.items() if n in adj}
+    # (each group: the mean of its fixed ends to start, then Gauss-Seidel to 1 mm)
+    comp_of, groups = {}, []
+    for n0 in adj:
+        if n0 in comp_of:
+            continue
+        comp, todo = [], [n0]
+        comp_of[n0] = len(groups)
+        while todo:
+            n = todo.pop()
+            comp.append(n)
+            for m, _ in adj[n]:
+                if m not in comp_of:
+                    comp_of[m] = len(groups)
+                    todo.append(m)
+        groups.append(comp)
+    out = {}
+    for comp in groups:
+        fx = [b_[n] for n in comp if n in b_]
+        if not fx:
+            continue
+        z = {n: b_.get(n, sum(fx) / len(fx)) for n in comp}
+        free = [n for n in comp if n not in b_]
+        for _ in range(100000):
+            change = 0.0
+            for n in free:
+                w = sum(1 / d for _, d in adj[n])
+                new = sum(z[m] / d for m, d in adj[n]) / w
+                change = max(change, abs(new - z[n]))
+                z[n] = new
+            if change < 0.001:
+                break
+        out.update(z)
+    return out
+
+
 def _to_ground(lines, pts, ground):
     """Each bridge node's distance to the ground along the bridge roads of the whole area: bridges that meet in the air get their
     heights together, not each alone (Kaveh, 2026-10-14). A group of bridges with no node on the ground: from its loose ends."""
@@ -310,7 +432,8 @@ def _strip(line, lo, hi):
     return side(hi).union(side(lo))
 
 
-def _profile(g, tr, name, epsg, deck, outline, on, lines, pts, ground, osm_db, gmns_db, to_ground, lifts=(), dips=()):
+def _profile(g, tr, name, epsg, deck, outline, on, lines, pts, ground, osm_db, gmns_db, to_ground, lifts=(), dips=(), base=None,
+             ground_meta=None, ground_from=None):
     import datetime
 
     import shapely
@@ -404,6 +527,10 @@ def _profile(g, tr, name, epsg, deck, outline, on, lines, pts, ground, osm_db, g
                                                   "met": s_at is None or CLEAR_MAX_GRADE * far_(s_at) >= lf["z"] - 0.01}
                                                  for lf, _, s_at in tents]},
                      "sections": _sections(ax, ways, tr_link, lanes, lines)})
+        # the base under this axis: its nodes' base, straight between them (the deck's elevation is the base plus the height)
+        b_ = _axis_base(ax, ways, lines, pts, base, ground_meta) if base else None
+        if b_:
+            axes[-1]["base"] = b_
     piers = place_piers(axes)
     if outline is None:     # no OSM outline: the sections, each as wide as its bands
         polys = []
@@ -432,8 +559,11 @@ def _profile(g, tr, name, epsg, deck, outline, on, lines, pts, ground, osm_db, g
         if f["foot"] == "designated" and f["bicycle"] == "designated":
             f.update({"type": "shared path", "width": _val(SHARED_W, "urbanstyle", "chosen")})
     return {"format": FORMAT, "name": name, "crs": f"EPSG:{epsg}",
-            "z_datum": _val("ground at the ends", "urbanstyle", "chosen"),
-            "made": {"by": "urbanstyle bridge profile", "date": datetime.date.today().isoformat(), "inputs": [osm_db, gmns_db]},
+            "z_datum": _val("above each axis's base: the area's ground at the ground ends, straight along the roads between them"
+                            if ground_meta else "ground at the ends", "urbanstyle", "chosen"),
+            **({"ground": {k: v for k, v in ground_meta.items() if k != "from"}} if ground_meta else {}),
+            "made": {"by": "urbanstyle bridge profile", "date": datetime.date.today().isoformat(),
+                     "inputs": [osm_db, gmns_db] + ([ground_from] if ground_from else [])},
             "deck": {"outline": outline, "thickness": _val(DECK_M, "urbanstyle", "chosen"), "parapet": _val(RAIL_M, "urbanstyle", "chosen")},
             "axes": axes, "connectors": connectors, "paths": free, "piers": piers}
 
@@ -610,12 +740,12 @@ def _lane_count(tags):
     return "osm lanes; duckOSM GMNS divides them between the two directions", "derived"
 
 
-def write(osm_db, gmns_db, name, out_dir):
+def write(osm_db, gmns_db, name, out_dir, ground_from=None):
     """Write one <slug>.bridge.json per bridge into out_dir; returns the paths."""
     import os
     os.makedirs(out_dir, exist_ok=True)
     paths = []
-    for p in profiles(osm_db, gmns_db, name):
+    for p in profiles(osm_db, gmns_db, name, ground_from):
         path = os.path.join(out_dir, f"{_slug(p['name'])}.bridge.json")
         with open(path, "w") as f:
             json.dump(p, f, indent=1)

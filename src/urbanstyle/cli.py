@@ -46,6 +46,12 @@ def main(argv=None):
     br.add_argument("gmns", help="its GMNS export (`duckosm gmns OSM --out GMNS -m driving`): the lanes")
     br.add_argument("out_dir")
     br.add_argument("--name", help="the bridge's OSM name (man_made=bridge); without it, every road bridge")
+    br.add_argument("--ground", help="duckOSM's ground (a .duckdb or a pass-0 folder): the z of each ground end, and the ground id")
+    bg = sub.add_parser("bridge-ground", help="give bridge profiles the area's ground: the z of each ground end from duckOSM, a base along the roads between")
+    bg.add_argument("profiles", nargs="+", help="<name>.bridge.json files (`urbanstyle bridge`); their heights stay as they are")
+    bg.add_argument("--osm", required=True, help="the duckOSM .duckdb of the profiles (the bridge roads and their nodes)")
+    bg.add_argument("--ground", required=True, help="duckOSM's ground: a .duckdb or a pass-0 folder (elevation_nodes_driving, elevation_metadata)")
+    bg.add_argument("--out", required=True, help="the folder for the profiles with their ground")
     bm = sub.add_parser("bridge-measure", help="measure a bridge profile's heights from LiDAR (ducklidar Parquet tiles; the conda env `lidar`)")
     bm.add_argument("profile", help="a <name>.bridge.json (`urbanstyle bridge`)")
     bm.add_argument("out", help="the measured profile: a .json file or a directory")
@@ -186,7 +192,10 @@ def main(argv=None):
         print(write_bridge3d(bridge_models(con, a.bridge, a.db)[0], a.out))
     elif a.cmd == "bridge":
         from .bridge_profile import write
-        print("\n".join(write(a.osm, a.gmns, a.name, a.out_dir)))
+        print("\n".join(write(a.osm, a.gmns, a.name, a.out_dir, a.ground)))
+    elif a.cmd == "bridge-ground":
+        from .bridge_profile import add_ground
+        print("\n".join(add_ground(a.profiles, a.osm, a.ground, a.out)))
     elif a.cmd == "mapillary":
         from .mapillary import main as mly
         mly(a.db, a.osm)

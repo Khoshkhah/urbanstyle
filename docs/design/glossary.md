@@ -92,6 +92,8 @@ The words of the model, the code and the dashboard, in one place. When a word is
 | **band** | one strip across a section: a lane with its GMNS lane id, at offset `t` with its width |
 | **station** (LiDAR) | a point every 10 m along an axis where the deck top and the ground are read from the LiDAR returns |
 | **z_datum** | what `z` is measured from |
+| **base** (of an axis) | the elevation that the axis's heights stand on: the area's ground at each ground end of the bridge group, straight along the roads between the ends; the deck's elevation is the base plus the height |
+| **ground** (of a bridge profile) | the area's reference ground that the base comes from: its id (the hash of the elevation file), source, product and vertical datum, from duckOSM |
 
 ## Positions
 

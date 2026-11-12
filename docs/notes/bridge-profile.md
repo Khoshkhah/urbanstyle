@@ -30,7 +30,10 @@ junction nodes is one axis.
 
 ## The file
 
-`<name>.bridge.json`, in metres, in the UTM zone of the bridge (`crs`). `z` is the height above `z_datum`.
+`<name>.bridge.json`, in metres, in the UTM zone of the bridge (`crs`). `z` is the height above `z_datum`. With the area's ground
+(`--ground`, or `urbanstyle bridge-ground` on a profile that exists), each axis also has a `base` (the elevation that its heights stand on)
+and the profile has a `ground` (the id of the area's ground): the deck's elevation is the base plus the height. See "The ground at the
+ends" below.
 
 ```json
 {
@@ -110,6 +113,9 @@ duckosm gmns data/vancouver_city.osm.duckdb --out data/vancouver_city.gmns.duckd
 urbanstyle bridge data/vancouver_city.osm.duckdb data/vancouver_city.gmns.duckdb data/bridges --name "Granville Bridge"
 urbanstyle bridge data/vancouver_city.osm.duckdb data/vancouver_city.gmns.duckdb data/bridges        # every road bridge
 urbanstyle dashboard DB OUT --bridge data/bridges/granville-bridge.bridge.json
+# the area's ground at the ground ends (duckOSM: a .duckdb or a pass-0 folder with elevation_nodes_driving and elevation_metadata)
+urbanstyle bridge ../duckOSM/monaco-wide.duckdb ../duckOSM/monaco_gmns.duckdb data/bridges-monaco --ground ../simready/build/monaco/pass0-rust
+urbanstyle bridge-ground data/bridges-monaco/*.bridge.json --osm ../duckOSM/monaco-wide.duckdb --ground ../simready/build/monaco/pass0-rust --out data/bridges-monaco
 ```
 
 Without `--name`, the command makes one file for each road bridge in the database: each `man_made=bridge` outline with road ways on it, and each
@@ -352,14 +358,34 @@ OSM bridge is shorter than the real one: fix the roads (duckOSM's overrides) or 
 
 **Open points (Kaveh decides):**
 
-1. **Which ground the heights stand on.** The standard of one ground per area (duckOSM `docs/concepts/ground-reference.md`) says every
-   renderer uses the area's DTM (duckOSM `main.elevation_metadata`) and every product names its ground id. Our deck heights stand on
-   the ground of our own LiDAR, or on flat ground where there is no LiDAR. A roadstyle profile gives `z_m` above the area's ground and
-   can name it: `"ground": {"id": "<sha256>", "source": "...", "product": "DTM", "vertical_datum": "..."}`. Our `.bridge.json` names no
-   ground, so the converter always warns.
+1. **Which ground the heights stand on.** Decided 2026-11-12 (Kaveh): the area's ground is read at the ground ends of a bridge group
+   only. See "The ground at the ends" below.
 2. **One set of height rules.** Ours (`bridge-heights`): a 6 % grade, 5.5 m clearance, a 27 m top. roadstyle's fallback (`height_rule
    "design"`): 5 %, 5.0 m, no top, and no obstacles. Heights from rules must come only from urbanstyle, so that the two views never
    disagree; our solver knows the crossings over roads, buildings and lower decks.
 3. **Hillsides.** 19 of 23 clearances on Avenue de France (Monaco) cannot be reached because the flat model has no terrain. With the area's real ground this can change.
 
 If roadstyle lacks something that urbanstyle needs, tell the roadstyle session; urbanstyle does not change roadstyle.
+
+## The ground at the ends (2026-11-12)
+
+Kaveh's rule: duckOSM's ground (the area's DTM) is usable for a bridge only at the ground ends of the bridge group, where it gives the
+ground's z at each end. Under a deck the ground can be water, a valley or another road, so it is not read there. No LiDAR is needed.
+
+- **The z of each ground end** comes from duckOSM's `elevation_nodes_driving` (`ele`, metres above the reference's vertical datum, by
+  OSM node id). The ground id, the source, the product and the datum come from `elevation_metadata` and go into the profile's `ground`.
+- **The base** (`_base`): each ground end of the group at its z; between the ends a straight line along each bridge road, each junction
+  the mean of its neighbours weighted by 1/length (harmonic interpolation on the road network). A junction has one base for all its axes,
+  so the decks of the axes meet at one elevation. Each axis stores its base as points `(s, elevation)` at its nodes, straight between them.
+- **The heights** (`vertical.points`) are made by the same rules as before (grade, clearances, top), above the base. The deck's elevation
+  is the base plus the height. A ground end has the height 0 and the elevation of the ground there.
+- `urbanstyle bridge-ground` gives existing profiles their base and ground and changes no other value: the ten Monaco profiles keep their
+  heights and their IGN `heights` section. Before: `data/bridges-monaco.before-ground` (not in git).
+
+Monaco, ten profiles (duckOSM's pass-0 build, FABDEM V1-2, ground id `3e79bae1…`, EGM2008): every axis has a base but the one axis of
+bridge w448186718, whose ends have no z in the area's file (the bridge comes from the wide database; the ground file covers the area).
+Boulevard du Larvotto: ground ends at 16.1 m, 17.1 m and 20.4 m, the junction of its three axes at 19.15 m. The picture:
+`viz/review/bridge-ends-larvotto-2026-11-12.png` (http://localhost:8784/review/bridge-ends-larvotto-2026-11-12.png).
+
+**Not done:** the 3D model (`bridge_surface`) still draws the flat model or IGN's elevations and does not read the base; Granville's
+profile has no base (Granville's pass-0 build has no ground id yet); w448186718 needs the z of its ends from a ground file of the wide region.

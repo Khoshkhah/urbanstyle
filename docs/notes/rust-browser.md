@@ -326,5 +326,7 @@ test fails with the old code too (one extra building). Checks are off in a build
 
 **Check G2 and G3 by one union, 2026-11-10 (tried, removed).** The lap "ground G1-G3" takes 6.0 s of the 13.3 s of the checks: it overlays every pair of ground items of one level that share a bounding box. One union of the items for each level costs about 7 s alone, and the hairline overlaps (0.40 m2 in all, over the 0.05 m2 limit for a skip) make the pair pass run as well. The lap grew to 13 to 17 s. The pair pass stays. Monaco, whole chain with checks on a calm machine: 50.1 s (blocks 3.2, division 4.9, ground 11.4, surfaces 6.0, paths 1.0, model 5.6, checks 13.3, tables 3.0). Without checks: about 37 s.
 
+**Opening of each ground piece alone, 2026-11-11 (tried, removed).** In the ground step, `ops::wide` (two buffers and an intersection) ran on each polygon of an item, not on the whole item. The lap "the kinds take the ground" took 1.65 s, against 1.54 s. The whole item stays one overlay. The laps that are left (division kerb bands 1.8 s, ground kinds 1.5 s, surface street items about 5 s) need a new method, not a smaller call; the chain stays at about 50 s with checks.
+
 **Next:** readers of SimReady's tables (Parquet or Arrow) in place of the JSON fixtures; the ground, the checks and the blocks to get under 60 s in the
 browser; W2 on snapped spaces; the walking graph from duckOSM (`edges_walking.parquet`) for the input of the paths step and the roads of the checks: both are still read from the fixtures.

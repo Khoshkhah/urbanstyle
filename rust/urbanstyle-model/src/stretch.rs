@@ -95,6 +95,7 @@ pub(crate) fn common<T: Clone + PartialEq>(xs: &[T]) -> Option<T> {
 }
 
 pub fn build(inp: &Input, sections: &[SectionInfo], street_best: &BTreeMap<i32, Best>) -> (Vec<StretchRow>, Vec<ArmRow>, Vec<StreetRow>, Vec<SectionEnds>) {
+    let mut lap = urbanstyle_geo::Lap::new("model stretches");
     let units: HashMap<&str, &crate::Unit> = inp.units.iter().map(|u| (u.id.as_str(), u)).collect();
     let mut parts_of: HashMap<&str, Vec<&crate::Part>> = HashMap::new();
     for p in &inp.parts {
@@ -113,6 +114,7 @@ pub fn build(inp: &Input, sections: &[SectionInfo], street_best: &BTreeMap<i32, 
     };
     let roads_of = |u: &str| -> Vec<String> { parts_of.get(u).map_or(vec![], |ps| ps.iter().filter(|p| p.typ == "lane").filter_map(|p| p.road.clone()).filter(|r| !r.is_empty()).collect()) };
     let inters: Vec<&crate::Unit> = inp.units.iter().filter(|u| u.kind == "intersection").collect();
+    let inter_index = urbanstyle_geo::index::Index::new(inters.iter().map(|i| geo::BoundingRect::bounding_rect(&i.geom)));
     let mut jnodes: HashMap<&str, Vec<i64>> = HashMap::new();
     for j in &inp.junctions {
         jnodes.entry(j.intersection.as_str()).or_default().push(j.node);
@@ -136,7 +138,10 @@ pub fn build(inp: &Input, sections: &[SectionInfo], street_best: &BTreeMap<i32, 
         for s in &sd.ids {
             let mut ws = ways_of(s);
             if let Some(ax) = &sd.axis {
-                ws.sort_by(|a, b| lines::project(ax, a.0).partial_cmp(&lines::project(ax, b.0)).unwrap());
+                // (each key once: a sort compares each one many times)
+                let mut keyed: Vec<(f64, (Coord<f64>, String))> = ws.into_iter().map(|w| (lines::project(ax, w.0), w)).collect();
+                keyed.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+                ws = keyed.into_iter().map(|x| x.1).collect();
             }
             for (_, w) in ws {
                 if !ways.contains(&w) {
@@ -157,7 +162,9 @@ pub fn build(inp: &Input, sections: &[SectionInfo], street_best: &BTreeMap<i32, 
         let mut nodes: Vec<Option<i64>> = vec![None, None];
         if let Some(ax) = &sd.axis {
             for (e, pt) in [ax.0[0], *ax.0.last().unwrap()].into_iter().enumerate() {
-                let near = inters.iter().filter(|i| i.level == sd.level).map(|i| (dist(&i.geom, pt), i.id.as_str())).filter(|x| x.0 < END_M).min_by(|a, b| a.partial_cmp(b).unwrap());
+                // (only the intersections whose box lies within END_M of the end can be nearer than END_M)
+                let around = geo::Rect::new(Coord { x: pt.x - END_M, y: pt.y - END_M }, Coord { x: pt.x + END_M, y: pt.y + END_M });
+                let near = inter_index.query(&around).into_iter().map(|k| inters[k]).filter(|i| i.level == sd.level).map(|i| (dist(&i.geom, pt), i.id.as_str())).filter(|x| x.0 < END_M).min_by(|a, b| a.partial_cmp(b).unwrap());
                 ends[e] = near.map(|x| x.1.to_string());
                 if let Some(i_) = &ends[e] {
                     let cand = jnodes.get(i_.as_str()).map(|v| v.iter().filter(|n| inp.node_pt.contains_key(n)).copied().collect::<Vec<_>>()).unwrap_or_default();
@@ -193,6 +200,7 @@ pub fn build(inp: &Input, sections: &[SectionInfo], street_best: &BTreeMap<i32, 
         secs.push(Sec { id: sd.id.clone(), level: sd.level, street, name, ends, geom });
     }
 
+    lap.lap("sections");
     // the intersections
     for i_ in &inters {
         let idx = SegIndex::new(&i_.geom);
@@ -244,6 +252,7 @@ pub fn build(inp: &Input, sections: &[SectionInfo], street_best: &BTreeMap<i32, 
         });
     }
 
+    lap.lap("intersections");
     // the arms and the named streets
     let mut arms = Vec::new();
     for i_ in &inters {
@@ -280,5 +289,6 @@ pub fn build(inp: &Input, sections: &[SectionInfo], street_best: &BTreeMap<i32, 
             StreetRow { id: k, name: common(&v.names), level: v.level, sections, intersections: v.inters.into_iter().collect(), geom: ops::union_all(geoms.into_iter()) }
         })
         .collect();
+    lap.lap("arms and streets");
     (rows, arms, street_rows, ends_out)
 }

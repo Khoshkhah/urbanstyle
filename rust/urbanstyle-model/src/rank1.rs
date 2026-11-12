@@ -67,6 +67,20 @@ impl Best {
         // (the candidates that meet the child, a shared edge too; the one with the largest overlap, the first of equals)
         let mut best: Option<(usize, f64)> = None;
         for k in near {
+            // (the full distance compares every edge with every edge: only a pair with edges near each other, or one inside the other,
+            // can be nearer than 1e-9 m, so the others are passed over first)
+            let near_edges = child.0.iter().flat_map(|p| std::iter::once(p.exterior()).chain(p.interiors())).flat_map(|r| r.lines()).any(|l| {
+                let (lo, hi) = (geo::Coord { x: l.start.x.min(l.end.x) - 1e-6, y: l.start.y.min(l.end.y) - 1e-6 }, geo::Coord { x: l.start.x.max(l.end.x) + 1e-6, y: l.start.y.max(l.end.y) + 1e-6 });
+                !self.segs[k].edges_in(&geo::Rect::new(lo, hi)).is_empty()
+            });
+            let one_in_other = || {
+                let item_pt = self.items[k].1.0.first().and_then(|p| p.exterior().0.first().copied());
+                let child_pt = child.0.first().and_then(|p| p.exterior().0.first().copied());
+                child_pt.map_or(false, |c| self.segs[k].contains(c)) || item_pt.map_or(false, |c| geo::Contains::contains(child, &geo::Point::from(c)))
+            };
+            if !near_edges && !one_in_other() {
+                continue;
+            }
             if Euclidean.distance(&self.items[k].1, child) > 1e-9 {
                 continue;
             }
@@ -88,6 +102,7 @@ fn polygons_by_area(m: &Mp) -> Vec<Polygon<f64>> {
 /// The street pieces of each level, the plots, the paths: the rows of `urban.ground`, and the pieces of the plots.
 pub fn build(inp: &Input, levels: &[i32]) -> (Vec<GroundRow>, Vec<PlotPieceRow>, BTreeMap<i32, Best>) {
     // (the street's best is returned: the stretches name their parent among the street pieces)
+    let mut lap = urbanstyle_geo::Lap::new("model rank 1");
     let mut rows: Vec<GroundRow> = Vec::new();
     let mut street_pieces: BTreeMap<i32, Vec<(String, Mp)>> = BTreeMap::new();
     for &lv in levels {
@@ -122,6 +137,7 @@ pub fn build(inp: &Input, levels: &[i32]) -> (Vec<GroundRow>, Vec<PlotPieceRow>,
         }
         street_pieces.insert(lv, list);
     }
+    lap.lap("street pieces");
     let mut sides: BTreeMap<&str, Vec<crate::BlockSideIn>> = BTreeMap::new();
     for s in &inp.block_sides {
         sides.entry(s.block.as_str()).or_default().push(s.clone());
@@ -166,6 +182,7 @@ pub fn build(inp: &Input, levels: &[i32]) -> (Vec<GroundRow>, Vec<PlotPieceRow>,
         });
     }
 
+    lap.lap("plots and paths");
     // ---- the pieces of the plots: every ground item that is no street and no path
     let plot_best: BTreeMap<i32, Best> = plots.into_iter().map(|(lv, v)| (lv, Best::new(v))).collect();
     let mut surf_of: BTreeMap<&str, Vec<String>> = BTreeMap::new();
@@ -208,6 +225,8 @@ pub fn build(inp: &Input, levels: &[i32]) -> (Vec<GroundRow>, Vec<PlotPieceRow>,
             geom: x.geom.clone(),
         });
     }
+    lap.lap("plot pieces");
     let street_best: BTreeMap<i32, Best> = street_pieces.into_iter().map(|(lv, v)| (lv, Best::new(v))).collect();
+    lap.lap("street best");
     (rows, pieces, street_best)
 }

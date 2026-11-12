@@ -328,5 +328,13 @@ test fails with the old code too (one extra building). Checks are off in a build
 
 **Opening of each ground piece alone, 2026-11-11 (tried, removed).** In the ground step, `ops::wide` (two buffers and an intersection) ran on each polygon of an item, not on the whole item. The lap "the kinds take the ground" took 1.65 s, against 1.54 s. The whole item stays one overlay. The laps that are left (division kerb bands 1.8 s, ground kinds 1.5 s, surface street items about 5 s) need a new method, not a smaller call; the chain stays at about 50 s with checks.
 
+**The chain in the browser, 2026-11-11.** `urbanstyle-wasm` (plain exports, no `wasm-bindgen`) and the test page `rust/www/` run the whole chain in a worker; `rust/tools/browser_bench.sh` makes the test folder (the four Zstandard files of duckOSM copied as Snappy) and `python3 -m http.server 8790` serves it. Monaco in headless Chromium, first run: 68.7 s with checks, 1.86 GB of WebAssembly memory. The steps are 1.2 to 1.4 times their native time, but the model step was 2.4 times (13.2 s against 5.6 s).
+
+**The model step in the browser, 2026-11-11.** Laps inside the model step showed three parts that did far more work than needed, all three worse in WebAssembly (`hypot` is a software function there):
+- the ends of the sections measured the distance from each end to all 844 intersections (1.4 million polygon distances): an index of the intersections' boxes gives the few within `END_M` (4.6 s to 0.11 s in the browser);
+- `st()` measured the whole axis again for each point (`project` and three `interpolate`): the segment lengths once per axis, the same sums in the same order (part rows 1.8 s to 0.96 s);
+- `Best::of` measured the full distance (every edge against every edge) from a ground piece outside the plots to each plot near it: a pair with no edges within 1 micrometre and neither inside the other is passed over first (plot pieces 1.97 s to 0.50 s).
+All 20 tables are the same as before, compared by hash. A change that skipped the distance where the overlap area is over zero gave one building piece of 0.0016 m2 a parent (the area was float noise): removed. Monaco in the browser: model 6.4 s, **the whole chain 58.3 s with checks**, about 43.5 s without. Natively: 50 to 54 s on the loaded machine.
+
 **Next:** readers of SimReady's tables (Parquet or Arrow) in place of the JSON fixtures; the ground, the checks and the blocks to get under 60 s in the
 browser; W2 on snapped spaces; the walking graph from duckOSM (`edges_walking.parquet`) for the input of the paths step and the roads of the checks: both are still read from the fixtures.

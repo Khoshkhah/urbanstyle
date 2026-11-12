@@ -270,6 +270,7 @@ pub fn run(dir: &Path, prefix: &str, out_dir: Option<&Path>, with_checks: bool, 
 
     // ---- the model
     use urbanstyle_model as m;
+    let mut ml = urbanstyle_geo::Lap::new("model");
     let mi = &mx["input"];
     // (the widths of the ways, the places of the junction nodes and the roundabouts: from duckOSM's files when the tables are given)
     let osm_model = sources.and_then(|s| s.features.as_ref().map(|_| s)).map(|s| {
@@ -279,6 +280,7 @@ pub fn run(dir: &Path, prefix: &str, out_dir: Option<&Path>, with_checks: bool, 
         let edges = osm::driving_edges(&s.pass0.join("edges_driving.parquet"), zone).unwrap();
         (osm::way_widths(&ways), osm::node_points(&edges), osm::roundabouts(&edges, &ways, &area), urbanstyle_simready::streets::read(&edges, &ways))
     });
+    ml.lap("duckOSM tables");
     let model_in = m::Input {
         units: units.iter().map(|x| m::Unit { id: x.u.id.clone(), kind: if x.u.subsection { "subsection" } else { "intersection" }.into(), level: x.u.level, geom: x.geom.clone() }).collect(),
         subsections: units
@@ -353,6 +355,7 @@ pub fn run(dir: &Path, prefix: &str, out_dir: Option<&Path>, with_checks: bool, 
         turns: div.turn_rows.iter().map(|t| m::TurnIn { unit: t.unit.clone(), level: t.level, from_edge: Some(t.from_edge.clone()), from_lane: t.from_lane, to_edge: Some(t.to_edge.clone()), to_lane: t.to_lane, turn: t.turn.clone(), source: Some("simready".into()), vehicles: Some(t.vehicles.clone()), condition: None, lines: t.lines.clone() }).collect(),
         approaches: div.approach_rows.iter().map(|a| m::ApproachIn { unit: a.unit.clone(), level: a.level, from_edge: Some(a.from_edge.clone()), lane: a.lane, moves: Some(a.moves), ways: Some(a.ways.clone()), arrow: Some(a.arrow), no_arrow_because: a.no_arrow_because.clone() }).collect(),
     };
+    ml.lap("input");
     let model = m::build(&model_in);
     lap("model", &mut t);
 

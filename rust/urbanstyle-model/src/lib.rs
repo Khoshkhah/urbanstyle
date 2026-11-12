@@ -345,14 +345,27 @@ pub struct Output {
 
 /// (s_from, s_to, t_from, t_to) of the points on `axis`: s along it, t across it, left positive (`product._st`).
 pub fn st(axis: &LineString<f64>, pts: &[Coord<f64>]) -> Option<[f64; 4]> {
-    let len = lines::length(axis);
+    // (the segment lengths once: the same sums as `lines::length`, `project` and `interpolate`, without measuring the axis again for each point)
+    let seg: Vec<f64> = axis.0.windows(2).map(|w| (w[1].x - w[0].x).hypot(w[1].y - w[0].y)).collect();
+    let len: f64 = seg.iter().sum();
     if pts.is_empty() || len == 0.0 {
         return None;
     }
+    let interpolate = |s: f64| -> Option<Coord<f64>> {
+        let mut left = s.max(0.0);
+        for (w, &l) in axis.0.windows(2).zip(&seg) {
+            if left <= l && l > 0.0 {
+                let t = left / l;
+                return Some(Coord { x: w[0].x + t * (w[1].x - w[0].x), y: w[0].y + t * (w[1].y - w[0].y) });
+            }
+            left -= l;
+        }
+        axis.0.last().copied()
+    };
     let mut r = [f64::INFINITY, f64::NEG_INFINITY, f64::INFINITY, f64::NEG_INFINITY];
     for p in pts {
-        let s = lines::project(axis, *p);
-        let (a, b, c) = (lines::interpolate(axis, (s - 0.5).max(0.0))?, lines::interpolate(axis, (s + 0.5).min(len))?, lines::interpolate(axis, s)?);
+        let s = geo::LineLocatePoint::line_locate_point(axis, &geo::Point::from(*p)).unwrap_or(0.0) * len;
+        let (a, b, c) = (interpolate((s - 0.5).max(0.0))?, interpolate((s + 0.5).min(len))?, interpolate(s)?);
         let side = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
         let t = if side >= 0.0 { 1.0 } else { -1.0 } * (p.x - c.x).hypot(p.y - c.y);
         r = [r[0].min(s), r[1].max(s), r[2].min(t), r[3].max(t)];
@@ -417,7 +430,9 @@ impl Input {
 }
 
 pub fn build(inp: &Input) -> Output {
+    let mut lap = urbanstyle_geo::Lap::new("model");
     let inp = &inp.oriented();
+    lap.lap("oriented");
     // ---- the sections: the subsections chained, a space row for each subsection
     let in_units: HashSet<&str> = inp.units.iter().map(|u| u.id.as_str()).collect();
     let mut by_section: BTreeMap<&str, Vec<&Subsection>> = BTreeMap::new();
@@ -471,6 +486,7 @@ pub fn build(inp: &Input) -> Output {
         }
     }
 
+    lap.lap("sections");
     // ---- rank 1 and the stretches (the parts below use the sections' ends)
     let mut levels: Vec<i32> = inp.units.iter().map(|u| u.level).chain(inp.ground.iter().map(|g| g.level)).chain(std::iter::once(0)).collect();
     levels.sort();
@@ -478,6 +494,7 @@ pub fn build(inp: &Input) -> Output {
     let (ground, plot_pieces, street_best) = rank1::build(inp, &levels);
     let (stretches, arms, streets, section_ends) = stretch::build(inp, &section_infos, &street_best);
 
+    lap.lap("rank 1 and stretches");
     // ---- an intersection cut into one piece per junction node (a roundabout: its ring sectors and its centre)
     let unit_level: BTreeMap<&str, i32> = inp.units.iter().map(|u| (u.id.as_str(), u.level)).collect();
     let mut jnodes: BTreeMap<&str, Vec<i64>> = BTreeMap::new();
@@ -515,6 +532,7 @@ pub fn build(inp: &Input) -> Output {
         }
     };
 
+    lap.lap("intersection pieces");
     // ---- the parts of an intersection cut along the same lines (a part never crosses a cut); one junction area for each piece
     struct WPart<'a> {
         src: &'a Part,
@@ -598,6 +616,7 @@ pub fn build(inp: &Input) -> Output {
         }
     }
 
+    lap.lap("intersection parts");
     // ---- the part rows: the place on the space's axis (a piece of an intersection has no axis), and the part's own axis
     let mut part_rows: Vec<PartRow> = Vec::new();
     for p in &parts {
@@ -642,6 +661,7 @@ pub fn build(inp: &Input) -> Output {
         part_rows.push(row);
     }
 
+    lap.lap("part rows");
     // ---- the links of the spaces: a subsection goes on into the next of its section, the first and the last into the piece of the
     // intersection its axis reaches; a piece of an intersection takes its arms (and its neighbours)
     let ends_sub: BTreeMap<&str, [Option<String>; 2]> = section_ends
@@ -726,6 +746,7 @@ pub fn build(inp: &Input) -> Output {
         });
     }
 
+    lap.lap("space links");
     // ---- the lane links: inside a section, at a section's end, through an intersection by SUMO's moves
     {
         let mut by_unit: BTreeMap<String, Vec<usize>> = BTreeMap::new();
@@ -803,6 +824,7 @@ pub fn build(inp: &Input) -> Output {
         }
     }
 
+    lap.lap("lane links");
     // ---- the path spaces: a space and one part each
     for x in &inp.path_spaces {
         spaces.push(Space {
@@ -848,6 +870,7 @@ pub fn build(inp: &Input) -> Output {
         });
     }
 
+    lap.lap("path spaces");
     // ---- the marks: an intersection's mark lies in the piece that holds its middle; numbered by space and kind, in the order of their middles
     let mid = |m: &Mark| -> Option<Coord<f64>> {
         // (the point of the line nearest to its centre among its inner vertices, as GEOS picks it)
@@ -894,6 +917,7 @@ pub fn build(inp: &Input) -> Output {
         mark_rows.push(MarkRow { id: format!("{}:{}:{}", unit, m.typ, n), level: m.level, source: m.source.clone(), method: m.method.clone(), reference: m.reference.clone(), space: unit.clone(), kind: m.typ.clone(), parent, parent_rank: prank, st: place, lines: m.lines.clone() });
     }
 
+    lap.lap("marks");
     // ---- the sides: the parts of one side joined, and the kerb of the driving side
     let mut kerbs: BTreeMap<&str, Vec<&Mark>> = BTreeMap::new();
     for (unit, m, _) in &marks {
@@ -922,6 +946,7 @@ pub fn build(inp: &Input) -> Output {
         })
         .collect();
 
+    lap.lap("sides");
     // ---- the junction nodes, the turns and the approaches
     let junctions: Vec<JunctionRow> = inp
         .junctions
@@ -948,6 +973,7 @@ pub fn build(inp: &Input) -> Output {
             turn: t.turn.clone(),
         })
         .collect();
+    lap.lap("junctions, turns");
     Output { levels, spaces, parts: part_rows, marks: mark_rows, ground, plot_pieces, stretches, arms, streets, junctions, sides, turns, approaches: inp.approaches.clone() }
 }
 

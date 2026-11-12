@@ -320,3 +320,47 @@ connect to there.
   Boulevard du Larvotto: ramp a2 starts on the ground 7 m beside a1, which is about 8 m up there; before, the deck between them was
   stretched from 0 to 8 m.
 
+
+## The deck on roadstyle's map, and three open points (2026-11-12)
+
+roadstyle now has a bridge profile engine. Its session sent how a 3D bridge goes from urbanstyle to roadstyle's map. urbanstyle stays
+the only source of the heights; roadstyle draws the deck from them. Both views must show the same heights.
+
+**How to make and show a bridge.** The profile is made as before: `urbanstyle bridge`, then `urbanstyle bridge-measure` with LiDAR or
+`urbanstyle bridge-heights` without it. One `.bridge.json` then gives two views:
+
+- urbanstyle's own page, `urbanstyle dashboard DB OUT.html --bridge PROFILE`: lanes, painted lines, parapets and piers. roadstyle's deck
+  has none of these, so this view stays.
+- roadstyle's map, the deck on the road map:
+
+  ```python
+  import roadstyle as rs
+  given = rs.bridge_profile_from_urbanstyle(edges, "granville-bridge.bridge.json")   # a dict or a path
+  rs.render_dashboard(edges, view_3d=True, bridge_profile=given).save("map.html")
+  ```
+
+  Use `/home/kaveh/projects/roadstyle-current` (main since roadstyle PR 178) after `roadstyle-update-current`; it is not on PyPI yet.
+  `edges` has `highway`, `osm_id` and the bridge level (`bridge` and `layer`). A chain of roads matches an axis when they have the same
+  OSM ways (12 of 12 on Granville Bridge); a chain with no axis is an error that names it. The converter takes the height at the point
+  of the axis nearest to each node. A node that two axes set differently gets the mean, with a warning. The guide is roadstyle's
+  `docs/guides/bridge-profile.md`, section "From an urbanstyle profile"; the sample is
+  `docs/samples/bridge-profile/granville_urbanstyle_axes.json`.
+
+**A free end is on the ground.** In roadstyle, a free end of a bridge above 0 m is an error. The converter sets it to 0 m and warns
+when our axis is more than 0.5 m high there (a landing on fill continues past the end of the OSM way). A high free end means that the
+OSM bridge is shorter than the real one: fix the roads (duckOSM's overrides) or the heights.
+
+**Open points (Kaveh decides):**
+
+1. **Which ground the heights stand on.** The standard of one ground per area (duckOSM `docs/concepts/ground-reference.md`) says every
+   renderer uses the area's DTM (duckOSM `main.elevation_metadata`) and every product names its ground id. Our deck heights stand on
+   the ground of our own LiDAR, or on flat ground where there is no LiDAR. A roadstyle profile gives `z_m` above the area's ground and
+   can name it: `"ground": {"id": "<sha256>", "source": "...", "product": "DTM", "vertical_datum": "..."}`. Our `.bridge.json` names no
+   ground, so the converter always warns.
+2. **One set of height rules.** Ours (`bridge-heights`): a 6 % grade, 5.5 m clearance, a 27 m top. roadstyle's fallback (`height_rule
+   "design"`): 5 %, 5.0 m, no top, and no obstacles. Heights from rules must come only from urbanstyle, so that the two views never
+   disagree; our solver knows the crossings over roads, buildings and lower decks.
+3. **Hillsides.** 19 of 23 clearances on Avenue de France (Monaco) cannot be reached because the flat model has no terrain
+   ([the Saint-Roman hairpin is real ground](#heights-with-no-measurement)). With the area's real ground this can change.
+
+If roadstyle lacks something that urbanstyle needs, tell the roadstyle session; urbanstyle does not change roadstyle.

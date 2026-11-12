@@ -183,6 +183,7 @@ pub fn run(dir: &Path, prefix: &str, out_dir: Option<&Path>, with_checks: bool, 
     }
     // (as simready.py writes them: each part on a 1 cm grid, a part under 0.05 m2 left out, the space the union of its parts)
     let mut div = div;
+    let mut gl = urbanstyle_geo::Lap::new("chain ground");
     if std::env::var("URBANSTYLE_COUNTS").is_ok() {
         let raw: f64 = div.units.iter().flat_map(|u| u.parts.iter()).map(|p| ops::area(&p.geom)).sum();
         let snapped: f64 = div.units.iter().flat_map(|u| u.parts.iter()).map(|p| ops::area(&ops::snap(&p.geom, GRID_M))).sum();
@@ -197,7 +198,9 @@ pub fn run(dir: &Path, prefix: &str, out_dir: Option<&Path>, with_checks: bool, 
         }
         u.parts.retain(|p| ops::area(&p.geom) > MIN_PART_M2);
     }
+    gl.lap("parts on the grid, opened");
     let units: Vec<Un> = div.units.iter().map(|u| Un { u, geom: if std::env::var("URBANSTYLE_RAW").is_ok() { ops::union_all(u.parts.iter().map(|p| &p.geom)) } else { close(&ops::snap(&ops::union_all(u.parts.iter().map(|p| &p.geom)), GRID_M)) } }).collect();
+    gl.lap("units: union, closed");
     let cw: BTreeMap<i64, &urbanstyle_division::Carriageway> = division_in.carriageways.iter().map(|c| (c.id, c)).collect();
 
     // ---- the ground: the kinds take the ground in the order of ground.gather; the street, the paths and the structures come from the steps
@@ -221,6 +224,7 @@ pub fn run(dir: &Path, prefix: &str, out_dir: Option<&Path>, with_checks: bool, 
         if let Ok(path) = std::env::var("URBANSTYLE_DUMP_UNITS") { let v: Vec<Value> = units.iter().filter(|x| x.u.level == 0).map(|x| serde_json::json!({"id": x.u.id, "geom": x.geom.0.iter().map(|p| std::iter::once(p.exterior()).chain(p.interiors()).map(|r| r.0.iter().map(|c| vec![c.x, c.y]).collect::<Vec<_>>()).collect::<Vec<_>>()).collect::<Vec<_>>()})).collect(); std::fs::write(path, serde_json::to_string(&v).unwrap()).unwrap(); }
         eprintln!("COUNT unit polygons {polys}, units in several parts {multi}, area {area_sum:.0}; land polygons {}", ground_in.land.as_ref().map_or(0, |l| l.0.len()));
     }
+    gl.lap("the input");
     let ground = urbanstyle_ground::build(&ground_in);
     lap("ground", &mut t);
     if std::env::var("URBANSTYLE_COUNTS").is_ok() { let mut by: BTreeMap<&str, usize> = BTreeMap::new(); for g in &ground { *by.entry(g.typ.as_str()).or_default() += 1; } eprintln!("COUNT ground {} {:?}", ground.len(), by); let mut sm: BTreeMap<&str, (usize, usize)> = BTreeMap::new(); for g in &ground { let a = geo::Area::unsigned_area(&g.geom); let e = sm.entry(g.typ.as_str()).or_default(); if a < 0.5 { e.0 += 1; } else if a < 5.0 { e.1 += 1; } } eprintln!("COUNT ground rows under 0.5 m2 / under 5 m2: {:?}", sm); let mut shown = 0; for g in ground.iter().filter(|g| g.typ == "street" && geo::Area::unsigned_area(&g.geom) < 0.5) { if shown >= 6 { break; } shown += 1; let a = geo::Area::unsigned_area(&g.geom); let per: f64 = std::iter::once(g.geom.exterior()).chain(g.geom.interiors()).map(|r| urbanstyle_geo::lines::length(r)).sum(); let r = geo::BoundingRect::bounding_rect(&g.geom).unwrap(); eprintln!("COUNT tiny {} area {a:.4} perimeter {per:.2} mean width {:.4} bbox {:.1} x {:.1}", g.id, 2.0 * a / per, r.width(), r.height()); } }

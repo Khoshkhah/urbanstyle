@@ -282,7 +282,9 @@ def build(db, out, bridges=None):
         settings={"config": {"fill_opacity": 0.35, "casing_opacity": 0.2}},
         road_popup=["edge_id", "container_id", "name", "type", "highway", "level", "width_m", "width_src"],
         color_options={"Roads": {"color_by": "type", "colors": {"road": "#555", "walkway": "#a16207", "cycleway": "#16a34a"}}},
-        overlays=ovs)
+        # the overlays as GeoJSON with all their properties: roadstyle's tiles (its default since 2026-11-10) keep only the keys its 2D
+        # style reads, and the 3D layers (engine.js) filter on level, type, unit_id and height_m
+        overlays=ovs, tiles=False)
     cfg = {"marks": [t for t, *_ in d.MARKS if len(F["marks"]) and (F["marks"]["type"] == t).any()], "raised": RAISED, "kerbtop": KERB_TOP_M,
            "objpopup": d.OBJ_POPUP, "bldpopup": d.BLD_POPUP, "lotpopup": d.LOT_POPUP, "groundpopup": d.GROUND_POPUP}
     tail = f'<script>window.US_CFG={json.dumps(cfg)};</script><script src="{ENGINE}"></script>'

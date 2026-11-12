@@ -11,6 +11,10 @@ const MK=C.marks;      // the painted lines' types in this area ("Mark: <type>" 
 const RAISE=C.raised;   // parts.RAISED: the parts above the roadway, their top (m)
 const LEVEL_M=3.2, DECK_M=6, SLAB_M=0.6;   // a building's floor; a bridge level's height above the one viewed, its deck's thickness
 const ovSrc=lab=>(OVERLAYS.find(o=>o.label===lab)||{}).source;
+// an overlay's data on the map: its own GeoJSON source, or (roadstyle since 2026-11-10, a one-file page) a source layer of the tiles
+// that its 2D layers draw from
+const u3dSrc=s=>{const l=map.getStyle().layers.find(x=>x['source-layer']===s);
+  return l?{source:l.source,'source-layer':s}:{source:s}};
 const byKey=(key,table,dflt)=>['match',['get',key],...Object.entries(table).flatMap(([k,v])=>[k,v]),dflt];
 const NOT_IN_3D=['Mark: kerb'];   // the raised sidewalk's edge is the kerb; the guide lines (lane to lane through a junction) stay
 let lv3d=0, in3d=false, roads2d={};
@@ -20,7 +24,7 @@ const U3D=[];
 const OTHER_LEVELS=[-5,-4,-3,-2,-1,1,2,3,4,5];
 function draw3d(){
   map.setLight({anchor:'viewport',intensity:0.15});   // a soft light: white walls stay near-white (MapLibre's 0.5 made them grey, Kaveh 2026-10-13)
-  const add=(spec,filter)=>{if(!spec.source)return; if(!map.getLayer(spec.id)){map.addLayer(spec); U3D.push(spec.id)}
+  const add=(spec,filter)=>{if(!spec.source)return; if(!map.getLayer(spec.id)){map.addLayer(Object.assign(spec,u3dSrc(spec.source))); U3D.push(spec.id)}
     map.setFilter(spec.id,filter); map.setLayoutProperty(spec.id,'visibility',in3d?'visible':'none')};
   const lvl=['==',['get','level'],lv3d];
   const own=['all',lvl,['!',['in',['get','unit_id'],['literal',window.brUnits||[]]]]];   // (on a bridge: the model lays them on its deck)
@@ -122,7 +126,7 @@ function paint3d(){Object.entries(L3D).forEach(([id,[prop,key,base]])=>{if(!map.
 const LOW_M=3;
 let selObj=false, bldG='full', bldRow=window.rsBuildings?window.rsBuildings():true, bldOp=window.rsBuildingsOpacity?window.rsBuildingsOpacity():1; window.bldLook=g=>{bldG=g; bldFade()};
 function bldFade(){const b=map.getLayer('u3d-bld'); if(!b)return; const fade=bldG==='fade'||!!xpFocus, on=in3d&&bldG!=='off'&&bldRow;
-  if(!map.getLayer('u3d-bld-on'))map.addLayer({id:'u3d-bld-on',type:'fill-extrusion',source:b.source,paint:{'fill-extrusion-opacity':0.92,
+  if(!map.getLayer('u3d-bld-on'))map.addLayer({id:'u3d-bld-on',type:'fill-extrusion',source:b.source,...(b.sourceLayer?{'source-layer':b.sourceLayer}:{}),paint:{'fill-extrusion-opacity':0.92,
     'fill-extrusion-vertical-gradient':false,'fill-extrusion-height':['get','height_m'],'fill-extrusion-base':map.getPaintProperty('u3d-bld','fill-extrusion-base')}},map.getLayer('u3d-furn')?'u3d-furn':undefined);
   if(!U3D.includes('u3d-bld-on'))U3D.push('u3d-bld-on');     // (a 3D layer: setView hides it in 2D)
   const keep=['any',['in',['get','id'],['literal',(xpFocus&&xpFocus.blds)||[]]],['==',['get','id'],sel3d??'\u0000'],['==',['get','id'],hov3d??'\u0000']];

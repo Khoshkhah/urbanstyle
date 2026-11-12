@@ -61,8 +61,8 @@ def profiles(osm_db, gmns_db, name=None, ground_from=None):
         raise ValueError(f"no man_made=bridge named {name!r} in {osm_db}")
     lines, pts, ground = _graph(o, tr, outl)
     to_ground = _to_ground(lines, pts, ground)
-    ground_z, ground_meta = _ground_z(ground_from) if ground_from else ({}, None)
-    base = _base(lines, pts, {n: ground_z[n] for n in ground if n in ground_z}) if ground_from else {}
+    ground_at, ground_meta = _ground_z(ground_from) if ground_from else (None, None)
+    base = _base(lines, pts, _ends_z(ground_at, pts, ground, f"EPSG:{epsg}")) if ground_from else {}
     lifts = _clearances(o, tr, lines, pts, to_ground)
     found, used = [], set()
     for oid, rs, t in sorted(outl, key=lambda r: -len(r[1])):
@@ -290,7 +290,7 @@ def add_ground(profile_paths, osm_db, ground_from, out_dir):
     import pyproj
     import shapely
     o = duckdb.connect(osm_db, read_only=True)
-    ground_z, meta = _ground_z(ground_from)
+    ground_at, meta = _ground_z(ground_from)
     os.makedirs(out_dir, exist_ok=True)
     tr_cache, out = {}, []
     for path in profile_paths:
@@ -299,7 +299,7 @@ def add_ground(profile_paths, osm_db, ground_from, out_dir):
         if P["crs"] not in tr_cache:
             tr = pyproj.Transformer.from_crs("EPSG:4326", P["crs"], always_xy=True).transform
             lines, pts, ground = _graph(o, tr)
-            tr_cache[P["crs"]] = (lines, pts, _base(lines, pts, {n: ground_z[n] for n in ground if n in ground_z}))
+            tr_cache[P["crs"]] = (lines, pts, _base(lines, pts, _ends_z(ground_at, pts, ground, P["crs"])))
         lines, pts, base = tr_cache[P["crs"]]
         for a in P["axes"]:
             line = a["line"]["value"] if isinstance(a["line"], dict) else a["line"]
@@ -317,22 +317,52 @@ def add_ground(profile_paths, osm_db, ground_from, out_dir):
 
 
 def _ground_z(path):
-    """The area's ground at the road nodes, from duckOSM: {OSM node id: ele} (``elevation_nodes_driving``) and the reference's row of
-    ``elevation_metadata`` (its ground id, source, product and datum). ``path`` is a duckOSM database or a pass-0 folder of Parquet files."""
+    """The area's ground from duckOSM: a function (lon, lat) -> elevation, the grid ``elevation_grid`` interpolated between its points
+    (bilinear) as a map draws it, None outside the grid; and the reference's row of ``elevation_metadata`` (its ground id, source,
+    product and datum). ``path`` is a duckOSM database or a pass-0 folder of Parquet files. (``elevation_nodes_driving.ele`` is the
+    nearest grid point: on Monaco's slopes up to 15.5 m from the ground that the map draws, so a free end would not be on it.)"""
     import os
 
     import duckdb
+    import numpy as np
     c = duckdb.connect(path, read_only=True) if path.endswith(".duckdb") else duckdb.connect()
-    src = (lambda n: f"main.{n}") if path.endswith(".duckdb") else (lambda n: f"'{os.path.join(path, n + ('_main' if n == 'elevation_metadata' else '') + '.parquet')}'")
-    z = dict(c.execute(f"SELECT node_id, ele FROM {src('elevation_nodes_driving')} WHERE ele IS NOT NULL").fetchall())
-    row = c.execute(f"SELECT * FROM {src('elevation_metadata')} LIMIT 1").fetchdf().to_dict("records")[0]
-    meta = {"id": row.get("sha256"), "source": row.get("source"), "product": row.get("product"),
-            "vertical_datum": row.get("vertical_datum"), "from": "duckOSM elevation_nodes_driving"}
-    return z, meta
+    src = (lambda n: f"main.{n}") if path.endswith(".duckdb") else (lambda n: f"'{os.path.join(path, n + '_main.parquet')}'")
+    col, row, lon, lat, z = (np.asarray(v) for v in c.execute(f"SELECT col, row, lon, lat, z FROM {src('elevation_grid')}").fetchnumpy().values())
+    nc, nr = int(col.max()) + 1, int(row.max()) + 1
+    Z = np.full((nr, nc), np.nan)
+    Z[row, col] = z
+    at = {(int(cc), int(rr)): (x, y) for cc, rr, x, y in zip(col, row, lon, lat) if (cc, rr) in ((0, 0), (1, 0), (0, 1))}
+    lon0, lat0 = at[(0, 0)]
+    dlon, dlat = at[(1, 0)][0] - lon0, at[(0, 1)][1] - lat0
+
+    def ground_at(x, y):
+        fx, fy = (x - lon0) / dlon, (y - lat0) / dlat
+        j_, i_ = int(np.floor(fx)), int(np.floor(fy))
+        if not (0 <= i_ < nr - 1 and 0 <= j_ < nc - 1):
+            return None
+        fx, fy = fx - j_, fy - i_
+        v = Z[i_, j_] * (1 - fx) * (1 - fy) + Z[i_, j_ + 1] * fx * (1 - fy) + Z[i_ + 1, j_] * (1 - fx) * fy + Z[i_ + 1, j_ + 1] * fx * fy
+        return None if np.isnan(v) else float(v)
+    row_ = c.execute(f"SELECT * FROM {src('elevation_metadata')} LIMIT 1").fetchdf().to_dict("records")[0]
+    meta = {"id": row_.get("sha256"), "source": row_.get("source"), "product": row_.get("product"),
+            "vertical_datum": row_.get("vertical_datum"), "from": "duckOSM elevation_grid, interpolated at each ground end"}
+    return ground_at, meta
+
+
+def _ends_z(ground_at, pts, ground, crs):
+    """The area's ground at each node on the ground ({node: elevation}); ``pts`` are in ``crs``."""
+    import pyproj
+    to_ll = pyproj.Transformer.from_crs(crs, "EPSG:4326", always_xy=True).transform
+    out = {}
+    for n in ground & pts.keys():
+        z = ground_at(*to_ll(*pts[n]))
+        if z is not None:
+            out[n] = z
+    return out
 
 
 def _base(lines, pts, fixed):
-    """The base of each bridge node: the area's ground at each ground end of its group (``fixed``: {node: ele}), and between them a
+    """The base of each bridge node: the area's ground at each ground end of its group (``fixed``: {node: elevation}), and between them a
     straight line along each bridge road, each junction the mean of its neighbours weighted by 1/length (the harmonic interpolation on
     the road network). Only the ground ends are read from the ground: under a deck it can be water, a valley or another road. A group
     with no ground end that has a ground z gets none."""

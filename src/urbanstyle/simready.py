@@ -10,7 +10,8 @@ It reads SimReady's build (`../simready/out/<area>-rust/build.duckdb`, schema si
     pedestrian    the street (the area less the blocks and the corridors; on another level, SimReady's street faces of that level) less
                   the roadway, cut across at each section's ends, each piece to the space whose roadway it touches most: furnishing
                   FURNISH_M at the kerb, sidewalk CLEAR_M, the rest frontage (network.py's chosen widths); a piece that touches no edge
-                  of the street lies between roadways: an island
+                  of the street lies between roadways: an island. Off level 0 (a deck, a tunnel) only OSM's footways and cycleways of
+                  that level, each its own width: no furnishing, no frontage
     marks         the lane lines between the lanes of one carriageway and the centre line between two directions on one line (both
                   from SimReady's lane boundaries), the kerb (the roadway's edge facing the pedestrian side), the stop line where the
                   junction has signals or a stop sign and the give-way line where it has a yield sign, and one guide line per move
@@ -160,6 +161,7 @@ def build(con, epsg, path):
     import shapely
     import shapely.ops
     from .network import COLORS, CUT_M, CLEAR_M, FURNISH_M, SCHEMA
+    from .bridge_profile import PATH_W
     from .parts import LINE
 
     # (2D: SimReady's lines carry their heights as Z; the levels give the height here, and a Z broke the checks' ?at= links)
@@ -297,6 +299,11 @@ def build(con, epsg, path):
         def along_edge(q):
             near_ = [eb_parts[k] for k in (eb_tree.query(q) if eb_tree is not None else [])]
             return q.boundary.intersection(shapely.union_all(near_)).length if near_ else 0.0
+        # off the ground (a deck, a tunnel) the pedestrian side is only what OSM maps there: its footways and cycleways of this level, each
+        # its own width (OSM's, else the bridge profile's chosen width); no furnishing band and no frontage, as no building faces a deck
+        # (Kaveh, 2026-11-12: the frontages on every bridge)
+        walks = [] if lv == 0 else [(o, c_, w_, g(w)) for o, c_, w_, w in rows(f"""SELECT osm_id, class, width_m, {m()} FROM work.element
+                 WHERE type IN ('walkway', 'cycleway') AND level_min = ? AND geometry IS NOT NULL""", [lv])]
         rtree_ids = [u for u in ids if not road[u].is_empty]
         tree = shapely.STRtree([road[u].boundary for u in rtree_ids]) if rtree_ids else None
         share = {}
@@ -318,6 +325,16 @@ def build(con, epsg, path):
             for q in shapely.get_parts(own):
                 if along_edge(q) < EDGE_TOUCH_M:
                     part(u, "island", q, source="urbanstyle", method="derived", ref="between roadways: it touches no edge of the street")
+                    continue
+                if lv != 0:
+                    for o, c_, w_, ln in walks:
+                        if ln is None or not ln.intersects(q):
+                            continue
+                        wd = w_ or PATH_W.get(c_, 2.0)
+                        x = poly(I(q, ln.buffer(wd / 2, cap_style="flat")))
+                        if x.area > 0.05:
+                            part(u, "sidewalk", x, width_m=wd, width_source="osm" if w_ else "urbanstyle", width_method="mapped" if w_ else "chosen",
+                                 source="osm", method="mapped", ref=f"w{o} ({c_}) on level {lv}")
                     continue
                 for typ, x, w in (("furnishing", I(q, kb), FURNISH_M), ("sidewalk", D(I(q, kc), kb), CLEAR_M),
                                   ("frontage", D(q, kc), None)):

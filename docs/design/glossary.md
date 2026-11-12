@@ -60,7 +60,7 @@ The words of the model, the code and the dashboard, in one place. When a word is
 | **junction area** | the roadway of a sub-intersection where the arms' roadways meet, with the corners and the connectors; one part per sub-intersection |
 | **crosswalk** | the roadway under a crossing way, 3 m or OSM's width; its paint from `crossing:markings` |
 | **island** | a piece of the walking side between two roadways that touches no block; it begins where the strip is 2 m wide |
-| **furnishing**, **sidewalk**, **frontage** | the three bands of the walking side from the kerb: where furniture stands; the clear path; the rest to the block's edge |
+| **furnishing**, **sidewalk**, **frontage** | the three bands of the walking side from the kerb: where furniture stands; the clear path; the rest to the block's edge. On level 0 only: on a deck or in a tunnel the walking side is OSM's footways and cycleways of that level, each a sidewalk of its own width |
 | **driveway** | a service road's crossing of the walking side to the roadway, at OSM's width or 5 m |
 | **bus stop**, **bus zone** | a stop's waiting area on the sidewalk; the kerb strip where its bus stops |
 | **tree pit** | a street tree's pit, 1.5 m square, in the furnishing zone |

@@ -25,6 +25,7 @@ import roadstyle.duckosm as d
 DB, OUT = sys.argv[1], sys.argv[2]
 FILES = sys.argv[3:] or sorted(glob.glob("data/bridges-monaco/*.bridge.json"))
 AXIS_M = 15.0           # a node belongs to an axis that passes this near it
+CURVE_MAX_M = 80.0      # the longest vertical curve (bridge_profile.fit_alignment's curve_max)
 
 roads, _, _ = d.read(DB, "driving", levels="auto")
 df = roads.to_pandas()
@@ -101,9 +102,14 @@ for grp in prof["groups"]:
             continue
         ax, (a0, a1) = hit
         lo, hi = sorted((a0, a1))
-        pts = [{"s": round(abs(s - a0), 2), "z_m": round(ax["elev"](s), 2), "curve_m": 0.0, "source": "urbanstyle", "method": "derived"}
-               for s in ax["grade_s"] if lo + 1.0 < s < hi - 1.0 and abs(s - a0) < c["length_m"] - 1.0]
-        chains.append({"id": c["id"], "points": sorted(pts, key=lambda q: q["s"])})
+        pts = sorted(({"s": round(abs(s - a0), 2), "z_m": round(ax["elev"](s), 2), "source": "urbanstyle", "method": "derived"}
+                      for s in ax["grade_s"] if lo + 1.0 < s < hi - 1.0 and abs(s - a0) < c["length_m"] - 1.0), key=lambda q: q["s"])
+        # each grade point rounded by a vertical curve, urbanstyle's rule (bridge_profile.fit_alignment): 0.9 of the shorter grade beside
+        # it, at most CURVE_MAX_M; with 0 the grades meet at a corner (a deck that rises "in two steps")
+        ss = [0.0] + [q["s"] for q in pts] + [c["length_m"]]
+        for k, q in enumerate(pts, start=1):
+            q["curve_m"] = round(min(CURVE_MAX_M, 0.9 * min(ss[k] - ss[k - 1], ss[k + 1] - ss[k])), 1)
+        chains.append({"id": c["id"], "points": pts})
     groups.append({"nodes": nodes, "chains": chains})
 given = {"parameters": {"curve": "design", "z_reference": "elevation"},
          "ground": {k: ground_facts[k] for k in ("id", "source", "product", "vertical_datum")}, "groups": groups}

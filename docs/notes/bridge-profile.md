@@ -387,5 +387,12 @@ bridge w448186718, whose ends have no z in the area's file (the bridge comes fro
 Boulevard du Larvotto: ground ends at 16.1 m, 17.1 m and 20.4 m, the junction of its three axes at 19.15 m. The picture:
 `viz/review/bridge-ends-larvotto-2026-11-12.png` (http://localhost:8784/review/bridge-ends-larvotto-2026-11-12.png).
 
+**The test page (2026-11-12).** `scripts/bridge_roadstyle_page.py` draws the ten Monaco profiles on roadstyle's 3D map with the area's
+ground as terrain (the toolbox's "3D terrain"): `viz/monaco-bridges-ground.html`. roadstyle draws ground + `z_m`, so the script gives
+each point `z_m` = base + height − ground there, and the deck stands at base + height. Where FABDEM is higher under the deck than the base
+(184 of the samples), `z_m` is below 0 and roadstyle lifts the deck to the terrain: Boulevard du Larvotto's junction is 3.2 m under FABDEM,
+Avenue de la Costa's end 5.6 m (the 30 m grid differs from the ground at the ends there). roadstyle sees 7 of the 22 axes as no 3D bridge
+(their roads have no level 1 in the area's file) and warns of 7 free ends where our axis goes on past the OSM end.
+
 **Not done:** the 3D model (`bridge_surface`) still draws the flat model or IGN's elevations and does not read the base; Granville's
 profile has no base (Granville's pass-0 build has no ground id yet); w448186718 needs the z of its ends from a ground file of the wide region.

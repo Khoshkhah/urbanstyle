@@ -54,6 +54,7 @@ STYLE = [
     ("urban.side", 4, "driving", 41, "polygon", "#6b7280", None),
     ("urban.part", 5, "path", 50, "polygon", "#e0a96d", None),
     ("urban.part", 5, "frontage", 50, "polygon", "#ece6da", None),
+    ("urban.part", 5, "unmapped", 50, "polygon", "#d6d3cd", None),
     ("urban.part", 5, "sidewalk", 51, "polygon", "#d8d2c6", None),
     ("urban.part", 5, "furnishing", 52, "polygon", "#b9a58b", None),
     ("urban.part", 5, "verge", 52, "polygon", "#c9c4b8", None),

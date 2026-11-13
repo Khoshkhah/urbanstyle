@@ -30,7 +30,7 @@ PAINT_LIFT_M = 0.06     # a painted line above its part
 OFF_GROUND_M = 0.3      # a deck lower than this is on the ground: no guard
 END_ANGLE = 45.0        # an edge more than this across its axis, where a roadway part reaches it, is a road end: no guard
 ROADWAY = ("lane", "junction area", "paved", "parking", "no parking", "bus lane", "cycle lane", "shoulder", "bridge deck")
-RAISED = {"sidewalk": 0.15, "island": 0.15, "furnishing": 0.15, "frontage": 0.15, "verge": 0.15, "median": 0.15, "path": 0.15}
+RAISED = {"sidewalk": 0.15, "island": 0.15, "furnishing": 0.15, "frontage": 0.15, "verge": 0.15, "unmapped": 0.0, "median": 0.15, "path": 0.15}
 NEW_CHECKS = ("BR13", "BR14", "BR15")
 
 

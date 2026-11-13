@@ -27,7 +27,7 @@ import duckdb
 from . import bulk
 
 # the parts of the walking side (rank 4); every other part is on the driving side
-WALKING = ("sidewalk", "furnishing", "frontage", "driveway", "island", "verge", "bus stop", "tree pit", "steps", "ramp", "handrail",
+WALKING = ("sidewalk", "furnishing", "frontage", "driveway", "island", "verge", "unmapped", "bus stop", "tree pit", "steps", "ramp", "handrail",
            "bollard", "open")
 # the parts of a subsection that have no axis of their own: they cross the space or stand in it
 NO_AXIS = ("crosswalk", "cycle crossing", "driveway", "tree pit", "bus stop", "junction area")

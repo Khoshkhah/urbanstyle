@@ -50,8 +50,23 @@ urbanstyle keeps everything outside the roadway: the buildings, the lots, the bl
 
 The pedestrian realm starts at SimReady's roadway bound. In `sim.kerb_line`, the roles are `bound` (the edge of the
 roadway: 3,413 rows in Monaco), `kerb` (a kerb from a sidewalk way, a structure width or an OSM barrier: 1,793 rows),
-`face_end` (the end of a band) and `unused`. D28 says that `bound` is the bound of the roadway, not the kerb. urbanstyle
-puts the sidewalk bands between the `bound` line and the block side.
+`face_end` (the end of a band) and `unused`. D28 says that `bound` is the bound of the roadway, not the kerb.
+
+The walking side comes from sources only (`rules-review-2026-11-12.md`, accepted by Kaveh 2026-11-12). It is cut at each
+section's ends, and each piece goes to the space whose roadway it touches most. Then:
+
+- the part of a piece inside a roundabout's central island (SimReady's `island`, kind `central`, with no `junction_id`) is an
+  `island`. A roundabout's interior that is a block already stays the block;
+- a piece is a `sidewalk`, whole, from the roadway to the street's edge, where an OSM footway or cycleway of its level runs in it
+  for `WALK_IN_M` (2 m) or more, or where the nearest road's sidewalk tag (within `SIDE_TAG_M`, 25 m) covers its side;
+- every other piece is `unmapped`: one flat part, with no bands and no kerb;
+- the kerb mark runs only where a sidewalk meets the roadway.
+
+The ground at level 0 under a bridge is `unmapped`: no source, SimReady included, describes it.
+
+Who owns what, agreed with SimReady on 2026-11-12: urbanstyle owns the street's edge at level 0 (the blocks and the corridors)
+and the walking side; SimReady owns the roadway, the islands (the central ones too), the lane ends at the junction areas and the
+edges of the faces off level 0 (decks, tunnels). SimReady adds a step that cuts each face off level 0 to its final lanes.
 
 ## The edge ids
 

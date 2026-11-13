@@ -212,7 +212,9 @@ document.addEventListener('keydown',e=>{if(e.key!=='Escape')return;
 // bridges (#br3don), after their models' list of the spaces they replace (window.brUnits, a 10 MB fetch): drawn before it lands, the
 // first 3D view showed a replaced space as a flat deck over the model (the Granville on-ramp; Kaveh, 2026-10-16)
 let tries=0;
-(function start(){if((rsQuery(()=>true,'Buildings').length===0||rsQuery(()=>true).length===0||(document.getElementById('br3don')&&!window.brUnits))&&tries++<100){setTimeout(start,200);return} fromHash()})();
+(function start(){if((rsQuery(()=>true,'Buildings').length===0||rsQuery(()=>true).length===0||(document.getElementById('br3don')&&!window.brUnits))&&tries++<100){setTimeout(start,200);return}
+  // (and after the map's load event: roadstyle fits the map to its data then, and a jump before it was lost on a page with no bridges)
+  if(map._loaded)fromHash(); else map.once('load',()=>setTimeout(fromHash,0))})();
 function fromHash(){
   const at=location.search.match(/[?&]at=([^&]+)/);
   if(at){const [x,y,z,p,b]=decodeURIComponent(at[1]).split(',').map(Number); map.jumpTo({center:[x,y],zoom:z||19,pitch:p||0,bearing:b||0}); setView()}

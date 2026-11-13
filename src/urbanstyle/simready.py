@@ -8,10 +8,9 @@ It reads SimReady's build (`../simready/out/<area>-rust/build.duckdb`, schema si
                   one space (id s<level>-w<way>/1: the way of its longest edge); its lanes from SimReady's lane boundaries
     intersections each SimReady junction (id i<level>-<smallest node>): its area, the lanes of the carriageways inside it, its islands
     pedestrian    the street (the area less the blocks and the corridors; on another level, SimReady's street faces of that level) less
-                  the roadway, cut across at each section's ends, each piece to the space whose roadway it touches most: furnishing
-                  FURNISH_M at the kerb, sidewalk CLEAR_M, the rest frontage (network.py's chosen widths); a piece that touches no edge
-                  of the street lies between roadways: an island. Off level 0 (a deck, a tunnel) only OSM's footways and cycleways of
-                  that level, each its own width: no furnishing, no frontage
+                  the roadway, cut across at each section's ends, each piece to the space whose roadway it touches most: each piece
+                  whole a sidewalk where an OSM footway or cycleway of that level runs in it or its road's sidewalk tag says so, else one
+                  flat part, unmapped, that no source describes; the kerb only where a sidewalk meets the roadway
     marks         the lane lines between the lanes of one carriageway and the centre line between two directions on one line (both
                   from SimReady's lane boundaries), the kerb (the roadway's edge facing the pedestrian side), the stop line where the
                   junction has signals or a stop sign and the give-way line where it has a yield sign, and one guide line per move
@@ -19,10 +18,11 @@ It reads SimReady's build (`../simready/out/<area>-rust/build.duckdb`, schema si
 
 Every row from SimReady has source `simready` and SimReady's own method (`ev_method`); the pedestrian bands are urbanstyle's (derived).
 """
+WALK_IN_M = 2.0         # an OSM footway runs in a walking-side piece when this much of it lies inside (chosen: more than a crossing's end)
+SIDE_TAG_M = 25.0       # a walking-side piece takes the sidewalk tag of the nearest road within this distance (chosen: half a wide street)
 LEVELS = (-2, 2)        # urbanstyle's levels (container.CLAMP); SimReady's lower tunnels go to the lowest
 LANE_TYPE = {"through": "lane", "pocket": "lane", "merge": "lane", "bike": "cycle lane", "bus": "bus lane", "parking": "parking",
              "median": "island"}
-EDGE_TOUCH_M = 1.0      # a pedestrian piece whose boundary runs at least this far along the street's outer edge is a side, not an island
 
 
 from . import bulk
@@ -160,8 +160,7 @@ def build(con, epsg, path):
     import duckdb
     import shapely
     import shapely.ops
-    from .network import COLORS, CUT_M, CLEAR_M, FURNISH_M, SCHEMA
-    from .bridge_profile import PATH_W
+    from .network import COLORS, CUT_M, SCHEMA
     from .parts import LINE
 
     # (2D: SimReady's lines carry their heights as Z; the levels give the height here, and a Z broke the checks' ?at= links)
@@ -249,8 +248,41 @@ def build(con, epsg, path):
     # ---- the pedestrian side, level by level
     blocks = shapely.union_all([g(w) for (w,) in rows(f"SELECT {m()} FROM work.block WHERE level = 0")] or [shapely.Polygon()])
     corridors = shapely.union_all([g(w) for (w,) in rows(f"SELECT {m()} FROM work.corridor")] or [shapely.Polygon()])
+    # OSM's sidewalk tags on the roads (sidewalk=left|right|both|yes, sidewalk:<side>=yes): a road's side with a sidewalk mapped as a tag,
+    # with no line of its own. Each edge in the way's own direction, so a piece's side of it is known
+    def sw_sides(t):
+        t = t or {}
+        sides = set()
+        for side in ("left", "right"):
+            v = t.get(f"sidewalk:{side}") or t.get("sidewalk:both")
+            if (v == "yes") if v else t.get("sidewalk") in ("both", "yes", side):
+                sides.add(side)
+        return sides
+    lv_of_way = {}
+    for o, lo in rows("SELECT osm_id, level_min FROM work.element WHERE type = 'road' AND osm_id IS NOT NULL"):
+        lv_of_way.setdefault(o, lo)
+    tagged = [(o, sw_sides(t), g(w)) for o, t, w in rows(f"""SELECT e.osm_id, w.tags, {m('e.geometry')} FROM osm.driving.edges e
+              JOIN osm.raw.ways w USING (osm_id) WHERE NOT e.is_reverse""")]
+    tagged = [x for x in tagged if x[1] and x[2] is not None and not x[2].is_empty]
     for lv in sorted({u["level"] for u in units.values()}):
         ids = [u for u in units if units[u]["level"] == lv]
+        sw_lv = [x for x in tagged if lv_of_way.get(x[0], 0) == lv]
+        sw_tree = shapely.STRtree([x[2] for x in sw_lv]) if sw_lv else None
+
+        def tag_says(x):
+            """The OSM way whose sidewalk tag covers the side of its road that the piece x lies on (the nearest tagged road within
+            SIDE_TAG_M), else None."""
+            if sw_tree is None:
+                return None
+            p = x.representative_point()
+            k = sw_tree.nearest(p)
+            o, sides, ln = sw_lv[int(k)]
+            if ln.distance(p) > SIDE_TAG_M:
+                return None
+            s_ = ln.project(p)
+            a, b = ln.interpolate(max(s_ - 0.5, 0)), ln.interpolate(min(s_ + 0.5, ln.length))
+            side = "left" if (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x) > 0 else "right"
+            return o if side in sides else None
         road = {u: poly(shapely.union_all([p["geom"] for p in units[u]["parts"]] or [shapely.Polygon()])) for u in ids}
         road_all = shapely.union_all(list(road.values()) or [shapely.Polygon()])
         if lv == 0:
@@ -292,18 +324,13 @@ def build(con, epsg, path):
                     cuts += [q for q in keep if q.distance(end) < 1.0]
         pieces = [q for q in shapely.get_parts(shapely.ops.polygonize(shapely.union_all([realm.boundary] + cuts)))
                   if q.area > 0.05 and realm.contains(q.representative_point())] if cuts else list(shapely.get_parts(realm))
-        edge = shapely.union_all([street.boundary.difference(road_all.buffer(0.05))])
-        eb_parts = [q for q in shapely.get_parts(edge.buffer(0.3)) if not q.is_empty]
-        eb_tree = shapely.STRtree(eb_parts) if eb_parts else None
-
-        def along_edge(q):
-            near_ = [eb_parts[k] for k in (eb_tree.query(q) if eb_tree is not None else [])]
-            return q.boundary.intersection(shapely.union_all(near_)).length if near_ else 0.0
-        # off the ground (a deck, a tunnel) the pedestrian side is only what OSM maps there: its footways and cycleways of this level, each
-        # its own width (OSM's, else the bridge profile's chosen width); no furnishing band and no frontage, as no building faces a deck
-        # (Kaveh, 2026-11-12: the frontages on every bridge)
-        walks = [] if lv == 0 else [(o, c_, w_, g(w)) for o, c_, w_, w in rows(f"""SELECT osm_id, class, width_m, {m()} FROM work.element
+        # the walking side from sources only (docs/notes/rules-review-2026-11-12.md, Kaveh: "go ahead"): a piece is a sidewalk where an
+        # OSM footway or cycleway line of this level runs in it (the corridors are out of the street already) or where its road's sidewalk
+        # tag says so; the rest, which no source describes, is one flat part, `unmapped`, with no bands and no kerb
+        walks = [(o, c_, w_, g(w)) for o, c_, w_, w in rows(f"""SELECT osm_id, class, width_m, {m()} FROM work.element
                  WHERE type IN ('walkway', 'cycleway') AND level_min = ? AND geometry IS NOT NULL""", [lv])]
+        walks = [x for x in walks if x[3] is not None and not x[3].is_empty]
+        walk_tree = shapely.STRtree([x[3] for x in walks]) if walks else None
         rtree_ids = [u for u in ids if not road[u].is_empty]
         tree = shapely.STRtree([road[u].boundary for u in rtree_ids]) if rtree_ids else None
         share = {}
@@ -316,32 +343,41 @@ def build(con, epsg, path):
             touch = [t for t in touch if t[0] > 0.05]
             owner = max(touch)[1] if touch else rtree_ids[int(tree.nearest(q))]
             share.setdefault(owner, []).append(q)
+        # a roundabout's central island (SimReady's, with no junction of its own: agreed with SimReady, 2026-11-12): an island where it
+        # lies in the street (a roundabout's interior that is a block already stays the block)
+        central = poly(shapely.union_all([x["geom"] for x in islands if x["j"] is None and x["level"] == lv] or [shapely.Polygon()]))
         for u, qs in share.items():
-            own = poly(shapely.union_all(qs))
-            kerb = road[u].boundary.intersection(own.buffer(0.05))
-            mark(u, "kerb", kerb, "simready", "the roadway's edge", "the edge of SimReady's lanes and junction area facing the pedestrian side")
-            kb = kerb.buffer(FURNISH_M) if not kerb.is_empty else shapely.Polygon()
-            kc = kerb.buffer(FURNISH_M + CLEAR_M) if not kerb.is_empty else shapely.Polygon()
-            for q in shapely.get_parts(own):
-                if along_edge(q) < EDGE_TOUCH_M:
-                    part(u, "island", q, source="urbanstyle", method="derived", ref="between roadways: it touches no edge of the street")
+            rest = poly(shapely.union_all(qs))
+            walked = []
+            for x in shapely.get_parts(poly(I(rest, central))):
+                if x.area > 0.05:
+                    part(u, "island", x, source="simready", method="island-extraction", ref="a roundabout's central island")
+            rest = poly(D(rest, central))
+            # each piece of the walking side is one thing, whole, from the roadway to the street's edge: the sidewalk of an OSM footway or
+            # cycleway line that runs in it (the longest), else of the sidewalk tag of the road on its side, else unmapped
+            for x in list(shapely.get_parts(rest)):
+                if x.area <= 0.05:
                     continue
-                if lv != 0:
-                    for o, c_, w_, ln in walks:
-                        if ln is None or not ln.intersects(q):
-                            continue
-                        wd = w_ or PATH_W.get(c_, 2.0)
-                        x = poly(I(q, ln.buffer(wd / 2, cap_style="flat")))
-                        if x.area > 0.05:
-                            part(u, "sidewalk", x, width_m=wd, width_source="osm" if w_ else "urbanstyle", width_method="mapped" if w_ else "chosen",
-                                 source="osm", method="mapped", ref=f"w{o} ({c_}) on level {lv}")
-                    continue
-                for typ, x, w in (("furnishing", I(q, kb), FURNISH_M), ("sidewalk", D(I(q, kc), kb), CLEAR_M),
-                                  ("frontage", D(q, kc), None)):
-                    x = poly(x)
-                    if x.area > 0.05:
-                        part(u, typ, x, width_m=w, width_source="urbanstyle", width_method="chosen" if w else None, source="urbanstyle",
-                             method="derived", ref="the street less SimReady's roadway, to the space whose roadway it touches most")
+                inside = [(walks[k][3].intersection(x).length, k) for k in (walk_tree.query(x) if walk_tree is not None else [])]
+                inside = [t for t in inside if t[0] >= WALK_IN_M]
+                if inside:
+                    o, c_, w_, _ = walks[max(inside)[1]]
+                    ref = f"w{o} ({c_}) on level {lv} runs in it"
+                else:
+                    o = tag_says(x)
+                    ref = f"w{o}'s sidewalk tag on this side"
+                if o is not None:
+                    part(u, "sidewalk", x, width_source="urbanstyle", width_method="derived", source="osm", method="mapped",
+                         ref=ref + "; its width the room between the roadway and the street's edge")
+                    walked.append(x)
+                    rest = poly(D(rest, x))
+            if walked:          # the kerb only where a sidewalk meets the roadway
+                kerb = road[u].boundary.intersection(shapely.union_all(walked).buffer(0.05))
+                mark(u, "kerb", kerb, "simready", "the roadway's edge", "the edge of SimReady's roadway where an OSM sidewalk meets it")
+            for x in shapely.get_parts(rest):
+                if x.area > 0.05:
+                    part(u, "unmapped", x, source="urbanstyle", method="derived",
+                         ref="the street less SimReady's roadway and OSM's sidewalks: no source describes it")
 
     tick("the walking side")
     # ---- the crosswalks (network.py's rules, 8a): OSM's crossing ways over SimReady's roadway, CROSSWALK_M wide or OSM `width`, and a crossing

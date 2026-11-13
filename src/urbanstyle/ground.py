@@ -365,7 +365,7 @@ def build(con, epsg):
 # layer 1: the surfaces inside each ground item (docs/design/space-layers.md). A street's from its parts (work.part), grouped by the kerb
 STREET_SURFACE = {**dict.fromkeys(("lane", "bus lane", "cycle lane", "paved", "junction area", "ring", "shoulder", "parking", "no parking",
                                    "bus zone", "crosswalk", "cycle crossing"), "roadway"),
-                  **dict.fromkeys(("sidewalk", "furnishing", "frontage", "open", "bus stop", "tree pit", "driveway"), "pedestrian realm"),
+                  **dict.fromkeys(("sidewalk", "furnishing", "frontage", "open", "unmapped", "bus stop", "tree pit", "driveway"), "pedestrian realm"),
                   "island": "median", "barrier": "median"}       # (a barrier between two carriageways stands where a median would)
 VERGE_LAND = ("grass", "flowerbed", "planting")       # OSM green mapped inside a street: a verge
 GARDEN_LAND = ("garden", "grass", "allotments", "flowerbed")

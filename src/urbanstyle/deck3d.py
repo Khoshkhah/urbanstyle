@@ -405,8 +405,9 @@ def model(con, P):
         if not keep:
             continue
         lines = shapely.line_merge(shapely.union_all(keep))
-        ug = units[u][2] if face_edge is None else face_lv[units[u][1]]     # (on SimReady's face: the guard inside the face's edge)
-        band = shapely.union_all([l_.buffer(GUARD_M[1], cap_style="flat") for l_ in shapely.get_parts(lines)]).intersection(ug)
+        band = shapely.union_all([l_.buffer(GUARD_M[1], cap_style="flat") for l_ in shapely.get_parts(lines)])
+        # (SimReady's face is cut to the roadway: the guard stands just outside its edge, not on the outer lane)
+        band = band.intersection(units[u][2]) if face_edge is None else band.difference(face_lv[units[u][1]])
         if not band.is_empty:
             mesh(u, band, "barrier", LIFT_M, {"id": f"guard {u}", "type": "barrier", "bridge": P["name"], "height_m": GUARD_M[0],
                                               "source": "urbanstyle", "method": "derived", "rule": "along the space's outer edge, not across a road"},

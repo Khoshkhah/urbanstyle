@@ -146,11 +146,15 @@ def read_all(con, epsg, path):
     moves = [dict(j=r[0], fl=r[1], tl=r[2], fc=r[3], tc=r[4], turn=r[5], uses=r[6], method=r[7], geom=g(r[8])) for r in rows(f"""
         SELECT junction_id, from_lane_id, to_lane_id, from_carriageway_id, to_carriageway_id, turn, allowed_uses, ev_method, {sm('path')}
         FROM sr.sim.movement WHERE {near('path')}""", [aw])]
-    faces = [(lv_of(lv), g(w)) for lv, w in rows(f"SELECT level, {sm('geometry')} FROM sr.sim.street_face WHERE level <> 0 AND {near('geometry')}", [aw])]
+    face_rows = rows(f"SELECT street_face_id, level, {sm('geometry')} FROM sr.sim.street_face WHERE level <> 0 AND {near('geometry')}", [aw])
+    faces = [(lv_of(lv), g(w)) for _, lv, w in face_rows]
+    # the open ends of those faces (where the road goes on: onto the ground, onto another face); a closed end has none (SimReady b347435)
+    face_ends = [(lv_of(lv), g(w)) for lv, w in rows(f"""SELECT level, {sm('ST_Force2D(geometry)')} FROM sr.sim.kerb_line
+                                                          WHERE role = 'face_end' AND level <> 0 AND {near('geometry')}""", [aw])]
     print(f"  simready: {len(cws)} carriageways, {len(lanes)} lanes, {len(juncs)} junctions, {len(islands)} islands, {len(moves)} moves "
           f"(SimReady {ver}, built {built})", flush=True)
     return dict(area=area, ver=ver, built=built, dver=dver, osm_ts=osm_ts, edge_osm=edge_osm, cws=cws, lanes=lanes, lanes_by_cw=lanes_by_cw, juncs=juncs,
-                islands=islands, stops=stops, moves=moves, faces=faces)
+                islands=islands, stops=stops, moves=moves, faces=faces, face_rows=face_rows, face_ends=face_ends)
 
 
 def build(con, epsg, path):
@@ -614,6 +618,13 @@ def build(con, epsg, path):
     bulk.executemany(con, "INSERT INTO work.approach (unit_id, level, from_edge, lane, moves, ways, arrow, no_arrow_because) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     [(u, lv, e, n, k, ";".join(sorted(w)), bool(t and t not in ("none", "")), None if t and t not in ("none", "") else "SimReady gives no turn arrow")
                      for (u, lv, e, n), (k, w, t) in app.items()])
+    # SimReady's faces off level 0 and their open ends, for the decks in 3D (deck3d.py: the deck's edge, its walls and its guards)
+    con.execute("CREATE OR REPLACE TABLE work.face (face_id BIGINT, level INTEGER, geometry GEOMETRY)")
+    con.execute("CREATE OR REPLACE TABLE work.face_end (level INTEGER, geometry GEOMETRY)")
+    bulk.executemany(con, f"INSERT INTO work.face VALUES (?, ?, {to_ll})",
+                     [(fid, lv_of(lv), shapely.to_wkb(f)) for fid, lv, w in R["face_rows"] for f in [poly(I(g(w), area))] if not f.is_empty])
+    bulk.executemany(con, f"INSERT INTO work.face_end VALUES (?, {to_ll})",
+                     [(lv, shapely.to_wkb(e)) for lv, e in R["face_ends"] for e in [e.intersection(area)] if not e.is_empty])
     con.execute("DETACH DATABASE sr")
     print(f"  simready: {len(urows)} spaces, {len(prows)} parts, {len(mrows)} marks, {len(trows)} moves", flush=True)
     return dict(spaces=len(urows), parts=len(prows), marks=len(mrows), turns=len(trows))

@@ -28,6 +28,7 @@ PAINT_M = 0.12          # a painted line's width where the mark has none (chosen
 LIFT_M = 0.03           # a part above the slab's top, so the two never fight for the same depth
 PAINT_LIFT_M = 0.06     # a painted line above its part
 OFF_GROUND_M = 0.3      # a deck lower than this is on the ground: no guard
+FACE_END_M = 0.05       # a piece of a SimReady face's ring this near a face_end line is that open end (SimReady: within 0.6 mm)
 END_ANGLE = 45.0        # an edge more than this across its axis, where a roadway part reaches it, is a road end: no guard
 ROADWAY = ("lane", "junction area", "paved", "parking", "no parking", "bus lane", "cycle lane", "shoulder", "bridge deck")
 RAISED = {"sidewalk": 0.15, "island": 0.15, "furnishing": 0.15, "frontage": 0.15, "verge": 0.15, "unmapped": 0.0, "median": 0.15, "path": 0.15}
@@ -90,6 +91,37 @@ def model(con, P):
             if units[u_][2].distance(pc) < JOINT_M:
                 k_, lv_, ug_ = units[u_]
                 units[u_] = (k_, lv_, shapely.make_valid(ug_.union(pc.buffer(0.05))))
+    # with SimReady's input (work.face): the deck's edge is the ring of SimReady's face of its level, open only along SimReady's face_end
+    # lines (where the road goes on); each piece of that edge to the space of its level nearest to it. No threshold guesses an open end.
+    face_edge = None
+    if con.execute("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'work' AND table_name = 'face'").fetchone()[0]:
+        face_edge = {}
+        fz = [(lv, g(w)) for lv, w in con.execute(f"SELECT level, ST_AsWKB({to_utm}) FROM work.face WHERE level >= 1").fetchall()]
+        ends = {}
+        for lv, w in con.execute(f"SELECT level, ST_AsWKB({to_utm}) FROM work.face_end WHERE level >= 1").fetchall():
+            ends.setdefault(lv, []).append(g(w))
+        ends = {lv: shapely.union_all(v).buffer(FACE_END_M) for lv, v in ends.items()}
+        face_lv = {}
+        for lv, f in fz:
+            face_lv.setdefault(lv, []).append(f)
+        face_lv = {lv: shapely.union_all(v) for lv, v in face_lv.items()}
+        for lv, f in fz:
+            if not f.intersects(deck):
+                continue
+            mine = {u: v[2] for u, v in units.items() if v[1] == lv}
+            if not mine:
+                continue
+            for pg in shapely.get_parts(f):
+                if pg.geom_type != "Polygon":
+                    continue
+                for ring in [pg.exterior] + list(pg.interiors):
+                    cs = list(ring.segmentize(STEP_M / 2).coords)
+                    for (ax, ay), (bx, by) in zip(cs, cs[1:]):
+                        mid = shapely.Point((ax + bx) / 2, (ay + by) / 2)
+                        if not mid.intersects(deck) or (lv in ends and ends[lv].contains(mid)):
+                            continue
+                        u = min(mine, key=lambda k_: mine[k_].distance(mid))
+                        face_edge.setdefault(u, []).append(((ax, ay), (bx, by)))
     pf = ["part_id", "unit_id", "level", "type", "direction", "lane", "lane_id", "width_m", "road", "source", "method", "ref", "rule"]
     have = {r[0] for r in con.execute("SELECT column_name FROM information_schema.columns WHERE table_schema = 'work' AND table_name = 'part'").fetchall()}
     sel = ", ".join(c if c in have else f"NULL AS {c}" for c in pf)
@@ -186,6 +218,8 @@ def model(con, P):
             top = [vid(x, y, z_at(u, x, y)) for x, y in c]
             bot = [vid(x, y, max(0.0, z_at(u, x, y) - DECK_M)) for x, y in c]
             slab += [top, bot[::-1]]
+        if face_edge is not None:
+            continue                    # (the edge from SimReady's faces, below)
         others = shapely.union_all([g_ for u2, (k2, lv2, g_) in units.items() if u2 != u and lv2 == lv] or [shapely.Polygon()])
         segs = []
         for ring in [ug.exterior] + list(ug.interiors) if ug.geom_type == "Polygon" else \
@@ -206,6 +240,13 @@ def model(con, P):
                     sides += [[a0, b0, b1], [a0, b1, a1]]
                 segs.append(((ax, ay), (bx, by)))
         outer[u] = segs
+    if face_edge is not None:           # the slab's sides along SimReady's face edge, as its space's heights give them
+        for u, segs in face_edge.items():
+            for (ax, ay), (bx, by) in segs:
+                za, zb = z_at(u, ax, ay), z_at(u, bx, by)
+                a0, b0, a1, b1 = vid(ax, ay, max(0.0, za - DECK_M)), vid(bx, by, max(0.0, zb - DECK_M)), vid(ax, ay, za), vid(bx, by, zb)
+                sides += [[a0, b0, b1], [a0, b1, a1]]
+        outer = face_edge
 
     # ---- the parts and the marks, at their heights
     surf, flat = [], []
@@ -344,6 +385,9 @@ def model(con, P):
     for u, segs in outer.items():
         road = shapely.union_all(road_by_u.get(u, []) or [shapely.Polygon()])
         keep = []
+        if face_edge is not None:       # (SimReady's face edge is already open at every open end)
+            keep = [shapely.LineString(s) for s in segs]
+            segs = []
         for (ax, ay), (bx, by) in segs:
             mx, my = (ax + bx) / 2, (ay + by) / 2
             if z_at(u, mx, my) < OFF_GROUND_M:
@@ -361,7 +405,7 @@ def model(con, P):
         if not keep:
             continue
         lines = shapely.line_merge(shapely.union_all(keep))
-        ug = units[u][2]
+        ug = units[u][2] if face_edge is None else face_lv[units[u][1]]     # (on SimReady's face: the guard inside the face's edge)
         band = shapely.union_all([l_.buffer(GUARD_M[1], cap_style="flat") for l_ in shapely.get_parts(lines)]).intersection(ug)
         if not band.is_empty:
             mesh(u, band, "barrier", LIFT_M, {"id": f"guard {u}", "type": "barrier", "bridge": P["name"], "height_m": GUARD_M[0],

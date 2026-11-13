@@ -445,7 +445,7 @@ function applyLooks(){const m=M(); if(!m)return; if(!m.isStyleLoaded())return se
     if(window.bldLook)window.bldLook(worst(g,G));     // (the buildings: the 3D page fades them itself, by focus and selection too)
     const F=eff(), onBr=focusU?/^\w1-/.test(focusU):F&&F.bridge>0;      // (a focus on the ground: the bridge faint)
     const upF=F&&!onBr&&up==='full'?'fade':up;
-    if(window.brOpacity)window.brOpacity(upF==='full'?1:upF==='fade'?0.25:0); if(window.brGLook)window.brGLook(G); return}
+    if(window.brOpacity)window.brOpacity(upF==='full'?1:upF==='fade'?0.25:0); if(window.brGLook)window.brGLook(G); if(window.brTunnelLook)window.brTunnelLook(L); return}
   levels2d();
   if(allow.has('Buildings'))ov('Buildings').forEach(id=>set(id,worst(g,G)));
   ov('Bridge 2D').forEach(id=>{const ly=m.getLayer(id); if(!ly)return;     // (faded: the light outline only)

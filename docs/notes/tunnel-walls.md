@@ -21,7 +21,7 @@ A terrain added later changes nothing in this rule. The box then goes into the h
 | the portals (open, no wall) | SimReady's `face_end` lines on that face (`work.face_end`) |
 | the road's height | SimReady's `sim.elevation_profile.z_m` of the carriageway, at the station of the point on its reference line, linear between stations |
 | the roof's height | the road's height plus the span's `clearance_m` (OSM `maxheight`: 32 of 157 tunnel spans in Monaco); else SimReady's criterion `tunnel_clearance_default_m`, 4.5 m |
-| the ground over the tunnel | duckOSM's `elevation_grid` of the same ground id (SimReady's pass-0 folder), as `bridge_profile._ground_z` reads it |
+| the ground over the tunnel | SimReady's conformed ground: the 2 m grid beside its GLB (`gltf/*.ground.asc`, the project CRS and datum, the same ground id), bilinear between grid points. Under a tunnel it is the DEM (FABDEM, 30 m); under level-0 roadway it is the road. With no such grid, no tunnel box |
 
 The map has no terrain: the ground of level 0 is flat at 0 m. So each height of the box is drawn relative to the ground over it:
 drawn z = z - ground z. A roof under the ground is drawn below 0; a roof over the ground stands up.
@@ -36,7 +36,13 @@ draw below 0. The walls run along the face's ring less its `face_end` lines; the
 - every tunnel face has a box, and every box has walls along the whole ring but its `face_end` lines;
 - no roof is lower than the road under it plus 2 m.
 
+## Result on Monaco (2026-11-12)
+
+On a cut at Avenue de Fontvieille, 11% of the tunnel road pieces lie 0.5 m or more over the conformed ground, so their roof stands
+up as blocks near the portals: FABDEM smooths Monaco's slopes. A few single points lie up to 22 m over it, where the conformed
+ground has narrow pits (sent to SimReady). Kaveh, 2026-11-12: "Show it as it is." A better ground needs a better source (a LiDAR DTM).
+
 ## Open
 
-- SimReady's own model (its GLB, part `tunnels`) draws a shell only where the ground covers the roof. If the GLB must follow this
-  rule too, that is SimReady's change.
+- SimReady's own model (its GLB, part `tunnels`) follows the same rule (SimReady e2a99c1); its "covered" test moves to the
+  conformed ground too.

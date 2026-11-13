@@ -20,6 +20,7 @@ Every row from SimReady has source `simready` and SimReady's own method (`ev_met
 """
 WALK_IN_M = 2.0         # an OSM footway runs in a walking-side piece when this much of it lies inside (chosen: more than a crossing's end)
 SIDE_TAG_M = 25.0       # a walking-side piece takes the sidewalk tag of the nearest road within this distance (chosen: half a wide street)
+TUNNEL_CLEARANCE_M = 4.5    # a tunnel span with no clearance_m: SimReady's criterion tunnel_clearance_default_m (profiles/project-default.csv)
 LEVELS = (-2, 2)        # urbanstyle's levels (container.CLAMP); SimReady's lower tunnels go to the lowest
 LANE_TYPE = {"through": "lane", "pocket": "lane", "merge": "lane", "bike": "cycle lane", "bus": "bus lane", "parking": "parking",
              "median": "island"}
@@ -155,6 +156,33 @@ def read_all(con, epsg, path):
           f"(SimReady {ver}, built {built})", flush=True)
     return dict(area=area, ver=ver, built=built, dver=dver, osm_ts=osm_ts, edge_osm=edge_osm, cws=cws, lanes=lanes, lanes_by_cw=lanes_by_cw, juncs=juncs,
                 islands=islands, stops=stops, moves=moves, faces=faces, face_rows=face_rows, face_ends=face_ends)
+
+
+def _asc_ground(path, crs):
+    """SimReady's conformed ground, an ESRI ASCII grid (cell centres on the grid points, rows from the north, NODATA no data): a function
+    (x, y) in the grid's CRS -> height, bilinear between the 4 grid points, None outside or at no data; and that CRS, `crs` (the file
+    does not name it: SimReady's project CRS)."""
+    import numpy as np
+    head = {}
+    with open(path) as f:
+        for _ in range(6):
+            k, v = f.readline().split()
+            head[k.lower()] = float(v)
+        z = np.loadtxt(f, dtype=np.float32)
+    nodata, cs = head.get("nodata_value", -9999.0), head["cellsize"]
+    x0, y0, nr = head["xllcenter"], head["yllcenter"], int(head["nrows"])
+    z = np.where(z == nodata, np.nan, z)[::-1]          # (row 0 at the south)
+
+    def at(x, y):
+        c, r = (x - x0) / cs, (y - y0) / cs
+        c0, r0 = int(np.floor(c)), int(np.floor(r))
+        if c0 < 0 or r0 < 0 or c0 + 1 >= z.shape[1] or r0 + 1 >= nr:
+            return None
+        fc, fr = c - c0, r - r0
+        q = z[r0:r0 + 2, c0:c0 + 2]
+        v = (q[0, 0] * (1 - fc) + q[0, 1] * fc) * (1 - fr) + (q[1, 0] * (1 - fc) + q[1, 1] * fc) * fr
+        return None if np.isnan(v) else float(v)
+    return at, crs
 
 
 def build(con, epsg, path):
@@ -625,6 +653,56 @@ def build(con, epsg, path):
                      [(fid, lv_of(lv), shapely.to_wkb(f)) for fid, lv, w in R["face_rows"] for f in [poly(I(g(w), area))] if not f.is_empty])
     bulk.executemany(con, f"INSERT INTO work.face_end VALUES (?, {to_ll})",
                      [(lv, shapely.to_wkb(e)) for lv, e in R["face_ends"] for e in [e.intersection(area)] if not e.is_empty])
+    # the tunnels' roads for 3D (tunnel3d.py, docs/notes/tunnel-walls.md): each carriageway below level 0, its reference line every
+    # 2 m with z = SimReady's road height (sim.elevation_profile, linear between stations) less the ground's, and its clearance (the
+    # span's clearance_m, else SimReady's criterion). The ground is SimReady's conformed ground (the ground standard, 2026-11-09: never
+    # the raw DEM), the grid beside SimReady's GLB: <build folder>/gltf/*.ground.asc. None there: no tunnel box (said, not guessed)
+    import glob
+    import os
+    con.execute("CREATE OR REPLACE TABLE work.tunnel_axis (carriageway_id BIGINT, level INTEGER, clearance_m DOUBLE, clearance_source VARCHAR, "
+                "geometry GEOMETRY)")
+    asc = sorted(glob.glob(os.path.join(os.path.dirname(os.path.abspath(path)), "gltf", "*.ground.asc")))
+    ground = _asc_ground(asc[0], con.execute("SELECT crs FROM sr.sim.project").fetchone()[0]) if asc else None
+    if ground is None:
+        print(f"  simready: no conformed ground beside {path} (gltf/*.ground.asc): no tunnel walls", flush=True)
+    under = {cid: c for cid, c in cws.items() if c["level"] < 0 and c["line"] is not None and not c["line"].is_empty}
+    if ground is not None and under:
+        prof = {}
+        for cid, s_, z_ in con.execute("SELECT carriageway_id, station_m, z_m FROM sr.sim.elevation_profile WHERE carriageway_id IN "
+                                       "(SELECT unnest(?::BIGINT[])) AND z_m IS NOT NULL ORDER BY carriageway_id, station_m", [list(under)]).fetchall():
+            prof.setdefault(cid, ([], []))[0].append(s_)
+            prof[cid][1].append(z_)
+        clear = {}
+        for cid, cl in con.execute("SELECT carriageway_id, min(clearance_m) FROM sr.sim.structure WHERE kind IN ('tunnel', 'building_passage') "
+                                   "AND clearance_m IS NOT NULL GROUP BY 1").fetchall():
+            clear[cid] = cl
+        import numpy as np
+        import pyproj
+        ep = f"EPSG:{epsg}" if str(epsg).isdigit() else epsg
+        ll = pyproj.Transformer.from_crs(ep, "EPSG:4326", always_xy=True).transform
+        to_g = pyproj.Transformer.from_crs(ep, ground[1], always_xy=True).transform      # (the grid's own CRS: SimReady's project CRS)
+        trows = []
+        for cid, c in under.items():
+            if cid not in prof:
+                continue
+            ln = c["line"]
+            pts = list(shapely.segmentize(ln, 2.0).coords)
+            st, zs = prof[cid]
+            xyz = []
+            for x, y in pts:
+                gz = ground[0](*to_g(x, y))
+                if gz is None:
+                    continue
+                lon, lat = ll(x, y)
+                xyz.append((lon, lat, float(np.interp(ln.project(shapely.Point(x, y)), st, zs)) - gz))
+            if len(xyz) < 2:
+                continue
+            cl = clear.get(cid)
+            trows.append((cid, c["level"], cl if cl is not None else TUNNEL_CLEARANCE_M,
+                          "OSM maxheight (SimReady's structure)" if cl is not None else "SimReady's criterion tunnel_clearance_default_m",
+                          shapely.to_wkb(shapely.LineString(xyz))))
+        bulk.executemany(con, "INSERT INTO work.tunnel_axis VALUES (?, ?, ?, ?, ST_GeomFromWKB(?))", trows)
+        print(f"  simready: {len(trows)} tunnel roads with heights", flush=True)
     con.execute("DETACH DATABASE sr")
     print(f"  simready: {len(urows)} spaces, {len(prows)} parts, {len(mrows)} marks, {len(trows)} moves", flush=True)
     return dict(spaces=len(urows), parts=len(prows), marks=len(mrows), turns=len(trows))

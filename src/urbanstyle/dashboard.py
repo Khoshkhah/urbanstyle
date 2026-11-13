@@ -1052,8 +1052,11 @@ function brLayer(M){const o=maplibregl.MercatorCoordinate.fromLngLat(M.origin,0)
       scene.add(new THREE.AmbientLight(0xffffff,0.7)); const d=new THREE.DirectionalLight(0xffffff,0.45); d.position.set(-0.5,-1,2); scene.add(d);
       const P=new THREE.BufferAttribute(new Float32Array(M.verts.flat()),3);
       const mesh=(faces,color)=>{const g=new THREE.BufferGeometry(); g.setAttribute('position',P); g.setIndex(faces.flat()); g.computeVertexNormals();
-        scene.add(new THREE.Mesh(g,new THREE.MeshLambertMaterial({color:hex(color),side:THREE.DoubleSide})))};
+        const o=new THREE.Mesh(g,new THREE.MeshLambertMaterial({color:hex(color),side:THREE.DoubleSide})); scene.add(o); return o};
       mesh(M.deck,BC.deck); mesh(M.sides,BC.girder); mesh(M.rails,BC.rail);
+      // (a tunnel: its walls and roof under the ground, drawn only while level 0 is faded or hidden: brTunnelLook)
+      L.level=M.level; L.isTunnel=M.level!=null&&M.level<0;
+      if(M.under)[mesh(M.under.deck,BC.deck),mesh(M.under.sides,BC.girder)].forEach(o=>{o.isUnder=true; o.visible=false});
       // the surface, as the street: each part (or the model's own lane or path where the street has none) and each painted line on the
       // deck, in the street's colours; a part keeps its fields for the popup (paint shares one material per colour)
       // (a strong depth offset over the deck: seen from far, the depth buffer cannot tell 0.1 m apart and the deck showed through in teeth)
@@ -1115,7 +1118,7 @@ map.on('mousemove',e=>{brLast=e; if(brQ)return; brQ=true; requestAnimationFrame(
 const brDeselect=()=>{if(!brSel)return false; brSel=null; brPaint(); if(brPop){const p_=brPop; brPop=null; p_.remove()} return true};
 window.brDeselect=brDeselect;
 // (a level's look in 3D, the Explore panel: the bridge full, faded or hidden: 1, 0.25 or 0)
-window.brOpacity=a=>{Object.values(LAYERS).forEach(L=>{if(!L.scene)return; L.scene.visible=a>0;
+window.brOpacity=a=>{Object.values(LAYERS).forEach(L=>{if(!L.scene||L.isTunnel)return; L.scene.visible=a>0;
   L.scene.traverse(o=>{(Array.isArray(o.material)?o.material:o.material?[o.material]:[]).forEach(m=>{m.transparent=a<1; m.opacity=a;
     m.depthWrite=a>=1; m.needsUpdate=true})})}); map.triggerRepaint()};
 // (G, the Explore panel's last level button: everything but the roads full, faded or hidden; here the slab, sides, parapets, piers,
@@ -1123,6 +1126,11 @@ window.brOpacity=a=>{Object.values(LAYERS).forEach(L=>{if(!L.scene)return; L.sce
 window.brGLook=g=>{if(g==='full')return; Object.values(LAYERS).forEach(L=>{if(!L.scene)return; L.scene.traverse(o=>{if(!(o.isMesh||o.isInstancedMesh)||o.isRoad)return;
   o.visible=g!=='off'; (Array.isArray(o.material)?o.material:[o.material]).forEach(m=>{m.transparent=true; m.opacity=Math.min(m.opacity,0.15); m.depthWrite=false; m.needsUpdate=true})})});
   map.triggerRepaint()};
+// (a tunnel's look: its own level's, full, faded or hidden; its part under the ground only while level 0 is faded or hidden)
+window.brTunnelLook=looks=>{const g0=looks[0]||'full'; Object.values(LAYERS).forEach(L=>{if(!L.scene||!L.isTunnel)return;
+  const lk=looks[L.level]||'full', a=lk==='full'?1:lk==='fade'?0.25:0; L.scene.visible=a>0;
+  L.scene.traverse(o=>{if(o.isUnder)o.visible=g0!=='full'; (Array.isArray(o.material)?o.material:o.material?[o.material]:[]).forEach(m=>{
+    m.transparent=a<1; m.opacity=a; m.depthWrite=a>=1; m.needsUpdate=true})})}); map.triggerRepaint()};
 window.brPick=id=>{let hit=null; Object.values(LAYERS).forEach(L=>(L.pick||[]).forEach(m=>{if(m.userData.id===id)hit=m})); brSel=hit; brPaint(); return !!hit};
 map.on('click',e=>{const m=brOn()&&!objAt(e.point)?brHit(e.point):null; if(!m||m===brSel){brDeselect(); return}
   if(window.xpOnPick&&window.xpOnPick('bridge',m.userData,e))return;      // (the Explore panel selects it)
@@ -1156,7 +1164,9 @@ def bridge_models(con, bridges, db=None):
         return models(con, bridges)
     if os.environ.get("URBANSTYLE_BRIDGE3D") != "old":
         from .deck3d import models
-        return models(con, bridges)
+        from .tunnel3d import models as tunnels      # (every tunnel's walls and roof, from SimReady's input: docs/notes/tunnel-walls.md)
+        ms, us = models(con, bridges)
+        return ms + tunnels(con), us
     import shapely
     from .bridge3d import model
     ms, under = [], set()

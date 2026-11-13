@@ -97,7 +97,7 @@ def models(con):
                         p0, p1, p2, p3 = vid(ax, ay, a0), vid(bx, by, b0), vid(bx, by, b1), vid(ax, ay, a1)
                         part += [[p0, p1, p2], [p0, p2, p3]]
         srcs = sorted({s for _, _, s in mine})
-        out.append({"name": f"tunnel {fid}", "origin": [lon0, lat0], "verts": verts, "deck": roof, "sides": walls, "rails": [],
+        out.append({"name": f"tunnel {fid}", "level": lv, "origin": [lon0, lat0], "verts": verts, "deck": roof, "sides": walls, "rails": [],
                     "under": {"deck": roof_u, "sides": walls_u}, "axes": [], "lines": [], "lanes": [], "piers": [], "truss": [],
                     "surf": [], "checks": [], "flat": [], "deck_ll": json.loads(shapely.to_geojson(shapely.ops.transform(to_ll, f))),
                     "sources": {"model": "tunnel3d: SimReady's tunnel face, its road heights less duckOSM's ground, the clearance",

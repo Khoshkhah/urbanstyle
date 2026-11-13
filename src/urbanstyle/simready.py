@@ -122,12 +122,12 @@ def read_all(con, epsg, path):
            if r[9] or is_street(r[4], r[5], r[1], service_kind)}
     lanes = {}
     for r in rows(f"""SELECT lane_id, carriageway_id, lane_num, role, use, turn, width_start_m, width_end_m, ev_method, ev_source_ids,
-                             {sm('boundary_left')}, {sm('boundary_right')} FROM sr.sim.lane
+                             {sm('boundary_left')}, {sm('boundary_right')}, lane_section_id FROM sr.sim.lane
                       WHERE carriageway_id IN (SELECT unnest(?::BIGINT[]))""", [list(cws)]):
-        lid, cid, n, role, use, turn, w0, w1, me, srcs, bl, br = r
+        lid, cid, n, role, use, turn, w0, w1, me, srcs, bl, br, sec = r
         bl, br = g(bl), g(br)
         shape = shapely.make_valid(shapely.Polygon(list(bl.coords) + list(br.coords)[::-1])) if bl.length and br.length else shapely.Polygon()
-        lanes[lid] = dict(cid=cid, n=n, role=role, use=use, turn=turn, w=round(((w0 or 0) + (w1 or w0 or 0)) / 2, 2), method=me,
+        lanes[lid] = dict(cid=cid, sec=sec, n=n, role=role, use=use, turn=turn, w=round(((w0 or 0) + (w1 or w0 or 0)) / 2, 2), method=me,
                           srcs=srcs, left=bl, right=br, geom=poly(I(shape, area)))
     lanes_by_cw = {}
     for L in lanes.values():
@@ -315,10 +315,19 @@ def build(con, epsg, path):
             if units[u]["kind"] != "subsection":
                 continue
             for cid in units[u]["cws"]:
-                ls = sorted((L for L in lanes_by_cw.get(cid, []) if L["left"].length), key=lambda L: L["n"])
-                if not ls:
+                secs = {}
+                for L in lanes_by_cw.get(cid, []):
+                    if L["left"].length:
+                        secs.setdefault(L["sec"], []).append(L)
+                if not secs:
                     continue
+                line = cws[cid]["line"]
+                at = lambda L, k: line.project(shapely.Point(L["left"].coords[k]))
                 for k in (0, -1):
+                    # (the lanes of the carriageway's first lane section at its start, of its last at its end: a cut from the first lane of
+                    # one section to the last of another ran slanting across the street)
+                    sec = (min if k == 0 else max)(secs.values(), key=lambda s: at(s[0], k))
+                    ls = sorted(sec, key=lambda L: L["n"])
                     a, b = shapely.Point(ls[0]["left"].coords[k]), shapely.Point(ls[-1]["right"].coords[k])
                     d_ = a.distance(b)
                     if d_ < 0.5:
@@ -513,10 +522,11 @@ def build(con, epsg, path):
         uid = unit_of_cw.get(cid)
         if uid is None:
             continue
-        ls.sort(key=lambda L: L["n"])
+        ls.sort(key=lambda L: (L["sec"] or 0, L["n"]))
         drive = [L for L in ls if L["role"] in ("through", "pocket", "merge", "bus", "bike")]
+        # (the two lanes side by side in one of SimReady's lane sections: a carriageway has a row per lane and section)
         for a, b in zip(drive, drive[1:]):
-            if b["n"] == a["n"] + 1:
+            if b["sec"] == a["sec"] and b["n"] == a["n"] + 1:
                 mark(uid, "lane line", a["right"].intersection(area), method=a["method"], ref=f"c{cid}: between lanes {a['n']} and {b['n']}")
         c = cws[cid]
         u = units[uid]

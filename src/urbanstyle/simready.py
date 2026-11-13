@@ -113,11 +113,13 @@ def read_all(con, epsg, path):
     near = lambda col: f"ST_Intersects({col}, ST_GeomFromWKB(?))"
     if crs != epsg:
         near = lambda col: f"ST_Intersects(ST_Transform({col}, '{crs}', '{epsg}', always_xy := true), ST_GeomFromWKB(?))"
+    # the streets only at level 0, by blocks.street_sql's rule (the blocks hold the drives, aisles and alleys there); off level 0 every
+    # carriageway, service roads too: SimReady's bridge and tunnel faces hold every road of their chain (agreed with SimReady, 2026-11-12)
     cws = {r[0]: dict(edges=r[1], twin=r[2], shared=r[3], highway=r[4], name=r[5], oneway=r[6], ring=r[7], inside=r[8], level=lv_of(r[9]),
-                      method=r[10], line=g(r[11]), ends=(r[12], r[13])) for r in rows(f"""
+                      method=r[10], line=g(r[11]), ends=(r[12], r[13]), street=is_street(r[4], r[5], r[1], service_kind)) for r in rows(f"""
         SELECT carriageway_id, edge_ids, twin_carriageway_id, shared_line, highway, name, oneway, roundabout_id, inside_junction_id, level,
                ev_method, {sm('reference_line')}, from_node_id, to_node_id FROM sr.sim.carriageway WHERE {near('reference_line')}""", [aw])
-           if is_street(r[4], r[5], r[1], service_kind)}     # (the streets only, by blocks.street_sql's rule)
+           if r[9] or is_street(r[4], r[5], r[1], service_kind)}
     lanes = {}
     for r in rows(f"""SELECT lane_id, carriageway_id, lane_num, role, use, turn, width_start_m, width_end_m, ev_method, ev_source_ids,
                              {sm('boundary_left')}, {sm('boundary_right')} FROM sr.sim.lane
@@ -132,10 +134,11 @@ def read_all(con, epsg, path):
         lanes_by_cw.setdefault(L["cid"], []).append(L)
     juncs = {r[0]: dict(nodes=r[1], kind=r[2], control=r[3], ring=r[4], level=lv_of(r[5]), method=r[6], area=g(r[7])) for r in rows(f"""
         SELECT junction_id, node_ids, kind, control, roundabout_id, level, ev_method, {sm('area')} FROM sr.sim.junction WHERE {near('area')}""", [aw])}
-    # (a junction of service roads only is no street's junction: only one that a street carriageway ends at or runs inside)
-    street_nodes = {n for c in cws.values() for n in c["ends"]}
-    inside = {c["inside"] for c in cws.values()}
-    juncs = {j: d for j, d in juncs.items() if j in inside or street_nodes & set(d["nodes"])}
+    # (at level 0 a junction of service roads only is no street's junction: only one that a street carriageway ends at or runs inside;
+    # off level 0 every junction, as every carriageway)
+    street_nodes = {n for c in cws.values() if c["street"] for n in c["ends"]}
+    inside = {c["inside"] for c in cws.values() if c["street"]}
+    juncs = {j: d for j, d in juncs.items() if d["level"] != 0 or j in inside or street_nodes & set(d["nodes"])}
     islands = [dict(j=r[0], kind=r[1], level=lv_of(r[2]), method=r[3], geom=g(r[4])) for r in rows(f"""
         SELECT junction_id, kind, level, ev_method, {sm('area')} FROM sr.sim.island WHERE {near('area')}""", [aw])]
     stops = [dict(cid=r[0], j=r[1], method=r[2], geom=g(r[3])) for r in rows(f"""

@@ -66,7 +66,10 @@ The ground at level 0 under a bridge is `unmapped`: no source, SimReady included
 
 Who owns what, agreed with SimReady on 2026-11-12: urbanstyle owns the street's edge at level 0 (the blocks and the corridors)
 and the walking side; SimReady owns the roadway, the islands (the central ones too), the lane ends at the junction areas and the
-edges of the faces off level 0 (decks, tunnels). SimReady adds a step that cuts each face off level 0 to its final lanes.
+edges of the faces off level 0 (decks, tunnels). SimReady cuts each face off level 0 to its final lanes, junction areas and
+islands (SimReady 39cd5bc). Off level 0, urbanstyle takes every SimReady carriageway and junction in the face, service roads too:
+the faces hold every road of their bridge or tunnel chain. At level 0 it takes the streets only, because the blocks hold the drives,
+aisles and alleys there. A junction area is cut by the section lanes of its own level only.
 
 ## The edge ids
 

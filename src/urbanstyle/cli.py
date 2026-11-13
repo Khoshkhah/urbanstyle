@@ -27,6 +27,8 @@ def main(argv=None):
     d.add_argument("out")
     d.add_argument("--bridge", action="extend", nargs="+", metavar="PROFILE",
                    help="draw a bridge as a 3D model from its profile (<name>.bridge.json, `urbanstyle bridge`)")
+    d.add_argument("--terrain", metavar="GLTF_DIR", help="the terrain page: SimReady's conformed ground and 3D roadway from its gltf folder "
+                   "(<area>.ground.json, <area>.page.pmtiles; docs/notes/terrain-page.md)")
     ly = sub.add_parser("layers", help="an offline HTML page of the layers: 0 the ground, 1 the surfaces (needs roadstyle)")
     ly.add_argument("db")
     ly.add_argument("out")
@@ -201,7 +203,7 @@ def main(argv=None):
         mly(a.db, a.osm)
     else:
         from .page import build as dash      # the dashboard: one page, one panel (page.py)
-        dash(a.db, a.out, a.bridge)
+        dash(a.db, a.out, a.bridge, a.terrain)
     return 0
 
 

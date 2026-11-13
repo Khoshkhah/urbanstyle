@@ -213,7 +213,8 @@ document.addEventListener('keydown',e=>{if(e.key!=='Escape')return;
 // port. Here it is off and its row hidden; the saved choice stays for roadstyle's other pages.
 function usNoTerrain(){const c=document.getElementById('rs-top-terrain'); if(c){c.checked=false; const l=c.closest('label'); if(l)l.hidden=true}
   if(map.getTerrain&&map.getTerrain()){if(typeof rsTerrain==='function')rsTerrain(false); else map.setTerrain(null)}}
-map.on('terrain',usNoTerrain); map.on('load',usNoTerrain); usNoTerrain();
+// (the terrain page keeps it: its terrain is SimReady's conformed ground, page option ground; docs/notes/terrain-page.md)
+if(!(window.US_CFG&&US_CFG.terrain)){map.on('terrain',usNoTerrain); map.on('load',usNoTerrain); usNoTerrain()}
 // links: ?at=lon,lat,zoom,pitch,bearing opens the map there (a pitch over 0 is the 3D view); ?c=<id> or #c=<id> finds that thing in the
 // panel (a space, a part, an object). After the overlays' data is in (it loads after the map's own load event) and, on a page with
 // bridges (#br3don), after their models' list of the spaces they replace (window.brUnits, a 10 MB fetch): drawn before it lands, the

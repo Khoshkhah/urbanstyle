@@ -8,7 +8,7 @@ import threading
 import time
 import uuid
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 MODEL = "claude-opus-5-5"
 GEMINI_MODEL = "gemini-flash-latest"    # (when no Anthropic key is set and GEMINI_API_KEY is; the free tier has no Pro model)
@@ -714,8 +714,37 @@ def handler(area, agent, viz, page):
                 self._json(area.tree(parse_qs(u.query).get("node", [""])[0]))
             elif u.path == "/api/search":
                 self._json(area.search(parse_qs(u.query).get("q", [""])[0]))
+            elif self.headers.get("Range") and self._range(u.path):
+                pass            # (a file by byte ranges: the terrain page's PMTiles archive; SimpleHTTPRequestHandler sends none)
             else:
                 super().do_GET()
+
+        def _range(self, path):
+            """Answer `Range: bytes=a-b` for a file of viz/ with 206 (the PMTiles reader of roadstyle's 3D road tiles needs it). False: not a
+            plain range of a file here, so the default handler answers."""
+            m = re.match(r"bytes=(\d*)-(\d*)$", self.headers["Range"].strip())
+            f = os.path.join(viz, unquote(path).lstrip("/"))
+            if not m or not os.path.isfile(f) or not (m.group(1) or m.group(2)):
+                return False
+            size = os.path.getsize(f)
+            a, b = ((size - int(m.group(2)), size - 1) if not m.group(1) else (int(m.group(1)), int(m.group(2)) if m.group(2) else size - 1))
+            b = min(b, size - 1)
+            if a < 0 or a > b:
+                self.send_response(416)
+                self.send_header("Content-Range", f"bytes */{size}")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return True
+            self.send_response(206)
+            self.send_header("Content-Type", self.guess_type(f))
+            self.send_header("Content-Range", f"bytes {a}-{b}/{size}")
+            self.send_header("Content-Length", str(b - a + 1))
+            self.send_header("Accept-Ranges", "bytes")
+            self.end_headers()
+            with open(f, "rb") as fh:
+                fh.seek(a)
+                self.wfile.write(fh.read(b - a + 1))
+            return True
 
         def do_POST(self):
             u = urlparse(self.path)

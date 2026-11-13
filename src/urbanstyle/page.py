@@ -255,8 +255,10 @@ def _overlays(F):
     return ovs
 
 
-def build(db, out, bridges=None):
-    """Write the dashboard page of `db` to `out`, and the bridges' 3D models beside it (bridge3d.json)."""
+def build(db, out, bridges=None, terrain=None):
+    """Write the dashboard page of `db` to `out`, and the bridges' 3D models beside it (bridge3d.json). With `terrain` (SimReady's gltf
+    folder): the terrain page of docs/notes/terrain-page.md: SimReady's conformed ground as the terrain, SimReady's 3D roadway from its page
+    tiles, and urbanstyle's walking side, ground, buildings, street objects and panel; urbanstyle's own 3D roadway, decks and tunnels off."""
     import duckdb
     import roadstyle as rs
     from . import dashboard as d
@@ -270,6 +272,29 @@ def build(db, out, bridges=None):
         print(f"WARNING: {n_br} road ways are on bridges but no --bridge profile is given: their decks are drawn flat in the air, with no "
               "lanes. Make the profiles first: `urbanstyle bridge OSM GMNS DIR`, then `--bridge DIR/*.bridge.json` (AGENTS.md)")
     F = _frames(con, db, bridges)
+    page_kw, scene_name = {}, None
+    if terrain:
+        import glob
+        import shutil
+        from .product import WALKING
+        grounds, scenes = sorted(glob.glob(os.path.join(terrain, "*.ground.json"))), sorted(glob.glob(os.path.join(terrain, "*.page.pmtiles")))
+        if not grounds or not scenes:
+            raise SystemExit(f"--terrain {terrain}: needs SimReady's <area>.ground.json and <area>.page.pmtiles there (its gltf adapter)")
+        scene_name = os.path.basename(scenes[0])
+        dst = os.path.join(os.path.dirname(os.path.abspath(out)), scene_name)
+        if os.path.exists(dst):
+            os.remove(dst)
+        try:
+            os.link(scenes[0], dst)
+        except OSError:
+            shutil.copyfile(scenes[0], dst)
+        page_kw = {"view_3d": True, "terrain": True, "ground": json.load(open(grounds[0])), "scene_3d": {"tiles": dst, "url": scene_name}}
+        # (SimReady's tiles draw the roadway in 3D, its islands, kerbs and markings, the decks and the tunnel boxes: urbanstyle keeps only
+        # the walking side at level 0, and no models)
+        walk = [k for k in WALKING if k != "island"] + ["path"]
+        F["parts"] = F["parts"][(F["parts"]["level"] == 0) & F["parts"]["kind"].isin(walk)]
+        F["marks"], F["kerbs3d"] = F["marks"].iloc[0:0], F["kerbs3d"].iloc[0:0]
+        F["models"], F["under"], F["bridge2d"] = [], [], None
     ovs = _overlays(F)
     for o in ovs:
         o.visible = False      # (every layer hidden at first: the panel sets the first look, then lifts the veil)
@@ -284,9 +309,10 @@ def build(db, out, bridges=None):
         color_options={"Roads": {"color_by": "type", "colors": {"road": "#555", "walkway": "#a16207", "cycleway": "#16a34a"}}},
         # the overlays as GeoJSON with all their properties: roadstyle's tiles (its default since 2026-11-10) keep only the keys its 2D
         # style reads, and the 3D layers (engine.js) filter on level, type, unit_id and height_m
-        overlays=ovs, tiles=False)
+        overlays=ovs, tiles=False, **page_kw)
     cfg = {"marks": [t for t, *_ in d.MARKS if len(F["marks"]) and (F["marks"]["type"] == t).any()], "raised": RAISED, "kerbtop": KERB_TOP_M,
-           "objpopup": d.OBJ_POPUP, "bldpopup": d.BLD_POPUP, "lotpopup": d.LOT_POPUP, "groundpopup": d.GROUND_POPUP}
+           "objpopup": d.OBJ_POPUP, "bldpopup": d.BLD_POPUP, "lotpopup": d.LOT_POPUP, "groundpopup": d.GROUND_POPUP,
+           "terrain": bool(terrain)}
     tail = f'<script>window.US_CFG={json.dumps(cfg)};</script><script src="{ENGINE}"></script>'
     if F["models"]:      # the bridges' 3D models: written beside the page, which reads them when it opens
         col = {"deck": "#a8a29e", "girder": "#8f8b86", "rail": "#cfc8bd",
@@ -298,6 +324,9 @@ def build(db, out, bridges=None):
         tail += (d.BRIDGE_JS.replace("fetch('bridge3d.json'", f"fetch('{br_name}'").replace("viz/bridge3d.json", f"viz/{br_name}")
                  .replace("__BRNAMES__", ", ".join(mm["name"] for mm in F["models"])).replace("__BRCOL__", json.dumps(col))
                  .replace("__BRPOPUP__", json.dumps(d.BR_POPUP)).replace("__BRUNITS__", json.dumps(F["under"])))
+    if terrain:          # (SimReady's tile part "buildings" off: urbanstyle's own buildings have the panel's cards; agreed with SimReady)
+        tail += ("<script>(function us3dKinds(){try{if(window.rsScene3dKind&&rsScene3dKind('buildings')!==undefined){rsScene3dKind('buildings',false);return}}"
+                 "catch(e){} setTimeout(us3dKinds,500)})()</script>")
     tail += f'<script src="{PANEL_JS}"></script>'
     # (the head's end, then the body tag after it: the words "<body>" and "</body>" also stand in roadstyle's code, before and after)
     html = m.html

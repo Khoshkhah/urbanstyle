@@ -71,6 +71,15 @@ islands (SimReady 39cd5bc). Off level 0, urbanstyle takes every SimReady carriag
 the faces hold every road of their bridge or tunnel chain. At level 0 it takes the streets only, because the blocks hold the drives,
 aisles and alleys there. A junction area is cut by the section lanes of its own level only.
 
+The guards on a deck (`deck3d.py`, Kaveh 2026-11-12: "fix how and when put barrier"):
+
+- when: along SimReady's face of the level (`work.face`), open along its `face_end` lines (`work.face_end`: open caps, open lane
+  ends, the outline of roadway of the level that the face does not own). No threshold guesses an open end. Open ends across two
+  levels (a level-1 road that joins a level-2 junction) wait for SimReady's lane links (proposed 2026-11-12);
+- how: one guard per level, just outside the roadway (the face is cut to the roadway), 0.3 m wide and 0.8 m high; the guards of
+  two faces that nearly touch merge into one; each point at the deck's height of the nearest point of the guard's line, so the
+  two sides never twist; cut every 1 m along its line and triangulated whole, so it follows the curve.
+
 ## The edge ids
 
 urbanstyle joins SimReady's rows to its own by duckOSM's `edge_id`. The two projects must read the same duckOSM

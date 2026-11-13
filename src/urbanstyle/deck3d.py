@@ -29,6 +29,7 @@ LIFT_M = 0.03           # a part above the slab's top, so the two never fight fo
 PAINT_LIFT_M = 0.06     # a painted line above its part
 OFF_GROUND_M = 0.3      # a deck lower than this is on the ground: no guard
 FACE_END_M = 0.05       # a piece of a SimReady face's ring this near a face_end line is that open end (SimReady: within 0.6 mm)
+GUARD_STEP_M = 1.0      # a guard on SimReady's face edge is cut this often along its line, so it follows the curve
 END_ANGLE = 45.0        # an edge more than this across its axis, where a roadway part reaches it, is a road end: no guard
 ROADWAY = ("lane", "junction area", "paved", "parking", "no parking", "bus lane", "cycle lane", "shoulder", "bridge deck")
 RAISED = {"sidewalk": 0.15, "island": 0.15, "furnishing": 0.15, "frontage": 0.15, "verge": 0.15, "unmapped": 0.0, "median": 0.15, "path": 0.15}
@@ -382,12 +383,59 @@ def model(con, P):
 
     # ---- the guards: along each space's outer edge, not at a road end, not on the ground
     guard_bad = []
+    if face_edge is not None:
+        # With SimReady's faces: one guard per level along the face's edge, open at its face_end lines (Kaveh, 2026-11-12: "fix how and
+        # when put barrier"). One band per level, so two pieces never meet with faces of their own, and the guards of two faces that
+        # nearly touch (a split road) are one barrier; just outside the face, not on the outer lane; one height across it: each point
+        # takes the deck's height at the nearest point of the guard's line, so its two sides never twist; cut every GUARD_STEP_M along
+        # its line and triangulated whole (no grid), so it follows the curve.
+        by_lv = {}
+        for u, segs in face_edge.items():
+            by_lv.setdefault(units[u][1], []).extend((u, shapely.LineString(s)) for s in segs)
+        for lv, us in by_lv.items():
+            seg_tree = shapely.STRtree([s for _, s in us])
+
+            def zg(x, y, us=us, seg_tree=seg_tree):
+                p = shapely.Point(x, y)
+                u, s = us[int(seg_tree.nearest(p))]
+                q = s.interpolate(s.project(p))
+                return z_at(u, q.x, q.y)
+            lines = shapely.line_merge(shapely.union_all([s for _, s in us]))
+            band = shapely.union_all([l_.buffer(GUARD_M[1], cap_style="flat", join_style="mitre", mitre_limit=2.0)
+                                      for l_ in shapely.get_parts(lines)]).difference(face_lv[lv])
+            band = shapely.make_valid(shapely.segmentize(band, GUARD_STEP_M))
+            v, f, ix = [], [], {}
+
+            def vi(x, y, zz):
+                q = (round(x, 2), round(y, 2), round(zz, 2))
+                if q not in ix:
+                    ix[q] = len(v)
+                    v.append(tm(x, y, zz))
+                return ix[q]
+            for pg in shapely.get_parts(band):
+                if pg.geom_type != "Polygon" or pg.area < 0.02:
+                    continue
+                for t in shapely.get_parts(shapely.constrained_delaunay_triangles(pg)):
+                    f.append([vi(x, y, zg(x, y) + LIFT_M + GUARD_M[0]) for x, y in t.exterior.coords[:3]])
+                for ring in [pg.exterior] + list(pg.interiors):
+                    cs = list(ring.coords)
+                    for (ax, ay), (bx, by) in zip(cs, cs[1:]):
+                        za, zb = zg(ax, ay) + LIFT_M, zg(bx, by) + LIFT_M
+                        a0, b0, a1, b1 = vi(ax, ay, za), vi(bx, by, zb), vi(ax, ay, za + GUARD_M[0]), vi(bx, by, zb + GUARD_M[0])
+                        f += [[a0, b0, b1], [a0, b1, a1]]
+            if f:
+                props = {"id": f"guard {P['name']} level {lv}", "type": "barrier", "bridge": P["name"], "height_m": GUARD_M[0],
+                         "source": "simready", "method": "face edge",
+                         "rule": "along SimReady's face of the level, open at its face_end lines; just outside the roadway"}
+                surf.append({"key": "barrier", "props": props, "v": v, "f": f})
+                flat.append((props, "barrier", shapely.ops.transform(to_ll, band)))
+            road = shapely.union_all([g_ for u_ in {u for u, _ in us} for g_ in road_by_u.get(u_, [])] or [shapely.Polygon()])
+            if road.intersection(band).area > 0.5:
+                guard_bad.append(band.intersection(road).representative_point())
+        outer = {}
     for u, segs in outer.items():
         road = shapely.union_all(road_by_u.get(u, []) or [shapely.Polygon()])
         keep = []
-        if face_edge is not None:       # (SimReady's face edge is already open at every open end)
-            keep = [shapely.LineString(s) for s in segs]
-            segs = []
         for (ax, ay), (bx, by) in segs:
             mx, my = (ax + bx) / 2, (ay + by) / 2
             if z_at(u, mx, my) < OFF_GROUND_M:
@@ -405,9 +453,7 @@ def model(con, P):
         if not keep:
             continue
         lines = shapely.line_merge(shapely.union_all(keep))
-        band = shapely.union_all([l_.buffer(GUARD_M[1], cap_style="flat") for l_ in shapely.get_parts(lines)])
-        # (SimReady's face is cut to the roadway: the guard stands just outside its edge, not on the outer lane)
-        band = band.intersection(units[u][2]) if face_edge is None else band.difference(face_lv[units[u][1]])
+        band = shapely.union_all([l_.buffer(GUARD_M[1], cap_style="flat") for l_ in shapely.get_parts(lines)]).intersection(units[u][2])
         if not band.is_empty:
             mesh(u, band, "barrier", LIFT_M, {"id": f"guard {u}", "type": "barrier", "bridge": P["name"], "height_m": GUARD_M[0],
                                               "source": "urbanstyle", "method": "derived", "rule": "along the space's outer edge, not across a road"},

@@ -207,6 +207,13 @@ map.setMaxZoom(24);
 document.addEventListener('keydown',e=>{if(e.key!=='Escape')return;
   if(in3d&&deselect3d())return;
   if(!in3d&&typeof _sel!=='undefined'&&_sel){rsDeselect(); document.querySelectorAll('.maplibregl-popup').forEach(x=>x.remove())}});
+// no terrain on urbanstyle's pages: roadstyle's terrain is the AWS/Mapzen DEM, which the ground standard (2026-11-09) forbids, and the
+// street, the decks and the tunnels have no heights on it: it buried every deck (Kaveh, 2026-11-12: bridges only in a private tab).
+// roadstyle keeps the person's choice per origin (rs-top:terrain), so one page that turned it on turned it on for every page of the
+// port. Here it is off and its row hidden; the saved choice stays for roadstyle's other pages.
+function usNoTerrain(){const c=document.getElementById('rs-top-terrain'); if(c){c.checked=false; const l=c.closest('label'); if(l)l.hidden=true}
+  if(map.getTerrain&&map.getTerrain()){if(typeof rsTerrain==='function')rsTerrain(false); else map.setTerrain(null)}}
+map.on('terrain',usNoTerrain); map.on('load',usNoTerrain); usNoTerrain();
 // links: ?at=lon,lat,zoom,pitch,bearing opens the map there (a pitch over 0 is the 3D view); ?c=<id> or #c=<id> finds that thing in the
 // panel (a space, a part, an object). After the overlays' data is in (it loads after the map's own load event) and, on a page with
 // bridges (#br3don), after their models' list of the spaces they replace (window.brUnits, a 10 MB fetch): drawn before it lands, the

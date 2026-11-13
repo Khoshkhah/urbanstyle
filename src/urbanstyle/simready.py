@@ -231,7 +231,9 @@ def build(con, epsg, path):
              lane=L["n"], lane_id=str(lid), width_m=L["w"], width_source="simready", width_method=L["method"], source="simready",
              method=L["method"], ref=f"c{L['cid']} lane {L['n']} ({L['role']}) w{way_of(L['cid'])}: " + ", ".join(L["srcs"] or []),
              road=c["name"], road_class=c["highway"], oneway="yes" if c["oneway"] else "no")
-    section_parts = [p["geom"] for u in units.values() if u["kind"] == "subsection" for p in u["parts"] if not p["geom"].is_empty]
+    sp = [(u["level"], p["geom"]) for u in units.values() if u["kind"] == "subsection" for p in u["parts"] if not p["geom"].is_empty]
+    section_parts = [x for _, x in sp]
+    sp_level = [lv for lv, _ in sp]
     sp_tree = shapely.STRtree(section_parts) if section_parts else None      # (each junction against the lanes near it: the union of every lane for each of them took hours)
     # the junctions: the area less the lanes inside it, the islands and the sections' lanes
     for j, d in juncs.items():
@@ -240,7 +242,9 @@ def build(con, epsg, path):
         for x in isl:
             part(uid, "island", poly(I(x["geom"], area)), source="simready", method=x["method"], ref=f"island {x['kind']} of junction {j}")
         area_j = poly(I(d["area"], area))
-        taken = shapely.union_all([p["geom"] for p in units[uid]["parts"]] + [section_parts[k] for k in (sp_tree.query(area_j) if sp_tree is not None else [])])
+        # (the sections' lanes of the junction's own level only: a bridge's lanes overhead cut a hole in the junction area under it)
+        taken = shapely.union_all([p["geom"] for p in units[uid]["parts"]] + [section_parts[k] for k in (sp_tree.query(area_j) if sp_tree is not None else [])
+                                                                             if sp_level[k] == units[uid]["level"]])
         part(uid, "junction area", poly(D(area_j, taken)), source="simready", method=d["method"],
              ref=f"junction {j} ({d['kind']}, {d['control']})")
 

@@ -1164,9 +1164,10 @@ def bridge_models(con, bridges, db=None):
         return models(con, bridges)
     if os.environ.get("URBANSTYLE_BRIDGE3D") != "old":
         from .deck3d import models
-        from .tunnel3d import models as tunnels      # (every tunnel's walls and roof, from SimReady's input: docs/notes/tunnel-walls.md)
-        ms, us = models(con, bridges)
-        return ms + tunnels(con), us
+        # (the tunnels' walls and roof, tunnel3d.py, only on a page with terrain: on the flat page no ground covers a tunnel, so every
+        # roof stood on the ground; Kaveh, 2026-11-12: "the tunnel box must show only in the terrain version". The pages have no
+        # terrain yet: docs/notes/tunnel-walls.md)
+        return models(con, bridges)
     import shapely
     from .bridge3d import model
     ms, under = [], set()

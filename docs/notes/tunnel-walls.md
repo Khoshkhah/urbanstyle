@@ -42,6 +42,10 @@ On a cut at Avenue de Fontvieille, 11% of the tunnel road pieces lie 0.5 m or mo
 up as blocks near the portals: FABDEM smooths Monaco's slopes. A few single points lie up to 22 m over it, where the conformed
 ground has narrow pits (sent to SimReady). Kaveh, 2026-11-12: "Show it as it is." A better ground needs a better source (a LiDAR DTM).
 
+Kaveh, 2026-11-12, after the full page: "the tunnel box must show only in the terrain version". On the flat page no ground covers a
+tunnel, so 35% of the roof points in the cut stood over the ground. The flat page has no tunnel box; `tunnel3d.py` waits for a page
+with terrain (SimReady's conformed ground as the map's terrain).
+
 ## Open
 
 - SimReady's own model (its GLB, part `tunnels`) follows the same rule (SimReady e2a99c1); its "covered" test moves to the

@@ -31,8 +31,12 @@ def main(sim, urb, min_m2=1.0, nodes=()):
         where j.level = 0 group by all order by in_block_m2 desc""", params={"utm": utm}).fetchall()
     total, n = c.sql("select round(sum(area_m2)), count(*) from s.sim.junction where level = 0").fetchone()
     hit = [r for r in rows if r[4] >= min_m2]
+    # whole in a block: a junction of drives or aisles, which urbanstyle has no street for. SimReady keeps these
+    # as roadway (its rule GD.drive-network-in-block, rejected), so they are counted apart
+    whole = [r for r in hit if r[4] >= 0.9 * r[3]]
     print(f"{n} junctions at level 0, {total:.0f} m2; {len(hit)} have {min_m2} m2 or more in a block, "
-          f"{sum(r[4] for r in hit):.0f} m2 in all")
+          f"{sum(r[4] for r in hit):.0f} m2 in all; of these {len(whole)} are whole in a block (90 % or more), "
+          f"{sum(r[4] for r in whole):.0f} m2")
     for r in rows:
         if r[4] >= min_m2 or set(r[1]) & set(nodes):
             print(f"n{','.join(map(str, r[1]))} {r[2]} area {r[3]} in_block {r[4]} at {r[6]},{r[7]} {r[5][:3]}")

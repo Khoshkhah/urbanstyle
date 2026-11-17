@@ -35,3 +35,16 @@ The places that SimReady named:
 | n519323656 (Boulevard Louis II, a continuation) | 100.4 m2 | 10.0 m2 |
 | n1684697734 with n1736930312 (a cluster) | 281.6 m2 | 162.2 m2 |
 | n21912099 (Avenue de la Costa, a cluster of 5 nodes) | 551.7 m2 | 0.0 m2 |
+
+SimReady's answer (2026-11-17, its commit 8874379):
+
+- By the street arms of each junction (a drive is a service way with no name): no street arm 26 junctions 2,225 m2, one street
+  arm 6 junctions 521 m2, two street arms 94 junctions 2,918 m2, three or more 81 junctions 2,853 m2.
+- Decided by SimReady (rule row `GD.drive-network-in-block`, source `urbanstyle`, rejected): a junction of drives, car park
+  aisles or unnamed service ways stays roadway, because vehicles drive there and the simulators need its lanes and turns. These
+  junctions are a difference of class, not a fault. The script counts the junctions that are whole in a block apart.
+- n519323656: SimReady's area is the lane surface only, so the 10 m2 in the block is urbanstyle's fault: the block edge is inside
+  the lanes there. It is comparison code, so it is not corrected (`scope.md`).
+- n1684697734: the 162 m2 supports SimReady's candidate `GD.drive-mouth-at-kerb`, its next change.
+- The "15 junctions, 586 m2" is from urbanstyle's `simready-input.md` ("Faults for SimReady" 1), an older build. No list of
+  nodes exists for it.

@@ -105,11 +105,11 @@ buildings, the objects, the model and the format on that street, in Rust for the
 
 ## Open points
 
-- **SimReady has no decision for this line.** Its D28 says that SimReady builds its own street space and that urbanstyle is a
-  comparison. It does not say that SimReady makes the sidewalks, the crosswalks and the cycle tracks. Its open item
-  `P7.gltf-sidewalks` gives the sidewalk as the street face less the roadway. Proposal for a SimReady decision: "SimReady makes
-  the walking side of the street (sidewalks, crosswalks, cycle tracks, driveways) as shapes with their sources. urbanstyle's
-  walking side is the comparison." Kaveh decides it in SimReady.
+- **The walking side is SimReady's (Kaveh accepted, 2026-11-17), but SimReady's docs do not say it yet.** The decision:
+  "SimReady makes the walking side of the street (sidewalks, crosswalks, cycle tracks, driveways) as shapes with their sources.
+  urbanstyle's walking side is the comparison." SimReady's D28 says only that SimReady builds its own street space and that
+  urbanstyle is a comparison. Its open item `P7.gltf-sidewalks` gives the sidewalk as the street face less the roadway. The
+  SimReady session records the decision in `../simready/docs/decisions.md` and puts the work in its plan.
 - **Paths that are not along a street** (through a park, a square, stairs). A pedestrian simulation needs them. Proposal:
   urbanstyle keeps them at this time, and SimReady takes them later. Not decided.
 - **The design chapters** (`docs/design/`) give the street as urbanstyle's own result. They change when a part of SimReady's

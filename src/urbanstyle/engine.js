@@ -139,7 +139,7 @@ function bldFade(){const b=map.getLayer('u3d-bld'); if(!b)return; const fade=bld
   const low=!!(document.getElementById('lowbld')||{}).checked||(sel3d!==null&&selObj),
     h=low?['min',['get','height_m'],['+',map.getPaintProperty('u3d-bld','fill-extrusion-base'),LOW_M]]:['get','height_m'];
   ['u3d-bld','u3d-bld-on'].forEach(id=>map.setPaintProperty(id,'fill-extrusion-height',h))}
-function bind3d(){if(bound3d||!map.getLayer('u3d-furn'))return; bound3d=true;
+function bind3d(){if(bound3d||!map.getLayer('u3d-ground'))return;       // (not u3d-furn: a build with no street objects has no such layer, and then nothing could be selected in 3D) bound3d=true;
   const groundPop=(OVERLAYS.find(o=>o.label==='Parts')||{}).popup||[];
   let took=0;     // the topmost layer under the mouse takes the click: an object before the ground under it
   Object.entries(L3D).forEach(([id,[prop,key,base,fields]])=>{

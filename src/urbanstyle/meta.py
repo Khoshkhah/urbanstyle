@@ -88,7 +88,7 @@ STYLE = [
     ("urban.mark", 6, "crossing line", 63, "line", "#ffffff", None),
     ("urban.mark", 6, "zebra", 63, "polygon", "#ffffff", None),
     ("urban.mark", 6, "arrow", 64, "polygon", "#ffffff", None),
-    ("urban.mark", 6, "guide line", 65, "line", "#f59e0b", [0.2, 0.8]),
+    ("urban.mark", 6, "guide line", 65, "line", "#38bdf8", [0.2, 0.8]),
     ("urban.mark", 6, "barrier", 66, "line", "#6b7280", None),
     ("urban.object", None, "furniture", 70, "point", "#4f46e5", None),
     ("urban.object", None, "vegetation", 70, "point", "#16a34a", None),

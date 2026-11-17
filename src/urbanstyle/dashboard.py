@@ -139,8 +139,8 @@ PHOTOS_PER_SPACE = 6
 # painted and built lines, at real size: type, colour, width in metres, dash
 # painted and built lines: type, colour, dash; drawn at the width stored on the mark (parts.LINE, work.mark.width_m)
 # (a dash is in line widths: a lane line 0.12 m wide, 3 m painted and 6 m gap, as TAC's manual for Canada (MUTCDC) paints it, is [25, 50];
-# the line between the two directions is yellow and solid. A guide line is no paint: SUMO's move through a junction, thin amber dots)
-MARKS = [(t, c, LINE[t], d) for t, c, d in (("guide line", "#f59e0b", [1, 4]), ("arrow", "#ffffff", None), ("kerb", "#9ca3af", None),
+# the line between the two directions is yellow and solid. A guide line is no paint: SimReady's move through a junction, thin light-blue dots; Kaveh, 2026-11-17: amber dots were taken for lane lines)
+MARKS = [(t, c, LINE[t], d) for t, c, d in (("guide line", "#38bdf8", [1, 4]), ("arrow", "#ffffff", None), ("kerb", "#9ca3af", None),
          ("centre line", "#facc15", None), ("lane line", "#ffffff", [25, 50]), ("edge line", "#ffffff", None), ("stop line", "#ffffff", None),
          ("give-way line", "#ffffff", [1, 1]), ("zebra", "#ffffff", None), ("crossing line", "#ffffff", None), ("barrier", "#6b7280", None), ("parking line", "#ffffff", [8, 8]))]
 PANEL = """

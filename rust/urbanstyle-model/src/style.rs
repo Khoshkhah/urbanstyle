@@ -66,7 +66,7 @@ pub const STYLE: &[StyleRow] = &[
     ("urban.mark", Some(6), "crossing line", 63, "line", "#ffffff", None, 0.0),
     ("urban.mark", Some(6), "zebra", 63, "polygon", "#ffffff", None, 0.0),
     ("urban.mark", Some(6), "arrow", 64, "polygon", "#ffffff", None, 0.0),
-    ("urban.mark", Some(6), "guide line", 65, "line", "#f59e0b", Some([0.2, 0.8]), 0.0),
+    ("urban.mark", Some(6), "guide line", 65, "line", "#38bdf8", Some([0.2, 0.8]), 0.0),
     ("urban.mark", Some(6), "barrier", 66, "line", "#6b7280", None, 0.8),
     ("urban.object", None, "furniture", 70, "point", "#4f46e5", None, 0.0),
     ("urban.object", None, "vegetation", 70, "point", "#16a34a", None, 0.0),

@@ -2,6 +2,15 @@
 
 Rules for AI coding agents (Claude Code, Codex, Cursor, Copilot, Gemini, …) working on this repository.
 
+## The scope (decided 2026-11-17, read this first)
+
+SimReady (`../simready`) makes the street: all its geometry, for every mode, on every level. urbanstyle starts after SimReady. At
+this time urbanstyle has one goal: to make SimReady better. Its street code (the roadway, the walking side, the bridges, the
+tunnels) is the comparison for SimReady and gets no new rule. A fault in a street shape is a finding for SimReady: do not correct
+it here. urbanstyle's own job is the city round the street (blocks, buildings, ground kinds, street objects) and the one model and
+format of both. That job starts again when SimReady's street is stable. The line, the comparison code and the open points:
+`docs/notes/scope.md`. The sections below describe the code as it is, the comparison code included.
+
 ## What this is
 
 urbanstyle builds a level-aware **space container** for the Stockholm (Södermalm) and Monaco pilots from one duckOSM
@@ -224,6 +233,8 @@ mkdocs build --strict                                  # needs pip install ".[do
 
 ## Rules
 
+- The scope of `docs/notes/scope.md` comes first: no new street rule and no correction of a street shape in urbanstyle. Compare
+  with SimReady and give it the finding.
 - The repo is public. Commits use the GitHub noreply address (repo-local `user.email`), never a personal email.
 - Work on the two pilots, Monaco and Södermalm; a new area is a roadmap step, not a side effect.
 - A change to how containers are cut: run `urbanstyle check` on both pilots and report the counts before and after.

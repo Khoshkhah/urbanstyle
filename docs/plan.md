@@ -1,7 +1,25 @@
 # Roadmap
 
-<p class="lead">Where urbanstyle stands (2026-10-10), what is open, and the order of work. Each step ends with something
+<p class="lead">Where urbanstyle stands (2026-11-17), what is open, and the order of work. Each step ends with something
 you can check: a test, a <code>urbanstyle check</code> line, or a page to look at.</p>
+
+## Now: the comparison for SimReady (since 2026-11-17)
+
+SimReady makes the street: all its geometry, for every mode, on every level. urbanstyle starts after SimReady and reads the street
+from it. The line between the two projects is the street's edge. The decision and the line are in the working note
+`docs/notes/scope.md`.
+
+At this time urbanstyle has one goal: to make SimReady better. The order of work:
+
+| step | state |
+|---|---|
+| 1. Compare urbanstyle's street with SimReady's in the browser, place by place. SimReady records each decision as a rule | begun on 2026-11-12 on Monaco (Saint-Roman and Larvotto) |
+| 2. Keep the reader of SimReady's output in a state that works, so that the comparison page shows the newest SimReady build | Monaco reads SimReady's build |
+| 3. Delete a comparison part when SimReady's result is better at that part | not started |
+| 4. When SimReady's street is stable: the blocks, the buildings, the objects, the model and the format on that street, in the browser | waits |
+
+Stopped: new street rules, corrections of street shapes, the bridge and tunnel models, the format and the second city. The sections
+below are the record of the earlier plans. Their open items on the street are findings for SimReady, not work for urbanstyle.
 
 ## Now: one unit in full (since 2026-10-09)
 

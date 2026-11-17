@@ -4,7 +4,20 @@ Status: written at the end of the 2026-10-15/16 session, updated in the night of
 data-structure design. Read `AGENTS.md`
 first, then this note, then `docs/notes/street-rules.md` and `docs/notes/sections.md`.
 
-## 2026-10-24: Granville's landing and branch width (read this first)
+## 2026-11-17: the scope (read this first)
+
+Kaveh decided the job of urbanstyle (`docs/notes/scope.md`). SimReady makes the street, and urbanstyle starts after it. At this
+time urbanstyle is the comparison that makes SimReady better. Do not add a street rule and do not correct a street shape here.
+Compare the two results in the browser, and let SimReady record the decision as a rule.
+
+The sections below are older than this decision, and older than the build that reads SimReady (2026-11-06 to 2026-11-12). Their
+open items on the roadway, the bridges and the tunnels are stopped. The record of the SimReady build is in
+`docs/notes/simready-input.md`, `rules-review-2026-11-12.md`, `terrain-page.md` and `rust-browser.md`.
+
+Open after the decision: SimReady has no decision that it makes the sidewalks and the crosswalks, and the owner of the paths that
+are not along a street is not decided (`scope.md`, "Open points"). No page shows the two results together.
+
+## 2026-10-24: Granville's landing and branch width
 
 A background session did this work. It is on branch `bg/granville-landing-width` (worktree `.claude/worktrees/granville-lw`), not on
 network-first, and duckOSM's part is on duckOSM's branch `bg/gmns-pair-one-level` (0abfe47). Nothing is pushed. The shared checkouts

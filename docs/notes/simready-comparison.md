@@ -152,3 +152,12 @@ SimReady's follow-up (its P7.cluster-split keeps its clustering, D40; it asked f
 - A length rule on SimReady's 845 junction nodes (the merge step alone, not `network.py`; two nodes join if the piece between them is
   shorter than L or is a `_link`): intersections (with 2 or more nodes): SimReady's clusters 597 (147); `_link` only 823 (19);
   L = 15 m 542 (140); 25 m 407 (154); 40 m 310 (151).
+
+## 2026-11-17: the central island at the end of Impasse de la Fontaine is real
+
+SimReady's central island 6346316680302495730 (44.9 m2, 7.424533, 43.73955) is derived from a small ring (44.6 m: OSM ways 200502086
+and 586508238); OSM maps no island there, so urbanstyle had street ground. Kaveh looked at Google Street View (2026 imagery): a raised
+round planter with a stone wall about 0.5 m high, grass, shrubs, flowers and an olive tree, in front of the entrance of Park Palace; the
+road wraps round it. So the island is real and raised. SimReady's derived island is right; urbanstyle has none because no source maps
+it. Also found here: the ring's unnamed service way was dropped by urbanstyle's `is_street` rule and left the ring open on the south
+side; a ring is always street now (commit `36f5448`).

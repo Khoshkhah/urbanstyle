@@ -141,3 +141,14 @@ Pairs of junction nodes joined by a piece with no other junction on it (845 node
 60 m: 183, 317, 496, 626 and 746 pairs. Of them, in one intersection of this build: 97, 171, 266, 275, 277. **In the Rust build the
 intersections are SimReady's junction clusters, not urbanstyle's own 40 m rule (`CONNECTOR_M`, Python `network.py`).** The rule in
 `sections.md` rule 3 is not what this build does; the Rust build has no merge rule of its own.
+
+SimReady's follow-up (its P7.cluster-split keeps its clustering, D40; it asked for the numbers of a length rule and for the islands):
+
+- The 130 islands of 10 m2 or more that only urbanstyle has in intersection spaces: `data/compare/islands-only-urbanstyle-ge10.csv`
+  (not in git). All 130 touch a SimReady junction area (distance 0.0 m); none overlaps it.
+- The two central islands that urbanstyle's own islands do not cover: 6346316680302495730 (44.9 m2, 7.424533, 43.73955; the ground
+  under it is street, a real difference) and 6577979998643333165 (2,432.4 m2, 7.430095, 43.741431; 99 % is a block in urbanstyle,
+  the agreed case).
+- A length rule on SimReady's 845 junction nodes (the merge step alone, not `network.py`; two nodes join if the piece between them is
+  shorter than L or is a `_link`): intersections (with 2 or more nodes): SimReady's clusters 597 (147); `_link` only 823 (19);
+  L = 15 m 542 (140); 25 m 407 (154); 40 m 310 (151).

@@ -180,7 +180,7 @@ let downAt=null; map.on('mousedown',e=>downAt=e.lngLat); map.on('touchstart',e=>
 // the road nearest a spot, from the map's road data (the roads need not be drawn: the overview hides them), looking along it,
 // and a bridge model's own roads (its axes, window.brAxes): the map's roads need not reach the bridge. {x, y, h (heading), d, name}
 window.nearRoad=at=>{
-  const src=map.getSource('roads'), data=src&&src.serialize&&src.serialize().data, lines=(window.brAxes||[]).slice();
+  const rl=map.getLayer('roads-simple'), src=map.getSource(rl?rl.source:'roads'), data=src&&src.serialize&&src.serialize().data, lines=(window.brAxes||[]).slice();   // (roadstyle's road source is 'simple' now, it was 'roads': Street View found no road, 2026-11-17)
   ((data&&data.features)||[]).forEach(f=>{const g=f.geometry; if(!g)return;
     (g.type==='LineString'?[g.coordinates]:g.type==='MultiLineString'?g.coordinates:[]).forEach(cs=>lines.push({cs,name:(f.properties||{}).name}))});
   const k=Math.cos(at.lat*Math.PI/180), X=at.lng*k, Y=at.lat;

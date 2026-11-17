@@ -17,6 +17,19 @@ compare both result together and improve result of simready"; "whole process for
 for them is in simready. and urbanstyle starts after that"; "at the moment the only goal of [urbanstyle] is helping to simready to
 make it better".
 
+## Who decides
+
+Kaveh, 2026-11-17: "I want to leave all decision about these two project to the sessions which are working on it in simready and
+urbanstyle". SimReady has the same rule for its own session (its D40).
+
+- The session that works in a project decides the open questions of that project. It decides from the data, records the decision
+  with its reason in the project's docs, and continues. It does not ask Kaveh to decide.
+- A question that touches the two projects is decided by the two sessions together. Each session records the result in its own
+  project. A session does not edit the other project's repository.
+- Kaveh can change a decision at any time. A decision that Kaveh made (this note, the rules in `AGENTS.md`) changes only when
+  Kaveh says so.
+- Still ask Kaveh first for a download, a new dependency, a licence, a key, or a push to a repository other than urbanstyle.
+
 ## One job for each project
 
 | Project | Job |
@@ -110,7 +123,8 @@ buildings, the objects, the model and the format on that street, in Rust for the
   urbanstyle's walking side is the comparison." SimReady's D28 says only that SimReady builds its own street space and that
   urbanstyle is a comparison. Its open item `P7.gltf-sidewalks` gives the sidewalk as the street face less the roadway. The
   SimReady session records the decision in `../simready/docs/decisions.md` and puts the work in its plan.
-- **Paths that are not along a street** (through a park, a square, stairs). A pedestrian simulation needs them. Proposal:
-  urbanstyle keeps them at this time, and SimReady takes them later. Not decided.
+- **Paths that are not along a street** (through a park, a square, stairs). Decided by the urbanstyle session, 2026-11-17:
+  urbanstyle keeps them (`blocks.py` corridors, `paths.py`). Reason: they are not in the street, so they are outside the line, and
+  SimReady has no walking network at this time. The SimReady session decides if it takes them when it builds the walking side.
 - **The design chapters** (`docs/design/`) give the street as urbanstyle's own result. They change when a part of SimReady's
   street replaces urbanstyle's part.

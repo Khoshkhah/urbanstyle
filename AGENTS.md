@@ -11,6 +11,11 @@ it here. urbanstyle's own job is the city round the street (blocks, buildings, g
 format of both. That job starts again when SimReady's street is stable. The line, the comparison code and the open points:
 `docs/notes/scope.md`. The sections below describe the code as it is, the comparison code included.
 
+The session decides (Kaveh, 2026-11-17): decide each open question of urbanstyle from the data, record the decision with its
+reason in `docs/notes/`, and continue. Do not ask Kaveh to decide. Decide a question that touches SimReady together with the
+SimReady session, and do not edit SimReady's repository. Still ask Kaveh first for a download, a new dependency, a licence, a key,
+or a push to another repository (`docs/notes/scope.md`, "Who decides").
+
 ## What this is
 
 urbanstyle builds a level-aware **space container** for the Stockholm (Södermalm) and Monaco pilots from one duckOSM

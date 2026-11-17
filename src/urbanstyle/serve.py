@@ -81,7 +81,7 @@ class Area:
             c.execute("CREATE VIEW urban.item AS " + " UNION ALL ".join(f"SELECT {i} AS id, rank, kind, parent_id, level, geometry FROM urban.{t}"
                       for t, i in (("area", "area_id"), ("ground", "ground_id"), ("stretch", "stretch_id"), ("plot_piece", "piece_id"),
                                    ("space", "space_id"), ("side", "side_id"), ("part", "part_id"), ("mark", "mark_id"))))
-        lon = c.execute("SELECT avg(ST_X(ST_Centroid(geometry))) FROM work.container").fetchone()[0]
+        lon = c.execute("SELECT avg(ST_X(ST_Centroid(geometry))) FROM urban.area").fetchone()[0]
         self.epsg = f"EPSG:{32600 + int((lon + 180) // 6) + 1}"
         self.name = os.path.basename(db).split(".")[0]
         self._bridge_parts(bridges, db)
@@ -174,8 +174,8 @@ class Area:
                 out = [kid("streets", "Streets", len(self._streets()), True, "Street spaces", []),
                        kid("bridge", "Bridge", cnt("work.bridge_part"), True, "Bridge parts", []),
                        kid("obj", "Street objects", cnt("work.street_object"), True, "Street objects", []),
-                       kid("blocks", "Blocks", cnt("work.block"), True, "Blocks", []),
-                       kid("bld", "Buildings", cnt("work.element", "WHERE type = 'building'"), True, "Buildings", []),
+                       kid("blocks", "Blocks", cnt("urban.l_block"), True, "Blocks", []),
+                       kid("bld", "Buildings", cnt("urban.l_building"), True, "Buildings", []),
                        kid("ground", "Ground", cnt("urban.l_ground"), True, "Ground", [])]
                 return [k for k in out if k["count"]]
             if node == "streets":
@@ -183,29 +183,30 @@ class Area:
                         for name, us in sorted(self._streets().items())]
             if node.startswith("street:"):
                 name = node[7:]
-                secs = q("""SELECT section_id, list(DISTINCT unit_id ORDER BY unit_id) FROM work.unit WHERE kind = 'subsection' AND unit_id IN
-                            (SELECT unit_id FROM work.part WHERE road = ?) GROUP BY 1 ORDER BY 1""", [name])
-                ints = q("""SELECT a.intersection_id, (SELECT count(*) FROM work.part p WHERE p.unit_id = a.intersection_id) FROM
-                            (SELECT DISTINCT a.intersection_id FROM work.arm a JOIN work.street s USING (street_id) WHERE s.name = ?) a
-                            WHERE a.intersection_id IN (SELECT unit_id FROM work.unit) ORDER BY 1""", [name])
+                secs = q("""SELECT t.stretch_id, list(sp.space_id ORDER BY sp.space_id) FROM urban.street s
+                            JOIN urban.stretch t ON t.street_id = s.street_id AND t.kind = 'section'
+                            JOIN urban.space sp ON sp.parent_id = t.stretch_id WHERE s.name = ? GROUP BY 1 ORDER BY 1""", [name])
+                ints = q("""SELECT a.intersection_id, list(sp.space_id ORDER BY sp.space_id) FROM
+                            (SELECT DISTINCT a.intersection_id FROM urban.arm a JOIN urban.street s USING (street_id) WHERE s.name = ?) a
+                            JOIN urban.space sp ON sp.parent_id = a.intersection_id GROUP BY 1 ORDER BY 1""", [name])
                 return ([kid(f"sec:{sid}", f"Section {sid}", len(us), True, "Street spaces", ids("Street spaces", "unit_id", us)) for sid, us in secs] +
-                        [kid(f"unit:{iid}", f"Intersection {iid}", n, True, "Street parts", ids("Street parts", "unit_id", [iid])) for iid, n in ints])
-            if node.startswith("sec:"):
-                return [kid(f"unit:{uid}", f"Subsection {uid}", n, True, "Street parts", ids("Street parts", "unit_id", [uid])) for uid, n in
-                        q("""SELECT u.unit_id, count(p.part_id) FROM work.unit u LEFT JOIN work.part p USING (unit_id) WHERE u.section_id = ?
-                             GROUP BY 1 ORDER BY 1""", [node[4:]])]
+                        [kid(f"isec:{iid}", f"Intersection {iid}", len(us), True, "Street spaces", ids("Street spaces", "unit_id", us)) for iid, us in ints])
+            if node.startswith("sec:") or node.startswith("isec:"):       # (the spaces of a section or of an intersection)
+                return [kid(f"unit:{uid}", f"Space {uid}", n, True, "Street parts", ids("Street parts", "unit_id", [uid])) for uid, n in
+                        q("""SELECT sp.space_id, count(p.part_id) FROM urban.space sp LEFT JOIN urban.part p ON p.space_id = sp.space_id
+                             WHERE sp.parent_id = ? GROUP BY 1 ORDER BY 1""", [node.split(":", 1)[1]])]
             if node.startswith("unit:"):
                 return [item("Street parts", pid, " ".join(x for x in (t, d) if x)) for pid, t, d in
-                        q("SELECT part_id, type, direction FROM work.part WHERE unit_id = ? ORDER BY type, part_id", [node[5:]])]
+                        q("SELECT part_id, kind, direction FROM urban.part WHERE space_id = ? ORDER BY kind, part_id", [node[5:]])]
             if node == "bld":
-                spans = q("SELECT level_min, level_max FROM work.element WHERE type = 'building'")
+                spans = q("SELECT level_min, level_max FROM urban.l_building")
                 ls = sorted({l for lo, hi in spans for l in range(lo, hi + 1)})
                 return [kid(f"bldl:{l}", f"Level {l}", sum(lo <= l <= hi for lo, hi in spans), True, "Buildings",
                             [{"field": "level_min", "op": "<=", "value": l}, {"field": "level_max", "op": ">=", "value": l}]) for l in ls]
             if node.startswith("bldl:"):
                 l = int(node[5:])
-                return [item("Buildings", i, lab) for i, lab in q("""SELECT source_id, coalesce(name, use, class, 'building') FROM work.element
-                        WHERE type = 'building' AND level_min <= ? AND level_max >= ? ORDER BY 2, 1 LIMIT 500""", [l, l])]
+                return [item("Buildings", i, lab) for i, lab in q("""SELECT source_id, coalesce(name, use, class, 'building') FROM urban.l_building
+                        WHERE level_min <= ? AND level_max >= ? ORDER BY 2, 1 LIMIT 500""", [l, l])]
             if node == "obj":
                 return [kid(f"objg:{g}", g, n, True, "Street objects", [{"field": "class", "op": "contains", "value": g + "."}]) for g, n in
                         q("SELECT split_part(class, '.', 1), count(*) FROM work.street_object GROUP BY 1 ORDER BY 2 DESC")]
@@ -235,18 +236,18 @@ class Area:
                 return [item("Ground", i, lab) for i, lab in q("SELECT ground_id, coalesce(name, type) FROM urban.l_ground WHERE type = ? ORDER BY 2, 1 LIMIT 500",
                                                                [node[4:]])]
             if node == "blocks":
-                return [item("Blocks", i, i) for (i,) in q("SELECT block_id FROM work.block ORDER BY 1")]
+                return [item("Blocks", i, i) for (i,) in q("SELECT block_id FROM urban.l_block ORDER BY 1")]
         return []
 
     def _streets(self):
         """Each street's name -> its street spaces: the subsections whose parts carry the name, and the intersections its arms reach."""
         if not hasattr(self, "_st"):
             st = {}
-            for name, u in self.con.execute("""SELECT DISTINCT p.road, p.unit_id FROM work.part p JOIN work.unit u USING (unit_id)
-                                               WHERE p.road IS NOT NULL AND u.kind = 'subsection'""").fetchall():
-                st.setdefault(name, set()).add(u)
-            for name, u in self.con.execute("""SELECT DISTINCT s.name, a.intersection_id FROM work.arm a JOIN work.street s USING (street_id)
-                                               WHERE s.name IS NOT NULL AND a.intersection_id IN (SELECT unit_id FROM work.unit)""").fetchall():
+            for name, u in self.con.execute("""SELECT s.name, sp.space_id FROM urban.street s
+                    JOIN urban.stretch t ON t.street_id = s.street_id AND t.kind = 'section'
+                    JOIN urban.space sp ON sp.parent_id = t.stretch_id WHERE s.name IS NOT NULL
+                    UNION SELECT s.name, sp.space_id FROM urban.street s JOIN urban.arm a ON a.street_id = s.street_id
+                    JOIN urban.space sp ON sp.parent_id = a.intersection_id WHERE s.name IS NOT NULL""").fetchall():
                 st.setdefault(name, set()).add(u)
             self._st = {k: sorted(v) for k, v in st.items()}
         return self._st
@@ -265,10 +266,10 @@ class Area:
         if layer != "Blocks":
             return None
         inside = lambda t, idc, extra="": [i for (i,) in self.con.execute(
-            f"SELECT x.{idc} FROM {t} x, work.block b WHERE b.block_id = ? {extra} AND ST_Within(ST_Centroid(x.geometry), b.geometry)", [fid]).fetchall()]
+            f"SELECT x.{idc} FROM {t} x, urban.l_block b WHERE b.block_id = ? {extra} AND ST_Within(ST_Centroid(x.geometry), b.geometry)", [fid]).fetchall()]
         with self.lock:
-            return {"unit": None, "parts": inside("work.part", "part_id"), "ground": inside("work.ground", "ground_id"),
-                    "blds": inside("work.element", "source_id", "AND x.type = 'building'"), "lots": inside("work.lot", "lot_id"),
+            return {"unit": None, "parts": inside("urban.l_part", "part_id"), "ground": inside("urban.l_ground", "ground_id"),
+                    "blds": inside("urban.l_building", "source_id"), "lots": inside("urban.l_lot", "lot_id"),
                     "objs": inside("work.street_object", "id")}
 
     def bounding(self, unit_id, reach_m=10.0):
@@ -281,7 +282,7 @@ class Area:
             utm = f"ST_AsWKB(ST_Transform(geometry, 'EPSG:4326', '{self.epsg}', always_xy := true))"
             with self.lock:
                 us = self.con.execute(f"SELECT space_id, level, {utm} FROM urban.space").fetchall()     # (the model's spaces: the sub-intersections too)
-                bs = self.con.execute(f"SELECT source_id, {utm} FROM work.element WHERE type = 'building'").fetchall()
+                bs = self.con.execute(f"SELECT source_id, {utm} FROM urban.l_building").fetchall()
             units = {u: (lv, shapely.from_wkb(bytes(g))) for u, lv, g in us}
             ids, geoms = [b for b, _ in bs], [shapely.from_wkb(bytes(g)) for _, g in bs]
             streets = {lv: shapely.union_all([g for l2, g in units.values() if l2 == lv]) for lv in {l for l, _ in units.values()}}
@@ -320,13 +321,13 @@ class Area:
     def street_levels(self):
         """The levels that hold a street space (the 3D view's levels: a building's floors go with the ground)."""
         with self.lock:
-            return sorted(l for (l,) in self.con.execute("SELECT DISTINCT level FROM work.unit").fetchall())
+            return sorted(l for (l,) in self.con.execute("SELECT DISTINCT level FROM urban.space").fetchall())
 
     def levels(self):
         """The levels that hold something: a street space, or a building's floor."""
         with self.lock:
-            ls = {l for (l,) in self.con.execute("SELECT DISTINCT level FROM work.unit").fetchall()}
-            for lo, hi in self.con.execute("SELECT DISTINCT level_min, level_max FROM work.element WHERE type = 'building'").fetchall():
+            ls = {l for (l,) in self.con.execute("SELECT DISTINCT level FROM urban.space").fetchall()}
+            for lo, hi in self.con.execute("SELECT DISTINCT level_min, level_max FROM urban.l_building").fetchall():
                 ls |= set(range(lo, hi + 1))
         return sorted(ls)
 

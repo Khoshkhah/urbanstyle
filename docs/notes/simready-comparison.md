@@ -89,7 +89,7 @@ PYTHONPATH=src:../roadstyle/src python3 -m urbanstyle serve data/monaco-rust.duc
 
 Then open `http://localhost:8786/monaco-rust.html?at=7.42161,43.73689` (Sainte-Devote).
 
-What the page does not have, because the chain does not write it: the road elements (taken from duckOSM's driving edges), the tree
-and the level buttons (they read the `work` tables, so the panel shows only Buildings and Ground), the street objects layer, the
-bridge models, and the shapes `axis` and `kerb`. The template database (any Python cut) gives the columns of the tables that the
+The panel's tree, levels and focus read the `urban` tables (2026-11-17: Monaco has 219 named streets, 240 blocks), so it works for a
+build of the Rust chain and for one of the Python code. What the page does not have, because the chain does not write it: the road
+elements (taken from duckOSM's driving edges), the street objects layer, the bridge models, and the shapes `axis` and `kerb`. The template database (any Python cut) gives the columns of the tables that the
 chain does not write.

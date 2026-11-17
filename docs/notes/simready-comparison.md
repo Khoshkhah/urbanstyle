@@ -109,3 +109,19 @@ The two methods find the same ground. urbanstyle's rule for it: the strip betwee
 
 Not checked: the other 9 junctions with holes, the satellite image, and the kerb mark `s0-w176337641/1:kerb:1` (a normal kerb
 between a two-lane roadway and furnishing, 43.5 m; no fault found in the data).
+
+## 2026-11-17: the kerb between two roadway pieces (urbanstyle's own fault)
+
+Kaveh's picture: a kerb wall crosses the roadway at the end of a section (`s0-w176337641/1:kerb:1` and
+`i0-443322734/443322734:kerb:1`, near 7.4153, 43.7364). The wall is on the cut line between a section's lane and the junction area:
+roadway on both sides. SimReady has no kerb line there (`import-kerb.parquet` within 1.5 m: none), so the fault is in urbanstyle's
+kerb rule (`urbanstyle-division`, the kerb mark).
+
+Fix: a piece of a kerb of 0.5 m or less is dropped where the point 0.15 m to each side lies in the roadway. The roadway is the lanes,
+junction areas, rings, cycle, bus and parking lanes (`ROADX`), not the crosswalks and the islands. Monaco (same input, level 0):
+112.06 km of kerb before, 110.64 km after (1.42 km less). On the two marks: 6.6 m and 3.3 m removed, as measured by hand before
+(6 m and 3 m); the kerb between a lane and furnishing stays.
+
+Two tries failed and were not kept: a negative buffer of the roadway as a whole (27 m removed on the first mark, not 6 m: the
+Rust buffer did not give what shapely gives), and the same side test with every part as roadway (27.5 m removed: a crosswalk over
+the walking side counted as roadway).

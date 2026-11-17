@@ -567,6 +567,12 @@ pub fn build(inp: &Input) -> Output {
             share.entry(owner).or_default().push(q.clone());
         }
         lap.lap("  walking side: owners");
+        // (a kerb is on the edge of the roadway as a whole, never between two roadway pieces: the cut between a section's lane and its
+        // junction area is no kerb. A piece of the kerb with roadway 0.15 m to both sides is dropped; hairlines between pieces do not matter.)
+        // (only SimReady's roadway counts: the lanes and the junction areas. A crosswalk or an island that lies over the walking side is
+        // not roadway.)
+        let road_x = ops::union_all(ids.iter().flat_map(|&u| b.units[u].parts.iter().filter(|p| ROADX.contains(&p.typ.as_str())).map(|p| &p.geom)));
+        let road_idx = urbanstyle_geo::index::SegIndex::new(&road_x);
         for (u, qs) in share {
             let own = ops::union_all(qs.iter().map(mp1).collect::<Vec<_>>().iter());
             let own_b = ops::buffer(&own, 0.05);
@@ -576,6 +582,7 @@ pub fn build(inp: &Input) -> Output {
                 let own_idx = urbanstyle_geo::index::SegIndex::new(&own_b);
                 MultiLineString::new(bnd[u].0.iter().flat_map(|r| own_idx.clip_line(r, true)).collect())
             };
+            let kerb = MultiLineString::new(drop_between_roadway(&kerb.0, &road_idx));
             b.mark(u, "kerb", kerb.0.clone(), "simready", Some("the roadway's edge"), Some("the edge of SimReady's lanes and junction area facing the pedestrian side".into()));
             let kb = if kerb.0.is_empty() { empty() } else { ops::normalize(geo::Buffer::buffer(&kerb, FURNISH_M)) };
             let kc = if kerb.0.is_empty() { empty() } else { ops::normalize(geo::Buffer::buffer(&kerb, FURNISH_M + CLEAR_M)) };
@@ -955,4 +962,46 @@ pub fn chosen() -> Vec<(String, f64, String)> {
         ("division.EDGE_TOUCH_M".to_string(), EDGE_TOUCH_M, "a chosen value".to_string()),
         ("division.HAIRLINE_M".to_string(), HAIRLINE_M, "A piece of the walking side with a mean width under this is not kept.".to_string()),
     ]
+}
+
+/// The pieces of `lines` that have no roadway on both sides: a piece of 0.5 m or less is dropped where the point 0.15 m to its left and
+/// the point 0.15 m to its right are both in the roadway (`idx`). What is left is the edge of the roadway as a whole.
+fn drop_between_roadway(lines: &[LineString<f64>], idx: &urbanstyle_geo::index::SegIndex) -> Vec<LineString<f64>> {
+    const STEP: f64 = 0.5;
+    const SIDE: f64 = 0.15;
+    let mut out = Vec::new();
+    for l in lines {
+        let mut cur: Vec<geo::Coord<f64>> = Vec::new();
+        for w in l.0.windows(2) {
+            let (a, b) = (w[0], w[1]);
+            let (dx, dy) = (b.x - a.x, b.y - a.y);
+            let len = dx.hypot(dy);
+            if len < 1e-9 {
+                continue;
+            }
+            let (nx, ny) = (-dy / len, dx / len);
+            let n = (len / STEP).ceil().max(1.0) as usize;
+            let at = |t: f64| geo::Coord { x: a.x + dx * t, y: a.y + dy * t };
+            for k in 0..n {
+                let (s, e) = (k as f64 / n as f64, (k + 1) as f64 / n as f64);
+                let m = at((s + e) / 2.0);
+                let both = idx.contains(geo::Coord { x: m.x + nx * SIDE, y: m.y + ny * SIDE }) && idx.contains(geo::Coord { x: m.x - nx * SIDE, y: m.y - ny * SIDE });
+                if both {
+                    if cur.len() > 1 {
+                        out.push(LineString::new(std::mem::take(&mut cur)));
+                    }
+                    cur.clear();
+                } else {
+                    if cur.is_empty() {
+                        cur.push(at(s));
+                    }
+                    cur.push(at(e));
+                }
+            }
+        }
+        if cur.len() > 1 {
+            out.push(LineString::new(cur));
+        }
+    }
+    out
 }

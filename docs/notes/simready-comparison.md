@@ -125,3 +125,19 @@ junction areas, rings, cycle, bus and parking lanes (`ROADX`), not the crosswalk
 Two tries failed and were not kept: a negative buffer of the roadway as a whole (27 m removed on the first mark, not 6 m: the
 Rust buffer did not give what shapely gives), and the same side test with every part as roadway (27.5 m removed: a crosswalk over
 the walking side counted as roadway).
+
+## 2026-11-17: SimReady's islands (D42) and the pairs of junction nodes (Monaco, level 0)
+
+SimReady (`out/monaco-rust`, remnants 122) against urbanstyle's Rust build of the same afternoon. The build takes SimReady's islands
+as its own parts, so its own islands (source `urbanstyle`, 818) are only the leftover that SimReady does not cover. The overlap with
+SimReady's remnants is 0 by construction. An independent test needs a build on SimReady's input from before D42; there is none.
+
+- SimReady's 208 islands: central 28 of 30 are covered 90 % or more by urbanstyle's own islands; remnant (119), median end (23),
+  refuge (10) and channelizing (26) are not (they are SimReady's parts).
+- Islands only urbanstyle has (under 10 % overlap with a SimReady island): in intersection spaces 341 of 473 (4,874 m2; 130 of 10 m2
+  or more); in section spaces 228 of 345 (22,125 m2). The section ones are medians along a street, outside SimReady's junction areas.
+
+Pairs of junction nodes joined by a piece with no other junction on it (845 nodes, 1,037 pairs), shorter than 10, 15, 25, 40 and
+60 m: 183, 317, 496, 626 and 746 pairs. Of them, in one intersection of this build: 97, 171, 266, 275, 277. **In the Rust build the
+intersections are SimReady's junction clusters, not urbanstyle's own 40 m rule (`CONNECTOR_M`, Python `network.py`).** The rule in
+`sections.md` rule 3 is not what this build does; the Rust build has no merge rule of its own.

@@ -158,6 +158,6 @@ SimReady's follow-up (its P7.cluster-split keeps its clustering, D40; it asked f
 SimReady's central island 6346316680302495730 (44.9 m2, 7.424533, 43.73955) is derived from a small ring (44.6 m: OSM ways 200502086
 and 586508238); OSM maps no island there, so urbanstyle had street ground. Kaveh looked at Google Street View (2026 imagery): a raised
 round planter with a stone wall about 0.5 m high, grass, shrubs, flowers and an olive tree, in front of the entrance of Park Palace; the
-road wraps round it. So the island is real and raised. SimReady's derived island is right; urbanstyle has none because no source maps
+road wraps round it (the street name in the picture is Google's own label, not paint). So the island is real and raised. SimReady's derived island is right; urbanstyle has none because no source maps
 it. Also found here: the ring's unnamed service way was dropped by urbanstyle's `is_street` rule and left the ring open on the south
 side; a ring is always street now (commit `36f5448`).

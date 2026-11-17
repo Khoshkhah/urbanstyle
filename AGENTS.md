@@ -180,8 +180,8 @@ PYTHONPATH=src $P -m urbanstyle check data/monaco.duckdb --bridge data/bridges-m
 PYTHONPATH=src:../roadstyle/src python3 -m urbanstyle dashboard data/monaco.duckdb viz/monaco.html
 (cd viz && python3 -m http.server 8784 --bind 127.0.0.1)   # viz/<area>.html#c=<container id> opens one container
 # Street View's linked panorama: GOOGLE_MAPS_KEY, set when the page is BUILT (the roadstyle conda env sets it on activate; with the
-# system python3: `source ~/miniconda3/envs/roadstyle/etc/conda/activate.d/google_maps_key.sh` first). Its Google restriction allows
-# http://localhost:8784/* only: serve the pages on port 8784. Clicks inside a focused space move the Street View window too (svHere in dashboard.py).
+# system python3: `source ~/miniconda3/envs/roadstyle/etc/conda/activate.d/google_maps_key.sh` first). The key works on
+# every local port (Kaveh, 2026-11-17): a Street View that fails is a page bug, not a port problem. Clicks inside a focused space move the Street View window too (svHere in dashboard.py).
 
 # a bridge change: only its model, to viz/<page>.bridge3d.json, which that page reads when it opens (reload the page). The model is
 # kept in data/cache/ (key: the profile, the street's lanes, corrections/*.json and bridge3d.py with the modules it reads): with no change

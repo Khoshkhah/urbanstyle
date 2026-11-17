@@ -111,7 +111,8 @@ pub fn read(dir: &Path, edges: &Edges, area: &Mp) -> Result<Sim, String> {
         }
         let es = eids[i].clone().unwrap_or_default();
         let h = hw[i].clone().unwrap_or_default();
-        if !is_street(&h, name[i].as_deref(), &es, &edges.service) {
+        // (a roundabout's ring is always street: an unnamed service way that is the ring of a roundabout left a hole in the ring)
+        if !is_street(&h, name[i].as_deref(), &es, &edges.service) && ring[i].is_none() {
             continue;
         }
         // the way of the longest of its edges (the first of equal ones)

@@ -241,7 +241,7 @@ mkdocs build --strict                                  # needs pip install ".[do
 - The scope of `docs/notes/scope.md` comes first: no new street rule and no correction of a street shape in urbanstyle. Compare
   with SimReady and give it the finding.
 - **The disk must not become full.** If WSL has no free storage, it stops and does not start again, and all work is lost. Before a
-  build, a download or a copy, run `df -h /home` and make sure that the result fits with space to spare. Do not keep old builds,
+  build, a download or a copy, run `df -h /home /mnt/c` and make sure that the result fits with space to spare. The smaller number is the limit: the Windows drive holds the file of the WSL disk. Do not keep old builds,
   extra build folders or copies that have no use. Delete only files that you made.
 - **Use few tokens.** Short replies, short reports, few tool calls. Read only the part of a file that you need. Do not start
   helper agents when a direct command does the job.

@@ -93,3 +93,19 @@ The panel's tree, levels and focus read the `urban` tables (2026-11-17: Monaco h
 build of the Rust chain and for one of the Python code. What the page does not have, because the chain does not write it: the road
 elements (taken from duckOSM's driving edges), the street objects layer, the bridge models, and the shapes `axis` and `kerb`. The template database (any Python cut) gives the columns of the tables that the
 chain does not write.
+
+## 2026-11-17: four kerb places and SimReady's holes (Monaco, full Rust build)
+
+Kaveh sent four kerb marks where a kerb wall crosses the roadway in 3D (`i0-1868736596/1868736596:kerb:1`,
+`i0-1074584842/1074584842:kerb:2`, `s0-w731585432/1:kerb:1`, `i0-1868736586/1868736586:kerb:2`). All four are within 150 m of
+7.415, 43.731. Three are at SimReady junction clusters of 2 or 3 nodes, one is a lane beside small islands. Only 10 of 3,338
+level-0 kerb marks lie mostly inside lanes or junction areas (42 m of 113 km).
+
+SimReady's answer (its decision D42): a hole in its roadway of 2 m2 or more that is enclosed by its area and lanes (90 % of its
+edge) becomes an island; a notch stays walking side. At place 4 (junction 9040703749300410440) SimReady's hole nearest the kerb is
+74.7 m2; urbanstyle's four islands there are 107.8 m2, and they cover the whole hole (74.7 m2 overlap, 0.0 m2 of the hole left).
+The two methods find the same ground. urbanstyle's rule for it: the strip between two frames is an island at 2 m width or more
+(`JGAP_M`).
+
+Not checked: the other 9 junctions with holes, the satellite image, and the kerb mark `s0-w176337641/1:kerb:1` (a normal kerb
+between a two-lane roadway and furnishing, 43.5 m; no fault found in the data).

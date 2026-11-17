@@ -48,3 +48,24 @@ SimReady's answer (2026-11-17, its commit 8874379):
 - n1684697734: the 162 m2 supports SimReady's candidate `GD.drive-mouth-at-kerb`, its next change.
 - The "15 junctions, 586 m2" is from urbanstyle's `simready-input.md` ("Faults for SimReady" 1), an older build. No list of
   nodes exists for it.
+
+## 2026-11-17: SimReady asks for the rules behind four faults (Monaco, `data/monaco.duckdb` of 2026-10-24)
+
+The numbers are from urbanstyle's network-first build, which is older than SimReady's build. They are not checked in the browser.
+
+1. **Stop lines.** One line for each arm, cut square across the arm at its stop line: the far edge of the crosswalk that OSM maps
+   within 15 m of the core, else 3 m past the core (`JUNC_ARM_M`, `junctions.md` rule 3). Never one for each lane, so a line does
+   not step inside an arm. Monaco: 377 stop and give-way lines in 306 units, 1 pair of lines of two arms that cross. The ring of
+   Sainte-Devote is one intersection (`i0-25193377`, 6 of the ring's 7 nodes) with 4 stop lines within 40 m of its centre.
+2. **Junction clusters.** A junction is at a node of 3 or more road ends where a road ends or two streams cross. Two junction nodes
+   are one intersection only if the road piece between them is under 40 m (`CONNECTOR_M`, chosen) or is a `_link`
+   (`sections.md` rule 3). Monaco: 363 junction nodes in 214 intersections. Avenue du Port: `i0-25191904` and `i0-25192169` are two
+   intersections, and node 1872542054 is no junction.
+3. **Islands.** The strip between two frames of one section is an island where it is 2 m wide or more (`JGAP_M`); a thinner tail
+   is paved roadway. The island keeps what is mapped on it. Monaco: 244 island parts (source `osm`, method `derived`). Near the
+   Avenue du Port point (UTM 372939, 4843386) there are 3 island parts within 15 m. No refuge island is made from the leftover
+   of a junction area: a paved strip inside an intersection is junction area (`street-rules.md` rule 15).
+4. **Kerb.** The kerb is a result: the outer edge of the lanes and of the items that have a source (`street-rules.md` rule 3).
+   Monaco: 1,743 kerb marks, 90.2 km, source `urbanstyle`, method `derived`. All 1,264 sidewalk parts are in a unit that has a
+   kerb mark. This number is weak: the rule gives a kerb to every sidewalk. A city's catch basins only check the result (K1, no
+   data in Monaco).

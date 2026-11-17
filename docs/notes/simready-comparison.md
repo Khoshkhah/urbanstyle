@@ -69,3 +69,27 @@ The numbers are from urbanstyle's network-first build, which is older than SimRe
    Monaco: 1,743 kerb marks, 90.2 km, source `urbanstyle`, method `derived`. All 1,264 sidewalk parts are in a unit that has a
    kerb mark. This number is weak: the rule gives a kerb to every sidewalk. A city's catch basins only check the result (K1, no
    data in Monaco).
+
+## 2026-11-17: the full Monaco build from the Rust chain, on the dashboard
+
+The Rust chain (`rust/urbanstyle-build`) builds Monaco in 58 s with SimReady's newest build (commit f1d6f71) and duckOSM's pass-0
+files: 3,004 spaces, 12,211 parts, 10,009 marks, 2,373 objects (20 Parquet tables, 169 MB, 2.2 GB of memory). The old Python build
+took about 5 hours.
+
+`scripts/load_rust_tables.py` makes a DuckDB file of the model `urban` from those tables, so that the dashboard opens it:
+
+```bash
+cd rust && ./target/release/urbanstyle-build ../data/cuts monaco- ../data/rust-monaco \
+  --simready /home/kaveh/projects/simready/out/monaco-rust --pass0 /home/kaveh/projects/simready/build/monaco/pass0-rust
+cd .. && ../duckOSM/.venv/bin/python scripts/load_rust_tables.py data/rust-monaco data/monaco-rust.duckdb data/cuts/devote.urban.duckdb \
+  monaco-rust /home/kaveh/projects/simready/build/monaco/pass0-rust
+PYTHONPATH=src:../roadstyle/src python3 -m urbanstyle dashboard data/monaco-rust.duckdb viz/monaco-rust.html
+PYTHONPATH=src:../roadstyle/src python3 -m urbanstyle serve data/monaco-rust.duckdb viz/monaco-rust.html --port 8786
+```
+
+Then open `http://localhost:8786/monaco-rust.html?at=7.42161,43.73689` (Sainte-Devote).
+
+What the page does not have, because the chain does not write it: the road elements (taken from duckOSM's driving edges), the tree
+and the level buttons (they read the `work` tables, so the panel shows only Buildings and Ground), the street objects layer, the
+bridge models, and the shapes `axis` and `kerb`. The template database (any Python cut) gives the columns of the tables that the
+chain does not write.

@@ -128,7 +128,8 @@ class Area:
         rows = [(refs, cls, cls.split(".")[-1].replace("_", " "), lv, srcs, h[0] if h else None, details or None, methods,
                  shapely.to_wkb(shapely.ops.transform(to_ll, p)))
                 for oid, cls, lv, grp, p, refs, srcs, h, details, methods, wd in matched_objects(c, self.epsg, db)]
-        c.executemany("INSERT INTO work.street_object VALUES (?, ?, ?, ?, ?, ?, ?, ?, ST_GeomFromWKB(?))", rows)
+        if rows:      # (a model loaded from the Rust tables has no work.object)
+            c.executemany("INSERT INTO work.street_object VALUES (?, ?, ?, ?, ?, ?, ?, ?, ST_GeomFromWKB(?))", rows)
 
     def meta(self):
         """Each layer: its count and its fields, for the filters (a field with 40 values or fewer lists them)."""
